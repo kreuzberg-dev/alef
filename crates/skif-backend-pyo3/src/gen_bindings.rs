@@ -161,7 +161,7 @@ impl Backend for Pyo3Backend {
         );
 
         Ok(vec![GeneratedFile {
-            path: PathBuf::from(stubs_path),
+            path: PathBuf::from(&stubs_path).join(format!("{}.pyi", config.python_module_name())),
             content,
             generated_header: true,
         }])

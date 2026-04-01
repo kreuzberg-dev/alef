@@ -126,7 +126,7 @@ impl Backend for MagnusBackend {
         );
 
         Ok(vec![GeneratedFile {
-            path: PathBuf::from(stubs_path),
+            path: PathBuf::from(&stubs_path).join("types.rbs"),
             content,
             generated_header: true,
         }])
