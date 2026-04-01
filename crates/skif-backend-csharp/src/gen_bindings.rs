@@ -134,13 +134,22 @@ fn gen_native_methods(api: &ApiSurface, namespace: &str, lib_name: &str, prefix:
 
     // Add error handling functions
     out.push_str("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]\n");
-    out.push_str("    internal static extern int kreuzberg_last_error_code();\n\n");
+    out.push_str(&format!(
+        "    internal static extern int {}_last_error_code();\n\n",
+        prefix
+    ));
 
     out.push_str("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]\n");
-    out.push_str("    internal static extern IntPtr kreuzberg_last_error_context();\n\n");
+    out.push_str(&format!(
+        "    internal static extern IntPtr {}_last_error_context();\n\n",
+        prefix
+    ));
 
     out.push_str("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]\n");
-    out.push_str("    internal static extern void kreuzberg_free_string(IntPtr ptr);\n");
+    out.push_str(&format!(
+        "    internal static extern void {}_free_string(IntPtr ptr);\n",
+        prefix
+    ));
 
     out.push_str("}\n");
 
@@ -280,8 +289,14 @@ fn gen_wrapper_class(
     out.push_str("    private static ");
     out.push_str(&format!("{} GetLastError()\n", exception_name));
     out.push_str("    {\n");
-    out.push_str("        var code = NativeMethods.kreuzberg_last_error_code();\n");
-    out.push_str("        var ctxPtr = NativeMethods.kreuzberg_last_error_context();\n");
+    out.push_str(&format!(
+        "        var code = NativeMethods.{}_last_error_code();\n",
+        prefix
+    ));
+    out.push_str(&format!(
+        "        var ctxPtr = NativeMethods.{}_last_error_context();\n",
+        prefix
+    ));
     out.push_str("        var message = Marshal.PtrToStringAnsi(ctxPtr) ?? \"Unknown error\";\n");
     out.push_str(&format!("        return new {}(code, message);\n", exception_name));
     out.push_str("    }\n");
@@ -292,7 +307,7 @@ fn gen_wrapper_class(
 }
 
 fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, prefix: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(1024);
 
     out.push_str("    public static ");
 
@@ -356,7 +371,7 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, prefix: &str)
 }
 
 fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, prefix: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(1024);
 
     out.push_str("    public ");
 
@@ -449,7 +464,7 @@ fn gen_record_type(typ: &TypeDef, namespace: &str) -> String {
         let field_type = if field.optional {
             format!("{}?", csharp_type(&field.ty))
         } else {
-            csharp_type(&field.ty)
+            csharp_type(&field.ty).to_string()
         };
 
         out.push_str(&format!("    {} {}", field_type, field.name.to_pascal_case()));

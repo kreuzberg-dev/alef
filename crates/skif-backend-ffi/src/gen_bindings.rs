@@ -199,7 +199,7 @@ pub extern "C" fn {prefix}_version() -> *const c_char {{
 fn gen_type_from_json(typ: &TypeDef, prefix: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     writeln!(
         out,
@@ -247,7 +247,7 @@ fn gen_type_from_json(typ: &TypeDef, prefix: &str) -> String {
 fn gen_type_free(typ: &TypeDef, prefix: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     writeln!(out, "/// Free a `{type_name}` handle.").unwrap();
     writeln!(out, "#[no_mangle]").unwrap();
@@ -279,12 +279,12 @@ fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str) -> String {
         field.ty.clone()
     };
 
-    let mut ret_type = c_return_type(&effective_ty);
+    let mut ret_type = c_return_type(&effective_ty).into_owned();
     // Replace "Self" with the actual type name in FFI signatures
     if ret_type.contains("Self") {
         ret_type = ret_type.replace("Self", type_name);
     }
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     writeln!(out, "/// Get the `{field_name}` field from a `{type_name}`.").unwrap();
     writeln!(out, "#[no_mangle]").unwrap();
@@ -322,7 +322,7 @@ fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str) -> String {
 /// Generate the body of a field accessor that reads from `obj.{field_name}`.
 fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
     let field_name = &field.name;
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     if field.optional {
         // Wrap in match on Option
@@ -359,7 +359,7 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
 /// Generate code to convert a Rust value reference to a C return value.
 /// `expr` is the Rust expression to read from (must be borrowable).
 fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
     match ty {
         TypeRef::Primitive(_) => {
             writeln!(out, "{indent}{expr}").unwrap();
@@ -436,7 +436,7 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_impo
     let method_name = &method.name;
     let fn_name = format!("{prefix}_{type_snake}_{method_name}");
 
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     if !method.doc.is_empty() {
         writeln!(out, "/// {}", method.doc).unwrap();
@@ -467,11 +467,11 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_impo
     } else if has_error {
         // Fallible + non-void: return nullable pointer
         match &method.return_type {
-            TypeRef::Primitive(_) => c_return_type(&method.return_type), // can't make pointer; use last_error
-            _ => c_return_type(&method.return_type),
+            TypeRef::Primitive(_) => c_return_type(&method.return_type).into_owned(), // can't make pointer; use last_error
+            _ => c_return_type(&method.return_type).into_owned(),
         }
     } else {
-        c_return_type(&method.return_type)
+        c_return_type(&method.return_type).into_owned()
     };
 
     // Replace "Self" with the actual type name in FFI signatures
@@ -570,7 +570,7 @@ fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> Str
     let ffi_name = format!("{prefix}_{fn_name_snake}");
     let func_name = &func.name;
 
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     if !func.doc.is_empty() {
         writeln!(out, "/// {}", func.doc).unwrap();
@@ -591,7 +591,7 @@ fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> Str
     let ret_type = if has_error && is_void_return(&func.return_type) {
         "i32".to_string()
     } else {
-        c_return_type(&func.return_type)
+        c_return_type(&func.return_type).into_owned()
     };
 
     if is_void_return(&func.return_type) && !has_error {
@@ -653,7 +653,7 @@ fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> Str
 fn gen_param_conversion(param: &ParamDef, has_error: bool, return_type: &TypeRef) -> String {
     let name = &param.name;
     let rs_name = format!("{name}_rs");
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     let fail_ret = if has_error && is_void_return(return_type) {
         "return -1;"
@@ -855,7 +855,7 @@ fn gen_param_conversion(param: &ParamDef, has_error: bool, return_type: &TypeRef
 // ---------------------------------------------------------------------------
 
 fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
     match ty {
         TypeRef::Primitive(prim) => match prim {
             skif_core::ir::PrimitiveType::Bool => {
@@ -917,7 +917,7 @@ fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
 fn gen_enum_from_i32(enum_def: &EnumDef, prefix: &str) -> String {
     let enum_snake = enum_def.name.to_snake_case();
     let enum_name = &enum_def.name;
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     writeln!(
         out,
@@ -946,7 +946,7 @@ fn gen_enum_from_i32(enum_def: &EnumDef, prefix: &str) -> String {
 fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str) -> String {
     let enum_snake = enum_def.name.to_snake_case();
     let enum_name = &enum_def.name;
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     writeln!(
         out,

@@ -8,6 +8,7 @@ description = "Rust source extraction for skif"
 repository.workspace = true
 
 [dependencies]
+ahash = { workspace = true }
 anyhow = { workspace = true }
 quote = "1"
 skif-core = { workspace = true }

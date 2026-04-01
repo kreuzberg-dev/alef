@@ -1,73 +1,75 @@
+use std::borrow::Cow;
+
 use skif_core::ir::{PrimitiveType, TypeRef};
 
 /// Maps a TypeRef to the C FFI parameter type (input position).
-pub fn c_param_type(ty: &TypeRef) -> String {
+pub fn c_param_type(ty: &TypeRef) -> Cow<'static, str> {
     match ty {
         TypeRef::Primitive(prim) => c_primitive(prim),
-        TypeRef::String => "*const std::ffi::c_char".to_string(),
-        TypeRef::Bytes => "*const u8".to_string(),
+        TypeRef::String => Cow::Borrowed("*const std::ffi::c_char"),
+        TypeRef::Bytes => Cow::Borrowed("*const u8"),
         TypeRef::Optional(inner) => {
             // Optional params use nullable pointers or sentinel values
             match inner.as_ref() {
-                TypeRef::Primitive(PrimitiveType::Bool) => "i32".to_string(), // -1 = None, 0 = false, 1 = true
-                TypeRef::Primitive(_) => c_param_type(inner),                 // caller uses sentinel
+                TypeRef::Primitive(PrimitiveType::Bool) => Cow::Borrowed("i32"), // -1 = None, 0 = false, 1 = true
+                TypeRef::Primitive(_) => c_param_type(inner),                    // caller uses sentinel
                 TypeRef::String | TypeRef::Path | TypeRef::Json => {
-                    "*const std::ffi::c_char".to_string() // null = None
+                    Cow::Borrowed("*const std::ffi::c_char") // null = None
                 }
-                TypeRef::Named(_) => format!("*const {}", c_param_type(inner)), // null = None
-                _ => "*const std::ffi::c_char".to_string(),                     // fallback: JSON string, null = None
+                TypeRef::Named(_) => Cow::Owned(format!("*const {}", c_param_type(inner))), // null = None
+                _ => Cow::Borrowed("*const std::ffi::c_char"), // fallback: JSON string, null = None
             }
         }
-        TypeRef::Vec(_) => "*const std::ffi::c_char".to_string(), // JSON array string
-        TypeRef::Map(_, _) => "*const std::ffi::c_char".to_string(), // JSON object string
-        TypeRef::Named(name) => format!("*const {name}"),
-        TypeRef::Path => "*const std::ffi::c_char".to_string(),
-        TypeRef::Unit => "".to_string(),
-        TypeRef::Json => "*const std::ffi::c_char".to_string(),
+        TypeRef::Vec(_) => Cow::Borrowed("*const std::ffi::c_char"), // JSON array string
+        TypeRef::Map(_, _) => Cow::Borrowed("*const std::ffi::c_char"), // JSON object string
+        TypeRef::Named(name) => Cow::Owned(format!("*const {name}")),
+        TypeRef::Path => Cow::Borrowed("*const std::ffi::c_char"),
+        TypeRef::Unit => Cow::Borrowed(""),
+        TypeRef::Json => Cow::Borrowed("*const std::ffi::c_char"),
     }
 }
 
 /// Maps a TypeRef to the C FFI return type (output position).
-pub fn c_return_type(ty: &TypeRef) -> String {
+pub fn c_return_type(ty: &TypeRef) -> Cow<'static, str> {
     match ty {
         TypeRef::Primitive(prim) => c_primitive(prim),
-        TypeRef::String => "*mut std::ffi::c_char".to_string(),
-        TypeRef::Bytes => "*mut u8".to_string(), // paired with out-param length
+        TypeRef::String => Cow::Borrowed("*mut std::ffi::c_char"),
+        TypeRef::Bytes => Cow::Borrowed("*mut u8"), // paired with out-param length
         TypeRef::Optional(inner) => {
             // Optional returns use nullable pointers
             match inner.as_ref() {
-                TypeRef::Primitive(PrimitiveType::Bool) => "i32".to_string(), // -1 = None
+                TypeRef::Primitive(PrimitiveType::Bool) => Cow::Borrowed("i32"), // -1 = None
                 TypeRef::Primitive(_) => c_return_type(inner),
-                TypeRef::String | TypeRef::Path | TypeRef::Json => "*mut std::ffi::c_char".to_string(),
-                TypeRef::Named(name) => format!("*mut {name}"),
-                _ => "*mut std::ffi::c_char".to_string(),
+                TypeRef::String | TypeRef::Path | TypeRef::Json => Cow::Borrowed("*mut std::ffi::c_char"),
+                TypeRef::Named(name) => Cow::Owned(format!("*mut {name}")),
+                _ => Cow::Borrowed("*mut std::ffi::c_char"),
             }
         }
-        TypeRef::Vec(_) => "*mut std::ffi::c_char".to_string(), // JSON array string
-        TypeRef::Map(_, _) => "*mut std::ffi::c_char".to_string(), // JSON object string
-        TypeRef::Named(name) => format!("*mut {name}"),
-        TypeRef::Path => "*mut std::ffi::c_char".to_string(),
-        TypeRef::Unit => "()".to_string(),
-        TypeRef::Json => "*mut std::ffi::c_char".to_string(),
+        TypeRef::Vec(_) => Cow::Borrowed("*mut std::ffi::c_char"), // JSON array string
+        TypeRef::Map(_, _) => Cow::Borrowed("*mut std::ffi::c_char"), // JSON object string
+        TypeRef::Named(name) => Cow::Owned(format!("*mut {name}")),
+        TypeRef::Path => Cow::Borrowed("*mut std::ffi::c_char"),
+        TypeRef::Unit => Cow::Borrowed("()"),
+        TypeRef::Json => Cow::Borrowed("*mut std::ffi::c_char"),
     }
 }
 
 /// Maps a primitive type to its C FFI equivalent.
-fn c_primitive(prim: &PrimitiveType) -> String {
+fn c_primitive(prim: &PrimitiveType) -> Cow<'static, str> {
     match prim {
-        PrimitiveType::Bool => "i32".to_string(),
-        PrimitiveType::U8 => "u8".to_string(),
-        PrimitiveType::U16 => "u16".to_string(),
-        PrimitiveType::U32 => "u32".to_string(),
-        PrimitiveType::U64 => "u64".to_string(),
-        PrimitiveType::I8 => "i8".to_string(),
-        PrimitiveType::I16 => "i16".to_string(),
-        PrimitiveType::I32 => "i32".to_string(),
-        PrimitiveType::I64 => "i64".to_string(),
-        PrimitiveType::F32 => "f32".to_string(),
-        PrimitiveType::F64 => "f64".to_string(),
-        PrimitiveType::Usize => "usize".to_string(),
-        PrimitiveType::Isize => "isize".to_string(),
+        PrimitiveType::Bool => Cow::Borrowed("i32"),
+        PrimitiveType::U8 => Cow::Borrowed("u8"),
+        PrimitiveType::U16 => Cow::Borrowed("u16"),
+        PrimitiveType::U32 => Cow::Borrowed("u32"),
+        PrimitiveType::U64 => Cow::Borrowed("u64"),
+        PrimitiveType::I8 => Cow::Borrowed("i8"),
+        PrimitiveType::I16 => Cow::Borrowed("i16"),
+        PrimitiveType::I32 => Cow::Borrowed("i32"),
+        PrimitiveType::I64 => Cow::Borrowed("i64"),
+        PrimitiveType::F32 => Cow::Borrowed("f32"),
+        PrimitiveType::F64 => Cow::Borrowed("f64"),
+        PrimitiveType::Usize => Cow::Borrowed("usize"),
+        PrimitiveType::Isize => Cow::Borrowed("isize"),
     }
 }
 

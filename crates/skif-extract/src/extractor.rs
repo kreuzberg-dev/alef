@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use ahash::AHashMap;
 use anyhow::{Context, Result};
 use skif_core::ir::{
     ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef,
@@ -59,6 +60,7 @@ fn extract_items(
     workspace_root: Option<&Path>,
     visited: &mut Vec<PathBuf>,
 ) -> Result<()> {
+    // First pass: collect all structs/enums (no impl blocks yet)
     for item in items {
         match item {
             syn::Item::Struct(item_struct) => {
@@ -76,9 +78,6 @@ fn extract_items(
                     surface.functions.push(extract_function(item_fn, crate_name));
                 }
             }
-            syn::Item::Impl(item_impl) => {
-                extract_impl_block(item_impl, crate_name, surface);
-            }
             syn::Item::Mod(item_mod) => {
                 if is_pub(&item_mod.vis) {
                     extract_module(item_mod, source_path, crate_name, surface, workspace_root, visited)?;
@@ -88,6 +87,21 @@ fn extract_items(
                 resolve_use_tree(&item_use.tree, crate_name, surface, workspace_root, visited)?;
             }
             _ => {}
+        }
+    }
+
+    // Build type name to index map for O(1) lookup
+    let type_index: AHashMap<String, usize> = surface
+        .types
+        .iter()
+        .enumerate()
+        .map(|(idx, typ)| (typ.name.clone(), idx))
+        .collect();
+
+    // Second pass: process impl blocks using the index
+    for item in items {
+        if let syn::Item::Impl(item_impl) = item {
+            extract_impl_block(item_impl, crate_name, surface, &type_index);
         }
     }
     Ok(())
@@ -221,10 +235,15 @@ fn extract_function(item: &syn::ItemFn, crate_name: &str) -> FunctionDef {
 }
 
 /// Extract methods from an `impl` block and attach them to the corresponding `TypeDef`.
-fn extract_impl_block(item: &syn::ItemImpl, crate_name: &str, surface: &mut ApiSurface) {
+fn extract_impl_block(
+    item: &syn::ItemImpl,
+    crate_name: &str,
+    surface: &mut ApiSurface,
+    type_index: &AHashMap<String, usize>,
+) {
     if item.trait_.is_some() {
         // Extract trait impl methods and attach to the type if it's in our surface
-        extract_trait_impl_methods(item, crate_name, surface);
+        extract_trait_impl_methods(item, crate_name, surface, type_index);
         return;
     }
 
@@ -259,9 +278,9 @@ fn extract_impl_block(item: &syn::ItemImpl, crate_name: &str, surface: &mut ApiS
         return;
     }
 
-    // Find existing type and attach methods, or create a new opaque type
-    if let Some(type_def) = surface.types.iter_mut().find(|t| t.name == type_name) {
-        type_def.methods.extend(methods);
+    // Use index for O(1) lookup; if not found, create opaque type
+    if let Some(&idx) = type_index.get(&type_name) {
+        surface.types[idx].methods.extend(methods);
     } else {
         // The impl is for a type we haven't seen as a pub struct — create an opaque entry
         surface.types.push(TypeDef {
@@ -277,7 +296,12 @@ fn extract_impl_block(item: &syn::ItemImpl, crate_name: &str, surface: &mut ApiS
 }
 
 /// Extract methods from a trait impl and attach them to an existing type in the surface.
-fn extract_trait_impl_methods(item: &syn::ItemImpl, crate_name: &str, surface: &mut ApiSurface) {
+fn extract_trait_impl_methods(
+    item: &syn::ItemImpl,
+    crate_name: &str,
+    surface: &mut ApiSurface,
+    type_index: &AHashMap<String, usize>,
+) {
     let type_name = match &*item.self_ty {
         syn::Type::Path(p) => p.path.segments.last().map(|s| s.ident.to_string()),
         _ => None,
@@ -285,10 +309,11 @@ fn extract_trait_impl_methods(item: &syn::ItemImpl, crate_name: &str, surface: &
 
     let Some(type_name) = type_name else { return };
 
-    // Find the type in our surface — only attach to types we already know about
-    let Some(type_def) = surface.types.iter_mut().find(|t| t.name == type_name) else {
+    // Use index for O(1) lookup — only attach to types we already know about
+    let Some(&idx) = type_index.get(&type_name) else {
         return;
     };
+    let type_def = &mut surface.types[idx];
 
     // Extract methods from the trait impl (trait methods are implicitly pub)
     for impl_item in &item.items {
@@ -581,7 +606,8 @@ fn resolve_external_use(
     if visited.contains(&canonical) {
         return Ok(());
     }
-    visited.push(canonical);
+    // Push to visited BEFORE any recursive calls to prevent infinite cycles
+    visited.push(canonical.clone());
 
     // Parse the external crate source
     let content = match std::fs::read_to_string(&crate_source) {
@@ -604,7 +630,7 @@ fn resolve_external_use(
     };
     extract_items(
         &file.items,
-        &crate_source,
+        &canonical,
         crate_name,
         &mut ext_surface,
         workspace_root,

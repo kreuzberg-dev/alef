@@ -1,56 +1,60 @@
+use std::borrow::Cow;
+
 use skif_core::ir::{PrimitiveType, TypeRef};
 
 /// Maps a TypeRef to its Java type representation.
-pub fn java_type(ty: &TypeRef) -> String {
+pub fn java_type(ty: &TypeRef) -> Cow<'static, str> {
     match ty {
         TypeRef::Primitive(prim) => java_primitive(prim),
-        TypeRef::String => "String".to_string(),
-        TypeRef::Bytes => "byte[]".to_string(),
+        TypeRef::String => Cow::Borrowed("String"),
+        TypeRef::Bytes => Cow::Borrowed("byte[]"),
         TypeRef::Optional(inner) => java_boxed_type(inner),
         TypeRef::Vec(inner) => {
             let inner_type = java_boxed_type(inner);
-            format!("java.util.List<{}>", inner_type)
+            Cow::Owned(format!("java.util.List<{}>", inner_type))
         }
         TypeRef::Map(k, v) => {
             let key_type = java_boxed_type(k);
             let val_type = java_boxed_type(v);
-            format!("java.util.Map<{}, {}>", key_type, val_type)
+            Cow::Owned(format!("java.util.Map<{}, {}>", key_type, val_type))
         }
-        TypeRef::Named(name) => name.clone(),
-        TypeRef::Path => "java.nio.file.Path".to_string(),
-        TypeRef::Unit => "void".to_string(),
-        TypeRef::Json => "String".to_string(),
+        TypeRef::Named(name) => Cow::Owned(name.clone()),
+        TypeRef::Path => Cow::Borrowed("java.nio.file.Path"),
+        TypeRef::Unit => Cow::Borrowed("void"),
+        TypeRef::Json => Cow::Borrowed("String"),
     }
 }
 
 /// Maps a TypeRef to its Java boxed type (for Optional/null-safe contexts).
-pub fn java_boxed_type(ty: &TypeRef) -> String {
+pub fn java_boxed_type(ty: &TypeRef) -> Cow<'static, str> {
     match ty {
         TypeRef::Primitive(prim) => match prim {
-            PrimitiveType::Bool => "Boolean".to_string(),
-            PrimitiveType::U8 | PrimitiveType::I8 => "Byte".to_string(),
-            PrimitiveType::U16 | PrimitiveType::I16 => "Short".to_string(),
-            PrimitiveType::U32 | PrimitiveType::I32 => "Integer".to_string(),
-            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "Long".to_string(),
-            PrimitiveType::F32 => "Float".to_string(),
-            PrimitiveType::F64 => "Double".to_string(),
+            PrimitiveType::Bool => Cow::Borrowed("Boolean"),
+            PrimitiveType::U8 | PrimitiveType::I8 => Cow::Borrowed("Byte"),
+            PrimitiveType::U16 | PrimitiveType::I16 => Cow::Borrowed("Short"),
+            PrimitiveType::U32 | PrimitiveType::I32 => Cow::Borrowed("Integer"),
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
+                Cow::Borrowed("Long")
+            }
+            PrimitiveType::F32 => Cow::Borrowed("Float"),
+            PrimitiveType::F64 => Cow::Borrowed("Double"),
         },
-        TypeRef::String => "String".to_string(),
-        TypeRef::Bytes => "byte[]".to_string(),
+        TypeRef::String => Cow::Borrowed("String"),
+        TypeRef::Bytes => Cow::Borrowed("byte[]"),
         TypeRef::Optional(inner) => java_boxed_type(inner),
         TypeRef::Vec(inner) => {
             let inner_type = java_boxed_type(inner);
-            format!("java.util.List<{}>", inner_type)
+            Cow::Owned(format!("java.util.List<{}>", inner_type))
         }
         TypeRef::Map(k, v) => {
             let key_type = java_boxed_type(k);
             let val_type = java_boxed_type(v);
-            format!("java.util.Map<{}, {}>", key_type, val_type)
+            Cow::Owned(format!("java.util.Map<{}, {}>", key_type, val_type))
         }
-        TypeRef::Named(name) => name.clone(),
-        TypeRef::Path => "java.nio.file.Path".to_string(),
-        TypeRef::Unit => "Void".to_string(),
-        TypeRef::Json => "String".to_string(),
+        TypeRef::Named(name) => Cow::Owned(name.clone()),
+        TypeRef::Path => Cow::Borrowed("java.nio.file.Path"),
+        TypeRef::Unit => Cow::Borrowed("Void"),
+        TypeRef::Json => Cow::Borrowed("String"),
     }
 }
 
@@ -69,14 +73,14 @@ pub fn java_ffi_type(prim: &PrimitiveType) -> &'static str {
     }
 }
 
-fn java_primitive(prim: &PrimitiveType) -> String {
+fn java_primitive(prim: &PrimitiveType) -> Cow<'static, str> {
     match prim {
-        PrimitiveType::Bool => "boolean".to_string(),
-        PrimitiveType::U8 | PrimitiveType::I8 => "byte".to_string(),
-        PrimitiveType::U16 | PrimitiveType::I16 => "short".to_string(),
-        PrimitiveType::U32 | PrimitiveType::I32 => "int".to_string(),
-        PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "long".to_string(),
-        PrimitiveType::F32 => "float".to_string(),
-        PrimitiveType::F64 => "double".to_string(),
+        PrimitiveType::Bool => Cow::Borrowed("boolean"),
+        PrimitiveType::U8 | PrimitiveType::I8 => Cow::Borrowed("byte"),
+        PrimitiveType::U16 | PrimitiveType::I16 => Cow::Borrowed("short"),
+        PrimitiveType::U32 | PrimitiveType::I32 => Cow::Borrowed("int"),
+        PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => Cow::Borrowed("long"),
+        PrimitiveType::F32 => Cow::Borrowed("float"),
+        PrimitiveType::F64 => Cow::Borrowed("double"),
     }
 }

@@ -60,7 +60,7 @@ impl Backend for GoBackend {
 
 /// Generate the complete Go binding file wrapping the C FFI layer.
 fn gen_go_file(api: &ApiSurface, ffi_prefix: &str, pkg_name: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(4096);
 
     // Package header and imports
     writeln!(out, "package {}\n", pkg_name).unwrap();
@@ -117,7 +117,7 @@ fn gen_last_error_helper(ffi_prefix: &str) -> String {
 
 /// Generate a Go enum type definition with constants.
 fn gen_enum_type(enum_def: &EnumDef) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(1024);
 
     if !enum_def.doc.is_empty() {
         writeln!(out, "// {} represents the {} enumeration.", enum_def.name, enum_def.doc).unwrap();
@@ -143,7 +143,7 @@ fn gen_enum_type(enum_def: &EnumDef) -> String {
 
 /// Generate a Go struct type definition with json tags for marshaling.
 fn gen_struct_type(typ: &TypeDef) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(1024);
 
     if !typ.doc.is_empty() {
         writeln!(out, "// {} {}", typ.name, typ.doc).unwrap();
@@ -178,7 +178,7 @@ fn gen_struct_type(typ: &TypeDef) -> String {
 
 /// Generate a wrapper function for a free function.
 fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     if !func.doc.is_empty() {
         writeln!(out, "// {} {}", func.name, func.doc).unwrap();
@@ -244,6 +244,13 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
             writeln!(out, "    return lastError()").unwrap();
         } else {
             writeln!(out, "    ptr := {}", c_call).unwrap();
+            // Add defer free for C string returns
+            if matches!(
+                func.return_type,
+                TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+            ) {
+                writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).unwrap();
+            }
             writeln!(out, "    if err := lastError(); err != nil {{").unwrap();
             writeln!(out, "        return nil, err").unwrap();
             writeln!(out, "    }}").unwrap();
@@ -253,6 +260,13 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
         writeln!(out, "    {}", c_call).unwrap();
     } else {
         writeln!(out, "    ptr := {}", c_call).unwrap();
+        // Add defer free for C string returns
+        if matches!(
+            func.return_type,
+            TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+        ) {
+            writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).unwrap();
+        }
         writeln!(out, "    return unmarshal{}(ptr)", type_name(&func.return_type)).unwrap();
     }
 
@@ -262,7 +276,7 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
 
 /// Generate a wrapper method for a struct method.
 fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
 
     if !method.doc.is_empty() {
         writeln!(out, "// {} {}", method.name, method.doc).unwrap();
@@ -385,6 +399,13 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
                 writeln!(out, "    return lastError()").unwrap();
             } else {
                 writeln!(out, "    ptr := {}", c_call).unwrap();
+                // Add defer free for C string returns
+                if matches!(
+                    method.return_type,
+                    TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+                ) {
+                    writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).unwrap();
+                }
                 writeln!(out, "    if err := lastError(); err != nil {{").unwrap();
                 writeln!(out, "        return nil, err").unwrap();
                 writeln!(out, "    }}").unwrap();
@@ -394,6 +415,13 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
             writeln!(out, "    {}", c_call).unwrap();
         } else {
             writeln!(out, "    ptr := {}", c_call).unwrap();
+            // Add defer free for C string returns
+            if matches!(
+                method.return_type,
+                TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+            ) {
+                writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).unwrap();
+            }
             writeln!(out, "    return unmarshal{}(ptr)", type_name(&method.return_type)).unwrap();
         }
     }
@@ -404,7 +432,7 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
 
 /// Generate parameter conversion code from Go to C.
 fn gen_param_to_c(param: &skif_core::ir::ParamDef) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(512);
     let c_name = format!("c{}", param.name.to_pascal_case());
 
     match &param.ty {
