@@ -139,6 +139,31 @@ fn read_version(version_from: &str) -> anyhow::Result<String> {
     anyhow::bail!("Could not find version in {version_from}")
 }
 
+/// Generate scaffold files for given languages.
+pub fn scaffold(api: &ApiSurface, config: &SkifConfig, languages: &[Language]) -> anyhow::Result<Vec<GeneratedFile>> {
+    skif_scaffold::scaffold(api, config, languages)
+}
+
+/// Generate README files for given languages.
+pub fn readme(api: &ApiSurface, config: &SkifConfig, languages: &[Language]) -> anyhow::Result<Vec<GeneratedFile>> {
+    skif_readme::generate_readmes(api, config, languages)
+}
+
+/// Write standalone generated files (not grouped by language) to disk.
+pub fn write_scaffold_files(files: &[GeneratedFile], base_dir: &Path) -> anyhow::Result<usize> {
+    let mut count = 0;
+    for file in files {
+        let full_path = base_dir.join(&file.path);
+        if let Some(parent) = full_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&full_path, &file.content)?;
+        count += 1;
+        debug!("  wrote: {}", full_path.display());
+    }
+    Ok(count)
+}
+
 fn apply_exclusions(mut api: ApiSurface, exclude: &skif_core::config::ExcludeConfig) -> ApiSurface {
     api.types.retain(|t| !exclude.types.contains(&t.name));
     api.functions.retain(|f| !exclude.functions.contains(&f.name));

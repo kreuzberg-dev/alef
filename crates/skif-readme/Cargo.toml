@@ -8,3 +8,5 @@ description = "README generator for skif"
 repository.workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+skif-core = { workspace = true }

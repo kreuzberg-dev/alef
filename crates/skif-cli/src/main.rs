@@ -152,15 +152,23 @@ fn main() -> Result<()> {
         Commands::Scaffold { lang } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
-            println!("Generating scaffolding for: {}", format_languages(&languages));
-            // TODO: implement scaffold generation
+            eprintln!("Generating scaffolding for: {}", format_languages(&languages));
+            let api = pipeline::extract(&config, config_path, false)?;
+            let files = pipeline::scaffold(&api, &config, &languages)?;
+            let base_dir = std::env::current_dir()?;
+            let count = pipeline::write_scaffold_files(&files, &base_dir)?;
+            println!("Generated {count} scaffold files");
             Ok(())
         }
         Commands::Readme { lang } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
-            println!("Generating READMEs for: {}", format_languages(&languages));
-            // TODO: implement readme generation
+            eprintln!("Generating READMEs for: {}", format_languages(&languages));
+            let api = pipeline::extract(&config, config_path, false)?;
+            let files = pipeline::readme(&api, &config, &languages)?;
+            let base_dir = std::env::current_dir()?;
+            let count = pipeline::write_scaffold_files(&files, &base_dir)?;
+            println!("Generated {count} README files");
             Ok(())
         }
         Commands::SyncVersions => {
@@ -254,7 +262,17 @@ fn main() -> Result<()> {
             let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
             let stub_count = pipeline::write_files(&stubs, &base_dir)?;
 
-            println!("Done: {binding_count} binding files, {stub_count} stub files");
+            eprintln!("Generating scaffolding...");
+            let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
+            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
+
+            eprintln!("Generating READMEs...");
+            let readme_files = pipeline::readme(&api, &config, &languages)?;
+            let readme_count = pipeline::write_scaffold_files(&readme_files, &base_dir)?;
+
+            println!(
+                "Done: {binding_count} binding files, {stub_count} stub files, {scaffold_count} scaffold files, {readme_count} readme files"
+            );
             Ok(())
         }
         Commands::Init { lang } => {

@@ -27,6 +27,8 @@ skif-backend-rustler = { path = "../skif-backend-rustler" }
 skif-backend-wasm = { path = "../skif-backend-wasm" }
 skif-core = { workspace = true }
 skif-extract = { path = "../skif-extract" }
+skif-readme = { path = "../skif-readme" }
+skif-scaffold = { path = "../skif-scaffold" }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }

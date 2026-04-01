@@ -473,6 +473,8 @@ dependencies = [
  "skif-backend-wasm",
  "skif-core",
  "skif-extract",
+ "skif-readme",
+ "skif-scaffold",
  "toml",
  "tracing",
  "tracing-subscriber",
@@ -512,10 +514,18 @@ dependencies = [
 [[package]]
 name = "skif-readme"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "skif-core",
+]
 
 [[package]]
 name = "skif-scaffold"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "skif-core",
+]
 
 [[package]]
 name = "smallvec"
