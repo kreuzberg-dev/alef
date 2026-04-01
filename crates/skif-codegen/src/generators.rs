@@ -56,7 +56,7 @@ pub struct RustBindingConfig<'a> {
 ///
 /// - `TypeRef::Named(n)` where `n == type_name` → re-wrap in `Self { inner: Arc::new(...) }`
 /// - `TypeRef::Named(n)` where `n` is another opaque type → wrap in `{n} { inner: Arc::new(...) }`
-/// - `TypeRef::Named(n)` where `n` is a non-opaque type → convert via `{n}::from(...)`
+/// - `TypeRef::Named(n)` where `n` is a non-opaque type → `todo!()` placeholder (From may not exist)
 /// - Everything else (primitives, String, Vec, etc.) → pass through unchanged
 /// - `TypeRef::Unit` → pass through unchanged
 fn wrap_opaque_return(expr: &str, return_type: &TypeRef, type_name: &str, opaque_types: &AHashSet<String>) -> String {
@@ -68,7 +68,8 @@ fn wrap_opaque_return(expr: &str, return_type: &TypeRef, type_name: &str, opaque
             format!("{n} {{ inner: std::sync::Arc::new({expr}) }}")
         }
         TypeRef::Named(n) => {
-            format!("{n}::from({expr})")
+            // Non-opaque Named return type — From impl may not exist, use todo!()
+            format!("todo!(\"convert return type {n} from core\")")
         }
         _ => expr.to_string(),
     }
@@ -123,7 +124,8 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
         writeln!(out, "#[{attr}]").ok();
     }
     writeln!(out, "pub struct {} {{", typ.name).ok();
-    writeln!(out, "    inner: std::sync::Arc<{}::{}>,", cfg.core_import, typ.name).ok();
+    let core_path = typ.rust_path.replace('-', "_");
+    writeln!(out, "    inner: std::sync::Arc<{core_path}>,").ok();
     write!(out, "}}").ok();
     out
 }
@@ -137,8 +139,9 @@ pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix
     for attr in cfg.struct_attrs {
         writeln!(out, "#[{attr}]").ok();
     }
+    let core_path = typ.rust_path.replace('-', "_");
     writeln!(out, "pub struct {}{} {{", prefix, typ.name).ok();
-    writeln!(out, "    inner: std::sync::Arc<{}::{}>,", cfg.core_import, typ.name).ok();
+    writeln!(out, "    inner: std::sync::Arc<{core_path}>,").ok();
     write!(out, "}}").ok();
     out
 }
@@ -259,7 +262,14 @@ pub fn gen_method(
     let async_result_wrap = if is_opaque {
         wrap_opaque_return("result", &method.return_type, type_name, opaque_types)
     } else {
-        format!("{return_type}::from(result)")
+        // For non-opaque types, only use From conversion if the return type is simple
+        // enough. Named return types may not have a From impl.
+        match &method.return_type {
+            TypeRef::Named(_) | TypeRef::Json => {
+                format!("todo!(\"convert return of {}.{}\")", type_name, method.name)
+            }
+            _ => "result".to_string(),
+        }
     };
 
     let body = if !opaque_can_delegate {
@@ -596,11 +606,21 @@ pub fn gen_function(func: &FunctionDef, mapper: &dyn TypeMapper, cfg: &RustBindi
     let call_args = gen_call_args(&func.params);
     let core_import = cfg.core_import;
 
+    // Use the function's rust_path for correct module path resolution
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+
     // Generate the body based on async pattern
     let body = if func.is_async {
         match cfg.async_pattern {
             AsyncPattern::Pyo3FutureIntoPy => {
-                let core_call = format!("{core_import}::{}({call_args})", func.name);
+                let core_call = format!("{core_fn_path}({call_args})");
                 let result_handling = if func.error_type.is_some() {
                     format!(
                         "let result = {core_call}.await\n            \
@@ -617,7 +637,7 @@ pub fn gen_function(func: &FunctionDef, mapper: &dyn TypeMapper, cfg: &RustBindi
                 )
             }
             AsyncPattern::WasmNativeAsync => {
-                let core_call = format!("{core_import}::{}({call_args})", func.name);
+                let core_call = format!("{core_fn_path}({call_args})");
                 let result_handling = if func.error_type.is_some() {
                     format!(
                         "let result = {core_call}.await\n        \
@@ -633,7 +653,7 @@ pub fn gen_function(func: &FunctionDef, mapper: &dyn TypeMapper, cfg: &RustBindi
                 )
             }
             AsyncPattern::NapiNativeAsync => {
-                let core_call = format!("{core_import}::{}({call_args})", func.name);
+                let core_call = format!("{core_fn_path}({call_args})");
                 let result_handling = if func.error_type.is_some() {
                     format!(
                         "let result = {core_call}.await\n            \
@@ -649,7 +669,7 @@ pub fn gen_function(func: &FunctionDef, mapper: &dyn TypeMapper, cfg: &RustBindi
                 )
             }
             AsyncPattern::TokioBlockOn => {
-                let core_call = format!("{core_import}::{}({call_args})", func.name);
+                let core_call = format!("{core_fn_path}({call_args})");
 
                 if func.error_type.is_some() {
                     format!(
@@ -666,7 +686,7 @@ pub fn gen_function(func: &FunctionDef, mapper: &dyn TypeMapper, cfg: &RustBindi
             AsyncPattern::None => "todo!(\"async not supported by backend\")".to_string(),
         }
     } else {
-        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let core_call = format!("{core_fn_path}({call_args})");
         if func.error_type.is_some() {
             format!("{core_call}.map_err(|e| e.into())")
         } else {

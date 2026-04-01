@@ -41,26 +41,21 @@ pub fn can_generate_conversion(typ: &TypeDef, convertible: &AHashSet<String>) ->
     convertible.contains(&typ.name)
 }
 
-fn is_field_convertible_with_set(ty: &TypeRef, convertible: &AHashSet<String>, known_enums: &AHashSet<&str>) -> bool {
+fn is_field_convertible_with_set(ty: &TypeRef, _convertible: &AHashSet<String>, known_enums: &AHashSet<&str>) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Unit => true,
         TypeRef::Json => false,
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
-            is_field_convertible_with_set(inner, convertible, known_enums)
+            is_field_convertible_with_set(inner, _convertible, known_enums)
         }
         TypeRef::Map(k, v) => {
-            is_field_convertible_with_set(k, convertible, known_enums)
-                && is_field_convertible_with_set(v, convertible, known_enums)
+            is_field_convertible_with_set(k, _convertible, known_enums)
+                && is_field_convertible_with_set(v, _convertible, known_enums)
         }
-        TypeRef::Named(name) => {
-            if name.len() <= 2 {
-                return false;
-            }
-            if name.contains('<') || name.contains("dyn ") {
-                return false;
-            }
-            convertible.contains(name.as_str()) || known_enums.contains(name.as_str())
-        }
+        // Named types are only safe if they are enums (simple variant matching).
+        // Other Named types may have been sanitized (e.g., Duration -> u64) and the
+        // generated .into() would produce type mismatches.
+        TypeRef::Named(name) => known_enums.contains(name.as_str()),
     }
 }
 
