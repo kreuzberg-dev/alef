@@ -62,10 +62,8 @@ fn is_field_convertible_with_set(
             is_field_convertible_with_set(k, convertible, convertible_enums)
                 && is_field_convertible_with_set(v, convertible, convertible_enums)
         }
-        // Named types are only safe if they are:
-        // 1. Enums with From/Into support (unit-variant enums), OR
-        // 2. Non-opaque types in the convertible set
-        TypeRef::Named(name) => convertible_enums.contains(name.as_str()) || convertible.contains(name),
+        // Only unit-variant enums are safe for auto-conversion in From/Into.
+        TypeRef::Named(name) => convertible_enums.contains(name.as_str()),
     }
 }
 

@@ -233,11 +233,16 @@ pub fn gen_method(
 
     let call_args = gen_call_args(&method.params);
 
-    // For opaque types with non-trivial params, generate todo!() stub
-    // since auto-delegation would produce type mismatches.
-    // Only auto-delegate methods where ALL params and return type are simple.
-    // For non-opaque types, we also need a From impl to exist — use the same check.
-    let opaque_can_delegate = crate::shared::can_auto_delegate(method);
+    // Only auto-delegate opaque methods with NO params, non-async, no error, simple return.
+    // Params may have been sanitized (Duration→u64) so don't match core signatures.
+    let opaque_can_delegate = is_opaque
+        && method.params.is_empty()
+        && !method.is_async
+        && method.error_type.is_none()
+        && matches!(
+            method.return_type,
+            TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Unit
+        );
 
     // Build the core call expression: opaque types delegate to self.inner directly,
     // non-opaque types convert self to core type first.
