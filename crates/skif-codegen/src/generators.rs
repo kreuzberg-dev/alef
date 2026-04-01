@@ -51,6 +51,24 @@ pub struct RustBindingConfig<'a> {
     pub async_pattern: AsyncPattern,
 }
 
+/// Wrap a core-call result for opaque delegation methods.
+///
+/// - `TypeRef::Named(n)` where `n == type_name` → re-wrap in `Self { inner: Arc::new(...) }`
+/// - `TypeRef::Named(n)` where `n != type_name` → convert via `{n}::from(...)`
+/// - Everything else (primitives, String, Vec, etc.) → pass through unchanged
+/// - `TypeRef::Unit` → pass through unchanged
+fn wrap_opaque_return(expr: &str, return_type: &TypeRef, type_name: &str) -> String {
+    match return_type {
+        TypeRef::Named(n) if n == type_name => {
+            format!("Self {{ inner: std::sync::Arc::new({expr}) }}")
+        }
+        TypeRef::Named(n) => {
+            format!("{n}::from({expr})")
+        }
+        _ => expr.to_string(),
+    }
+}
+
 /// Build call argument expressions from parameters, applying `.into()` on Named types.
 fn gen_call_args(params: &[ParamDef]) -> String {
     params
@@ -213,6 +231,17 @@ pub fn gen_method(
     };
 
     // Generate the body: convert self to core type, call method, convert result back
+    //
+    // For opaque types, wrap the return value appropriately:
+    //   - Named(self) → Self { inner: Arc::new(result) }
+    //   - Named(other) → OtherType::from(result)
+    //   - primitives/String/Vec/Unit → pass through
+    let async_result_wrap = if is_opaque {
+        wrap_opaque_return("result", &method.return_type, type_name)
+    } else {
+        format!("{return_type}::from(result)")
+    };
+
     let body = if method.is_async {
         // For opaque types with Pyo3FutureIntoPy, we need to clone the Arc before moving.
         let inner_clone_line = if is_opaque {
@@ -235,7 +264,7 @@ pub fn gen_method(
                 format!(
                     "{inner_clone_line}pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n            \
                      {result_handling}\n            \
-                     Ok({return_type}::from(result))\n        }})"
+                     Ok({async_result_wrap})\n        }})"
                 )
             }
             AsyncPattern::WasmNativeAsync => {
@@ -250,7 +279,7 @@ pub fn gen_method(
                 };
                 format!(
                     "{result_handling}\n        \
-                     Ok({return_type}::from(result))"
+                     Ok({async_result_wrap})"
                 )
             }
             AsyncPattern::NapiNativeAsync => {
@@ -265,15 +294,31 @@ pub fn gen_method(
                 };
                 format!(
                     "{result_handling}\n            \
-                     Ok({return_type}::from(result))"
+                     Ok({async_result_wrap})"
                 )
             }
             AsyncPattern::TokioBlockOn => {
                 let core_call_sync = make_core_call(&method.name);
                 if method.error_type.is_some() {
+                    let wrap = wrap_opaque_return("result", &method.return_type, type_name);
+                    if is_opaque {
+                        format!(
+                            "let rt = tokio::runtime::Runtime::new()?;\n        \
+                             let result = rt.block_on(async {{ {core_call_sync}.await.map_err(|e| e.into()) }})?;\n        \
+                             {wrap}"
+                        )
+                    } else {
+                        format!(
+                            "let rt = tokio::runtime::Runtime::new()?;\n        \
+                             rt.block_on(async {{ {core_call_sync}.await.map_err(|e| e.into()) }})"
+                        )
+                    }
+                } else if is_opaque {
+                    let wrap = wrap_opaque_return("result", &method.return_type, type_name);
                     format!(
                         "let rt = tokio::runtime::Runtime::new()?;\n        \
-                         rt.block_on(async {{ {core_call_sync}.await.map_err(|e| e.into()) }})"
+                         let result = rt.block_on(async {{ {core_call_sync}.await }});\n        \
+                         {wrap}"
                     )
                 } else {
                     format!(
@@ -287,7 +332,14 @@ pub fn gen_method(
     } else {
         let core_call = make_core_call(&method.name);
         if method.error_type.is_some() {
-            format!("{core_call}.map_err(|e| e.into())")
+            if is_opaque {
+                let wrap = wrap_opaque_return("result", &method.return_type, type_name);
+                format!("let result = {core_call}.map_err(|e| e.into())?;\n        {wrap}")
+            } else {
+                format!("{core_call}.map_err(|e| e.into())")
+            }
+        } else if is_opaque {
+            wrap_opaque_return(&core_call, &method.return_type, type_name)
         } else {
             core_call
         }
