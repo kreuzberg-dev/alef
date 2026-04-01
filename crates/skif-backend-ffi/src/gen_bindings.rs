@@ -49,7 +49,7 @@ impl Backend for FfiBackend {
         let files = vec![
             GeneratedFile {
                 path: PathBuf::from(&output_dir).join("lib.rs"),
-                content: gen_lib_rs(api, &prefix),
+                content: gen_lib_rs(api, &prefix, config),
                 generated_header: false,
             },
             GeneratedFile {
@@ -72,12 +72,14 @@ impl Backend for FfiBackend {
 // lib.rs generation
 // ---------------------------------------------------------------------------
 
-fn gen_lib_rs(api: &ApiSurface, prefix: &str) -> String {
+fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &SkifConfig) -> String {
     let mut builder = RustFileBuilder::new().with_generated_header();
 
     // Imports
     builder.add_import("std::ffi::{c_char, CStr, CString}");
     builder.add_import("std::cell::RefCell");
+    let core_import = config.core_import();
+    builder.add_import(&core_import);
 
     // Thread-local last_error infrastructure
     builder.add_item(&gen_last_error(prefix));
@@ -100,7 +102,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str) -> String {
 
         // Method wrappers
         for method in &typ.methods {
-            builder.add_item(&gen_method_wrapper(typ, method, prefix));
+            builder.add_item(&gen_method_wrapper(typ, method, prefix, &core_import));
         }
     }
 
@@ -112,7 +114,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str) -> String {
 
     // Free functions
     for func in &api.functions {
-        builder.add_item(&gen_free_function(func, prefix));
+        builder.add_item(&gen_free_function(func, prefix, &core_import));
     }
 
     builder.build()
@@ -423,7 +425,7 @@ fn null_return_value(ty: &TypeRef) -> &'static str {
 // Method wrappers
 // ---------------------------------------------------------------------------
 
-fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str) -> String {
+fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_import: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
     let method_name = &method.name;
@@ -511,7 +513,11 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str) -> String
     let call_args = arg_names.join(", ");
 
     if method.is_static {
-        writeln!(out, "    let result = {type_name}::{method_name}({call_args});").unwrap();
+        writeln!(
+            out,
+            "    let result = {core_import}::{type_name}::{method_name}({call_args});"
+        )
+        .unwrap();
     } else {
         writeln!(out, "    let result = obj.{method_name}({call_args});").unwrap();
     }
@@ -549,10 +555,10 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str) -> String
 // Free functions
 // ---------------------------------------------------------------------------
 
-fn gen_free_function(func: &FunctionDef, prefix: &str) -> String {
+fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> String {
     let fn_name_snake = func.name.to_snake_case();
     let ffi_name = format!("{prefix}_{fn_name_snake}");
-    let rust_path = &func.rust_path;
+    let func_name = &func.name;
 
     let mut out = String::new();
 
@@ -599,7 +605,7 @@ fn gen_free_function(func: &FunctionDef, prefix: &str) -> String {
     let arg_names: Vec<String> = func.params.iter().map(|p| format!("{}_rs", p.name)).collect();
     let call_args = arg_names.join(", ");
 
-    writeln!(out, "    let result = {rust_path}({call_args});").unwrap();
+    writeln!(out, "    let result = {core_import}::{func_name}({call_args});").unwrap();
 
     // Handle return
     if has_error {

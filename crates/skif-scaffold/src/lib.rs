@@ -82,6 +82,12 @@ fn scaffold_python(api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<
         format!("keywords = [{}]\n", entries.join(", "))
     };
 
+    let homepage_toml = if meta.homepage.is_empty() {
+        String::new()
+    } else {
+        format!("homepage = \"{}\"\n", meta.homepage)
+    };
+
     let content = format!(
         r#"[build-system]
 requires = ["maturin>=1.0,<2.0"]
@@ -93,10 +99,19 @@ version = "{version}"
 description = "{description}"
 license = "{license}"
 requires-python = ">=3.9"
-{authors}{keywords}
+{authors}{keywords}{homepage}[project.urls]
+repository = "{repository}"
+
 [tool.maturin]
 module-name = "{module_name}"
 features = ["pyo3/extension-module"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
 "#,
         name = name,
         version = version,
@@ -104,6 +119,8 @@ features = ["pyo3/extension-module"]
         license = meta.license,
         authors = authors_toml,
         keywords = keywords_toml,
+        homepage = homepage_toml,
+        repository = meta.repository,
         module_name = module_name,
     );
 
@@ -127,6 +144,18 @@ fn scaffold_node(api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<Ge
         format!(",\n  \"keywords\": [{}]", entries.join(", "))
     };
 
+    let homepage_json = if meta.homepage.is_empty() {
+        String::new()
+    } else {
+        format!(",\n  \"homepage\": \"{}\"", meta.homepage)
+    };
+
+    let authors_json = if meta.authors.is_empty() {
+        String::new()
+    } else {
+        format!(",\n  \"author\": \"{}\"", meta.authors.join(", "))
+    };
+
     let content = format!(
         r#"{{
   "name": "{package_name}",
@@ -135,10 +164,29 @@ fn scaffold_node(api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<Ge
   "license": "{license}",
   "main": "index.js",
   "types": "index.d.ts",
-  "repository": "{repository}",
+  "repository": "{repository}"{homepage}{authors}{keywords},
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "**/*.node"
+  ],
+  "scripts": {{
+    "build": "napi build --release",
+    "build:debug": "napi build",
+    "test": "node -e \"console.log('Add test command')\""
+  }},
   "napi": {{
-    "name": "{name}"
-  }}{keywords}
+    "name": "{name}",
+    "triples": [
+      "x86_64-unknown-linux-gnu",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc"
+    ]
+  }},
+  "devDependencies": {{
+    "@napi-rs/cli": "^2.0.0"
+  }}
 }}
 "#,
         package_name = package_name,
@@ -146,8 +194,10 @@ fn scaffold_node(api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<Ge
         description = meta.description,
         license = meta.license,
         repository = meta.repository,
-        name = name,
+        homepage = homepage_json,
+        authors = authors_json,
         keywords = keywords_json,
+        name = name,
     );
 
     Ok(vec![GeneratedFile {
@@ -169,6 +219,13 @@ fn scaffold_ruby(api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<Ge
         format!("[{}]", entries.join(", "))
     };
 
+    let keywords_ruby = if meta.keywords.is_empty() {
+        String::new()
+    } else {
+        let entries: Vec<String> = meta.keywords.iter().map(|k| format!("\"{}\"", k)).collect();
+        format!("  spec.keywords       = [{}]\n", entries.join(", "))
+    };
+
     let content = format!(
         r#"Gem::Specification.new do |spec|
   spec.name          = "{gem_name}"
@@ -178,10 +235,10 @@ fn scaffold_ruby(api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<Ge
   spec.description   = "{description}"
   spec.homepage      = "{repository}"
   spec.license       = "{license}"
-
-  spec.files         = Dir["lib/**/*", "ext/**/*"]
+  spec.required_ruby_version = ">= 2.7.0"
+{keywords}
+  spec.files         = Dir.glob("{{"lib/**/*", "ext/**/*"}}")
   spec.require_paths = ["lib"]
-
   spec.extensions    = ["ext/{gem_name}/extconf.rb"]
 end
 "#,
@@ -191,6 +248,7 @@ end
         description = meta.description,
         repository = meta.repository,
         license = meta.license,
+        keywords = keywords_ruby,
     );
 
     Ok(vec![GeneratedFile {
@@ -294,7 +352,16 @@ fn scaffold_go(api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<Gene
     let version = &api.version;
     let _ = version; // go.mod doesn't embed the package version
 
-    let content = format!("module {module}\n\ngo 1.21\n", module = go_module,);
+    let content = format!(
+        r#"module {module}
+
+go 1.21
+
+require (
+)
+"#,
+        module = go_module,
+    );
 
     Ok(vec![GeneratedFile {
         path: PathBuf::from("packages/go/go.mod"),
@@ -332,9 +399,27 @@ fn scaffold_java(api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<Ge
     </licenses>
 
     <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
     </properties>
+
+    <dependencies>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
 "#,
         package = java_package,
@@ -403,12 +488,13 @@ fn scaffold_ffi(api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<Gen
     let meta = scaffold_meta(config);
     let name = &config.crate_config.name;
     let version = &api.version;
+    let core_crate = config.core_import();
 
     let content = format!(
         r#"[package]
 name = "{name}-ffi"
 version = "{version}"
-edition = "2024"
+edition = "2021"
 description = "{description}"
 license = "{license}"
 repository = "{repository}"
@@ -417,13 +503,16 @@ repository = "{repository}"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{name} = {{ path = "../.." }}
+{core_crate} = {{ path = "../../crates/{core_crate}" }}
+serde = {{ version = "1", features = ["derive"] }}
+serde_json = "1"
 "#,
         name = name,
         version = version,
         description = meta.description,
         license = meta.license,
         repository = meta.repository,
+        core_crate = core_crate,
     );
 
     Ok(vec![GeneratedFile {
@@ -488,6 +577,7 @@ mod tests {
                 name: "my-lib".to_string(),
                 sources: vec![],
                 version_from: "Cargo.toml".to_string(),
+                core_import: None,
             },
             languages: vec![Language::Python, Language::Node],
             exclude: ExcludeConfig::default(),
@@ -554,5 +644,82 @@ mod tests {
         let api = test_api();
         let files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
         assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_scaffold_python_production_features() {
+        let config = test_config();
+        let api = test_api();
+        let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+        let content = &files[0].content;
+        assert!(content.contains("[project.urls]"));
+        assert!(content.contains("repository ="));
+        assert!(content.contains("[tool.ruff]"));
+        assert!(content.contains("line-length = 100"));
+        assert!(content.contains("target-version = \"py39\""));
+    }
+
+    #[test]
+    fn test_scaffold_node_production_features() {
+        let config = test_config();
+        let api = test_api();
+        let files = scaffold(&api, &config, &[Language::Node]).unwrap();
+        let content = &files[0].content;
+        assert!(content.contains("\"scripts\""));
+        assert!(content.contains("\"build\""));
+        assert!(content.contains("\"files\""));
+        assert!(content.contains("\"devDependencies\""));
+        assert!(content.contains("@napi-rs/cli"));
+        assert!(content.contains("\"triples\""));
+    }
+
+    #[test]
+    fn test_scaffold_ffi_with_core_import() {
+        let config = test_config();
+        let api = test_api();
+        let files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
+        assert_eq!(files.len(), 1);
+        let content = &files[0].content;
+        assert!(content.contains("serde"));
+        assert!(content.contains("serde_json"));
+        // Should have core_import as dependency
+        assert!(content.contains("my_lib ="));
+    }
+
+    #[test]
+    fn test_scaffold_go_production_format() {
+        let config = test_config();
+        let api = test_api();
+        let files = scaffold(&api, &config, &[Language::Go]).unwrap();
+        assert_eq!(files.len(), 1);
+        let content = &files[0].content;
+        assert!(content.contains("go 1.21"));
+        assert!(content.contains("require ("));
+    }
+
+    #[test]
+    fn test_scaffold_java_production_features() {
+        let config = test_config();
+        let api = test_api();
+        let files = scaffold(&api, &config, &[Language::Java]).unwrap();
+        assert_eq!(files.len(), 1);
+        let content = &files[0].content;
+        assert!(content.contains("<properties>"));
+        assert!(content.contains("<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>"));
+        assert!(content.contains("<dependencies>"));
+        assert!(content.contains("<build>"));
+        assert!(content.contains("maven-compiler-plugin"));
+    }
+
+    #[test]
+    fn test_scaffold_ruby_production_features() {
+        let config = test_config();
+        let api = test_api();
+        let files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
+        assert_eq!(files.len(), 1);
+        let content = &files[0].content;
+        assert!(content.contains("spec.required_ruby_version"));
+        assert!(content.contains("spec.extensions"));
+        assert!(content.contains("spec.keywords"));
     }
 }

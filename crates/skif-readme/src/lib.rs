@@ -197,6 +197,7 @@ mod tests {
                 name: "my-lib".to_string(),
                 sources: vec![],
                 version_from: "Cargo.toml".to_string(),
+                core_import: None,
             },
             languages: vec![Language::Python, Language::Node],
             exclude: ExcludeConfig::default(),

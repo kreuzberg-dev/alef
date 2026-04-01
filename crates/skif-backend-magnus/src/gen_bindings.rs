@@ -31,10 +31,12 @@ impl Backend for MagnusBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let mapper = MagnusMapper;
+        let core_import = config.core_import();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_import("magnus::{function, method, prelude::*, Error, Ruby}");
         builder.add_import("std::collections::HashMap");
+        builder.add_import(&core_import);
 
         for typ in &api.types {
             if !typ.is_opaque {
@@ -49,6 +51,24 @@ impl Backend for MagnusBackend {
 
         for func in &api.functions {
             builder.add_item(&gen_function(func, &mapper));
+        }
+
+        // From/Into conversions
+        for typ in &api.types {
+            if !typ.is_opaque {
+                builder.add_item(&skif_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
+                builder.add_item(&skif_codegen::conversions::gen_from_core_to_binding(typ, &core_import));
+            }
+        }
+        for e in &api.enums {
+            builder.add_item(&skif_codegen::conversions::gen_enum_from_binding_to_core(
+                e,
+                &core_import,
+            ));
+            builder.add_item(&skif_codegen::conversions::gen_enum_from_core_to_binding(
+                e,
+                &core_import,
+            ));
         }
 
         let module_name = get_module_name(&api.crate_name);

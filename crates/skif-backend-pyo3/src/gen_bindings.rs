@@ -9,7 +9,7 @@ use std::path::PathBuf;
 pub struct Pyo3Backend;
 
 impl Pyo3Backend {
-    fn binding_config() -> RustBindingConfig<'static> {
+    fn binding_config(core_import: &str) -> RustBindingConfig<'_> {
         RustBindingConfig {
             struct_attrs: &["pyclass(frozen)"],
             field_attrs: &["pyo3(get)"],
@@ -23,6 +23,7 @@ impl Pyo3Backend {
             needs_signature: true,
             signature_prefix: "    #[pyo3(signature = (",
             signature_suffix: "))]",
+            core_import,
         }
     }
 }
@@ -49,13 +50,15 @@ impl Backend for Pyo3Backend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let mapper = Pyo3Mapper;
-        let cfg = Self::binding_config();
+        let core_import = config.core_import();
+        let cfg = Self::binding_config(&core_import);
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_import("pyo3::prelude::*");
         builder.add_import("pyo3::types::PyDict");
         builder.add_import("pyo3::exceptions::PyRuntimeError");
         builder.add_import("std::collections::HashMap");
+        builder.add_import(&core_import);
 
         for typ in &api.types {
             if !typ.is_opaque {
@@ -71,6 +74,24 @@ impl Backend for Pyo3Backend {
         }
         for f in &api.functions {
             builder.add_item(&generators::gen_function(f, &mapper, &cfg));
+        }
+
+        // From/Into conversions
+        for typ in &api.types {
+            if !typ.is_opaque {
+                builder.add_item(&skif_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
+                builder.add_item(&skif_codegen::conversions::gen_from_core_to_binding(typ, &core_import));
+            }
+        }
+        for e in &api.enums {
+            builder.add_item(&skif_codegen::conversions::gen_enum_from_binding_to_core(
+                e,
+                &core_import,
+            ));
+            builder.add_item(&skif_codegen::conversions::gen_enum_from_core_to_binding(
+                e,
+                &core_import,
+            ));
         }
 
         // Module init

@@ -158,6 +158,7 @@ fn print_generated_java_code() {
             name: "kreuzberg".to_string(),
             sources: vec![],
             version_from: "Cargo.toml".to_string(),
+            core_import: None,
         },
         languages: vec![],
         exclude: Default::default(),

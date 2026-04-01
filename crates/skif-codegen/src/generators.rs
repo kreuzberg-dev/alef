@@ -1,7 +1,7 @@
 use crate::builder::StructBuilder;
 use crate::shared::{constructor_parts, function_params, function_sig_defaults, partition_methods};
 use crate::type_mapper::TypeMapper;
-use skif_core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef};
+use skif_core::ir::{EnumDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
 use std::fmt::Write;
 
 /// Configuration for Rust binding code generation.
@@ -30,6 +30,26 @@ pub struct RustBindingConfig<'a> {
     pub signature_prefix: &'a str,
     /// Suffix for the signature annotation, e.g. `"))]"`.
     pub signature_suffix: &'a str,
+    /// Core crate import path, e.g. `"liter_llm"`. Used to generate calls into core.
+    pub core_import: &'a str,
+}
+
+/// Build call argument expressions from parameters, applying `.into()` on Named types.
+fn gen_call_args(params: &[ParamDef]) -> String {
+    params
+        .iter()
+        .map(|p| match &p.ty {
+            TypeRef::Named(_) => {
+                if p.optional {
+                    format!("{}.map(Into::into)", p.name)
+                } else {
+                    format!("{}.into()", p.name)
+                }
+            }
+            _ => p.name.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Generate a struct definition using the builder.
@@ -77,7 +97,7 @@ pub fn gen_constructor(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBinding
 }
 
 /// Generate an instance method.
-pub fn gen_method(method: &MethodDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfig) -> String {
+pub fn gen_method(method: &MethodDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfig, type_name: &str) -> String {
     let map_fn = |ty: &skif_core::ir::TypeRef| mapper.map_type(ty);
     let params = function_params(&method.params, &map_fn);
     let return_type = mapper.map_type(&method.return_type);
@@ -113,6 +133,23 @@ pub fn gen_method(method: &MethodDef, mapper: &dyn TypeMapper, cfg: &RustBinding
         )
     };
 
+    let call_args = gen_call_args(&method.params);
+    let core_import = cfg.core_import;
+    // Generate the body: convert self to core type, call method, convert result back
+    let body = if method.is_async {
+        "todo!(\"async method bridging not yet implemented\")".to_string()
+    } else {
+        let core_call = format!(
+            "{}::{}::from(self.clone()).{}({call_args})",
+            core_import, type_name, method.name
+        );
+        if method.error_type.is_some() {
+            format!("{core_call}.map_err(|e| e.into())")
+        } else {
+            core_call
+        }
+    };
+
     let mut out = String::new();
     if cfg.needs_signature {
         let sig = function_sig_defaults(&method.params);
@@ -121,7 +158,7 @@ pub fn gen_method(method: &MethodDef, mapper: &dyn TypeMapper, cfg: &RustBinding
     write!(
         out,
         "    {}{}{}{} {{\n        \
-         todo!(\"call into core implementation\")\n    }}",
+         {body}\n    }}",
         sig_start, sig_params, sig_end, ret,
     )
     .ok();
@@ -129,7 +166,12 @@ pub fn gen_method(method: &MethodDef, mapper: &dyn TypeMapper, cfg: &RustBinding
 }
 
 /// Generate a static method.
-pub fn gen_static_method(method: &MethodDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfig) -> String {
+pub fn gen_static_method(
+    method: &MethodDef,
+    mapper: &dyn TypeMapper,
+    cfg: &RustBindingConfig,
+    type_name: &str,
+) -> String {
     let map_fn = |ty: &skif_core::ir::TypeRef| mapper.map_type(ty);
     let params = function_params(&method.params, &map_fn);
     let return_type = mapper.map_type(&method.return_type);
@@ -159,6 +201,19 @@ pub fn gen_static_method(method: &MethodDef, mapper: &dyn TypeMapper, cfg: &Rust
         (format!("pub fn {}(", method.name), params, ") -> ".to_string())
     };
 
+    let call_args = gen_call_args(&method.params);
+    let core_import = cfg.core_import;
+    let body = if method.is_async {
+        "todo!(\"async method bridging not yet implemented\")".to_string()
+    } else {
+        let core_call = format!("{core_import}::{type_name}::{}({call_args})", method.name);
+        if method.error_type.is_some() {
+            format!("{core_call}.map_err(|e| e.into())")
+        } else {
+            core_call
+        }
+    };
+
     let mut out = String::new();
     if let Some(attr) = cfg.static_attr {
         writeln!(out, "    #[{attr}]").ok();
@@ -170,7 +225,7 @@ pub fn gen_static_method(method: &MethodDef, mapper: &dyn TypeMapper, cfg: &Rust
     write!(
         out,
         "    {}{}{}{} {{\n        \
-         todo!(\"call into core implementation\")\n    }}",
+         {body}\n    }}",
         sig_start, sig_params, sig_end, ret,
     )
     .ok();
@@ -231,6 +286,19 @@ pub fn gen_function(func: &FunctionDef, mapper: &dyn TypeMapper, cfg: &RustBindi
         (format!("pub {async_kw}fn {}({params}) -> {ret}", func.name), "")
     };
 
+    let call_args = gen_call_args(&func.params);
+    let core_import = cfg.core_import;
+    let body = if func.is_async {
+        "todo!(\"async function bridging not yet implemented\")".to_string()
+    } else {
+        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        if func.error_type.is_some() {
+            format!("{core_call}.map_err(|e| e.into())")
+        } else {
+            core_call
+        }
+    };
+
     let mut out = String::new();
     let attr_inner = cfg
         .function_attr
@@ -242,13 +310,7 @@ pub fn gen_function(func: &FunctionDef, mapper: &dyn TypeMapper, cfg: &RustBindi
         let sig = function_sig_defaults(&func.params);
         writeln!(out, "{}{}{}", cfg.signature_prefix, sig, cfg.signature_suffix).ok();
     }
-    write!(
-        out,
-        "{} {{\n    \
-         todo!(\"call into core implementation\")\n}}",
-        func_sig,
-    )
-    .ok();
+    write!(out, "{} {{\n    {body}\n}}", func_sig,).ok();
     out
 }
 
@@ -273,13 +335,13 @@ pub fn gen_impl_block(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingC
 
     // Instance methods
     for m in &instance {
-        out.push_str(&gen_method(m, mapper, cfg));
+        out.push_str(&gen_method(m, mapper, cfg, &typ.name));
         out.push_str("\n\n");
     }
 
     // Static methods
     for m in &statics {
-        out.push_str(&gen_static_method(m, mapper, cfg));
+        out.push_str(&gen_static_method(m, mapper, cfg, &typ.name));
         out.push_str("\n\n");
     }
 

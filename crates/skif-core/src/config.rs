@@ -48,6 +48,8 @@ pub struct CrateConfig {
     pub sources: Vec<PathBuf>,
     #[serde(default = "default_version_from")]
     pub version_from: String,
+    #[serde(default)]
+    pub core_import: Option<String>,
 }
 
 fn default_version_from() -> String {
@@ -225,6 +227,14 @@ pub struct LintConfig {
 // ---------------------------------------------------------------------------
 
 impl SkifConfig {
+    /// Get the core crate import path (e.g., "liter_llm"). Used by codegen to call into the core crate.
+    pub fn core_import(&self) -> String {
+        self.crate_config
+            .core_import
+            .clone()
+            .unwrap_or_else(|| self.crate_config.name.replace('-', "_"))
+    }
+
     /// Get the FFI prefix (e.g., "kreuzberg"). Used by FFI, Go, Java, C# backends.
     pub fn ffi_prefix(&self) -> String {
         self.ffi

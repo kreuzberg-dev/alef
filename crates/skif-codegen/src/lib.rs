@@ -1,4 +1,5 @@
 pub mod builder;
+pub mod conversions;
 pub mod generators;
 pub mod naming;
 pub mod shared;

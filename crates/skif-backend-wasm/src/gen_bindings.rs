@@ -5,6 +5,7 @@ use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
 use skif_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef};
+use std::fmt::Write;
 use std::path::PathBuf;
 
 pub struct WasmBackend;
@@ -36,10 +37,12 @@ impl Backend for WasmBackend {
         let type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
 
         let mapper = WasmMapper::new(type_overrides);
+        let core_import = config.core_import();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_import("wasm_bindgen::prelude::*");
         builder.add_import("std::collections::HashMap");
+        builder.add_import(&core_import);
 
         for typ in &api.types {
             if !typ.is_opaque && !exclude_types.contains(&typ.name) {
@@ -57,6 +60,20 @@ impl Backend for WasmBackend {
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
                 builder.add_item(&gen_function(func, &mapper));
+            }
+        }
+
+        // From/Into conversions (WASM uses Js prefix, so we need custom generation)
+        for typ in &api.types {
+            if !typ.is_opaque && !exclude_types.contains(&typ.name) {
+                builder.add_item(&gen_from_js_binding_to_core(typ, &core_import));
+                builder.add_item(&gen_from_core_to_js_binding(typ, &core_import));
+            }
+        }
+        for e in &api.enums {
+            if !exclude_types.contains(&e.name) {
+                builder.add_item(&gen_enum_from_js_binding_to_core(e, &core_import));
+                builder.add_item(&gen_enum_from_core_to_js_binding(e, &core_import));
             }
         }
 
@@ -241,4 +258,80 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper) -> String {
             return_annotation
         )
     }
+}
+
+/// Generate `impl From<JsType> for core::Type` (WASM binding -> core).
+fn gen_from_js_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
+    let mut out = String::with_capacity(256);
+    let js_name = format!("Js{}", typ.name);
+    writeln!(out, "impl From<{}> for {core_import}::{} {{", js_name, typ.name).unwrap();
+    writeln!(out, "    fn from(val: {}) -> Self {{", js_name).unwrap();
+    writeln!(out, "        Self {{").unwrap();
+    for field in &typ.fields {
+        let conversion = skif_codegen::conversions::field_conversion_to_core(&field.name, &field.ty, field.optional);
+        writeln!(out, "            {conversion},").unwrap();
+    }
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    write!(out, "}}").unwrap();
+    out
+}
+
+/// Generate `impl From<core::Type> for JsType` (core -> WASM binding).
+fn gen_from_core_to_js_binding(typ: &TypeDef, core_import: &str) -> String {
+    let mut out = String::with_capacity(256);
+    let js_name = format!("Js{}", typ.name);
+    writeln!(out, "impl From<{core_import}::{}> for {} {{", typ.name, js_name).unwrap();
+    writeln!(out, "    fn from(val: {core_import}::{}) -> Self {{", typ.name).unwrap();
+    writeln!(out, "        Self {{").unwrap();
+    for field in &typ.fields {
+        let conversion = skif_codegen::conversions::field_conversion_from_core(&field.name, &field.ty, field.optional);
+        writeln!(out, "            {conversion},").unwrap();
+    }
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    write!(out, "}}").unwrap();
+    out
+}
+
+/// Generate `impl From<JsEnum> for core::Enum` (WASM binding -> core).
+fn gen_enum_from_js_binding_to_core(enum_def: &EnumDef, core_import: &str) -> String {
+    let mut out = String::with_capacity(256);
+    let js_name = format!("Js{}", enum_def.name);
+    writeln!(out, "impl From<{}> for {core_import}::{} {{", js_name, enum_def.name).unwrap();
+    writeln!(out, "    fn from(val: {}) -> Self {{", js_name).unwrap();
+    writeln!(out, "        match val {{").unwrap();
+    for variant in &enum_def.variants {
+        writeln!(
+            out,
+            "            {}::{} => Self::{},",
+            js_name, variant.name, variant.name
+        )
+        .unwrap();
+    }
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    write!(out, "}}").unwrap();
+    out
+}
+
+/// Generate `impl From<core::Enum> for JsEnum` (core -> WASM binding).
+fn gen_enum_from_core_to_js_binding(enum_def: &EnumDef, core_import: &str) -> String {
+    let mut out = String::with_capacity(256);
+    let js_name = format!("Js{}", enum_def.name);
+    writeln!(out, "impl From<{core_import}::{}> for {} {{", enum_def.name, js_name).unwrap();
+    writeln!(out, "    fn from(val: {core_import}::{}) -> Self {{", enum_def.name).unwrap();
+    writeln!(out, "        match val {{").unwrap();
+    for variant in &enum_def.variants {
+        writeln!(
+            out,
+            "            {core_import}::{}::{} => Self::{},",
+            enum_def.name, variant.name, variant.name
+        )
+        .unwrap();
+    }
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    write!(out, "}}").unwrap();
+    out
 }
