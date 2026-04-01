@@ -172,15 +172,18 @@ fn main() -> Result<()> {
             Ok(())
         }
         Commands::SyncVersions => {
-            println!("Syncing versions from Cargo.toml");
-            // TODO: implement version sync
+            let config = load_config(config_path)?;
+            eprintln!("Syncing versions from Cargo.toml");
+            pipeline::sync_versions(&config)?;
+            println!("Version sync complete");
             Ok(())
         }
         Commands::Lint { lang } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
-            println!("Linting generated output for: {}", format_languages(&languages));
-            // TODO: implement lint
+            eprintln!("Linting generated output for: {}", format_languages(&languages));
+            pipeline::lint(&config, &languages)?;
+            println!("Lint complete");
             Ok(())
         }
         Commands::Verify {
@@ -276,11 +279,12 @@ fn main() -> Result<()> {
             Ok(())
         }
         Commands::Init { lang } => {
-            println!("Initializing skif.toml");
+            eprintln!("Initializing skif.toml");
             if let Some(langs) = &lang {
-                println!("  Languages: {}", langs.join(", "));
+                eprintln!("  Languages: {}", langs.join(", "));
             }
-            // TODO: implement init
+            pipeline::init(config_path, lang)?;
+            println!("Initialized skif.toml");
             Ok(())
         }
         Commands::Cache { action } => match action {

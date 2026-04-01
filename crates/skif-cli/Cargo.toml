@@ -14,6 +14,7 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 blake3 = { workspace = true }
 clap = { version = "4", features = ["derive"] }
+regex = { workspace = true }
 serde_json = { workspace = true }
 skif-backend-csharp = { path = "../skif-backend-csharp" }
 skif-backend-ffi = { path = "../skif-backend-ffi" }
