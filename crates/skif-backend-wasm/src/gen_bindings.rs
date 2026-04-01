@@ -80,13 +80,13 @@ impl Backend for WasmBackend {
 
         // From/Into conversions (WASM uses Js prefix, so we need custom generation)
         for typ in &api.types {
-            if !typ.is_opaque && !exclude_types.contains(&typ.name) {
+            if skif_codegen::conversions::can_generate_conversion(typ) && !exclude_types.contains(&typ.name) {
                 builder.add_item(&gen_from_js_binding_to_core(typ, &core_import));
                 builder.add_item(&gen_from_core_to_js_binding(typ, &core_import));
             }
         }
         for e in &api.enums {
-            if !exclude_types.contains(&e.name) {
+            if skif_codegen::conversions::can_generate_enum_conversion(e) && !exclude_types.contains(&e.name) {
                 builder.add_item(&gen_enum_from_js_binding_to_core(e, &core_import));
                 builder.add_item(&gen_enum_from_core_to_js_binding(e, &core_import));
             }

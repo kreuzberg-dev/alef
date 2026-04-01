@@ -1,6 +1,42 @@
 use skif_core::ir::{EnumDef, TypeDef, TypeRef};
 use std::fmt::Write;
 
+/// Check if a type can have From/Into safely generated.
+pub fn can_generate_conversion(typ: &TypeDef) -> bool {
+    // Skip opaque types — conversion is via Arc, not From
+    if typ.is_opaque {
+        return false;
+    }
+    // All fields must be simple types (no generic params, no trait objects, no Json)
+    typ.fields.iter().all(|f| is_convertible_type(&f.ty))
+}
+
+/// Check if an enum can have From/Into safely generated.
+/// Only simple unit-variant enums are supported.
+pub fn can_generate_enum_conversion(enum_def: &EnumDef) -> bool {
+    enum_def.variants.iter().all(|v| v.fields.is_empty())
+}
+
+fn is_convertible_type(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Unit => true,
+        TypeRef::Json => false, // Needs backend-specific conversion
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => is_convertible_type(inner),
+        TypeRef::Map(k, v) => is_convertible_type(k) && is_convertible_type(v),
+        TypeRef::Named(name) => {
+            // Skip single-letter generic params and known trait types
+            if name.len() <= 2 {
+                return false;
+            }
+            // Skip types that look like generics or trait bounds
+            if name.contains('<') || name.contains("dyn ") {
+                return false;
+            }
+            true
+        }
+    }
+}
+
 /// Generate `impl From<BindingType> for core::Type` (binding -> core).
 pub fn gen_from_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
     let mut out = String::with_capacity(256);

@@ -107,10 +107,12 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &SkifConfig) -> String {
         }
     }
 
-    // Enum functions (from_i32 + to_i32)
+    // Enum functions (from_i32 + to_i32) — only for simple unit-variant enums
     for enum_def in &api.enums {
-        builder.add_item(&gen_enum_from_i32(enum_def, prefix));
-        builder.add_item(&gen_enum_to_i32(enum_def, prefix));
+        if skif_codegen::conversions::can_generate_enum_conversion(enum_def) {
+            builder.add_item(&gen_enum_from_i32(enum_def, prefix));
+            builder.add_item(&gen_enum_to_i32(enum_def, prefix));
+        }
     }
 
     // Free functions

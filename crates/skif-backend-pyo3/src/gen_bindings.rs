@@ -98,20 +98,22 @@ impl Backend for Pyo3Backend {
 
         // From/Into conversions
         for typ in &api.types {
-            if !typ.is_opaque {
+            if skif_codegen::conversions::can_generate_conversion(typ) {
                 builder.add_item(&skif_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
                 builder.add_item(&skif_codegen::conversions::gen_from_core_to_binding(typ, &core_import));
             }
         }
         for e in &api.enums {
-            builder.add_item(&skif_codegen::conversions::gen_enum_from_binding_to_core(
-                e,
-                &core_import,
-            ));
-            builder.add_item(&skif_codegen::conversions::gen_enum_from_core_to_binding(
-                e,
-                &core_import,
-            ));
+            if skif_codegen::conversions::can_generate_enum_conversion(e) {
+                builder.add_item(&skif_codegen::conversions::gen_enum_from_binding_to_core(
+                    e,
+                    &core_import,
+                ));
+                builder.add_item(&skif_codegen::conversions::gen_enum_from_core_to_binding(
+                    e,
+                    &core_import,
+                ));
+            }
         }
 
         // Async runtime initialization (if needed)

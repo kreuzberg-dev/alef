@@ -65,17 +65,23 @@ fn extract_items(
         match item {
             syn::Item::Struct(item_struct) => {
                 if is_pub(&item_struct.vis) {
-                    surface.types.push(extract_struct(item_struct, crate_name));
+                    if let Some(td) = extract_struct(item_struct, crate_name) {
+                        surface.types.push(td);
+                    }
                 }
             }
             syn::Item::Enum(item_enum) => {
                 if is_pub(&item_enum.vis) {
-                    surface.enums.push(extract_enum(item_enum, crate_name));
+                    if let Some(ed) = extract_enum(item_enum, crate_name) {
+                        surface.enums.push(ed);
+                    }
                 }
             }
             syn::Item::Fn(item_fn) => {
                 if is_pub(&item_fn.vis) {
-                    surface.functions.push(extract_function(item_fn, crate_name));
+                    if let Some(fd) = extract_function(item_fn, crate_name) {
+                        surface.functions.push(fd);
+                    }
                 }
             }
             syn::Item::Mod(item_mod) => {
@@ -108,7 +114,11 @@ fn extract_items(
 }
 
 /// Extract a public struct into a `TypeDef`.
-fn extract_struct(item: &syn::ItemStruct, crate_name: &str) -> TypeDef {
+/// Returns `None` for generic structs — they can't be directly exposed to FFI.
+fn extract_struct(item: &syn::ItemStruct, crate_name: &str) -> Option<TypeDef> {
+    if !item.generics.params.is_empty() {
+        return None;
+    }
     let name = item.ident.to_string();
     let fields = match &item.fields {
         syn::Fields::Named(named) => named
@@ -124,7 +134,7 @@ fn extract_struct(item: &syn::ItemStruct, crate_name: &str) -> TypeDef {
     let doc = extract_doc_comments(&item.attrs);
     let is_opaque = fields.is_empty();
 
-    TypeDef {
+    Some(TypeDef {
         rust_path: format!("{crate_name}::{name}"),
         name,
         fields,
@@ -132,7 +142,7 @@ fn extract_struct(item: &syn::ItemStruct, crate_name: &str) -> TypeDef {
         is_opaque,
         is_clone,
         doc,
-    }
+    })
 }
 
 /// Extract a struct field into a `FieldDef`.
@@ -161,7 +171,11 @@ fn unwrap_optional(ty: TypeRef) -> (TypeRef, bool) {
 }
 
 /// Extract a public enum into an `EnumDef`.
-fn extract_enum(item: &syn::ItemEnum, crate_name: &str) -> EnumDef {
+/// Returns `None` for generic enums — they can't be directly exposed to FFI.
+fn extract_enum(item: &syn::ItemEnum, crate_name: &str) -> Option<EnumDef> {
+    if !item.generics.params.is_empty() {
+        return None;
+    }
     let name = item.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
 
@@ -197,16 +211,20 @@ fn extract_enum(item: &syn::ItemEnum, crate_name: &str) -> EnumDef {
         })
         .collect();
 
-    EnumDef {
+    Some(EnumDef {
         rust_path: format!("{crate_name}::{name}"),
         name,
         variants,
         doc,
-    }
+    })
 }
 
 /// Extract a public free function into a `FunctionDef`.
-fn extract_function(item: &syn::ItemFn, crate_name: &str) -> FunctionDef {
+/// Returns `None` for generic functions — they can't be directly exposed to FFI.
+fn extract_function(item: &syn::ItemFn, crate_name: &str) -> Option<FunctionDef> {
+    if !item.sig.generics.params.is_empty() {
+        return None;
+    }
     let name = item.sig.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
     let mut is_async = item.sig.asyncness.is_some();
@@ -223,7 +241,7 @@ fn extract_function(item: &syn::ItemFn, crate_name: &str) -> FunctionDef {
 
     let params = extract_params(&item.sig.inputs);
 
-    FunctionDef {
+    Some(FunctionDef {
         rust_path: format!("{crate_name}::{name}"),
         name,
         params,
@@ -231,7 +249,7 @@ fn extract_function(item: &syn::ItemFn, crate_name: &str) -> FunctionDef {
         is_async,
         error_type,
         doc,
-    }
+    })
 }
 
 /// Extract methods from an `impl` block and attach them to the corresponding `TypeDef`.
@@ -258,6 +276,10 @@ fn extract_impl_block(
         .filter_map(|impl_item| {
             if let syn::ImplItem::Fn(method) = impl_item {
                 if is_pub(&method.vis) {
+                    // Skip generic methods — they can't be directly exposed to FFI
+                    if !method.sig.generics.params.is_empty() {
+                        return None;
+                    }
                     // Skip methods named "new" that return Self — constructor already generated from fields
                     let method_name = method.sig.ident.to_string();
                     if method_name == "new" {
@@ -280,7 +302,12 @@ fn extract_impl_block(
 
     // Use index for O(1) lookup; if not found, create opaque type
     if let Some(&idx) = type_index.get(&type_name) {
-        surface.types[idx].methods.extend(methods);
+        // Dedup: skip methods whose name already exists on the type
+        for method in methods {
+            if !surface.types[idx].methods.iter().any(|m| m.name == method.name) {
+                surface.types[idx].methods.push(method);
+            }
+        }
     } else {
         // The impl is for a type we haven't seen as a pub struct — create an opaque entry
         surface.types.push(TypeDef {
@@ -318,6 +345,10 @@ fn extract_trait_impl_methods(
     // Extract methods from the trait impl (trait methods are implicitly pub)
     for impl_item in &item.items {
         if let syn::ImplItem::Fn(method) = impl_item {
+            // Skip generic methods — they can't be directly exposed to FFI
+            if !method.sig.generics.params.is_empty() {
+                continue;
+            }
             let method_def = extract_method(method, crate_name);
             // Don't add duplicates
             if !type_def.methods.iter().any(|m| m.name == method_def.name) {
