@@ -193,11 +193,17 @@ fn gen_module_init(module_name: &str, api: &ApiSurface) -> String {
         lines.push("    m.add_function(wrap_pyfunction!(init_async_runtime, m)?)?;".to_string());
     }
 
+    // Deduplicate registered types and enums
+    let mut registered: HashSet<String> = HashSet::new();
     for typ in &api.types {
-        lines.push(format!("    m.add_class::<{}>()?;", typ.name));
+        if registered.insert(typ.name.clone()) {
+            lines.push(format!("    m.add_class::<{}>()?;", typ.name));
+        }
     }
     for enum_def in &api.enums {
-        lines.push(format!("    m.add_class::<{}>()?;", enum_def.name));
+        if registered.insert(enum_def.name.clone()) {
+            lines.push(format!("    m.add_class::<{}>()?;", enum_def.name));
+        }
     }
     for func in &api.functions {
         lines.push(format!("    m.add_function(wrap_pyfunction!({}, m)?)?;", func.name));

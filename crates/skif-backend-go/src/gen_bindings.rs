@@ -120,7 +120,10 @@ fn gen_enum_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(1024);
 
     if !enum_def.doc.is_empty() {
-        writeln!(out, "// {} represents the {} enumeration.", enum_def.name, enum_def.doc).unwrap();
+        // Ensure all lines of the doc comment are properly prefixed with //
+        for line in enum_def.doc.lines() {
+            writeln!(out, "// {}", line.trim()).unwrap();
+        }
     } else {
         writeln!(out, "// {} is an enumeration type.", enum_def.name).unwrap();
     }
@@ -132,7 +135,10 @@ fn gen_enum_type(enum_def: &EnumDef) -> String {
         let const_name = format!("{}{}", enum_def.name, variant.name.to_pascal_case());
         let variant_snake = variant.name.to_snake_case();
         if !variant.doc.is_empty() {
-            writeln!(out, "    // {} {}", const_name, variant.doc).unwrap();
+            // Ensure all lines of the doc comment are properly prefixed with //
+            for line in variant.doc.lines() {
+                writeln!(out, "    // {}", line.trim()).unwrap();
+            }
         }
         writeln!(out, "    {} {} = \"{}\"", const_name, enum_def.name, variant_snake).unwrap();
     }

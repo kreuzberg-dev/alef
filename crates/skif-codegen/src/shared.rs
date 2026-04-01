@@ -50,10 +50,7 @@ pub fn constructor_parts(fields: &[FieldDef], type_mapper: &dyn Fn(&TypeRef) -> 
         })
         .collect();
 
-    let assignments: Vec<String> = fields
-        .iter()
-        .map(|f| format!("{name}: {name}", name = f.name))
-        .collect();
+    let assignments: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
 
     // Format param_list with line wrapping if needed
     let single_line = params.join(", ");

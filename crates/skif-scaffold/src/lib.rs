@@ -94,7 +94,7 @@ name = "{module_name}"
 crate-type = ["cdylib"]
 
 [dependencies]
-{core_import} = {{ path = "../../crates/{core_import}" }}
+{core_import} = {{ path = "../../crates/{crate_name}" }}
 pyo3 = {{ version = "0.23", features = ["extension-module"] }}
 pyo3-async-runtimes = {{ version = "0.23", features = ["tokio-runtime"] }}
 serde = {{ version = "1", features = ["derive"] }}
@@ -105,6 +105,7 @@ tokio = {{ version = "1", features = ["full"] }}
         version = version,
         module_name = module_name,
         core_import = core_import,
+        crate_name = name,
     );
 
     Ok(vec![GeneratedFile {
@@ -202,7 +203,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-{core_import} = {{ path = "../../crates/{core_import}" }}
+{core_import} = {{ path = "../../crates/{crate_name}" }}
 napi = {{ version = "3", features = ["async"] }}
 napi-derive = "3"
 serde = {{ version = "1", features = ["derive"] }}
@@ -215,6 +216,7 @@ napi-build = "2"
         name = name,
         version = version,
         core_import = core_import,
+        crate_name = name,
     );
 
     Ok(vec![GeneratedFile {
@@ -315,7 +317,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-{core_import} = {{ path = "../../../../crates/{core_import}" }}
+{core_import} = {{ path = "../../../../crates/{crate_name}" }}
 magnus = "0.7"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
@@ -324,6 +326,7 @@ tokio = {{ version = "1", features = ["full"] }}
         name = name,
         version = version,
         core_import = core_import,
+        crate_name = name,
     );
 
     Ok(vec![GeneratedFile {
@@ -399,7 +402,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-{core_import} = {{ path = "../../crates/{core_import}" }}
+{core_import} = {{ path = "../../crates/{crate_name}" }}
 ext-php-rs = "0.13"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
@@ -408,6 +411,7 @@ tokio = {{ version = "1", features = ["full"] }}
         name = name,
         version = version,
         core_import = core_import,
+        crate_name = name,
     );
 
     Ok(vec![GeneratedFile {
@@ -472,7 +476,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-{core_import} = {{ path = "../../../../crates/{core_import}" }}
+{core_import} = {{ path = "../../../../crates/{crate_name}" }}
 rustler = "0.36"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
@@ -481,6 +485,7 @@ tokio = {{ version = "1", features = ["full"] }}
         name = name,
         version = version,
         core_import = core_import,
+        crate_name = name,
     );
 
     Ok(vec![GeneratedFile {
@@ -695,7 +700,7 @@ repository = "{repository}"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{core_crate} = {{ path = "../../crates/{core_crate}" }}
+{core_crate} = {{ path = "../../crates/{crate_name}" }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 "#,
@@ -705,6 +710,7 @@ serde_json = "1"
         license = meta.license,
         repository = meta.repository,
         core_crate = core_crate,
+        crate_name = name,
     );
 
     Ok(vec![GeneratedFile {
@@ -733,7 +739,7 @@ repository = "{repository}"
 crate-type = ["cdylib"]
 
 [dependencies]
-{core_import} = {{ path = "../../crates/{core_import}" }}
+{core_import} = {{ path = "../../crates/{crate_name}" }}
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 serde = {{ version = "1", features = ["derive"] }}
@@ -746,6 +752,7 @@ js-sys = "0.3"
         license = meta.license,
         repository = meta.repository,
         core_import = core_import,
+        crate_name = name,
     );
 
     Ok(vec![GeneratedFile {

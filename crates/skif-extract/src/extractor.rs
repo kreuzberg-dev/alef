@@ -92,6 +92,85 @@ fn extract_items(
                     }
                 }
             }
+            syn::Item::Type(item_type) => {
+                if is_pub(&item_type.vis) && item_type.generics.params.is_empty() {
+                    // Type alias: pub type Foo = Bar;
+                    // Extract as a TypeDef with the aliased type
+                    let name = item_type.ident.to_string();
+                    let _ty = type_resolver::resolve_type(&item_type.ty);
+                    let rust_path = build_rust_path(crate_name, module_path, &name);
+                    let doc = extract_doc_comments(&item_type.attrs);
+                    surface.types.push(TypeDef {
+                        name,
+                        rust_path,
+                        fields: vec![],
+                        methods: vec![],
+                        is_opaque: true, // type aliases are opaque (no fields)
+                        is_clone: false,
+                        doc,
+                    });
+                }
+            }
+            syn::Item::Trait(item_trait) => {
+                if is_pub(&item_trait.vis) && item_trait.generics.params.is_empty() {
+                    let name = item_trait.ident.to_string();
+                    let rust_path = build_rust_path(crate_name, module_path, &name);
+                    let doc = extract_doc_comments(&item_trait.attrs);
+
+                    // Extract trait methods
+                    let methods: Vec<MethodDef> = item_trait
+                        .items
+                        .iter()
+                        .filter_map(|item| {
+                            if let syn::TraitItem::Fn(method) = item {
+                                let method_name = method.sig.ident.to_string();
+                                let method_doc = extract_doc_comments(&method.attrs);
+                                let mut is_async = method.sig.asyncness.is_some();
+                                let (mut return_type, error_type) = resolve_return_type(&method.sig.output);
+
+                                // Check for BoxFuture async pattern
+                                if !is_async {
+                                    if let Some(inner) = unwrap_future_return(&method.sig.output) {
+                                        is_async = true;
+                                        return_type = inner;
+                                    }
+                                }
+
+                                // Skip generic methods
+                                if !method.sig.generics.params.is_empty() {
+                                    return None;
+                                }
+
+                                let (receiver, is_static) = detect_receiver(&method.sig.inputs);
+                                let params = extract_params(&method.sig.inputs);
+
+                                Some(MethodDef {
+                                    name: method_name,
+                                    params,
+                                    return_type,
+                                    is_async,
+                                    is_static,
+                                    error_type,
+                                    doc: method_doc,
+                                    receiver,
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    surface.types.push(TypeDef {
+                        name,
+                        rust_path,
+                        fields: vec![],
+                        methods,
+                        is_opaque: true,
+                        is_clone: false,
+                        doc,
+                    });
+                }
+            }
             syn::Item::Mod(item_mod) => {
                 if is_pub(&item_mod.vis) {
                     extract_module(
