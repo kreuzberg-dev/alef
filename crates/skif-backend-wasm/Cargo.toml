@@ -1,0 +1,13 @@
+[package]
+name = "skif-backend-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "WASM (wasm-bindgen) backend for skif"
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+skif-codegen = { path = "../skif-codegen" }
+skif-core = { workspace = true }

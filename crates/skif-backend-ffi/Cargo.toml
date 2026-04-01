@@ -1,0 +1,17 @@
+[package]
+name = "skif-backend-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "C FFI backend for skif"
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+heck = { workspace = true }
+skif-codegen = { path = "../skif-codegen" }
+skif-core = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

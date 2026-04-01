@@ -1,0 +1,61 @@
+version: "3"
+
+vars:
+  RUST_LOG: info
+
+tasks:
+  setup:
+    desc: "Install development tools"
+    cmds:
+      - rustup update stable
+      - cargo install prek || true
+      - cargo install taplo-cli || true
+      - cargo install cargo-deny || true
+      - cargo install cargo-machete || true
+      - cargo install cargo-sort || true
+      - cargo install cargo-edit || true
+      - prek install
+      - echo "Setup complete"
+
+  update:
+    desc: "Update dependencies and tools"
+    cmds:
+      - cargo upgrade --incompatible
+      - prek autoupdate
+      - cargo update
+
+  build:
+    desc: "Build all crates"
+    cmds:
+      - cargo build --workspace
+
+  build:release:
+    desc: "Build release binary"
+    cmds:
+      - cargo build --release -p skif-cli
+
+  test:
+    desc: "Run all tests"
+    cmds:
+      - cargo test --workspace
+
+  check:
+    desc: "Type-check all crates"
+    cmds:
+      - cargo check --workspace
+
+  fmt:
+    desc: "Format all code"
+    cmds:
+      - cargo fmt --all
+
+  lint:
+    desc: "Run all linters via prek"
+    cmds:
+      - prek run --all-files
+
+  clean:
+    desc: "Clean build artifacts"
+    cmds:
+      - cargo clean
+      - rm -rf .skif/

@@ -1,0 +1,32 @@
+[package]
+name = "skif-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "CLI for the skif polyglot binding generator"
+
+[[bin]]
+name = "skif"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+blake3 = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+serde_json = { workspace = true }
+skif-backend-csharp = { path = "../skif-backend-csharp" }
+skif-backend-ffi = { path = "../skif-backend-ffi" }
+skif-backend-go = { path = "../skif-backend-go" }
+skif-backend-java = { path = "../skif-backend-java" }
+skif-backend-magnus = { path = "../skif-backend-magnus" }
+skif-backend-napi = { path = "../skif-backend-napi" }
+skif-backend-php = { path = "../skif-backend-php" }
+skif-backend-pyo3 = { path = "../skif-backend-pyo3" }
+skif-backend-rustler = { path = "../skif-backend-rustler" }
+skif-backend-wasm = { path = "../skif-backend-wasm" }
+skif-core = { workspace = true }
+skif-extract = { path = "../skif-extract" }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["fmt"] }

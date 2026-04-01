@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/skif-backend-csharp",
+    "crates/skif-backend-ffi",
+    "crates/skif-backend-go",
+    "crates/skif-backend-java",
+    "crates/skif-backend-magnus",
+    "crates/skif-backend-napi",
+    "crates/skif-backend-php",
+    "crates/skif-backend-pyo3",
+    "crates/skif-backend-rustler",
+    "crates/skif-backend-wasm",
+    "crates/skif-cli",
+    "crates/skif-codegen",
+    "crates/skif-core",
+    "crates/skif-extract",
+    "crates/skif-readme",
+    "crates/skif-scaffold",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/kreuzberg-dev/skif"
+
+[workspace.dependencies]
+ahash = "0.8"
+anyhow = "1"
+blake3 = "1"
+heck = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+skif-codegen = { path = "crates/skif-codegen" }
+skif-core = { path = "crates/skif-core" }
+skif-extract = { path = "crates/skif-extract" }
+syn = { version = "2", features = ["full", "parsing", "visit"] }
+thiserror = "2"
+toml = "1.1"
+tracing = "0.1"

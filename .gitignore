@@ -1,0 +1,9 @@
+/target
+.skif/
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+*.iml

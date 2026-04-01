@@ -1,0 +1,13 @@
+[package]
+name = "skif-backend-go"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Go (cgo) backend for skif"
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+heck = { workspace = true }
+skif-core = { workspace = true }
