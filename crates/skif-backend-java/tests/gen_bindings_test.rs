@@ -22,6 +22,7 @@ fn test_basic_generation() {
                 optional: false,
                 default: None,
                 doc: "Timeout in seconds".to_string(),
+                sanitized: false,
             }],
             methods: vec![],
             is_opaque: false,

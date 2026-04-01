@@ -1048,6 +1048,7 @@ mod tests {
                         optional: false,
                         default: None,
                         doc: String::new(),
+                        sanitized: false,
                     },
                     FieldDef {
                         name: "name".to_string(),
@@ -1055,6 +1056,7 @@ mod tests {
                         optional: false,
                         default: None,
                         doc: String::new(),
+                        sanitized: false,
                     },
                     FieldDef {
                         name: "verbose".to_string(),
@@ -1062,6 +1064,7 @@ mod tests {
                         optional: true,
                         default: None,
                         doc: String::new(),
+                        sanitized: false,
                     },
                 ],
                 methods: vec![],

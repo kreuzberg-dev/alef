@@ -27,6 +27,7 @@ fn print_generated_java_code() {
                         optional: false,
                         default: Some("\"tesseract\"".to_string()),
                         doc: "OCR backend to use".to_string(),
+                        sanitized: false,
                     },
                     FieldDef {
                         name: "timeout".to_string(),
@@ -34,6 +35,7 @@ fn print_generated_java_code() {
                         optional: true,
                         default: None,
                         doc: "Optional timeout in milliseconds".to_string(),
+                        sanitized: false,
                     },
                 ],
                 methods: vec![],
@@ -51,6 +53,7 @@ fn print_generated_java_code() {
                         optional: false,
                         default: None,
                         doc: "Extracted text".to_string(),
+                        sanitized: false,
                     },
                     FieldDef {
                         name: "confidence".to_string(),
@@ -58,6 +61,7 @@ fn print_generated_java_code() {
                         optional: false,
                         default: None,
                         doc: "Confidence score".to_string(),
+                        sanitized: false,
                     },
                 ],
                 methods: vec![],

@@ -171,8 +171,8 @@ impl Backend for Pyo3Backend {
 /// Generate the async runtime initialization function.
 fn gen_async_runtime_init() -> String {
     r#"#[pyfunction]
-pub fn init_async_runtime(py: Python) -> PyResult<()> {
-    pyo3_async_runtimes::tokio::init_once(py);
+pub fn init_async_runtime() -> PyResult<()> {
+    // Tokio runtime auto-initializes on first future_into_py call
     Ok(())
 }"#
     .to_string()

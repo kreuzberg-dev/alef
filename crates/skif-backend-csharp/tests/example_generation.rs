@@ -20,6 +20,7 @@ fn test_generated_code_example() {
                     optional: true,
                     default: None,
                     doc: "OCR backend to use".to_string(),
+                    sanitized: false,
                 },
                 FieldDef {
                     name: "timeout".to_string(),
@@ -27,6 +28,7 @@ fn test_generated_code_example() {
                     optional: true,
                     default: None,
                     doc: "Timeout in milliseconds".to_string(),
+                    sanitized: false,
                 },
             ],
             methods: vec![],

@@ -14,11 +14,11 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
         .map(|e| e.name.as_str())
         .collect();
 
-    // Start with all non-opaque types as candidates
+    // Start with all non-opaque types that have no sanitized fields as candidates
     let mut convertible: AHashSet<String> = surface
         .types
         .iter()
-        .filter(|t| !t.is_opaque)
+        .filter(|t| !t.is_opaque && !t.fields.iter().any(|f| f.sanitized))
         .map(|t| t.name.clone())
         .collect();
 
@@ -32,7 +32,7 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
                 let ok = typ
                     .fields
                     .iter()
-                    .all(|f| is_field_convertible_with_set(&f.ty, &convertible, &convertible_enums));
+                    .all(|f| is_field_convertible(&f.ty, &convertible_enums));
                 if !ok && convertible.remove(type_name) {
                     changed = true;
                 }
@@ -47,21 +47,12 @@ pub fn can_generate_conversion(typ: &TypeDef, convertible: &AHashSet<String>) ->
     convertible.contains(&typ.name)
 }
 
-fn is_field_convertible_with_set(
-    ty: &TypeRef,
-    convertible: &AHashSet<String>,
-    convertible_enums: &AHashSet<&str>,
-) -> bool {
+fn is_field_convertible(ty: &TypeRef, convertible_enums: &AHashSet<&str>) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Unit => true,
         TypeRef::Json => false,
-        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
-            is_field_convertible_with_set(inner, convertible, convertible_enums)
-        }
-        TypeRef::Map(k, v) => {
-            is_field_convertible_with_set(k, convertible, convertible_enums)
-                && is_field_convertible_with_set(v, convertible, convertible_enums)
-        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => is_field_convertible(inner, convertible_enums),
+        TypeRef::Map(k, v) => is_field_convertible(k, convertible_enums) && is_field_convertible(v, convertible_enums),
         // Only unit-variant enums are safe for auto-conversion in From/Into.
         TypeRef::Named(name) => convertible_enums.contains(name.as_str()),
     }
@@ -229,6 +220,7 @@ mod tests {
                     optional: false,
                     default: None,
                     doc: String::new(),
+                    sanitized: false,
                 },
                 FieldDef {
                     name: "timeout".into(),
@@ -236,6 +228,7 @@ mod tests {
                     optional: true,
                     default: None,
                     doc: String::new(),
+                    sanitized: false,
                 },
                 FieldDef {
                     name: "backend".into(),
@@ -243,6 +236,7 @@ mod tests {
                     optional: true,
                     default: None,
                     doc: String::new(),
+                    sanitized: false,
                 },
             ],
             methods: vec![],

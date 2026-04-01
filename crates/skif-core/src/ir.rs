@@ -31,6 +31,10 @@ pub struct FieldDef {
     pub optional: bool,
     pub default: Option<String>,
     pub doc: String,
+    /// True if this field's type was sanitized (e.g., Duration→u64, trait object→String).
+    /// Fields marked sanitized cannot participate in auto-generated From/Into conversions.
+    #[serde(default)]
+    pub sanitized: bool,
 }
 
 /// A method on a public struct.

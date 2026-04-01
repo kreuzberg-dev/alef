@@ -362,6 +362,7 @@ fn extract_field(field: &syn::Field) -> FieldDef {
         optional,
         default: None,
         doc,
+        sanitized: false,
     }
 }
 
@@ -404,6 +405,7 @@ fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: &str) -> Op
                             optional,
                             default: None,
                             doc: extract_doc_comments(&f.attrs),
+                            sanitized: false,
                         }
                     })
                     .collect(),

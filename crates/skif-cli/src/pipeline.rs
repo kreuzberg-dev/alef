@@ -463,7 +463,9 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
 
     for typ in &mut api.types {
         for field in &mut typ.fields {
-            sanitize_type_ref(&mut field.ty, &known_types, &known_enums);
+            if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
+                field.sanitized = true;
+            }
         }
         for method in &mut typ.methods {
             for param in &mut method.params {
@@ -480,20 +482,24 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
     }
 }
 
-fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enums: &AHashSet<String>) {
+/// Returns true if the type was sanitized (changed from original).
+fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enums: &AHashSet<String>) -> bool {
     match ty {
         TypeRef::Named(name) => {
             if !known_types.contains(name.as_str()) && !known_enums.contains(name.as_str()) {
                 *ty = TypeRef::String;
+                true
+            } else {
+                false
             }
         }
-        TypeRef::Optional(inner) => sanitize_type_ref(inner, known_types, known_enums),
-        TypeRef::Vec(inner) => sanitize_type_ref(inner, known_types, known_enums),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => sanitize_type_ref(inner, known_types, known_enums),
         TypeRef::Map(k, v) => {
-            sanitize_type_ref(k, known_types, known_enums);
-            sanitize_type_ref(v, known_types, known_enums);
+            let a = sanitize_type_ref(k, known_types, known_enums);
+            let b = sanitize_type_ref(v, known_types, known_enums);
+            a || b
         }
-        _ => {}
+        _ => false,
     }
 }
 
