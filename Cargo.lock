@@ -429,11 +429,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "skif-adapters"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "skif-core",
+]
+
+[[package]]
 name = "skif-backend-csharp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "heck",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]
@@ -443,6 +452,7 @@ name = "skif-backend-extendr"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]
@@ -453,6 +463,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "heck",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
  "toml",
@@ -464,6 +475,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "heck",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]
@@ -473,6 +485,7 @@ name = "skif-backend-java"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]
@@ -483,6 +496,7 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "anyhow",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]
@@ -493,6 +507,7 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "anyhow",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]
@@ -503,6 +518,7 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "anyhow",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]
@@ -513,6 +529,7 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "anyhow",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]
@@ -524,6 +541,7 @@ dependencies = [
  "ahash",
  "anyhow",
  "heck",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]
@@ -534,6 +552,7 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "anyhow",
+ "skif-adapters",
  "skif-codegen",
  "skif-core",
 ]

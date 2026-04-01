@@ -104,6 +104,12 @@ impl Backend for ExtendrBackend {
             builder.add_item(&generators::gen_function(func, self, &cfg));
         }
 
+        // Generate adapter functions
+        let adapter_blocks = skif_adapters::generate_adapters(config, Language::R)?;
+        for block in &adapter_blocks {
+            builder.add_item(block);
+        }
+
         // Module registration
         let module_name = config.r_package_name().replace('-', "_");
         let module_items = format!(

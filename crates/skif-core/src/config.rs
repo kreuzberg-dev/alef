@@ -44,6 +44,8 @@ pub struct SkifConfig {
     pub lint: Option<HashMap<String, LintConfig>>,
     #[serde(default)]
     pub custom_files: Option<HashMap<String, Vec<PathBuf>>>,
+    #[serde(default)]
+    pub adapters: Vec<AdapterConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,6 +210,50 @@ pub struct CSharpConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RConfig {
     pub package_name: Option<String>,
+}
+
+/// A parameter in an adapter function.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterParam {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub ty: String,
+    #[serde(default)]
+    pub optional: bool,
+}
+
+/// The kind of adapter pattern.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdapterPattern {
+    SyncFunction,
+    AsyncMethod,
+    CallbackBridge,
+    Streaming,
+    ServerLifecycle,
+}
+
+/// Configuration for a single adapter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterConfig {
+    pub name: String,
+    pub pattern: AdapterPattern,
+    /// Full Rust path to the core function/method (e.g., "html_to_markdown_rs::convert")
+    pub core_path: String,
+    /// Parameters
+    #[serde(default)]
+    pub params: Vec<AdapterParam>,
+    /// Return type name
+    pub returns: Option<String>,
+    /// Error type name
+    pub error_type: Option<String>,
+    /// For async_method/streaming: the owning type name
+    pub owner_type: Option<String>,
+    /// For streaming: the item type
+    pub item_type: Option<String>,
+    /// For Python: release GIL during call
+    #[serde(default)]
+    pub gil_release: bool,
 }
 
 /// Helper function to resolve output directory path from config.

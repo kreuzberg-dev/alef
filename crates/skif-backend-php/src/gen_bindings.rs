@@ -124,6 +124,12 @@ impl Backend for PhpBackend {
             }
         }
 
+        // Generate adapter functions
+        let adapter_blocks = skif_adapters::generate_adapters(config, Language::Php)?;
+        for block in &adapter_blocks {
+            builder.add_item(block);
+        }
+
         builder.add_item(&gen_module_init(api, config));
 
         let content = builder.build();

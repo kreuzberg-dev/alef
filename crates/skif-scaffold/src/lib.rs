@@ -907,6 +907,7 @@ mod tests {
             readme: None,
             lint: None,
             custom_files: None,
+            adapters: vec![],
         }
     }
 

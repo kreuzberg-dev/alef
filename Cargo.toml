@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/skif-adapters",
     "crates/skif-backend-csharp",
     "crates/skif-backend-extendr",
     "crates/skif-backend-ffi",
@@ -35,6 +36,7 @@ heck = "0.5"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+skif-adapters = { path = "crates/skif-adapters" }
 skif-codegen = { path = "crates/skif-codegen" }
 skif-core = { path = "crates/skif-core" }
 skif-extract = { path = "crates/skif-extract" }

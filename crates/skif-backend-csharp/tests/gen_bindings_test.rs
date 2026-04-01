@@ -116,6 +116,7 @@ fn test_basic_generation() {
         readme: None,
         lint: None,
         custom_files: None,
+        adapters: vec![],
     };
 
     // Generate bindings
@@ -240,6 +241,7 @@ fn test_namespace_resolution() {
         readme: None,
         lint: None,
         custom_files: None,
+        adapters: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -295,6 +297,7 @@ fn test_generated_header() {
         readme: None,
         lint: None,
         custom_files: None,
+        adapters: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -396,6 +399,7 @@ fn test_type_mapping() {
         readme: None,
         lint: None,
         custom_files: None,
+        adapters: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);

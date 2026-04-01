@@ -120,6 +120,12 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &SkifConfig) -> String {
         builder.add_item(&gen_free_function(func, prefix, &core_import));
     }
 
+    // Generate adapter functions
+    let adapter_blocks = skif_adapters::generate_adapters(config, Language::Ffi).unwrap_or_default();
+    for block in &adapter_blocks {
+        builder.add_item(block);
+    }
+
     builder.build()
 }
 

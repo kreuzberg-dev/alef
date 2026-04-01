@@ -93,6 +93,12 @@ impl Backend for MagnusBackend {
             }
         }
 
+        // Generate adapter functions
+        let adapter_blocks = skif_adapters::generate_adapters(config, Language::Ruby)?;
+        for block in &adapter_blocks {
+            builder.add_item(block);
+        }
+
         let module_name = get_module_name(&api.crate_name);
         builder.add_item(&gen_module_init(&module_name, api));
 

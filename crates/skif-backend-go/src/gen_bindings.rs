@@ -49,7 +49,14 @@ impl Backend for GoBackend {
 
         let output_dir = resolve_output_dir(config.output.go.as_ref(), &config.crate_config.name, "packages/go/");
 
-        let content = gen_go_file(api, &ffi_prefix, &pkg_name);
+        let mut content = gen_go_file(api, &ffi_prefix, &pkg_name);
+
+        // Generate adapter functions
+        let adapter_blocks = skif_adapters::generate_adapters(config, Language::Go)?;
+        for block in &adapter_blocks {
+            content.push_str("\n\n");
+            content.push_str(block);
+        }
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("binding.go"),

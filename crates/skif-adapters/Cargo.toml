@@ -1,15 +1,12 @@
 [package]
-name = "skif-backend-go"
+name = "skif-adapters"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Go (cgo) backend for skif"
+description = "FFI adapter pattern generators for skif"
 repository.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-heck = { workspace = true }
-skif-adapters = { workspace = true }
-skif-codegen = { path = "../skif-codegen" }
 skif-core = { workspace = true }

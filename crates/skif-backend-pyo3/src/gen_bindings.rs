@@ -123,6 +123,12 @@ impl Backend for Pyo3Backend {
             }
         }
 
+        // Generate adapter functions
+        let adapter_blocks = skif_adapters::generate_adapters(config, Language::Python)?;
+        for block in &adapter_blocks {
+            builder.add_item(block);
+        }
+
         // Async runtime initialization (if needed)
         if has_async {
             builder.add_item(&gen_async_runtime_init());

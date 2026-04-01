@@ -112,6 +112,7 @@ fn test_generated_code_example() {
         readme: None,
         lint: None,
         custom_files: None,
+        adapters: vec![],
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

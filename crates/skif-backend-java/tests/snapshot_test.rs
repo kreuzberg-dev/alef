@@ -191,6 +191,7 @@ fn print_generated_java_code() {
         readme: None,
         lint: None,
         custom_files: None,
+        adapters: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config).unwrap();

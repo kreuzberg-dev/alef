@@ -98,6 +98,7 @@ fn test_basic_generation() {
         readme: None,
         lint: None,
         custom_files: None,
+        adapters: vec![],
     };
 
     // Generate bindings
@@ -212,6 +213,7 @@ fn test_package_default() {
         readme: None,
         lint: None,
         custom_files: None,
+        adapters: vec![],
     };
 
     let result = backend.generate_bindings(&api, &config);

@@ -10,5 +10,6 @@ repository.workspace = true
 [dependencies]
 ahash = { workspace = true }
 anyhow = { workspace = true }
+skif-adapters = { workspace = true }
 skif-codegen = { path = "../skif-codegen" }
 skif-core = { workspace = true }

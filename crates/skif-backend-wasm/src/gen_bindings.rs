@@ -110,6 +110,12 @@ impl Backend for WasmBackend {
             }
         }
 
+        // Generate adapter functions
+        let adapter_blocks = skif_adapters::generate_adapters(config, Language::Wasm)?;
+        for block in &adapter_blocks {
+            builder.add_item(block);
+        }
+
         let content = builder.build();
 
         let output_dir = resolve_output_dir(
