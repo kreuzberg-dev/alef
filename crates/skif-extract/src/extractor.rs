@@ -195,9 +195,18 @@ fn extract_enum(item: &syn::ItemEnum, crate_name: &str) -> EnumDef {
 fn extract_function(item: &syn::ItemFn, crate_name: &str) -> FunctionDef {
     let name = item.sig.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
-    let is_async = item.sig.asyncness.is_some();
+    let mut is_async = item.sig.asyncness.is_some();
 
-    let (return_type, error_type) = resolve_return_type(&item.sig.output);
+    let (mut return_type, error_type) = resolve_return_type(&item.sig.output);
+
+    // Detect future-returning functions as async
+    if !is_async {
+        if let Some(inner) = unwrap_future_return(&item.sig.output) {
+            is_async = true;
+            return_type = inner;
+        }
+    }
+
     let params = extract_params(&item.sig.inputs);
 
     FunctionDef {
@@ -297,9 +306,18 @@ fn extract_trait_impl_methods(item: &syn::ItemImpl, crate_name: &str, surface: &
 fn extract_method(method: &syn::ImplItemFn, _crate_name: &str) -> MethodDef {
     let name = method.sig.ident.to_string();
     let doc = extract_doc_comments(&method.attrs);
-    let is_async = method.sig.asyncness.is_some();
+    let mut is_async = method.sig.asyncness.is_some();
 
-    let (return_type, error_type) = resolve_return_type(&method.sig.output);
+    let (mut return_type, error_type) = resolve_return_type(&method.sig.output);
+
+    // Detect future-returning functions as async:
+    // BoxFuture<'_, T>, Pin<Box<dyn Future<Output = T>>>, etc.
+    if !is_async {
+        if let Some(inner) = unwrap_future_return(&method.sig.output) {
+            is_async = true;
+            return_type = inner;
+        }
+    }
 
     let (receiver, is_static) = detect_receiver(&method.sig.inputs);
     let params = extract_params(&method.sig.inputs);
@@ -314,6 +332,95 @@ fn extract_method(method: &syn::ImplItemFn, _crate_name: &str) -> MethodDef {
         doc,
         receiver,
     }
+}
+
+/// Check if a return type is a future type (BoxFuture, Pin<Box<dyn Future>>, etc.)
+/// and extract the inner output type.
+fn unwrap_future_return(output: &syn::ReturnType) -> Option<TypeRef> {
+    let ty = match output {
+        syn::ReturnType::Type(_, ty) => ty,
+        syn::ReturnType::Default => return None,
+    };
+
+    // Check the outermost type name
+    if let syn::Type::Path(type_path) = ty.as_ref() {
+        if let Some(seg) = type_path.path.segments.last() {
+            let ident = seg.ident.to_string();
+            match ident.as_str() {
+                // BoxFuture<'_, T> or BoxStream<'_, T> → async returning T
+                "BoxFuture" | "BoxStream" => {
+                    return extract_future_inner_type(seg);
+                }
+                // Pin<Box<dyn Future<Output = T>>> → async returning T
+                "Pin" => {
+                    return extract_pin_future_inner(seg);
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+/// Extract inner type from BoxFuture<'_, T> or BoxFuture<'_, Result<T, E>>
+fn extract_future_inner_type(segment: &syn::PathSegment) -> Option<TypeRef> {
+    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+        // BoxFuture has lifetime + type args. Find the type arg.
+        for arg in &args.args {
+            if let syn::GenericArgument::Type(ty) = arg {
+                let resolved = type_resolver::resolve_type(ty);
+                return Some(resolved);
+            }
+        }
+    }
+    None
+}
+
+/// Extract inner type from Pin<Box<dyn Future<Output = T>>>
+fn extract_pin_future_inner(segment: &syn::PathSegment) -> Option<TypeRef> {
+    // Pin<Box<dyn Future<Output = T>>>
+    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+        for arg in &args.args {
+            if let syn::GenericArgument::Type(syn::Type::Path(inner_path)) = arg {
+                if let Some(inner_seg) = inner_path.path.segments.last() {
+                    if inner_seg.ident == "Box" {
+                        // Box<dyn Future<Output = T>>
+                        if let syn::PathArguments::AngleBracketed(box_args) = &inner_seg.arguments {
+                            for box_arg in &box_args.args {
+                                if let syn::GenericArgument::Type(syn::Type::TraitObject(trait_obj)) = box_arg {
+                                    return extract_future_output_from_trait_obj(trait_obj);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Extract Output type from `dyn Future<Output = T>`
+fn extract_future_output_from_trait_obj(trait_obj: &syn::TypeTraitObject) -> Option<TypeRef> {
+    for bound in &trait_obj.bounds {
+        if let syn::TypeParamBound::Trait(trait_bound) = bound {
+            if let Some(seg) = trait_bound.path.segments.last() {
+                if seg.ident == "Future" {
+                    // Look for Output = T in angle-bracketed args
+                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                        for arg in &args.args {
+                            if let syn::GenericArgument::AssocType(assoc) = arg {
+                                if assoc.ident == "Output" {
+                                    return Some(type_resolver::resolve_type(&assoc.ty));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Detect the receiver kind from method inputs.
