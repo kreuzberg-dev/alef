@@ -78,6 +78,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &SkifConfig) -> String {
     // Imports
     builder.add_import("std::ffi::{c_char, CStr, CString}");
     builder.add_import("std::cell::RefCell");
+    builder.add_import("serde_json");
     let core_import = config.core_import();
     builder.add_import(&core_import);
 
@@ -278,7 +279,11 @@ fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str) -> String {
         field.ty.clone()
     };
 
-    let ret_type = c_return_type(&effective_ty);
+    let mut ret_type = c_return_type(&effective_ty);
+    // Replace "Self" with the actual type name in FFI signatures
+    if ret_type.contains("Self") {
+        ret_type = ret_type.replace("Self", type_name);
+    }
     let mut out = String::new();
 
     writeln!(out, "/// Get the `{field_name}` field from a `{type_name}`.").unwrap();
@@ -457,7 +462,7 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_impo
 
     // Return type
     let has_error = method.error_type.is_some();
-    let ret_type = if has_error && is_void_return(&method.return_type) {
+    let mut ret_type = if has_error && is_void_return(&method.return_type) {
         "i32".to_string() // 0 = success, nonzero = error
     } else if has_error {
         // Fallible + non-void: return nullable pointer
@@ -468,6 +473,11 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_impo
     } else {
         c_return_type(&method.return_type)
     };
+
+    // Replace "Self" with the actual type name in FFI signatures
+    if ret_type.contains("Self") {
+        ret_type = ret_type.replace("Self", type_name);
+    }
 
     if is_void_return(&method.return_type) && !has_error {
         writeln!(out, "pub extern \"C\" fn {fn_name}(").unwrap();
