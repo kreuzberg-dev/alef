@@ -1,5 +1,5 @@
 use crate::type_map::{csharp_default_value, csharp_type};
-use heck::ToPascalCase;
+use heck::{ToLowerCamelCase, ToPascalCase};
 use skif_codegen::naming::to_csharp_name;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
@@ -71,7 +71,12 @@ impl Backend for CsharpBackend {
         });
 
         // 3. Generate main wrapper class
-        let wrapper_class_name = api.crate_name.to_pascal_case();
+        let base_class_name = api.crate_name.to_pascal_case();
+        let wrapper_class_name = if namespace == base_class_name {
+            format!("{}Lib", base_class_name)
+        } else {
+            base_class_name
+        };
         files.push(GeneratedFile {
             path: base_path.join(format!("{}.cs", wrapper_class_name)),
             content: gen_wrapper_class(api, &namespace, &wrapper_class_name, &exception_class_name, &prefix),
@@ -179,7 +184,8 @@ fn gen_pinvoke_for_func(c_name: &str, func: &FunctionDef) -> String {
             if param.ty == TypeRef::String {
                 out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
             }
-            out.push_str(&format!("{} {}", csharp_type(&param.ty), param.name));
+            let param_name = param.name.to_lower_camel_case();
+            out.push_str(&format!("{} {}", csharp_type(&param.ty), param_name));
 
             if i < func.params.len() - 1 {
                 out.push(',');
@@ -214,7 +220,8 @@ fn gen_pinvoke_for_method(c_name: &str, method: &MethodDef) -> String {
             if param.ty == TypeRef::String {
                 out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
             }
-            out.push_str(&format!("{} {}", csharp_type(&param.ty), param.name));
+            let param_name = param.name.to_lower_camel_case();
+            out.push_str(&format!("{} {}", csharp_type(&param.ty), param_name));
 
             if i < method.params.len() - 1 {
                 out.push(',');
@@ -324,10 +331,11 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, prefix: &str)
 
     // Parameters
     for (i, param) in func.params.iter().enumerate() {
+        let param_name = param.name.to_lower_camel_case();
         if param.optional {
-            out.push_str(&format!("{}? {}", csharp_type(&param.ty), param.name));
+            out.push_str(&format!("{}? {}", csharp_type(&param.ty), param_name));
         } else {
-            out.push_str(&format!("{} {}", csharp_type(&param.ty), param.name));
+            out.push_str(&format!("{} {}", csharp_type(&param.ty), param_name));
         }
 
         if i < func.params.len() - 1 {
@@ -353,7 +361,8 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, prefix: &str)
     } else {
         out.push('\n');
         for (i, param) in func.params.iter().enumerate() {
-            out.push_str(&format!("            {}", param.name));
+            let param_name = param.name.to_lower_camel_case();
+            out.push_str(&format!("            {}", param_name));
             if i < func.params.len() - 1 {
                 out.push(',');
             }
@@ -392,10 +401,11 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, prefix: &str) -
 
     // Parameters
     for (i, param) in method.params.iter().enumerate() {
+        let param_name = param.name.to_lower_camel_case();
         if param.optional {
-            out.push_str(&format!("{}? {}", csharp_type(&param.ty), param.name));
+            out.push_str(&format!("{}? {}", csharp_type(&param.ty), param_name));
         } else {
-            out.push_str(&format!("{} {}", csharp_type(&param.ty), param.name));
+            out.push_str(&format!("{} {}", csharp_type(&param.ty), param_name));
         }
 
         if i < method.params.len() - 1 {
@@ -421,7 +431,8 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, prefix: &str) -
     } else {
         out.push('\n');
         for (i, param) in method.params.iter().enumerate() {
-            out.push_str(&format!("            {}", param.name));
+            let param_name = param.name.to_lower_camel_case();
+            out.push_str(&format!("            {}", param_name));
             if i < method.params.len() - 1 {
                 out.push(',');
             }

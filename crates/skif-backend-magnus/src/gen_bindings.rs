@@ -269,10 +269,21 @@ fn gen_field_accessor(field: &FieldDef, mapper: &MagnusMapper) -> String {
         mapper.map_type(&field.ty)
     };
 
+    let body = if is_primitive_copy(&field.ty) {
+        format!("self.{}", field.name)
+    } else {
+        format!("self.{}.clone()", field.name)
+    };
+
     format!(
-        "fn {}(&self) -> {} {{\n        self.{}.clone()\n    }}",
-        field.name, return_type, field.name
+        "fn {}(&self) -> {} {{\n        {}\n    }}",
+        field.name, return_type, body
     )
+}
+
+/// Check if a type is a Copy type (primitives and unit).
+fn is_primitive_copy(ty: &skif_core::ir::TypeRef) -> bool {
+    matches!(ty, skif_core::ir::TypeRef::Primitive(_) | skif_core::ir::TypeRef::Unit)
 }
 
 /// Generate an instance method binding.
