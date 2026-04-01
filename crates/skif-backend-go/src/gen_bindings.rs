@@ -64,38 +64,38 @@ fn gen_go_file(api: &ApiSurface, ffi_prefix: &str, pkg_name: &str) -> String {
     let mut out = String::with_capacity(4096);
 
     // Package header and imports
-    writeln!(out, "package {}\n", pkg_name).unwrap();
+    writeln!(out, "package {}\n", pkg_name).ok();
     writeln!(
         out,
         "/*\n#cgo LDFLAGS: -l{}_ffi\n#include \"{}.h\"\nimport \"C\"\n*/",
         ffi_prefix, ffi_prefix
     )
-    .unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "import (\n    \"encoding/json\"\n    \"fmt\"\n    \"unsafe\"\n)\n").unwrap();
+    .ok();
+    writeln!(out).ok();
+    writeln!(out, "import (\n    \"encoding/json\"\n    \"fmt\"\n    \"unsafe\"\n)\n").ok();
 
     // Error helper functions
-    writeln!(out, "{}\n", gen_last_error_helper(ffi_prefix)).unwrap();
+    writeln!(out, "{}\n", gen_last_error_helper(ffi_prefix)).ok();
 
     // Generate enum types and constants
     for enum_def in &api.enums {
-        writeln!(out, "{}\n", gen_enum_type(enum_def)).unwrap();
+        writeln!(out, "{}\n", gen_enum_type(enum_def)).ok();
     }
 
     // Generate struct types
     for typ in &api.types {
-        writeln!(out, "{}\n", gen_struct_type(typ)).unwrap();
+        writeln!(out, "{}\n", gen_struct_type(typ)).ok();
     }
 
     // Generate free function wrappers
     for func in &api.functions {
-        writeln!(out, "{}\n", gen_function_wrapper(func, ffi_prefix)).unwrap();
+        writeln!(out, "{}\n", gen_function_wrapper(func, ffi_prefix)).ok();
     }
 
     // Generate struct methods
     for typ in &api.types {
         for method in &typ.methods {
-            writeln!(out, "{}\n", gen_method_wrapper(typ, method, ffi_prefix)).unwrap();
+            writeln!(out, "{}\n", gen_method_wrapper(typ, method, ffi_prefix)).ok();
         }
     }
 
@@ -123,14 +123,14 @@ fn gen_enum_type(enum_def: &EnumDef) -> String {
     if !enum_def.doc.is_empty() {
         // Ensure all lines of the doc comment are properly prefixed with //
         for line in enum_def.doc.lines() {
-            writeln!(out, "// {}", line.trim()).unwrap();
+            writeln!(out, "// {}", line.trim()).ok();
         }
     } else {
-        writeln!(out, "// {} is an enumeration type.", enum_def.name).unwrap();
+        writeln!(out, "// {} is an enumeration type.", enum_def.name).ok();
     }
-    writeln!(out, "type {} string", enum_def.name).unwrap();
-    writeln!(out).unwrap();
-    writeln!(out, "const (").unwrap();
+    writeln!(out, "type {} string", enum_def.name).ok();
+    writeln!(out).ok();
+    writeln!(out, "const (").ok();
 
     for variant in &enum_def.variants {
         let const_name = format!("{}{}", enum_def.name, variant.name.to_pascal_case());
@@ -138,13 +138,13 @@ fn gen_enum_type(enum_def: &EnumDef) -> String {
         if !variant.doc.is_empty() {
             // Ensure all lines of the doc comment are properly prefixed with //
             for line in variant.doc.lines() {
-                writeln!(out, "    // {}", line.trim()).unwrap();
+                writeln!(out, "    // {}", line.trim()).ok();
             }
         }
-        writeln!(out, "    {} {} = \"{}\"", const_name, enum_def.name, variant_snake).unwrap();
+        writeln!(out, "    {} {} = \"{}\"", const_name, enum_def.name, variant_snake).ok();
     }
 
-    writeln!(out, ")").unwrap();
+    writeln!(out, ")").ok();
     out
 }
 
@@ -153,11 +153,11 @@ fn gen_struct_type(typ: &TypeDef) -> String {
     let mut out = String::with_capacity(1024);
 
     if !typ.doc.is_empty() {
-        writeln!(out, "// {} {}", typ.name, typ.doc).unwrap();
+        writeln!(out, "// {} {}", typ.name, typ.doc).ok();
     } else {
-        writeln!(out, "// {} is a type.", typ.name).unwrap();
+        writeln!(out, "// {} is a type.", typ.name).ok();
     }
-    writeln!(out, "type {} struct {{", typ.name).unwrap();
+    writeln!(out, "type {} struct {{", typ.name).ok();
 
     for field in &typ.fields {
         let field_type = if field.optional {
@@ -174,12 +174,12 @@ fn gen_struct_type(typ: &TypeDef) -> String {
         };
 
         if !field.doc.is_empty() {
-            writeln!(out, "    // {} {}", to_go_name(&field.name), field.doc).unwrap();
+            writeln!(out, "    // {} {}", to_go_name(&field.name), field.doc).ok();
         }
-        writeln!(out, "    {} {} `{}`", to_go_name(&field.name), field_type, json_tag).unwrap();
+        writeln!(out, "    {} {} `{}`", to_go_name(&field.name), field_type, json_tag).ok();
     }
 
-    writeln!(out, "}}").unwrap();
+    writeln!(out, "}}").ok();
     out
 }
 
@@ -190,9 +190,9 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
     let func_go_name = to_go_name(&func.name);
 
     if !func.doc.is_empty() {
-        writeln!(out, "// {} {}", func_go_name, func.doc).unwrap();
+        writeln!(out, "// {} {}", func_go_name, func.doc).ok();
     } else {
-        writeln!(out, "// {} calls the FFI function.", func_go_name).unwrap();
+        writeln!(out, "// {} calls the FFI function.", func_go_name).ok();
     }
 
     let return_type = if func.error_type.is_some() {
@@ -210,7 +210,7 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
     let func_snake = func.name.to_snake_case();
     let ffi_name = format!("C.{}_{}", ffi_prefix, func_snake);
 
-    write!(out, "func {}(", func_go_name).unwrap();
+    write!(out, "func {}(", func_go_name).ok();
 
     let params: Vec<String> = func
         .params
@@ -224,17 +224,17 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
             format!("{} {}", p.name, param_type)
         })
         .collect();
-    write!(out, "{}", params.join(", ")).unwrap();
+    write!(out, "{}", params.join(", ")).ok();
 
     if return_type.is_empty() {
-        writeln!(out, ") {{").unwrap();
+        writeln!(out, ") {{").ok();
     } else {
-        writeln!(out, ") {} {{", return_type).unwrap();
+        writeln!(out, ") {} {{", return_type).ok();
     }
 
     // Convert parameters
     for param in &func.params {
-        write!(out, "{}", gen_param_to_c(param)).unwrap();
+        write!(out, "{}", gen_param_to_c(param)).ok();
     }
 
     // Build the C call with converted parameters
@@ -249,37 +249,37 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
     // Handle result and error
     if func.error_type.is_some() {
         if matches!(func.return_type, TypeRef::Unit) {
-            writeln!(out, "    {}", c_call).unwrap();
-            writeln!(out, "    return lastError()").unwrap();
+            writeln!(out, "    {}", c_call).ok();
+            writeln!(out, "    return lastError()").ok();
         } else {
-            writeln!(out, "    ptr := {}", c_call).unwrap();
+            writeln!(out, "    ptr := {}", c_call).ok();
             // Add defer free for C string returns
             if matches!(
                 func.return_type,
                 TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
             ) {
-                writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).unwrap();
+                writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
-            writeln!(out, "    if err := lastError(); err != nil {{").unwrap();
-            writeln!(out, "        return nil, err").unwrap();
-            writeln!(out, "    }}").unwrap();
-            writeln!(out, "    return unmarshal{}(ptr), nil", type_name(&func.return_type)).unwrap();
+            writeln!(out, "    if err := lastError(); err != nil {{").ok();
+            writeln!(out, "        return nil, err").ok();
+            writeln!(out, "    }}").ok();
+            writeln!(out, "    return unmarshal{}(ptr), nil", type_name(&func.return_type)).ok();
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
-        writeln!(out, "    {}", c_call).unwrap();
+        writeln!(out, "    {}", c_call).ok();
     } else {
-        writeln!(out, "    ptr := {}", c_call).unwrap();
+        writeln!(out, "    ptr := {}", c_call).ok();
         // Add defer free for C string returns
         if matches!(
             func.return_type,
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
         ) {
-            writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).unwrap();
+            writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
         }
-        writeln!(out, "    return unmarshal{}(ptr)", type_name(&func.return_type)).unwrap();
+        writeln!(out, "    return unmarshal{}(ptr)", type_name(&func.return_type)).ok();
     }
 
-    writeln!(out, "}}").unwrap();
+    writeln!(out, "}}").ok();
     out
 }
 
@@ -290,9 +290,9 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
     let method_go_name = to_go_name(&method.name);
 
     if !method.doc.is_empty() {
-        writeln!(out, "// {} {}", method_go_name, method.doc).unwrap();
+        writeln!(out, "// {} {}", method_go_name, method.doc).ok();
     } else {
-        writeln!(out, "// {} is a method.", method_go_name).unwrap();
+        writeln!(out, "// {} is a method.", method_go_name).ok();
     }
 
     let return_type = if method.error_type.is_some() {
@@ -311,7 +311,7 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
     let receiver_type = &typ.name;
 
     // Determine receiver (pointer)
-    write!(out, "func ({} *{}) {}(", receiver_name, receiver_type, method_go_name).unwrap();
+    write!(out, "func ({} *{}) {}(", receiver_name, receiver_type, method_go_name).ok();
 
     let params: Vec<String> = method
         .params
@@ -325,12 +325,12 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
             format!("{} {}", p.name, param_type)
         })
         .collect();
-    write!(out, "{}", params.join(", ")).unwrap();
+    write!(out, "{}", params.join(", ")).ok();
 
     if return_type.is_empty() {
-        writeln!(out, ") {{").unwrap();
+        writeln!(out, ") {{").ok();
     } else {
-        writeln!(out, ") {} {{", return_type).unwrap();
+        writeln!(out, ") {} {{", return_type).ok();
     }
 
     if method.is_async {
@@ -341,9 +341,9 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
             format!("*{}", go_type(&method.return_type))
         };
 
-        writeln!(out, "    resultCh := make(chan {}, 1)", result_type).unwrap();
-        writeln!(out, "    errCh := make(chan error, 1)").unwrap();
-        writeln!(out, "    go func() {{").unwrap();
+        writeln!(out, "    resultCh := make(chan {}, 1)", result_type).ok();
+        writeln!(out, "    errCh := make(chan error, 1)").ok();
+        writeln!(out, "    go func() {{").ok();
 
         // Call sync version
         let call_args = method
@@ -359,32 +359,32 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
                 "        err := {}.{}Sync({})",
                 receiver_name, method.name, call_args
             )
-            .unwrap();
-            writeln!(out, "        if err != nil {{").unwrap();
-            writeln!(out, "            errCh <- err").unwrap();
-            writeln!(out, "        }} else {{").unwrap();
-            writeln!(out, "            errCh <- nil").unwrap();
-            writeln!(out, "        }}").unwrap();
+            .ok();
+            writeln!(out, "        if err != nil {{").ok();
+            writeln!(out, "            errCh <- err").ok();
+            writeln!(out, "        }} else {{").ok();
+            writeln!(out, "            errCh <- nil").ok();
+            writeln!(out, "        }}").ok();
         } else {
             writeln!(
                 out,
                 "        result, err := {}.{}Sync({})",
                 receiver_name, method.name, call_args
             )
-            .unwrap();
-            writeln!(out, "        if err != nil {{").unwrap();
-            writeln!(out, "            errCh <- err").unwrap();
-            writeln!(out, "        }} else {{").unwrap();
-            writeln!(out, "            resultCh <- result").unwrap();
-            writeln!(out, "        }}").unwrap();
+            .ok();
+            writeln!(out, "        if err != nil {{").ok();
+            writeln!(out, "            errCh <- err").ok();
+            writeln!(out, "        }} else {{").ok();
+            writeln!(out, "            resultCh <- result").ok();
+            writeln!(out, "        }}").ok();
         }
 
-        writeln!(out, "    }}()").unwrap();
-        writeln!(out, "    return resultCh, errCh").unwrap();
+        writeln!(out, "    }}()").ok();
+        writeln!(out, "    return resultCh, errCh").ok();
     } else {
         // Synchronous method - just convert params and call FFI
         for param in &method.params {
-            write!(out, "{}", gen_param_to_c(param)).unwrap();
+            write!(out, "{}", gen_param_to_c(param)).ok();
         }
 
         let c_params: Vec<String> = method
@@ -406,38 +406,38 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
 
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
-                writeln!(out, "    {}", c_call).unwrap();
-                writeln!(out, "    return lastError()").unwrap();
+                writeln!(out, "    {}", c_call).ok();
+                writeln!(out, "    return lastError()").ok();
             } else {
-                writeln!(out, "    ptr := {}", c_call).unwrap();
+                writeln!(out, "    ptr := {}", c_call).ok();
                 // Add defer free for C string returns
                 if matches!(
                     method.return_type,
                     TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
                 ) {
-                    writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).unwrap();
+                    writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
                 }
-                writeln!(out, "    if err := lastError(); err != nil {{").unwrap();
-                writeln!(out, "        return nil, err").unwrap();
-                writeln!(out, "    }}").unwrap();
-                writeln!(out, "    return unmarshal{}(ptr), nil", type_name(&method.return_type)).unwrap();
+                writeln!(out, "    if err := lastError(); err != nil {{").ok();
+                writeln!(out, "        return nil, err").ok();
+                writeln!(out, "    }}").ok();
+                writeln!(out, "    return unmarshal{}(ptr), nil", type_name(&method.return_type)).ok();
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "    {}", c_call).unwrap();
+            writeln!(out, "    {}", c_call).ok();
         } else {
-            writeln!(out, "    ptr := {}", c_call).unwrap();
+            writeln!(out, "    ptr := {}", c_call).ok();
             // Add defer free for C string returns
             if matches!(
                 method.return_type,
                 TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
             ) {
-                writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).unwrap();
+                writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
-            writeln!(out, "    return unmarshal{}(ptr)", type_name(&method.return_type)).unwrap();
+            writeln!(out, "    return unmarshal{}(ptr)", type_name(&method.return_type)).ok();
         }
     }
 
-    writeln!(out, "}}").unwrap();
+    writeln!(out, "}}").ok();
     out
 }
 
@@ -453,10 +453,10 @@ fn gen_param_to_c(param: &skif_core::ir::ParamDef) -> String {
                 "    {} := C.CString({})\n    defer C.free(unsafe.Pointer({}))",
                 c_name, param.name, c_name
             )
-            .unwrap();
+            .ok();
         }
         TypeRef::Bytes => {
-            writeln!(out, "    {} := (*C.uchar)(unsafe.Pointer(&{}[0]))", c_name, param.name).unwrap();
+            writeln!(out, "    {} := (*C.uchar)(unsafe.Pointer(&{}[0]))", c_name, param.name).ok();
         }
         TypeRef::Named(_) => {
             writeln!(
@@ -466,7 +466,7 @@ fn gen_param_to_c(param: &skif_core::ir::ParamDef) -> String {
                  }}\n    {} := C.CString(string(jsonBytes))\n    defer C.free(unsafe.Pointer({}))",
                 param.name, c_name, c_name
             )
-            .unwrap();
+            .ok();
         }
         TypeRef::Optional(inner) => {
             match inner.as_ref() {
@@ -478,7 +478,7 @@ fn gen_param_to_c(param: &skif_core::ir::ParamDef) -> String {
                          }}",
                         c_name, param.name, c_name, param.name, c_name
                     )
-                    .unwrap();
+                    .ok();
                 }
                 TypeRef::Named(_) => {
                     writeln!(
@@ -490,11 +490,11 @@ fn gen_param_to_c(param: &skif_core::ir::ParamDef) -> String {
                          }}",
                         c_name, param.name, param.name, c_name, c_name
                     )
-                    .unwrap();
+                    .ok();
                 }
                 _ => {
                     // For other optional types, just pass nil or default
-                    writeln!(out, "    var {} *C.char", c_name).unwrap();
+                    writeln!(out, "    var {} *C.char", c_name).ok();
                 }
             }
         }
@@ -504,7 +504,7 @@ fn gen_param_to_c(param: &skif_core::ir::ParamDef) -> String {
     }
 
     if !out.is_empty() {
-        writeln!(out).unwrap();
+        writeln!(out).ok();
     }
     out
 }

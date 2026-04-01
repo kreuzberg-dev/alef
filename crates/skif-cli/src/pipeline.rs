@@ -1,7 +1,7 @@
+use ahash::{AHashMap, AHashSet};
 use skif_core::backend::GeneratedFile;
 use skif_core::config::{Language, SkifConfig};
 use skif_core::ir::{ApiSurface, TypeDef, TypeRef};
-use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::cache;
@@ -458,8 +458,8 @@ fn to_pascal_case(s: &str) -> String {
 /// with `TypeRef::String`. This handles trait objects, generic bounds, and other types
 /// that were extracted but filtered out or never existed as concrete types.
 fn sanitize_unknown_types(api: &mut ApiSurface) {
-    let known_types: HashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
-    let known_enums: HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let known_types: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
+    let known_enums: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
     for typ in &mut api.types {
         for field in &mut typ.fields {
@@ -480,7 +480,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
     }
 }
 
-fn sanitize_type_ref(ty: &mut TypeRef, known_types: &HashSet<String>, known_enums: &HashSet<String>) {
+fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enums: &AHashSet<String>) {
     match ty {
         TypeRef::Named(name) => {
             if !known_types.contains(name.as_str()) && !known_enums.contains(name.as_str()) {
@@ -505,19 +505,19 @@ fn sanitize_type_ref(ty: &mut TypeRef, known_types: &HashSet<String>, known_enum
 /// 4. Duplicate functions: Keep only the first occurrence of each function name
 fn dedup_api_surface(api: &mut ApiSurface) {
     // Remove types that collide with enums (enums win)
-    let enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
     api.types.retain(|t| !enum_names.contains(&t.name));
 
     // Dedup types by name (keep first)
-    let mut seen_types: HashSet<String> = HashSet::new();
+    let mut seen_types: AHashSet<String> = AHashSet::new();
     api.types.retain(|t| seen_types.insert(t.name.clone()));
 
     // Dedup enums by name (keep first)
-    let mut seen_enums: HashSet<String> = HashSet::new();
+    let mut seen_enums: AHashSet<String> = AHashSet::new();
     api.enums.retain(|e| seen_enums.insert(e.name.clone()));
 
     // Dedup functions by name (keep first)
-    let mut seen_fns: HashSet<String> = HashSet::new();
+    let mut seen_fns: AHashSet<String> = AHashSet::new();
     api.functions.retain(|f| seen_fns.insert(f.name.clone()));
 }
 
@@ -547,13 +547,13 @@ fn apply_filters(mut api: ApiSurface, config: &SkifConfig) -> ApiSurface {
 
 /// Expand the include list by transitively discovering all types referenced by fields,
 /// method parameters, and return types of the included types.
-fn expand_include_list(api: &ApiSurface, include_types: &[String]) -> HashSet<String> {
-    let mut needed: HashSet<String> = include_types.iter().cloned().collect();
+fn expand_include_list(api: &ApiSurface, include_types: &[String]) -> AHashSet<String> {
+    let mut needed: AHashSet<String> = include_types.iter().cloned().collect();
     let mut changed = true;
 
     // Build a map of all available types for lookup
-    let all_types: HashMap<String, &TypeDef> = api.types.iter().map(|t| (t.name.clone(), t)).collect();
-    let all_enums: HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let all_types: AHashMap<String, &TypeDef> = api.types.iter().map(|t| (t.name.clone(), t)).collect();
+    let all_enums: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
     while changed {
         changed = false;
@@ -578,9 +578,9 @@ fn expand_include_list(api: &ApiSurface, include_types: &[String]) -> HashSet<St
 /// Recursively collect all named type references from a TypeRef into the needed set.
 fn collect_named_types(
     ty: &TypeRef,
-    needed: &mut HashSet<String>,
-    all_types: &HashMap<String, &TypeDef>,
-    all_enums: &HashSet<String>,
+    needed: &mut AHashSet<String>,
+    all_types: &AHashMap<String, &TypeDef>,
+    all_enums: &AHashSet<String>,
     changed: &mut bool,
 ) {
     match ty {

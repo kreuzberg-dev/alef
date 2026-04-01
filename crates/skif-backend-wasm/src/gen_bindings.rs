@@ -1,4 +1,5 @@
 use crate::type_map::WasmMapper;
+use ahash::AHashSet;
 use skif_codegen::builder::{ImplBuilder, RustFileBuilder, StructBuilder};
 use skif_codegen::naming::to_node_name;
 use skif_codegen::shared::constructor_parts;
@@ -6,7 +7,6 @@ use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
 use skif_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef};
-use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -47,7 +47,7 @@ impl Backend for WasmBackend {
         builder.add_import(&core_import);
 
         // Check if we have opaque types and add Arc import if needed
-        let opaque_types: HashSet<String> = api
+        let opaque_types: AHashSet<String> = api
             .types
             .iter()
             .filter(|t| t.is_opaque && !exclude_types.contains(&t.name))
@@ -133,7 +133,7 @@ fn gen_opaque_struct(typ: &TypeDef) -> String {
 }
 
 /// Generate wasm-bindgen methods for an opaque struct.
-fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &WasmMapper, _opaque_types: &HashSet<String>) -> String {
+fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &WasmMapper, _opaque_types: &AHashSet<String>) -> String {
     let js_name = format!("Js{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
     impl_builder.add_attr("wasm_bindgen");

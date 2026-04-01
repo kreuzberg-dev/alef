@@ -1,4 +1,5 @@
 use crate::type_map::PhpMapper;
+use ahash::AHashSet;
 use skif_codegen::builder::{ImplBuilder, RustFileBuilder};
 use skif_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use skif_codegen::shared::{constructor_parts, function_params, partition_methods};
@@ -6,7 +7,6 @@ use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
 use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub struct PhpBackend;
@@ -71,7 +71,7 @@ impl Backend for PhpBackend {
         }
 
         // Check if we have opaque types and add Arc import if needed
-        let opaque_types: HashSet<String> = api
+        let opaque_types: AHashSet<String> = api
             .types
             .iter()
             .filter(|t| t.is_opaque)
@@ -143,7 +143,7 @@ impl Backend for PhpBackend {
 }
 
 /// Generate ext-php-rs methods for an opaque struct (delegates to self.inner).
-fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &PhpMapper, _opaque_types: &HashSet<String>) -> String {
+fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &PhpMapper, _opaque_types: &AHashSet<String>) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
 

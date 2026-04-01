@@ -11,6 +11,7 @@ name = "skif"
 path = "src/main.rs"
 
 [dependencies]
+ahash = { workspace = true }
 anyhow = { workspace = true }
 blake3 = { workspace = true }
 clap = { version = "4", features = ["derive"] }

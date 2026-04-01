@@ -1,10 +1,10 @@
 use crate::type_map::Pyo3Mapper;
+use ahash::AHashSet;
 use skif_codegen::builder::RustFileBuilder;
 use skif_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
 use skif_core::ir::ApiSurface;
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub struct Pyo3Backend;
@@ -70,7 +70,7 @@ impl Backend for Pyo3Backend {
         }
 
         // Check if we have opaque types and add Arc import if needed
-        let opaque_types: HashSet<String> = api
+        let opaque_types: AHashSet<String> = api
             .types
             .iter()
             .filter(|t| t.is_opaque)
@@ -194,7 +194,7 @@ fn gen_module_init(module_name: &str, api: &ApiSurface) -> String {
     }
 
     // Deduplicate registered types and enums
-    let mut registered: HashSet<String> = HashSet::new();
+    let mut registered: AHashSet<String> = AHashSet::new();
     for typ in &api.types {
         if registered.insert(typ.name.clone()) {
             lines.push(format!("    m.add_class::<{}>()?;", typ.name));

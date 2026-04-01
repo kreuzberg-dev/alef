@@ -1,15 +1,15 @@
+use ahash::AHashSet;
 use skif_core::ir::{ApiSurface, EnumDef, TypeDef, TypeRef};
-use std::collections::HashSet;
 use std::fmt::Write;
 
 /// Build the set of types that can have From/Into safely generated.
 /// This is transitive: a type is convertible only if all its Named field types
 /// are also convertible (or are enums).
-pub fn convertible_types(surface: &ApiSurface) -> HashSet<String> {
-    let known_enums: HashSet<&str> = surface.enums.iter().map(|e| e.name.as_str()).collect();
+pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
+    let known_enums: AHashSet<&str> = surface.enums.iter().map(|e| e.name.as_str()).collect();
 
     // Start with all non-opaque types as candidates
-    let mut convertible: HashSet<String> = surface
+    let mut convertible: AHashSet<String> = surface
         .types
         .iter()
         .filter(|t| !t.is_opaque)
@@ -37,11 +37,11 @@ pub fn convertible_types(surface: &ApiSurface) -> HashSet<String> {
 }
 
 /// Check if a specific type is in the convertible set.
-pub fn can_generate_conversion(typ: &TypeDef, convertible: &HashSet<String>) -> bool {
+pub fn can_generate_conversion(typ: &TypeDef, convertible: &AHashSet<String>) -> bool {
     convertible.contains(&typ.name)
 }
 
-fn is_field_convertible_with_set(ty: &TypeRef, convertible: &HashSet<String>, known_enums: &HashSet<&str>) -> bool {
+fn is_field_convertible_with_set(ty: &TypeRef, convertible: &AHashSet<String>, known_enums: &AHashSet<&str>) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Unit => true,
         TypeRef::Json => false,
@@ -88,16 +88,16 @@ fn core_type_path(typ: &TypeDef, core_import: &str) -> String {
 pub fn gen_from_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
     let core_path = core_type_path(typ, core_import);
     let mut out = String::with_capacity(256);
-    writeln!(out, "impl From<{}> for {core_path} {{", typ.name).unwrap();
-    writeln!(out, "    fn from(val: {}) -> Self {{", typ.name).unwrap();
-    writeln!(out, "        Self {{").unwrap();
+    writeln!(out, "impl From<{}> for {core_path} {{", typ.name).ok();
+    writeln!(out, "    fn from(val: {}) -> Self {{", typ.name).ok();
+    writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
         let conversion = field_conversion_to_core(&field.name, &field.ty, field.optional);
-        writeln!(out, "            {conversion},").unwrap();
+        writeln!(out, "            {conversion},").ok();
     }
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 
@@ -105,16 +105,16 @@ pub fn gen_from_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
 pub fn gen_from_core_to_binding(typ: &TypeDef, core_import: &str) -> String {
     let core_path = core_type_path(typ, core_import);
     let mut out = String::with_capacity(256);
-    writeln!(out, "impl From<{core_path}> for {} {{", typ.name).unwrap();
-    writeln!(out, "    fn from(val: {core_path}) -> Self {{").unwrap();
-    writeln!(out, "        Self {{").unwrap();
+    writeln!(out, "impl From<{core_path}> for {} {{", typ.name).ok();
+    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
+    writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
         let conversion = field_conversion_from_core(&field.name, &field.ty, field.optional);
-        writeln!(out, "            {conversion},").unwrap();
+        writeln!(out, "            {conversion},").ok();
     }
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 
@@ -131,20 +131,20 @@ fn core_enum_path(enum_def: &EnumDef, core_import: &str) -> String {
 pub fn gen_enum_from_binding_to_core(enum_def: &EnumDef, core_import: &str) -> String {
     let core_path = core_enum_path(enum_def, core_import);
     let mut out = String::with_capacity(256);
-    writeln!(out, "impl From<{}> for {core_path} {{", enum_def.name).unwrap();
-    writeln!(out, "    fn from(val: {}) -> Self {{", enum_def.name).unwrap();
-    writeln!(out, "        match val {{").unwrap();
+    writeln!(out, "impl From<{}> for {core_path} {{", enum_def.name).ok();
+    writeln!(out, "    fn from(val: {}) -> Self {{", enum_def.name).ok();
+    writeln!(out, "        match val {{").ok();
     for variant in &enum_def.variants {
         writeln!(
             out,
             "            {}::{} => Self::{},",
             enum_def.name, variant.name, variant.name
         )
-        .unwrap();
+        .ok();
     }
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 
@@ -152,20 +152,20 @@ pub fn gen_enum_from_binding_to_core(enum_def: &EnumDef, core_import: &str) -> S
 pub fn gen_enum_from_core_to_binding(enum_def: &EnumDef, core_import: &str) -> String {
     let core_path = core_enum_path(enum_def, core_import);
     let mut out = String::with_capacity(256);
-    writeln!(out, "impl From<{core_path}> for {} {{", enum_def.name).unwrap();
-    writeln!(out, "    fn from(val: {core_path}) -> Self {{").unwrap();
-    writeln!(out, "        match val {{").unwrap();
+    writeln!(out, "impl From<{core_path}> for {} {{", enum_def.name).ok();
+    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
+    writeln!(out, "        match val {{").ok();
     for variant in &enum_def.variants {
         writeln!(
             out,
             "            {core_path}::{} => Self::{},",
             variant.name, variant.name
         )
-        .unwrap();
+        .ok();
     }
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 

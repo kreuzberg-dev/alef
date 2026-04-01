@@ -1,4 +1,5 @@
 use crate::type_map::NapiMapper;
+use ahash::AHashSet;
 use skif_codegen::builder::{ImplBuilder, RustFileBuilder, StructBuilder};
 use skif_codegen::generators::{AsyncPattern, RustBindingConfig};
 use skif_codegen::naming::to_node_name;
@@ -7,7 +8,6 @@ use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
 use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
-use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -75,7 +75,7 @@ impl Backend for NapiBackend {
         }
 
         // Check if we have opaque types and add Arc import if needed
-        let opaque_types: HashSet<String> = api
+        let opaque_types: AHashSet<String> = api
             .types
             .iter()
             .filter(|t| t.is_opaque)
@@ -182,7 +182,7 @@ fn gen_opaque_struct_methods(
     typ: &TypeDef,
     mapper: &NapiMapper,
     _cfg: &RustBindingConfig,
-    _opaque_types: &HashSet<String>,
+    _opaque_types: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&format!("Js{}", typ.name));
     impl_builder.add_attr("napi");
@@ -357,16 +357,16 @@ fn gen_function(func: &FunctionDef, mapper: &NapiMapper) -> String {
 fn gen_from_js_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
     let mut out = String::with_capacity(256);
     let js_name = format!("Js{}", typ.name);
-    writeln!(out, "impl From<{}> for {core_import}::{} {{", js_name, typ.name).unwrap();
-    writeln!(out, "    fn from(val: {}) -> Self {{", js_name).unwrap();
-    writeln!(out, "        Self {{").unwrap();
+    writeln!(out, "impl From<{}> for {core_import}::{} {{", js_name, typ.name).ok();
+    writeln!(out, "    fn from(val: {}) -> Self {{", js_name).ok();
+    writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
         let conversion = skif_codegen::conversions::field_conversion_to_core(&field.name, &field.ty, field.optional);
-        writeln!(out, "            {conversion},").unwrap();
+        writeln!(out, "            {conversion},").ok();
     }
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 
@@ -374,16 +374,16 @@ fn gen_from_js_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
 fn gen_from_core_to_js_binding(typ: &TypeDef, core_import: &str) -> String {
     let mut out = String::with_capacity(256);
     let js_name = format!("Js{}", typ.name);
-    writeln!(out, "impl From<{core_import}::{}> for {} {{", typ.name, js_name).unwrap();
-    writeln!(out, "    fn from(val: {core_import}::{}) -> Self {{", typ.name).unwrap();
-    writeln!(out, "        Self {{").unwrap();
+    writeln!(out, "impl From<{core_import}::{}> for {} {{", typ.name, js_name).ok();
+    writeln!(out, "    fn from(val: {core_import}::{}) -> Self {{", typ.name).ok();
+    writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
         let conversion = skif_codegen::conversions::field_conversion_from_core(&field.name, &field.ty, field.optional);
-        writeln!(out, "            {conversion},").unwrap();
+        writeln!(out, "            {conversion},").ok();
     }
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 
@@ -391,20 +391,20 @@ fn gen_from_core_to_js_binding(typ: &TypeDef, core_import: &str) -> String {
 fn gen_enum_from_js_binding_to_core(enum_def: &EnumDef, core_import: &str) -> String {
     let mut out = String::with_capacity(256);
     let js_name = format!("Js{}", enum_def.name);
-    writeln!(out, "impl From<{}> for {core_import}::{} {{", js_name, enum_def.name).unwrap();
-    writeln!(out, "    fn from(val: {}) -> Self {{", js_name).unwrap();
-    writeln!(out, "        match val {{").unwrap();
+    writeln!(out, "impl From<{}> for {core_import}::{} {{", js_name, enum_def.name).ok();
+    writeln!(out, "    fn from(val: {}) -> Self {{", js_name).ok();
+    writeln!(out, "        match val {{").ok();
     for variant in &enum_def.variants {
         writeln!(
             out,
             "            {}::{} => Self::{},",
             js_name, variant.name, variant.name
         )
-        .unwrap();
+        .ok();
     }
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 
@@ -412,20 +412,20 @@ fn gen_enum_from_js_binding_to_core(enum_def: &EnumDef, core_import: &str) -> St
 fn gen_enum_from_core_to_js_binding(enum_def: &EnumDef, core_import: &str) -> String {
     let mut out = String::with_capacity(256);
     let js_name = format!("Js{}", enum_def.name);
-    writeln!(out, "impl From<{core_import}::{}> for {} {{", enum_def.name, js_name).unwrap();
-    writeln!(out, "    fn from(val: {core_import}::{}) -> Self {{", enum_def.name).unwrap();
-    writeln!(out, "        match val {{").unwrap();
+    writeln!(out, "impl From<{core_import}::{}> for {} {{", enum_def.name, js_name).ok();
+    writeln!(out, "    fn from(val: {core_import}::{}) -> Self {{", enum_def.name).ok();
+    writeln!(out, "        match val {{").ok();
     for variant in &enum_def.variants {
         writeln!(
             out,
             "            {core_import}::{}::{} => Self::{},",
             enum_def.name, variant.name, variant.name
         )
-        .unwrap();
+        .ok();
     }
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 

@@ -472,6 +472,7 @@ dependencies = [
 name = "skif-backend-magnus"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "anyhow",
  "skif-codegen",
  "skif-core",
@@ -481,6 +482,7 @@ dependencies = [
 name = "skif-backend-napi"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "anyhow",
  "skif-codegen",
  "skif-core",
@@ -490,6 +492,7 @@ dependencies = [
 name = "skif-backend-php"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "anyhow",
  "skif-codegen",
  "skif-core",
@@ -499,6 +502,7 @@ dependencies = [
 name = "skif-backend-pyo3"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "anyhow",
  "skif-codegen",
  "skif-core",
@@ -508,6 +512,7 @@ dependencies = [
 name = "skif-backend-rustler"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "anyhow",
  "heck",
  "skif-codegen",
@@ -518,6 +523,7 @@ dependencies = [
 name = "skif-backend-wasm"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "anyhow",
  "skif-codegen",
  "skif-core",
@@ -527,6 +533,7 @@ dependencies = [
 name = "skif-cli"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "anyhow",
  "blake3",
  "clap",
@@ -555,6 +562,7 @@ dependencies = [
 name = "skif-codegen"
 version = "0.1.0"
 dependencies = [
+ "ahash",
  "heck",
  "minijinja",
  "skif-core",

@@ -8,6 +8,7 @@ description = "Node.js (NAPI-RS) backend for skif"
 repository.workspace = true
 
 [dependencies]
+ahash = { workspace = true }
 anyhow = { workspace = true }
 skif-codegen = { path = "../skif-codegen" }
 skif-core = { workspace = true }

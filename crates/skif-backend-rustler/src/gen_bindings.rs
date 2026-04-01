@@ -1,11 +1,11 @@
 use crate::type_map::RustlerMapper;
+use ahash::AHashSet;
 use skif_codegen::builder::{RustFileBuilder, StructBuilder};
 use skif_codegen::shared::function_params;
 use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
 use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub struct RustlerBackend;
@@ -42,7 +42,7 @@ impl Backend for RustlerBackend {
         let (_module_name, module_prefix) = get_module_info(api, config);
 
         // Check if we have opaque types and add Arc import if needed
-        let opaque_types: HashSet<String> = api
+        let opaque_types: AHashSet<String> = api
             .types
             .iter()
             .filter(|t| t.is_opaque)
@@ -132,7 +132,7 @@ fn get_module_info(_api: &ApiSurface, config: &SkifConfig) -> (String, String) {
 }
 
 /// Generate an opaque Rustler resource struct with inner Arc.
-fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_types: &HashSet<String>) -> String {
+fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_types: &AHashSet<String>) -> String {
     let mut out = String::with_capacity(256);
     out.push_str("#[derive(Clone)]\n");
     out.push_str(&format!("pub struct {} {{\n", typ.name));

@@ -1,8 +1,8 @@
 use crate::builder::StructBuilder;
 use crate::shared::{constructor_parts, function_params, function_sig_defaults, partition_methods};
 use crate::type_mapper::TypeMapper;
+use ahash::AHashSet;
 use skif_core::ir::{EnumDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
-use std::collections::HashSet;
 use std::fmt::Write;
 
 /// Async support pattern for the backend.
@@ -59,7 +59,7 @@ pub struct RustBindingConfig<'a> {
 /// - `TypeRef::Named(n)` where `n` is a non-opaque type → convert via `{n}::from(...)`
 /// - Everything else (primitives, String, Vec, etc.) → pass through unchanged
 /// - `TypeRef::Unit` → pass through unchanged
-fn wrap_opaque_return(expr: &str, return_type: &TypeRef, type_name: &str, opaque_types: &HashSet<String>) -> String {
+fn wrap_opaque_return(expr: &str, return_type: &TypeRef, type_name: &str, opaque_types: &AHashSet<String>) -> String {
     match return_type {
         TypeRef::Named(n) if n == type_name => {
             format!("Self {{ inner: std::sync::Arc::new({expr}) }}")
@@ -151,14 +151,14 @@ pub fn gen_opaque_impl_block(
     typ: &TypeDef,
     mapper: &dyn TypeMapper,
     cfg: &RustBindingConfig,
-    opaque_types: &HashSet<String>,
+    opaque_types: &AHashSet<String>,
 ) -> String {
     let (instance, statics) = partition_methods(&typ.methods);
     if instance.is_empty() && statics.is_empty() {
         return String::new();
     }
 
-    let mut out = String::new();
+    let mut out = String::with_capacity(2048);
     if let Some(block_attr) = cfg.method_block_attr {
         writeln!(out, "#[{block_attr}]").ok();
     }
@@ -187,7 +187,7 @@ pub fn gen_constructor(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBinding
     let map_fn = |ty: &skif_core::ir::TypeRef| mapper.map_type(ty);
     let (param_list, sig_defaults, assignments) = constructor_parts(&typ.fields, &map_fn);
 
-    let mut out = String::new();
+    let mut out = String::with_capacity(512);
     if cfg.needs_signature {
         writeln!(
             out,
@@ -217,7 +217,7 @@ pub fn gen_method(
     cfg: &RustBindingConfig,
     type_name: &str,
     is_opaque: bool,
-    opaque_types: &HashSet<String>,
+    opaque_types: &AHashSet<String>,
 ) -> String {
     let map_fn = |ty: &skif_core::ir::TypeRef| mapper.map_type(ty);
     let params = function_params(&method.params, &map_fn);
@@ -407,7 +407,7 @@ pub fn gen_method(
         )
     };
 
-    let mut out = String::new();
+    let mut out = String::with_capacity(1024);
     if cfg.needs_signature {
         let sig = function_sig_defaults(&method.params);
         writeln!(out, "    {}{}{}", cfg.signature_prefix, sig, cfg.signature_suffix).ok();
@@ -551,7 +551,7 @@ pub fn gen_static_method(
         }
     };
 
-    let mut out = String::new();
+    let mut out = String::with_capacity(1024);
     if let Some(attr) = cfg.static_attr {
         writeln!(out, "    #[{attr}]").ok();
     }
@@ -571,7 +571,7 @@ pub fn gen_static_method(
 
 /// Generate an enum.
 pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(512);
     if !cfg.enum_derives.is_empty() {
         writeln!(out, "#[derive({})]", cfg.enum_derives.join(", ")).ok();
     }
@@ -721,7 +721,7 @@ pub fn gen_function(func: &FunctionDef, mapper: &dyn TypeMapper, cfg: &RustBindi
         }
     };
 
-    let mut out = String::new();
+    let mut out = String::with_capacity(1024);
     let attr_inner = cfg
         .function_attr
         .trim_start_matches('#')
@@ -743,8 +743,8 @@ pub fn gen_impl_block(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingC
         return String::new();
     }
 
-    let empty_opaque = HashSet::new();
-    let mut out = String::new();
+    let empty_opaque = AHashSet::new();
+    let mut out = String::with_capacity(2048);
     if let Some(block_attr) = cfg.method_block_attr {
         writeln!(out, "#[{block_attr}]").ok();
     }
