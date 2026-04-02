@@ -1,4 +1,4 @@
-use crate::type_map::{csharp_default_value, csharp_type};
+use crate::type_map::csharp_type;
 use heck::{ToLowerCamelCase, ToPascalCase};
 use skif_codegen::naming::to_csharp_name;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
@@ -141,24 +141,21 @@ fn gen_native_methods(api: &ApiSurface, namespace: &str, lib_name: &str, prefix:
         }
     }
 
-    // Add error handling functions
-    out.push_str("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]\n");
+    // Add error handling functions with PascalCase names
     out.push_str(&format!(
-        "    internal static extern int {}_last_error_code();\n\n",
-        prefix
+        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{prefix}_last_error_code\")]\n"
     ));
+    out.push_str("    internal static extern int LastErrorCode();\n\n");
 
-    out.push_str("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]\n");
     out.push_str(&format!(
-        "    internal static extern IntPtr {}_last_error_context();\n\n",
-        prefix
+        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{prefix}_last_error_context\")]\n"
     ));
+    out.push_str("    internal static extern IntPtr LastErrorContext();\n\n");
 
-    out.push_str("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]\n");
     out.push_str(&format!(
-        "    internal static extern void {}_free_string(IntPtr ptr);\n",
-        prefix
+        "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{prefix}_free_string\")]\n"
     ));
+    out.push_str("    internal static extern void FreeString(IntPtr ptr);\n");
 
     out.push_str("}\n");
 
@@ -166,7 +163,9 @@ fn gen_native_methods(api: &ApiSurface, namespace: &str, lib_name: &str, prefix:
 }
 
 fn gen_pinvoke_for_func(c_name: &str, func: &FunctionDef) -> String {
-    let mut out = String::from("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]\n");
+    let cs_name = to_csharp_name(&func.name);
+    let mut out =
+        format!("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{c_name}\")]\n");
     out.push_str("    internal static extern ");
 
     // Return type
@@ -176,7 +175,7 @@ fn gen_pinvoke_for_func(c_name: &str, func: &FunctionDef) -> String {
         out.push_str("IntPtr");
     }
 
-    out.push_str(&format!(" {}(", c_name));
+    out.push_str(&format!(" {}(", cs_name));
 
     if func.params.is_empty() {
         out.push_str(");\n\n");
@@ -202,7 +201,9 @@ fn gen_pinvoke_for_func(c_name: &str, func: &FunctionDef) -> String {
 }
 
 fn gen_pinvoke_for_method(c_name: &str, method: &MethodDef) -> String {
-    let mut out = String::from("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]\n");
+    let cs_name = to_csharp_name(&method.name);
+    let mut out =
+        format!("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{c_name}\")]\n");
     out.push_str("    internal static extern ");
 
     // Return type
@@ -212,7 +213,7 @@ fn gen_pinvoke_for_method(c_name: &str, method: &MethodDef) -> String {
         out.push_str("IntPtr");
     }
 
-    out.push_str(&format!(" {}(", c_name));
+    out.push_str(&format!(" {}(", cs_name));
 
     if method.params.is_empty() {
         out.push_str(");\n\n");
@@ -300,14 +301,8 @@ fn gen_wrapper_class(
     out.push_str("    private static ");
     out.push_str(&format!("{} GetLastError()\n", exception_name));
     out.push_str("    {\n");
-    out.push_str(&format!(
-        "        var code = NativeMethods.{}_last_error_code();\n",
-        prefix
-    ));
-    out.push_str(&format!(
-        "        var ctxPtr = NativeMethods.{}_last_error_context();\n",
-        prefix
-    ));
+    out.push_str("        var code = NativeMethods.LastErrorCode();\n");
+    out.push_str("        var ctxPtr = NativeMethods.LastErrorContext();\n");
     out.push_str("        var message = Marshal.PtrToStringAnsi(ctxPtr) ?? \"Unknown error\";\n");
     out.push_str(&format!("        return new {}(code, message);\n", exception_name));
     out.push_str("    }\n");
@@ -317,7 +312,7 @@ fn gen_wrapper_class(
     out
 }
 
-fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, prefix: &str) -> String {
+fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str) -> String {
     let mut out = String::with_capacity(1024);
 
     out.push_str("    public static ");
@@ -349,7 +344,7 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, prefix: &str)
     out.push_str(")\n    {\n");
 
     // Method body - simple delegation to native method
-    let c_func_name = format!("{}_{}", prefix, func.name.to_lowercase());
+    let cs_native_name = to_csharp_name(&func.name);
 
     if func.return_type != TypeRef::Unit {
         out.push_str("        var result = ");
@@ -357,7 +352,7 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, prefix: &str)
         out.push_str("        ");
     }
 
-    out.push_str(&format!("NativeMethods.{}(", c_func_name));
+    out.push_str(&format!("NativeMethods.{}(", cs_native_name));
 
     if func.params.is_empty() {
         out.push_str(");\n");
@@ -383,14 +378,11 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, prefix: &str)
     out
 }
 
-fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, prefix: &str) -> String {
+fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str) -> String {
     let mut out = String::with_capacity(1024);
 
-    out.push_str("    public ");
-
-    if method.is_static {
-        out.push_str("static ");
-    }
+    // The wrapper class is always `static class`, so all methods must be static.
+    out.push_str("    public static ");
 
     // Return type
     if method.return_type == TypeRef::Unit {
@@ -419,7 +411,7 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, prefix: &str) -
     out.push_str(")\n    {\n");
 
     // Method body - simple delegation to native method
-    let c_method_name = format!("{}_{}", prefix, method.name.to_lowercase());
+    let cs_native_name = to_csharp_name(&method.name);
 
     if method.return_type != TypeRef::Unit {
         out.push_str("        var result = ");
@@ -427,7 +419,7 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, prefix: &str) -
         out.push_str("        ");
     }
 
-    out.push_str(&format!("NativeMethods.{}(", c_method_name));
+    out.push_str(&format!("NativeMethods.{}(", cs_native_name));
 
     if method.params.is_empty() {
         out.push_str(");\n");
@@ -474,8 +466,16 @@ fn gen_record_type(typ: &TypeDef, namespace: &str) -> String {
 
     out.push_str(&format!("public record {}(\n", typ.name.to_pascal_case()));
 
+    // Sort fields: required (no default, not optional) first, then optional/defaulted.
+    // C# CS1737: optional parameters must appear after required parameters.
+    let mut fields: Vec<_> = typ.fields.iter().collect();
+    fields.sort_by_key(|f| {
+        let has_default = f.default.is_some() || f.optional;
+        if has_default { 1u8 } else { 0u8 }
+    });
+
     // Record parameters
-    for (i, field) in typ.fields.iter().enumerate() {
+    for (i, field) in fields.iter().enumerate() {
         let field_type = if field.optional {
             format!("{}?", csharp_type(&field.ty))
         } else {
@@ -487,10 +487,11 @@ fn gen_record_type(typ: &TypeDef, namespace: &str) -> String {
         if let Some(default) = &field.default {
             out.push_str(&format!(" = {}", default));
         } else if field.optional {
-            out.push_str(&format!(" = {}", csharp_default_value(&field.ty)));
+            // Optional fields are rendered as nullable (`T?`), so null is always valid.
+            out.push_str(" = null");
         }
 
-        if i < typ.fields.len() - 1 {
+        if i < fields.len() - 1 {
             out.push(',');
         }
         out.push('\n');

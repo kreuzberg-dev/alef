@@ -31,20 +31,3 @@ pub fn csharp_type(ty: &TypeRef) -> Cow<'static, str> {
         TypeRef::Unit => Cow::Borrowed("void"),
     }
 }
-
-/// Returns the default value for a type in C#.
-pub fn csharp_default_value(ty: &TypeRef) -> Cow<'static, str> {
-    match ty {
-        TypeRef::Primitive(PrimitiveType::Bool) => Cow::Borrowed("false"),
-        TypeRef::Primitive(_) => Cow::Borrowed("default"),
-        TypeRef::String => Cow::Borrowed("null"),
-        TypeRef::Bytes => Cow::Borrowed("null"),
-        TypeRef::Optional(_) => Cow::Borrowed("null"),
-        TypeRef::Vec(_) => Cow::Borrowed("new List<>()"),
-        TypeRef::Map(_, _) => Cow::Borrowed("new Dictionary<,>()"),
-        TypeRef::Named(_) => Cow::Borrowed("null"),
-        TypeRef::Path => Cow::Borrowed("null"),
-        TypeRef::Json => Cow::Borrowed("null"),
-        TypeRef::Unit => Cow::Borrowed(""),
-    }
-}
