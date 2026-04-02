@@ -106,9 +106,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &SkifConfig) -> String {
         builder.add_item(&gen_type_from_json(typ, prefix, &core_import));
         builder.add_item(&gen_type_free(typ, prefix, &core_import));
 
-        // Field accessors for every struct
+        // Field accessors — skip sanitized fields (binding type differs from core)
         for field in &typ.fields {
-            builder.add_item(&gen_field_accessor(typ, field, prefix, &core_import));
+            if !field.sanitized {
+                builder.add_item(&gen_field_accessor(typ, field, prefix, &core_import));
+            }
         }
 
         // Method wrappers
@@ -392,8 +394,18 @@ fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
                 writeln!(out, "{indent}{expr}").unwrap();
             }
         }
-        TypeRef::String | TypeRef::Path => {
+        TypeRef::String => {
             writeln!(out, "{indent}match CString::new({expr}.clone()) {{").unwrap();
+            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").unwrap();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
+            writeln!(out, "{indent}}}").unwrap();
+        }
+        TypeRef::Path => {
+            writeln!(
+                out,
+                "{indent}match CString::new({expr}.to_string_lossy().to_string()) {{"
+            )
+            .unwrap();
             writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").unwrap();
             writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
             writeln!(out, "{indent}}}").unwrap();
@@ -526,6 +538,17 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_impo
 
     writeln!(out, "    clear_last_error();").unwrap();
 
+    // If method signature was sanitized, generate todo!() — delegation would fail
+    if method.sanitized {
+        writeln!(
+            out,
+            "    todo!(\"wire up {type_name}::{method_name} — sanitized signature\")"
+        )
+        .unwrap();
+        write!(out, "}}").unwrap();
+        return out;
+    }
+
     // Null-check self
     if !method.is_static {
         writeln!(out, "    if this.is_null() {{").unwrap();
@@ -558,14 +581,16 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_impo
         .unwrap();
     }
 
-    // Build the call expression — pass &ref for String/Path/Bytes params
+    // Build the call expression — pass &ref for String/Path/Bytes/Named params
     let arg_names: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let rs = format!("{}_rs", p.name);
             match &p.ty {
-                TypeRef::String | TypeRef::Path | TypeRef::Bytes if !p.optional => format!("&{rs}"),
+                TypeRef::String | TypeRef::Path | TypeRef::Bytes | TypeRef::Named(_) if !p.optional => {
+                    format!("&{rs}")
+                }
                 TypeRef::String | TypeRef::Path | TypeRef::Bytes if p.optional => {
                     format!("{rs}.as_deref()")
                 }
@@ -661,6 +686,13 @@ fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> Str
 
     writeln!(out, "    clear_last_error();").unwrap();
 
+    // If function signature was sanitized, generate todo!()
+    if func.sanitized {
+        writeln!(out, "    todo!(\"wire up {func_name} — sanitized signature\")").unwrap();
+        write!(out, "}}").unwrap();
+        return out;
+    }
+
     // Convert parameters
     for p in &func.params {
         write!(
@@ -671,14 +703,16 @@ fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> Str
         .unwrap();
     }
 
-    // Call — pass &ref for String/Path/Bytes params
+    // Call — pass &ref for String/Path/Bytes/Named params (core takes references)
     let arg_names: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             let rs = format!("{}_rs", p.name);
             match &p.ty {
-                TypeRef::String | TypeRef::Path | TypeRef::Bytes if !p.optional => format!("&{rs}"),
+                TypeRef::String | TypeRef::Path | TypeRef::Bytes | TypeRef::Named(_) if !p.optional => {
+                    format!("&{rs}")
+                }
                 TypeRef::String | TypeRef::Path | TypeRef::Bytes if p.optional => {
                     format!("{rs}.as_deref()")
                 }
