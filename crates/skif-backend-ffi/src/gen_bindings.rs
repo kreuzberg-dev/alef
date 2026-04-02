@@ -558,8 +558,21 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_impo
         .unwrap();
     }
 
-    // Build the call expression
-    let arg_names: Vec<String> = method.params.iter().map(|p| format!("{}_rs", p.name)).collect();
+    // Build the call expression — pass &ref for String/Path/Bytes params
+    let arg_names: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let rs = format!("{}_rs", p.name);
+            match &p.ty {
+                TypeRef::String | TypeRef::Path | TypeRef::Bytes if !p.optional => format!("&{rs}"),
+                TypeRef::String | TypeRef::Path | TypeRef::Bytes if p.optional => {
+                    format!("{rs}.as_deref()")
+                }
+                _ => rs,
+            }
+        })
+        .collect();
     let call_args = arg_names.join(", ");
 
     if method.is_static {
@@ -658,8 +671,21 @@ fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> Str
         .unwrap();
     }
 
-    // Call
-    let arg_names: Vec<String> = func.params.iter().map(|p| format!("{}_rs", p.name)).collect();
+    // Call — pass &ref for String/Path/Bytes params
+    let arg_names: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let rs = format!("{}_rs", p.name);
+            match &p.ty {
+                TypeRef::String | TypeRef::Path | TypeRef::Bytes if !p.optional => format!("&{rs}"),
+                TypeRef::String | TypeRef::Path | TypeRef::Bytes if p.optional => {
+                    format!("{rs}.as_deref()")
+                }
+                _ => rs,
+            }
+        })
+        .collect();
     let call_args = arg_names.join(", ");
 
     writeln!(out, "    let result = {core_import}::{func_name}({call_args});").unwrap();
