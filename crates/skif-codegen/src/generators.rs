@@ -90,11 +90,11 @@ fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String
         .iter()
         .map(|p| match &p.ty {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                // Opaque type: unwrap the Arc wrapper to get the core type
+                // Opaque type: borrow through Arc to get &CoreType
                 if p.optional {
-                    format!("{}.map(|v| (*v.inner).clone())", p.name)
+                    format!("{}.as_ref().map(|v| &*v.inner)", p.name)
                 } else {
-                    format!("(*{}.inner).clone()", p.name)
+                    format!("&*{}.inner", p.name)
                 }
             }
             TypeRef::Named(_) => {
@@ -782,8 +782,12 @@ pub fn gen_function(
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                     format!("{name} {{ inner: std::sync::Arc::new({expr}) }}")
                 }
-                // Non-opaque Named: use .into()
-                TypeRef::Named(_) => format!("{expr}.into()"),
+                // Non-opaque Named: use .into() if From impl exists
+                TypeRef::Named(_name) => {
+                    // Check if this type has a From impl (is convertible)
+                    // For now, attempt .into() — compilation will catch missing impls
+                    format!("{expr}.into()")
+                }
                 // String/Bytes/Path: .into() handles &str→String etc.
                 TypeRef::String | TypeRef::Bytes | TypeRef::Path => format!("{expr}.into()"),
                 // Optional with opaque inner
@@ -801,11 +805,22 @@ pub fn gen_function(
         };
 
         if func.error_type.is_some() {
+            // Backend-specific error conversion
+            let err_conv = match cfg.async_pattern {
+                AsyncPattern::Pyo3FutureIntoPy => {
+                    ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
+                }
+                AsyncPattern::NapiNativeAsync => {
+                    ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+                }
+                AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                _ => ".map_err(|e| e.to_string())",
+            };
             let wrapped = wrap_return("val");
             if wrapped == "val" {
-                format!("{core_call}.map_err(|e| e.into())")
+                format!("{core_call}{err_conv}")
             } else {
-                format!("{core_call}.map(|val| {wrapped}).map_err(|e| e.into())")
+                format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }
         } else {
             wrap_return(&core_call)

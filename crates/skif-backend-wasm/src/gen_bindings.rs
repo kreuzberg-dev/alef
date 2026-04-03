@@ -543,7 +543,12 @@ fn gen_from_core_to_js_binding(typ: &TypeDef, core_import: &str) -> String {
     writeln!(out, "    fn from(val: {core_import}::{}) -> Self {{", typ.name).unwrap();
     writeln!(out, "        Self {{").unwrap();
     for field in &typ.fields {
-        let conversion = skif_codegen::conversions::field_conversion_from_core(&field.name, &field.ty, field.optional);
+        let conversion = skif_codegen::conversions::field_conversion_from_core(
+            &field.name,
+            &field.ty,
+            field.optional,
+            field.sanitized,
+        );
         writeln!(out, "            {conversion},").unwrap();
     }
     writeln!(out, "        }}").unwrap();

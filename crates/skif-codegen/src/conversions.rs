@@ -14,11 +14,11 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
         .map(|e| e.name.as_str())
         .collect();
 
-    // Start with all non-opaque types that have no sanitized fields as candidates
+    // Start with all non-opaque types as candidates (sanitized fields use .to_string())
     let mut convertible: AHashSet<String> = surface
         .types
         .iter()
-        .filter(|t| !t.is_opaque && !t.fields.iter().any(|f| f.sanitized))
+        .filter(|t| !t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
 
@@ -103,7 +103,7 @@ pub fn gen_from_core_to_binding(typ: &TypeDef, core_import: &str) -> String {
     writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
     writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
-        let conversion = field_conversion_from_core(&field.name, &field.ty, field.optional);
+        let conversion = field_conversion_from_core(&field.name, &field.ty, field.optional, field.sanitized);
         writeln!(out, "            {conversion},").ok();
     }
     writeln!(out, "        }}").ok();
@@ -204,12 +204,20 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
 }
 
 /// Same but for core -> binding direction.
-/// Some types are asymmetric (PathBuf→String needs .to_string_lossy()).
-pub fn field_conversion_from_core(name: &str, ty: &TypeRef, _optional: bool) -> String {
+/// Some types are asymmetric (PathBuf→String, sanitized fields need .to_string()).
+pub fn field_conversion_from_core(name: &str, ty: &TypeRef, optional: bool, sanitized: bool) -> String {
+    // Sanitized fields: the binding type is String but the core type is something else.
+    // Use .to_string() to convert the core value.
+    if sanitized {
+        if optional {
+            return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))");
+        }
+        return format!("{name}: format!(\"{{:?}}\", val.{name})");
+    }
     match ty {
         // Path: core uses PathBuf, binding uses String — PathBuf→String needs special handling
         TypeRef::Path => {
-            if _optional {
+            if optional {
                 format!("{name}: val.{name}.map(|p| p.to_string_lossy().to_string())")
             } else {
                 format!("{name}: val.{name}.to_string_lossy().to_string()")
@@ -219,7 +227,7 @@ pub fn field_conversion_from_core(name: &str, ty: &TypeRef, _optional: bool) -> 
             format!("{name}: val.{name}.map(|p| p.to_string_lossy().to_string())")
         }
         // Everything else is symmetric
-        _ => field_conversion_to_core(name, ty, _optional),
+        _ => field_conversion_to_core(name, ty, optional),
     }
 }
 
