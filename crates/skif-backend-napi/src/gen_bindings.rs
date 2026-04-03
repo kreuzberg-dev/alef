@@ -428,7 +428,11 @@ fn napi_field_conversion(name: &str, ty: &skif_core::ir::TypeRef, optional: bool
         // Vec of named types — map each element with Into
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(_) => {
-                format!("{name}: {val}.{name}.into_iter().map(Into::into).collect()")
+                if optional {
+                    format!("{name}: {val}.{name}.map(|v| v.into_iter().map(Into::into).collect())")
+                } else {
+                    format!("{name}: {val}.{name}.into_iter().map(Into::into).collect()")
+                }
             }
             _ => format!("{name}: {val}.{name}"),
         },
