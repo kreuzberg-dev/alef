@@ -3,7 +3,8 @@ use heck::{ToLowerCamelCase, ToPascalCase};
 use skif_codegen::naming::to_csharp_name;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
-use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
+use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub struct CsharpBackend;
@@ -113,6 +114,64 @@ impl Backend for CsharpBackend {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers: P/Invoke return type mapping
+// ---------------------------------------------------------------------------
+
+/// Returns the C# type to use in a `[DllImport]` declaration for the given return type.
+///
+/// Key differences from the high-level `csharp_type`:
+/// - Bool is marshalled as `int` (C FFI convention) — the wrapper compares != 0.
+/// - String / Named / Vec / Map / Path / Json / Bytes all come back as `IntPtr`.
+/// - Numeric primitives use their natural C# types (`nuint`, `int`, etc.).
+fn pinvoke_return_type(ty: &TypeRef) -> &'static str {
+    match ty {
+        TypeRef::Unit => "void",
+        // Bool over FFI is a C int (0/1).
+        TypeRef::Primitive(PrimitiveType::Bool) => "int",
+        // Numeric primitives — use their real C# types.
+        TypeRef::Primitive(PrimitiveType::U8) => "byte",
+        TypeRef::Primitive(PrimitiveType::U16) => "ushort",
+        TypeRef::Primitive(PrimitiveType::U32) => "uint",
+        TypeRef::Primitive(PrimitiveType::U64) => "ulong",
+        TypeRef::Primitive(PrimitiveType::I8) => "sbyte",
+        TypeRef::Primitive(PrimitiveType::I16) => "short",
+        TypeRef::Primitive(PrimitiveType::I32) => "int",
+        TypeRef::Primitive(PrimitiveType::I64) => "long",
+        TypeRef::Primitive(PrimitiveType::F32) => "float",
+        TypeRef::Primitive(PrimitiveType::F64) => "double",
+        TypeRef::Primitive(PrimitiveType::Usize) => "nuint",
+        TypeRef::Primitive(PrimitiveType::Isize) => "nint",
+        // Everything else is a pointer that needs manual marshalling.
+        TypeRef::String
+        | TypeRef::Bytes
+        | TypeRef::Optional(_)
+        | TypeRef::Vec(_)
+        | TypeRef::Map(_, _)
+        | TypeRef::Named(_)
+        | TypeRef::Path
+        | TypeRef::Json => "IntPtr",
+    }
+}
+
+/// Does the return type need IntPtr→string marshalling in the wrapper?
+fn returns_string(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::String | TypeRef::Path | TypeRef::Json)
+}
+
+/// Does the return type come back as a C int that should be converted to bool?
+fn returns_bool_via_int(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Primitive(PrimitiveType::Bool))
+}
+
+/// Does the return type need JSON deserialization from an IntPtr string?
+fn returns_json_object(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) | TypeRef::Bytes | TypeRef::Optional(_)
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Code generation functions
 // ---------------------------------------------------------------------------
 
@@ -127,17 +186,25 @@ fn gen_native_methods(api: &ApiSurface, namespace: &str, lib_name: &str, prefix:
     out.push_str("internal static partial class NativeMethods\n{\n");
     out.push_str(&format!("    private const string LibName = \"{}\";\n\n", lib_name));
 
+    // Track emitted C entry-point names to avoid duplicates when the same FFI
+    // function appears both as a free function and as a type method.
+    let mut emitted: HashSet<String> = HashSet::new();
+
     // Generate P/Invoke declarations for functions
     for func in &api.functions {
         let c_func_name = format!("{}_{}", prefix, func.name.to_lowercase());
-        out.push_str(&gen_pinvoke_for_func(&c_func_name, func));
+        if emitted.insert(c_func_name.clone()) {
+            out.push_str(&gen_pinvoke_for_func(&c_func_name, func));
+        }
     }
 
     // Generate P/Invoke declarations for type methods
     for typ in &api.types {
         for method in &typ.methods {
             let c_method_name = format!("{}_{}", prefix, method.name.to_lowercase());
-            out.push_str(&gen_pinvoke_for_method(&c_method_name, method));
+            if emitted.insert(c_method_name.clone()) {
+                out.push_str(&gen_pinvoke_for_method(&c_method_name, method));
+            }
         }
     }
 
@@ -168,12 +235,8 @@ fn gen_pinvoke_for_func(c_name: &str, func: &FunctionDef) -> String {
         format!("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{c_name}\")]\n");
     out.push_str("    internal static extern ");
 
-    // Return type
-    if func.return_type == TypeRef::Unit {
-        out.push_str("void");
-    } else {
-        out.push_str("IntPtr");
-    }
+    // Return type — use the correct P/Invoke type for each kind.
+    out.push_str(pinvoke_return_type(&func.return_type));
 
     out.push_str(&format!(" {}(", cs_name));
 
@@ -206,12 +269,8 @@ fn gen_pinvoke_for_method(c_name: &str, method: &MethodDef) -> String {
         format!("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{c_name}\")]\n");
     out.push_str("    internal static extern ");
 
-    // Return type
-    if method.return_type == TypeRef::Unit {
-        out.push_str("void");
-    } else {
-        out.push_str("IntPtr");
-    }
+    // Return type — use the correct P/Invoke type for each kind.
+    out.push_str(pinvoke_return_type(&method.return_type));
 
     out.push_str(&format!(" {}(", cs_name));
 
@@ -343,7 +402,7 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
 
     out.push_str(")\n    {\n");
 
-    // Method body - simple delegation to native method
+    // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
 
     if func.return_type != TypeRef::Unit {
@@ -369,9 +428,7 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
         out.push_str("        );\n");
     }
 
-    if func.return_type != TypeRef::Unit {
-        out.push_str("        return result;\n");
-    }
+    emit_return_marshalling(&mut out, &func.return_type);
 
     out.push_str("    }\n\n");
 
@@ -410,7 +467,7 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str) 
 
     out.push_str(")\n    {\n");
 
-    // Method body - simple delegation to native method
+    // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&method.name);
 
     if method.return_type != TypeRef::Unit {
@@ -436,13 +493,43 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str) 
         out.push_str("        );\n");
     }
 
-    if method.return_type != TypeRef::Unit {
-        out.push_str("        return result;\n");
-    }
+    emit_return_marshalling(&mut out, &method.return_type);
 
     out.push_str("    }\n\n");
 
     out
+}
+
+/// Emit the return-value marshalling code shared by both function and method wrappers.
+///
+/// `result` is the local variable holding the native call's return value.
+fn emit_return_marshalling(out: &mut String, return_type: &TypeRef) {
+    if *return_type == TypeRef::Unit {
+        // void — nothing to return
+        return;
+    }
+
+    if returns_string(return_type) {
+        // IntPtr → string, then free the native buffer.
+        out.push_str("        var str = Marshal.PtrToStringUTF8(result);\n");
+        out.push_str("        NativeMethods.FreeString(result);\n");
+        out.push_str("        return str ?? string.Empty;\n");
+    } else if returns_bool_via_int(return_type) {
+        // C int → bool
+        out.push_str("        return result != 0;\n");
+    } else if returns_json_object(return_type) {
+        // IntPtr → JSON string → deserialized object, then free the native buffer.
+        let cs_ty = csharp_type(return_type);
+        out.push_str("        var json = Marshal.PtrToStringUTF8(result);\n");
+        out.push_str("        NativeMethods.FreeString(result);\n");
+        out.push_str(&format!(
+            "        return JsonSerializer.Deserialize<{}>(json ?? \"null\")!;\n",
+            cs_ty
+        ));
+    } else {
+        // Numeric primitives — direct return.
+        out.push_str("        return result;\n");
+    }
 }
 
 fn gen_record_type(typ: &TypeDef, namespace: &str) -> String {

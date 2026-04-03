@@ -113,9 +113,10 @@ fn gen_last_error_helper(ffi_prefix: &str) -> String {
          if code == 0 {{\n        return nil\n    }}\n    \
          ctx := C.{}_last_error_context()\n    \
          message := C.GoString(ctx)\n    \
+         C.{}_free_string(ctx)\n    \
          return fmt.Errorf(\"[%d] %s\", code, message)\n\
          }}",
-        ffi_prefix, ffi_prefix
+        ffi_prefix, ffi_prefix, ffi_prefix
     )
 }
 
@@ -262,16 +263,25 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
             writeln!(out, "    return lastError()").ok();
         } else {
             writeln!(out, "    ptr := {}", c_call).ok();
-            // Add defer free for C string returns
+            writeln!(out, "    if err := lastError(); err != nil {{").ok();
+            // Free the pointer if non-nil even on error, to avoid leaks
+            if matches!(
+                func.return_type,
+                TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+            ) {
+                writeln!(out, "        if ptr != nil {{").ok();
+                writeln!(out, "            C.{}_free_string(ptr)", ffi_prefix).ok();
+                writeln!(out, "        }}").ok();
+            }
+            writeln!(out, "        return nil, err").ok();
+            writeln!(out, "    }}").ok();
+            // Free the FFI-allocated string after unmarshaling
             if matches!(
                 func.return_type,
                 TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
             ) {
                 writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
-            writeln!(out, "    if err := lastError(); err != nil {{").ok();
-            writeln!(out, "        return nil, err").ok();
-            writeln!(out, "    }}").ok();
             writeln!(out, "    return unmarshal{}(ptr), nil", type_name(&func.return_type)).ok();
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
@@ -421,16 +431,25 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
                 writeln!(out, "    return lastError()").ok();
             } else {
                 writeln!(out, "    ptr := {}", c_call).ok();
-                // Add defer free for C string returns
+                writeln!(out, "    if err := lastError(); err != nil {{").ok();
+                // Free the pointer if non-nil even on error, to avoid leaks
+                if matches!(
+                    method.return_type,
+                    TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+                ) {
+                    writeln!(out, "        if ptr != nil {{").ok();
+                    writeln!(out, "            C.{}_free_string(ptr)", ffi_prefix).ok();
+                    writeln!(out, "        }}").ok();
+                }
+                writeln!(out, "        return nil, err").ok();
+                writeln!(out, "    }}").ok();
+                // Free the FFI-allocated string after unmarshaling
                 if matches!(
                     method.return_type,
                     TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
                 ) {
                     writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
                 }
-                writeln!(out, "    if err := lastError(); err != nil {{").ok();
-                writeln!(out, "        return nil, err").ok();
-                writeln!(out, "    }}").ok();
                 writeln!(out, "    return unmarshal{}(ptr), nil", type_name(&method.return_type)).ok();
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
@@ -466,6 +485,14 @@ fn gen_param_to_c(param: &skif_core::ir::ParamDef) -> String {
             )
             .ok();
         }
+        TypeRef::Path => {
+            writeln!(
+                out,
+                "    {} := C.CString({})\n    defer C.free(unsafe.Pointer({}))",
+                c_name, param.name, c_name
+            )
+            .ok();
+        }
         TypeRef::Bytes => {
             writeln!(out, "    {} := (*C.uchar)(unsafe.Pointer(&{}[0]))", c_name, param.name).ok();
         }
@@ -481,7 +508,7 @@ fn gen_param_to_c(param: &skif_core::ir::ParamDef) -> String {
         }
         TypeRef::Optional(inner) => {
             match inner.as_ref() {
-                TypeRef::String => {
+                TypeRef::String | TypeRef::Path => {
                     writeln!(
                         out,
                         "    var {} *C.char\n    if {} != nil {{\n        \

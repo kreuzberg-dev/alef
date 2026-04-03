@@ -12,7 +12,7 @@ pub struct Pyo3Backend;
 impl Pyo3Backend {
     fn binding_config(core_import: &str) -> RustBindingConfig<'_> {
         RustBindingConfig {
-            struct_attrs: &["pyclass(frozen)"],
+            struct_attrs: &["pyclass(frozen, skip_from_py_object)"],
             field_attrs: &["pyo3(get)"],
             struct_derives: &["Clone"],
             method_block_attr: Some("pymethods"),
@@ -60,9 +60,6 @@ impl Backend for Pyo3Backend {
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_import("pyo3::prelude::*");
-        builder.add_import("pyo3::types::PyDict");
-        builder.add_import("pyo3::exceptions::PyRuntimeError");
-        builder.add_import("std::collections::HashMap");
         // Only import core crate if we generate types from it (and skip_core_import is not set)
         if !config.crate_config.skip_core_import
             && (!api.types.is_empty() || !api.functions.is_empty() || !api.enums.is_empty())
@@ -80,6 +77,15 @@ impl Backend for Pyo3Backend {
             api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
         if has_async {
             builder.add_import("pyo3_async_runtimes");
+            // PyRuntimeError is needed for async error mapping via PyErr::new::<PyRuntimeError, _>
+            let has_async_error = api.functions.iter().any(|f| f.is_async && f.error_type.is_some())
+                || api
+                    .types
+                    .iter()
+                    .any(|t| t.methods.iter().any(|m| m.is_async && m.error_type.is_some()));
+            if has_async_error {
+                builder.add_import("pyo3::exceptions::PyRuntimeError");
+            }
         }
 
         // Check if we have opaque types and add Arc import if needed
@@ -269,24 +275,15 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &SkifConfig) -> 
     let mut registered: AHashSet<String> = AHashSet::new();
     for typ in &api.types {
         if registered.insert(typ.name.clone()) {
-            if let Some(ref cfg) = typ.cfg {
-                lines.push(format!("    #[cfg({cfg})]"));
-            }
             lines.push(format!("    m.add_class::<{}>()?;", typ.name));
         }
     }
     for enum_def in &api.enums {
         if registered.insert(enum_def.name.clone()) {
-            if let Some(ref cfg) = enum_def.cfg {
-                lines.push(format!("    #[cfg({cfg})]"));
-            }
             lines.push(format!("    m.add_class::<{}>()?;", enum_def.name));
         }
     }
     for func in &api.functions {
-        if let Some(ref cfg) = func.cfg {
-            lines.push(format!("    #[cfg({cfg})]"));
-        }
         lines.push(format!("    m.add_function(wrap_pyfunction!({}, m)?)?;", func.name));
     }
 

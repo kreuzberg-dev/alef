@@ -2,7 +2,7 @@ use crate::type_map::{java_boxed_type, java_ffi_type, java_type};
 use skif_codegen::naming::{to_class_name, to_java_name};
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
-use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, TypeDef, TypeRef};
+use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, PrimitiveType, TypeDef, TypeRef};
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -130,11 +130,7 @@ fn gen_native_lib(api: &ApiSurface, _config: &SkifConfig, package: &str, prefix:
             let return_layout = gen_ffi_layout(&func.return_type);
             let param_layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
 
-            let layout_str = if param_layouts.is_empty() {
-                format!("FunctionDescriptor.of({})", return_layout)
-            } else {
-                format!("FunctionDescriptor.of({}, {})", return_layout, param_layouts.join(", "))
-            };
+            let layout_str = gen_function_descriptor(&return_layout, &param_layouts);
 
             let handle_name = format!("{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
 
@@ -148,6 +144,22 @@ fn gen_native_lib(api: &ApiSurface, _config: &SkifConfig, package: &str, prefix:
             writeln!(out, "        {}", layout_str).ok();
             writeln!(out, "    );").ok();
         }
+    }
+
+    // free_string handle for releasing FFI-allocated strings
+    {
+        let free_name = format!("{}_free_string", prefix);
+        let handle_name = format!("{}_FREE_STRING", prefix.to_uppercase());
+        writeln!(out).ok();
+        writeln!(
+            out,
+            "    static final MethodHandle {} = LINKER.downcallHandle(",
+            handle_name
+        )
+        .unwrap();
+        writeln!(out, "        LIB.find(\"{}\").orElseThrow(),", free_name).ok();
+        writeln!(out, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
+        writeln!(out, "    );").ok();
     }
 
     // Error handling
@@ -261,15 +273,45 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
         )
         .ok();
         writeln!(out, "        }}").ok();
-    } else {
+    } else if is_ffi_string_return(&func.return_type) {
+        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
         writeln!(
             out,
-            "            var result = {}.invoke({});",
+            "            var resultPtr = (MemorySegment) {}.invoke({});",
             ffi_handle,
             call_args.join(", ")
         )
         .ok();
-        writeln!(out, "            return ({}) result;", return_type).ok();
+        writeln!(
+            out,
+            "            if (resultPtr.equals(MemorySegment.NULL)) return null;"
+        )
+        .ok();
+        writeln!(
+            out,
+            "            String result = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        )
+        .ok();
+        writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
+        writeln!(out, "            return result;").ok();
+        writeln!(out, "        }} catch (Throwable t) {{").ok();
+        writeln!(
+            out,
+            "            throw new {}Exception(\"FFI call failed\", t);",
+            class_name
+        )
+        .ok();
+        writeln!(out, "        }}").ok();
+    } else {
+        writeln!(
+            out,
+            "            var result = ({}) {}.invoke({});",
+            java_ffi_return_cast(&func.return_type),
+            ffi_handle,
+            call_args.join(", ")
+        )
+        .ok();
+        writeln!(out, "            return result;").ok();
         writeln!(out, "        }} catch (Throwable t) {{").ok();
         writeln!(
             out,
@@ -469,6 +511,53 @@ fn ffi_param_name(name: &str, ty: &TypeRef) -> String {
             }
         }
         _ => name.to_string(),
+    }
+}
+
+/// Build a `FunctionDescriptor` string for a given return layout and parameter layouts.
+/// Handles void returns (ofVoid) and non-void returns (of) correctly.
+fn gen_function_descriptor(return_layout: &str, param_layouts: &[String]) -> String {
+    if return_layout.is_empty() {
+        // Void return
+        if param_layouts.is_empty() {
+            "FunctionDescriptor.ofVoid()".to_string()
+        } else {
+            format!("FunctionDescriptor.ofVoid({})", param_layouts.join(", "))
+        }
+    } else {
+        // Non-void return
+        if param_layouts.is_empty() {
+            format!("FunctionDescriptor.of({})", return_layout)
+        } else {
+            format!("FunctionDescriptor.of({}, {})", return_layout, param_layouts.join(", "))
+        }
+    }
+}
+
+/// Returns true if the given return type maps to an FFI ADDRESS that represents a string
+/// (i.e. the FFI returns `*mut c_char` which must be unmarshaled and freed).
+fn is_ffi_string_return(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::String | TypeRef::Path | TypeRef::Json => true,
+        TypeRef::Optional(inner) => is_ffi_string_return(inner),
+        _ => false,
+    }
+}
+
+/// Returns the appropriate Java cast type for non-string FFI return values.
+fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
+    match ty {
+        TypeRef::Primitive(prim) => match prim {
+            PrimitiveType::Bool => "boolean",
+            PrimitiveType::U8 | PrimitiveType::I8 => "byte",
+            PrimitiveType::U16 | PrimitiveType::I16 => "short",
+            PrimitiveType::U32 | PrimitiveType::I32 => "int",
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "long",
+            PrimitiveType::F32 => "float",
+            PrimitiveType::F64 => "double",
+        },
+        TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) => "MemorySegment",
+        _ => "MemorySegment",
     }
 }
 
