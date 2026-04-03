@@ -97,7 +97,11 @@ impl Backend for RustlerBackend {
         for typ in &api.types {
             if skif_codegen::conversions::can_generate_conversion(typ, &convertible) {
                 builder.add_item(&skif_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
-                builder.add_item(&skif_codegen::conversions::gen_from_core_to_binding(typ, &core_import));
+                builder.add_item(&skif_codegen::conversions::gen_from_core_to_binding(
+                    typ,
+                    &core_import,
+                    &opaque_types,
+                ));
             }
         }
         for e in &api.enums {

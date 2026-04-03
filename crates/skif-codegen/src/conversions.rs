@@ -14,6 +14,10 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
         .map(|e| e.name.as_str())
         .collect();
 
+    // Build set of all known type names (including opaques) — opaque Named fields
+    // are convertible because we wrap/unwrap them via Arc.
+    let all_type_names: AHashSet<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
+
     // Start with all non-opaque types as candidates (sanitized fields use .to_string())
     let mut convertible: AHashSet<String> = surface
         .types
@@ -32,7 +36,7 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
                 let ok = typ
                     .fields
                     .iter()
-                    .all(|f| is_field_convertible(&f.ty, &convertible_enums));
+                    .all(|f| is_field_convertible(&f.ty, &convertible_enums, &all_type_names));
                 if !ok && convertible.remove(type_name) {
                     changed = true;
                 }
@@ -47,14 +51,17 @@ pub fn can_generate_conversion(typ: &TypeDef, convertible: &AHashSet<String>) ->
     convertible.contains(&typ.name)
 }
 
-fn is_field_convertible(ty: &TypeRef, convertible_enums: &AHashSet<&str>) -> bool {
+fn is_field_convertible(ty: &TypeRef, convertible_enums: &AHashSet<&str>, known_types: &AHashSet<&str>) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Unit => true,
         TypeRef::Json => false,
-        TypeRef::Optional(inner) | TypeRef::Vec(inner) => is_field_convertible(inner, convertible_enums),
-        TypeRef::Map(k, v) => is_field_convertible(k, convertible_enums) && is_field_convertible(v, convertible_enums),
-        // Only unit-variant enums are safe for auto-conversion in From/Into.
-        TypeRef::Named(name) => convertible_enums.contains(name.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => is_field_convertible(inner, convertible_enums, known_types),
+        TypeRef::Map(k, v) => {
+            is_field_convertible(k, convertible_enums, known_types)
+                && is_field_convertible(v, convertible_enums, known_types)
+        }
+        // Unit-variant enums and known types (including opaques, which use Arc wrap/unwrap) are convertible.
+        TypeRef::Named(name) => convertible_enums.contains(name.as_str()) || known_types.contains(name.as_str()),
     }
 }
 
@@ -102,14 +109,15 @@ pub fn gen_from_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
 }
 
 /// Generate `impl From<core::Type> for BindingType` (core -> binding).
-pub fn gen_from_core_to_binding(typ: &TypeDef, core_import: &str) -> String {
+pub fn gen_from_core_to_binding(typ: &TypeDef, core_import: &str, opaque_types: &AHashSet<String>) -> String {
     let core_path = core_type_path(typ, core_import);
     let mut out = String::with_capacity(256);
     writeln!(out, "impl From<{core_path}> for {} {{", typ.name).ok();
     writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
     writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
-        let conversion = field_conversion_from_core(&field.name, &field.ty, field.optional, field.sanitized);
+        let conversion =
+            field_conversion_from_core(&field.name, &field.ty, field.optional, field.sanitized, opaque_types);
         writeln!(out, "            {conversion},").ok();
     }
     writeln!(out, "        }}").ok();
@@ -211,10 +219,22 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
 
 /// Same but for core -> binding direction.
 /// Some types are asymmetric (PathBuf→String, sanitized fields need .to_string()).
-pub fn field_conversion_from_core(name: &str, ty: &TypeRef, optional: bool, sanitized: bool) -> String {
-    // Sanitized fields: the binding type is String but the core type is something else.
-    // Use .to_string() to convert the core value.
+pub fn field_conversion_from_core(
+    name: &str,
+    ty: &TypeRef,
+    optional: bool,
+    sanitized: bool,
+    opaque_types: &AHashSet<String>,
+) -> String {
+    // Sanitized fields: the binding type differs from core. Use format!("{:?}") to convert.
+    // When the binding type is Vec<String> (sanitized from Vec<Unknown>), map each element.
     if sanitized {
+        // Check if binding type is Vec<String> (inner was sanitized from Named→String)
+        if let TypeRef::Vec(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::String) {
+                return format!("{name}: val.{name}.iter().map(|v| format!(\"{{:?}}\", v)).collect()");
+            }
+        }
         if optional {
             return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))");
         }
@@ -231,6 +251,14 @@ pub fn field_conversion_from_core(name: &str, ty: &TypeRef, optional: bool, sani
         }
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
             format!("{name}: val.{name}.map(|p| p.to_string_lossy().to_string())")
+        }
+        // Opaque Named types: wrap in Arc to create the binding wrapper
+        TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+            if optional {
+                format!("{name}: val.{name}.map(|v| {n} {{ inner: std::sync::Arc::new(v) }})")
+            } else {
+                format!("{name}: {n} {{ inner: std::sync::Arc::new(val.{name}) }}")
+            }
         }
         // Everything else is symmetric
         _ => field_conversion_to_core(name, ty, optional),
@@ -318,7 +346,7 @@ mod tests {
     #[test]
     fn test_from_core_to_binding() {
         let typ = simple_type();
-        let result = gen_from_core_to_binding(&typ, "my_crate");
+        let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
         assert!(result.contains("impl From<my_crate::Config> for Config"));
     }
 

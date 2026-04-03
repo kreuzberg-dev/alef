@@ -112,7 +112,7 @@ impl Backend for WasmBackend {
                 && !exclude_types.contains(&typ.name)
             {
                 builder.add_item(&gen_from_js_binding_to_core(typ, &core_import));
-                builder.add_item(&gen_from_core_to_js_binding(typ, &core_import));
+                builder.add_item(&gen_from_core_to_js_binding(typ, &core_import, &opaque_types));
             }
         }
         for e in &api.enums {
@@ -536,7 +536,7 @@ fn gen_from_js_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
 }
 
 /// Generate `impl From<core::Type> for JsType` (core -> WASM binding).
-fn gen_from_core_to_js_binding(typ: &TypeDef, core_import: &str) -> String {
+fn gen_from_core_to_js_binding(typ: &TypeDef, core_import: &str, opaque_types: &AHashSet<String>) -> String {
     let mut out = String::with_capacity(256);
     let js_name = format!("Js{}", typ.name);
     writeln!(out, "impl From<{core_import}::{}> for {} {{", typ.name, js_name).unwrap();
@@ -548,6 +548,7 @@ fn gen_from_core_to_js_binding(typ: &TypeDef, core_import: &str) -> String {
             &field.ty,
             field.optional,
             field.sanitized,
+            opaque_types,
         );
         writeln!(out, "            {conversion},").unwrap();
     }
