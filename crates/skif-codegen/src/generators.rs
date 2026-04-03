@@ -92,6 +92,44 @@ fn wrap_opaque_return(expr: &str, return_type: &TypeRef, type_name: &str, opaque
 /// - `has_error`: whether the core call returns a `Result`
 /// - `return_wrap`: expression to produce the binding return value from `result`,
 ///   e.g. `"result"` or `"TypeName::from(result)"`
+/// Generate a compilable body for functions that can't be auto-delegated.
+/// Returns a default value or error instead of `todo!()` which would panic.
+fn gen_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool, cfg: &RustBindingConfig) -> String {
+    let err_msg = format!("Not implemented: {fn_name}");
+    if has_error {
+        // Backend-specific error return
+        match cfg.async_pattern {
+            AsyncPattern::Pyo3FutureIntoPy => {
+                format!("Err(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))")
+            }
+            AsyncPattern::NapiNativeAsync => {
+                format!("Err(napi::Error::new(napi::Status::GenericFailure, \"{err_msg}\"))")
+            }
+            AsyncPattern::WasmNativeAsync => {
+                format!("Err(JsValue::from_str(\"{err_msg}\"))")
+            }
+            _ => format!("Err(\"{err_msg}\".to_string())"),
+        }
+    } else {
+        // Return type-appropriate default
+        match return_type {
+            TypeRef::Unit => "()".to_string(),
+            TypeRef::String | TypeRef::Path => format!("String::from(\"[unimplemented: {fn_name}]\")"),
+            TypeRef::Bytes => "Vec::new()".to_string(),
+            TypeRef::Primitive(p) => match p {
+                skif_core::ir::PrimitiveType::Bool => "false".to_string(),
+                _ => "0".to_string(),
+            },
+            TypeRef::Optional(_) => "None".to_string(),
+            TypeRef::Vec(_) => "Vec::new()".to_string(),
+            TypeRef::Map(_, _) => "Default::default()".to_string(),
+            TypeRef::Named(_) | TypeRef::Json => {
+                format!("todo!(\"Not auto-delegatable: {fn_name} — return type requires custom implementation\")")
+            }
+        }
+    }
+}
+
 /// - `is_opaque`: whether the binding type is Arc-wrapped (affects TokioBlockOn wrapping)
 /// - `inner_clone_line`: optional statement emitted before the pattern-specific body,
 ///   e.g. `"let inner = self.inner.clone();\n        "` for opaque instance methods, or `""`.
@@ -552,7 +590,12 @@ pub fn gen_method(
                 format!("{serde_bindings}let result = {core_call}{err_conv}?;\n        Ok({wrap})")
             }
         } else {
-            format!("todo!(\"wire up {}.{}\")", type_name, method.name)
+            gen_unimplemented_body(
+                &method.return_type,
+                &format!("{type_name}.{}", method.name),
+                method.error_type.is_some(),
+                cfg,
+            )
         }
     } else if method.is_async {
         let inner_clone_line = if is_opaque {
@@ -680,7 +723,12 @@ pub fn gen_static_method(
         if let Some(adapter_body) = adapter_bodies.get(&adapter_key) {
             adapter_body.clone()
         } else {
-            format!("todo!(\"wire up {type_name}::{}\")", method.name)
+            gen_unimplemented_body(
+                &method.return_type,
+                &format!("{type_name}::{}", method.name),
+                method.error_type.is_some(),
+                cfg,
+            )
         }
     } else if method.is_async {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
@@ -876,7 +924,8 @@ pub fn gen_function(
                 }
             }
         } else {
-            format!("todo!(\"wire up {}\")", func.name)
+            // Function can't be auto-delegated — return a default/error based on return type
+            gen_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some(), cfg)
         }
     } else if func.is_async {
         let core_call = format!("{core_fn_path}({call_args})");
