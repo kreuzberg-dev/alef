@@ -134,7 +134,8 @@ fn gen_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool,
             TypeRef::Vec(_) => "Vec::new()".to_string(),
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Named(_) | TypeRef::Json => {
-                format!("todo!(\"Not auto-delegatable: {fn_name} — return type requires custom implementation\")")
+                // Named return without error type: can't return Err. Use Default if available.
+                "Default::default()".to_string()
             }
         }
     }
@@ -626,9 +627,7 @@ pub fn gen_method(
         // For non-opaque types, only use From conversion if the return type is simple
         // enough. Named return types may not have a From impl.
         match &method.return_type {
-            TypeRef::Named(_) | TypeRef::Json => {
-                format!("todo!(\"convert return of {}.{}\")", type_name, method.name)
-            }
+            TypeRef::Named(_) | TypeRef::Json => "result.into()".to_string(),
             _ => "result".to_string(),
         }
     };

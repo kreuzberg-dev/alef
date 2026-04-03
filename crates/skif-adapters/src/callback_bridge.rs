@@ -124,10 +124,10 @@ fn gen_python_body(adapter: &AdapterConfig, _config: &SkifConfig) -> (String, St
              type Input = Py<PyAny>;\n    \
              type Output = Py<PyAny>;\n\n    \
              fn prepare_request(&self, request_data: &spikard_http::handler_trait::RequestData) -> Result<Self::Input, {error}> {{\n        \
-                 todo!(\"convert RequestData to Python object\")\n    \
+                 Err({error}::Execution(\"prepare_request not implemented for PyHandlerBridge\".into()))\n    \
              }}\n\n    \
              fn interpret_response(&self, output: Self::Output) -> Result<axum::http::Response<axum::body::Body>, {error}> {{\n        \
-                 todo!(\"convert Python response to HTTP Response\")\n    \
+                 Err({error}::Execution(\"interpret_response not implemented for PyHandlerBridge\".into()))\n    \
              }}\n\n    \
              fn {method_nm}(&self, input: Self::Input) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Output, {error}>> + Send + '_>> {{\n        \
                  let callback = Python::attach(|py| self.callback.clone_ref(py));\n        \

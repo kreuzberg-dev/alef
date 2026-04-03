@@ -657,6 +657,16 @@ fn apply_filters(mut api: ApiSurface, config: &SkifConfig) -> ApiSurface {
     api.enums.retain(|e| !exclude.types.contains(&e.name));
     api.errors.retain(|e| !exclude.types.contains(&e.name));
 
+    // Apply method-level excludes: "TypeName.method_name"
+    if !exclude.methods.is_empty() {
+        for typ in &mut api.types {
+            typ.methods.retain(|m| {
+                let key = format!("{}.{}", typ.name, m.name);
+                !exclude.methods.contains(&key)
+            });
+        }
+    }
+
     api
 }
 

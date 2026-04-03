@@ -121,6 +121,9 @@ pub struct ExcludeConfig {
     pub types: Vec<String>,
     #[serde(default)]
     pub functions: Vec<String>,
+    /// Exclude specific methods: "TypeName.method_name"
+    #[serde(default)]
+    pub methods: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
