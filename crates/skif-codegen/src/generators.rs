@@ -207,8 +207,10 @@ fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String
                     format!("{}.into()", p.name)
                 }
             }
-            // String → &str, Path → &Path for core function calls
-            TypeRef::String | TypeRef::Path => format!("&{}", p.name),
+            // String → &str for core function calls
+            TypeRef::String => format!("&{}", p.name),
+            // Path → PathBuf for core function calls (core expects PathBuf, binding has String)
+            TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
             TypeRef::Bytes => format!("&{}", p.name),
             _ => p.name.clone(),
         })
@@ -236,7 +238,8 @@ fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<
                     format!("&{}_core", p.name)
                 }
             }
-            TypeRef::String | TypeRef::Path => format!("&{}", p.name),
+            TypeRef::String => format!("&{}", p.name),
+            TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
             TypeRef::Bytes => format!("&{}", p.name),
             _ => p.name.clone(),
         })
@@ -606,9 +609,27 @@ pub fn gen_static_method(
     } else {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
         if method.error_type.is_some() {
-            format!("{core_call}.map_err(|e| e.into())")
+            // Backend-specific error conversion
+            let err_conv = match cfg.async_pattern {
+                AsyncPattern::Pyo3FutureIntoPy => {
+                    ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
+                }
+                AsyncPattern::NapiNativeAsync => {
+                    ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+                }
+                AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                _ => ".map_err(|e| e.to_string())",
+            };
+            // Wrap the Ok value if the return type needs conversion (e.g. PathBuf→String)
+            let wrapped = wrap_opaque_return("val", &method.return_type, type_name, opaque_types);
+            if wrapped == "val" {
+                format!("{core_call}{err_conv}")
+            } else {
+                format!("{core_call}.map(|val| {wrapped}){err_conv}")
+            }
         } else {
-            core_call
+            // Wrap return value for non-error case too (e.g. PathBuf→String)
+            wrap_opaque_return(&core_call, &method.return_type, type_name, opaque_types)
         }
     };
 

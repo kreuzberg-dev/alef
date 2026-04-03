@@ -16,30 +16,53 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
 
     // Build set of all known type names (including opaques) — opaque Named fields
     // are convertible because we wrap/unwrap them via Arc.
-    let all_type_names: AHashSet<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
+    let _all_type_names: AHashSet<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
 
-    // Start with all non-opaque types as candidates (sanitized fields use .to_string())
+    // Start with all non-opaque types that don't have sanitized fields as candidates.
+    // Types with sanitized fields can't have binding→core From (lossy conversion),
+    // and excluding them here ensures the transitive closure also removes types
+    // containing Vec<SanitizedType> or Named(SanitizedType) fields.
     let mut convertible: AHashSet<String> = surface
         .types
         .iter()
-        .filter(|t| !t.is_opaque)
+        .filter(|t| !t.is_opaque && !has_sanitized_fields(t))
         .map(|t| t.name.clone())
         .collect();
 
-    // Iteratively remove types whose fields reference non-convertible Named types
+    // Set of opaque type names — Named fields referencing opaques are always convertible
+    // (they use Arc wrap/unwrap), so include them in the known-types check.
+    let opaque_type_names: AHashSet<&str> = surface
+        .types
+        .iter()
+        .filter(|t| t.is_opaque)
+        .map(|t| t.name.as_str())
+        .collect();
+
+    // Iteratively remove types whose fields reference non-convertible Named types.
+    // We check against `convertible ∪ opaque_types` so that types referencing
+    // excluded types (e.g. types with sanitized fields) are transitively removed,
+    // while opaque Named fields remain valid.
     let mut changed = true;
     while changed {
         changed = false;
         let snapshot: Vec<String> = convertible.iter().cloned().collect();
+        let mut known: AHashSet<&str> = convertible.iter().map(|s| s.as_str()).collect();
+        known.extend(&opaque_type_names);
+        let mut to_remove = Vec::new();
         for type_name in &snapshot {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
                 let ok = typ
                     .fields
                     .iter()
-                    .all(|f| is_field_convertible(&f.ty, &convertible_enums, &all_type_names));
-                if !ok && convertible.remove(type_name) {
-                    changed = true;
+                    .all(|f| is_field_convertible(&f.ty, &convertible_enums, &known));
+                if !ok {
+                    to_remove.push(type_name.clone());
                 }
+            }
+        }
+        for name in to_remove {
+            if convertible.remove(&name) {
+                changed = true;
             }
         }
     }
