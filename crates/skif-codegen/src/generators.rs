@@ -411,9 +411,22 @@ fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str) -> String 
                         format!("self.{name}.clone().into()")
                     }
                 }
-                TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                    format!("self.{name}.clone()")
-                }
+                TypeRef::Vec(inner) => match inner.as_ref() {
+                    TypeRef::Named(_) => {
+                        format!("self.{name}.clone().into_iter().map(Into::into).collect()")
+                    }
+                    _ => format!("self.{name}.clone()"),
+                },
+                TypeRef::Optional(inner) => match inner.as_ref() {
+                    TypeRef::Named(_) => {
+                        format!("self.{name}.clone().map(Into::into)")
+                    }
+                    TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
+                        format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
+                    }
+                    _ => format!("self.{name}.clone()"),
+                },
+                TypeRef::Map(_, _) => format!("self.{name}.clone()"),
                 TypeRef::Unit | TypeRef::Json => format!("self.{name}.clone()"),
             };
             writeln!(out, "            {name}: {expr},").ok();

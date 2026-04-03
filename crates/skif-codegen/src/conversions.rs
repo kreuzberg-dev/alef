@@ -341,7 +341,11 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
         // Vec of named types -- map each element
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(_) => {
-                format!("{name}: val.{name}.into_iter().map(Into::into).collect()")
+                if optional {
+                    format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect())")
+                } else {
+                    format!("{name}: val.{name}.into_iter().map(Into::into).collect()")
+                }
             }
             _ => format!("{name}: val.{name}"),
         },

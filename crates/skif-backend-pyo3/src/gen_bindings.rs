@@ -112,6 +112,21 @@ impl Backend for Pyo3Backend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Check if we have Map types and add HashMap import if needed
+        let has_maps = api.types.iter().any(|t| {
+            t.fields
+                .iter()
+                .any(|f| matches!(&f.ty, skif_core::ir::TypeRef::Map(_, _)))
+        }) || api.functions.iter().any(|f| {
+            f.params
+                .iter()
+                .any(|p| matches!(&p.ty, skif_core::ir::TypeRef::Map(_, _)))
+                || matches!(&f.return_type, skif_core::ir::TypeRef::Map(_, _))
+        });
+        if has_maps {
+            builder.add_import("std::collections::HashMap");
+        }
+
         // Suppress warnings for generated FFI code
         builder.add_inner_attribute("allow(unused_imports)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments)");
