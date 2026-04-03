@@ -12,14 +12,14 @@ pub struct Pyo3Backend;
 impl Pyo3Backend {
     fn binding_config(core_import: &str) -> RustBindingConfig<'_> {
         RustBindingConfig {
-            struct_attrs: &["pyclass(frozen, skip_from_py_object)"],
+            struct_attrs: &["pyclass(frozen, from_py_object)"],
             field_attrs: &["pyo3(get)"],
             struct_derives: &["Clone"],
             method_block_attr: Some("pymethods"),
             constructor_attr: "#[new]",
             static_attr: Some("staticmethod"),
             function_attr: "#[pyfunction]",
-            enum_attrs: &["pyclass(eq, eq_int)"],
+            enum_attrs: &["pyclass(eq, eq_int, from_py_object)"],
             enum_derives: &["Clone", "PartialEq"],
             needs_signature: true,
             signature_prefix: "    #[pyo3(signature = (",
