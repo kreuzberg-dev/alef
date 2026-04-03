@@ -9,8 +9,32 @@ use crate::cache;
 use crate::registry;
 use tracing::{debug, info};
 
+/// Ensure `.skif/` is in `.gitignore` so cache files aren't committed.
+pub fn ensure_gitignore(base_dir: &Path) {
+    let gitignore = base_dir.join(".gitignore");
+    let entry = ".skif/";
+
+    if let Ok(content) = std::fs::read_to_string(&gitignore) {
+        if content.lines().any(|line| line.trim() == entry) {
+            return; // Already present
+        }
+        // Append to existing .gitignore
+        let separator = if content.ends_with('\n') { "" } else { "\n" };
+        if let Err(e) = std::fs::write(&gitignore, format!("{content}{separator}{entry}\n")) {
+            debug!("Could not update .gitignore: {e}");
+        }
+    } else {
+        // No .gitignore — don't create one, the project may not use git
+    }
+}
+
 /// Run extraction, with caching.
 pub fn extract(config: &SkifConfig, config_path: &Path, clean: bool) -> anyhow::Result<ApiSurface> {
+    // Ensure .skif/ cache dir is gitignored
+    if let Some(parent) = config_path.parent() {
+        ensure_gitignore(parent);
+    }
+
     let source_hash = cache::compute_source_hash(&config.crate_config.sources, config_path)?;
 
     if !clean && cache::is_ir_cached(&source_hash) {
