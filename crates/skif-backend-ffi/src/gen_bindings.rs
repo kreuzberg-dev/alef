@@ -174,12 +174,18 @@ fn clear_last_error() {{
 }}
 
 /// Return the last error code (0 means no error).
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// Returned pointers must be freed with the appropriate free function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {prefix}_last_error_code() -> i32 {{
     LAST_ERROR_CODE.with_borrow(|c| *c)
 }}
 
 /// Return the last error message. The pointer is valid until the next FFI call on this thread.
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// Returned pointers must be freed with the appropriate free function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {prefix}_last_error_context() -> *const c_char {{
     LAST_ERROR_CONTEXT.with_borrow(|ctx| {{
@@ -197,6 +203,8 @@ pub unsafe extern "C" fn {prefix}_last_error_context() -> *const c_char {{
 fn gen_free_string(prefix: &str) -> String {
     format!(
         r#"/// Free a string previously returned by this library.
+/// # Safety
+/// Pointer must have been returned by this library, or be null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {prefix}_free_string(ptr: *mut c_char) {{
     if !ptr.is_null() {{
@@ -214,6 +222,9 @@ pub unsafe extern "C" fn {prefix}_free_string(ptr: *mut c_char) {{
 fn gen_version(prefix: &str) -> String {
     format!(
         r#"/// Return the library version string. The pointer is static and must NOT be freed.
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// Returned pointers must be freed with the appropriate free function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {prefix}_version() -> *const c_char {{
     static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
@@ -236,6 +247,13 @@ fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str) -> String 
     writeln!(
         out,
         "/// Create a `{type_name}` from a JSON string. Returns null on failure."
+    )
+    .unwrap();
+    writeln!(out, "/// # Safety").unwrap();
+    writeln!(out, "/// JSON string must be valid UTF-8 and null-terminated.").unwrap();
+    writeln!(
+        out,
+        "/// Returned handle must be freed with `{prefix}_{type_snake}_free`."
     )
     .unwrap();
     writeln!(out, "#[unsafe(no_mangle)]").unwrap();
@@ -283,6 +301,8 @@ fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
     let mut out = String::with_capacity(2048);
 
     writeln!(out, "/// Free a `{type_name}` handle.").unwrap();
+    writeln!(out, "/// # Safety").unwrap();
+    writeln!(out, "/// Pointer must have been returned by this library, or be null.").unwrap();
     writeln!(out, "#[unsafe(no_mangle)]").unwrap();
     writeln!(
         out,
@@ -321,6 +341,8 @@ fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, core_import
     let mut out = String::with_capacity(2048);
 
     writeln!(out, "/// Get the `{field_name}` field from a `{type_name}`.").unwrap();
+    writeln!(out, "/// # Safety").unwrap();
+    writeln!(out, "/// Pointer must be a valid handle returned by this library.").unwrap();
     writeln!(out, "#[unsafe(no_mangle)]").unwrap();
 
     // Determine if we need an extra out-param for byte-length
@@ -506,6 +528,13 @@ fn gen_method_wrapper(
             writeln!(out, "/// {}", line).unwrap();
         }
     }
+    writeln!(out, "/// # Safety").unwrap();
+    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").unwrap();
+    writeln!(
+        out,
+        "/// Returned pointers must be freed with the appropriate free function."
+    )
+    .unwrap();
     writeln!(out, "#[unsafe(no_mangle)]").unwrap();
 
     let qualified = format!("{core_import}::{type_name}");
@@ -689,6 +718,13 @@ fn gen_free_function(
             writeln!(out, "/// {}", line).unwrap();
         }
     }
+    writeln!(out, "/// # Safety").unwrap();
+    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").unwrap();
+    writeln!(
+        out,
+        "/// Returned pointers must be freed with the appropriate free function."
+    )
+    .unwrap();
     writeln!(out, "#[unsafe(no_mangle)]").unwrap();
 
     // Build parameter list
@@ -1119,6 +1155,13 @@ fn gen_enum_from_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> St
         "/// Convert an integer to a `{enum_name}` variant. Returns -1 on invalid input."
     )
     .unwrap();
+    writeln!(out, "/// # Safety").unwrap();
+    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").unwrap();
+    writeln!(
+        out,
+        "/// Returned pointers must be freed with the appropriate free function."
+    )
+    .unwrap();
     writeln!(out, "#[unsafe(no_mangle)]").unwrap();
     writeln!(
         out,
@@ -1146,6 +1189,12 @@ fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> Stri
     writeln!(
         out,
         "/// Convert a `{enum_name}` variant name (C string) to its integer value. Returns -1 on invalid input."
+    )
+    .unwrap();
+    writeln!(out, "/// # Safety").unwrap();
+    writeln!(
+        out,
+        "/// Caller must ensure `ptr` is a valid pointer to a `c_char` or null."
     )
     .unwrap();
     writeln!(out, "#[unsafe(no_mangle)]").unwrap();
