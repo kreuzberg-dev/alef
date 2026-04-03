@@ -160,14 +160,16 @@ impl Backend for Pyo3Backend {
             ));
         }
 
-        let convertible = skif_codegen::conversions::convertible_types(api);
-        // From/Into conversions
+        let binding_to_core = skif_codegen::conversions::convertible_types(api);
+        let core_to_binding = skif_codegen::conversions::core_to_binding_convertible_types(api);
+        // From/Into conversions — separate sets for each direction
         for typ in &api.types {
-            if skif_codegen::conversions::can_generate_conversion(typ, &convertible) {
-                // Only generate binding→core if no sanitized fields (lossy conversion)
-                if !skif_codegen::conversions::has_sanitized_fields(typ) {
-                    builder.add_item(&skif_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
-                }
+            // binding→core: strict (no sanitized fields)
+            if skif_codegen::conversions::can_generate_conversion(typ, &binding_to_core) {
+                builder.add_item(&skif_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
+            }
+            // core→binding: permissive (sanitized fields use format!("{:?}"))
+            if skif_codegen::conversions::can_generate_conversion(typ, &core_to_binding) {
                 builder.add_item(&skif_codegen::conversions::gen_from_core_to_binding(
                     typ,
                     &core_import,

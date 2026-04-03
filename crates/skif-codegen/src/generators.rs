@@ -424,14 +424,14 @@ pub fn gen_method(
 
     // Auto-delegate opaque methods: unwrap Arc for params, wrap Arc for returns.
     // Allows Named params/returns (opaque types use Arc unwrap/wrap, non-opaque use .into()).
+    // Opaque methods can delegate if params/return are delegatable.
+    // Async and error types are handled by gen_async_body and backend-specific error conversion.
     let opaque_can_delegate = is_opaque
         && !method.sanitized
-        && !method.is_async
-        && method.error_type.is_none()
         && method
             .params
             .iter()
-            .all(|p| !p.sanitized && crate::shared::is_opaque_delegatable_type(&p.ty))
+            .all(|p| !p.sanitized && crate::shared::is_delegatable_param(&p.ty, opaque_types))
         && crate::shared::is_opaque_delegatable_type(&method.return_type);
 
     // Build the core call expression: opaque types delegate to self.inner directly,
@@ -498,11 +498,22 @@ pub fn gen_method(
     } else {
         let core_call = make_core_call(&method.name);
         if method.error_type.is_some() {
+            // Backend-specific error conversion
+            let err_conv = match cfg.async_pattern {
+                AsyncPattern::Pyo3FutureIntoPy => {
+                    ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
+                }
+                AsyncPattern::NapiNativeAsync => {
+                    ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+                }
+                AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                _ => ".map_err(|e| e.to_string())",
+            };
             if is_opaque {
                 let wrap = wrap_opaque_return("result", &method.return_type, type_name, opaque_types);
-                format!("let result = {core_call}.map_err(|e| e.into())?;\n        {wrap}")
+                format!("let result = {core_call}{err_conv}?;\n        Ok({wrap})")
             } else {
-                format!("{core_call}.map_err(|e| e.into())")
+                format!("{core_call}{err_conv}")
             }
         } else if is_opaque {
             wrap_opaque_return(&core_call, &method.return_type, type_name, opaque_types)
@@ -582,7 +593,7 @@ pub fn gen_static_method(
 
     let call_args = gen_call_args(&method.params, opaque_types);
 
-    let can_delegate = crate::shared::can_auto_delegate(method);
+    let can_delegate = crate::shared::can_auto_delegate(method, opaque_types);
 
     let body = if !can_delegate {
         // Check if an adapter provides the body
@@ -739,7 +750,7 @@ pub fn gen_function(
         }
     };
 
-    let can_delegate = crate::shared::can_auto_delegate_function(func);
+    let can_delegate = crate::shared::can_auto_delegate_function(func, opaque_types);
 
     // Generate the body based on async pattern
     let body = if !can_delegate {

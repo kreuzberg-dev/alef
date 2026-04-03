@@ -2,7 +2,60 @@ use ahash::AHashSet;
 use skif_core::ir::{ApiSurface, EnumDef, FieldDef, TypeDef, TypeRef};
 use std::fmt::Write;
 
-/// Build the set of types that can have From/Into safely generated.
+/// Build the set of types that can have core→binding From safely generated.
+/// More permissive than binding→core: allows sanitized fields (uses format!("{:?}")).
+pub fn core_to_binding_convertible_types(surface: &ApiSurface) -> AHashSet<String> {
+    let convertible_enums: AHashSet<&str> = surface
+        .enums
+        .iter()
+        .filter(|e| can_generate_enum_conversion(e))
+        .map(|e| e.name.as_str())
+        .collect();
+
+    let opaque_type_names: AHashSet<&str> = surface
+        .types
+        .iter()
+        .filter(|t| t.is_opaque)
+        .map(|t| t.name.as_str())
+        .collect();
+
+    // All non-opaque types are candidates (sanitized fields use format!("{:?}"))
+    let mut convertible: AHashSet<String> = surface
+        .types
+        .iter()
+        .filter(|t| !t.is_opaque)
+        .map(|t| t.name.clone())
+        .collect();
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let snapshot: Vec<String> = convertible.iter().cloned().collect();
+        let mut known: AHashSet<&str> = convertible.iter().map(|s| s.as_str()).collect();
+        known.extend(&opaque_type_names);
+        let mut to_remove = Vec::new();
+        for type_name in &snapshot {
+            if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
+                let ok = typ
+                    .fields
+                    .iter()
+                    .all(|f| f.sanitized || is_field_convertible(&f.ty, &convertible_enums, &known));
+                if !ok {
+                    to_remove.push(type_name.clone());
+                }
+            }
+        }
+        for name in to_remove {
+            if convertible.remove(&name) {
+                changed = true;
+            }
+        }
+    }
+    convertible
+}
+
+/// Build the set of types that can have binding→core From safely generated.
+/// Strict: excludes types with sanitized fields (lossy conversion).
 /// This is transitive: a type is convertible only if all its Named field types
 /// are also convertible (or are enums with From/Into support).
 pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {

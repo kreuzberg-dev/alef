@@ -1,19 +1,37 @@
+use ahash::AHashSet;
 use skif_core::ir::{FieldDef, MethodDef, ParamDef, TypeRef};
 
 /// Check if a free function can be auto-delegated to the core crate.
-/// Functions with sanitized params/return types cannot be delegated — the generated
-/// signature differs from the core crate's actual signature.
-pub fn can_auto_delegate_function(func: &skif_core::ir::FunctionDef) -> bool {
+/// Opaque Named params are allowed (unwrapped via Arc). Non-opaque Named params are not
+/// (require From impls that may not exist for types with sanitized fields).
+pub fn can_auto_delegate_function(func: &skif_core::ir::FunctionDef, opaque_types: &AHashSet<String>) -> bool {
     !func.sanitized
-        && func.params.iter().all(|p| !p.sanitized && is_delegatable_type(&p.ty))
+        && func
+            .params
+            .iter()
+            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types))
         && is_delegatable_return(&func.return_type)
 }
 
 /// Check if all params and return type are delegatable.
-pub fn can_auto_delegate(method: &MethodDef) -> bool {
+pub fn can_auto_delegate(method: &MethodDef, opaque_types: &AHashSet<String>) -> bool {
     !method.sanitized
-        && method.params.iter().all(|p| !p.sanitized && is_delegatable_type(&p.ty))
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types))
         && is_delegatable_return(&method.return_type)
+}
+
+/// A param type is delegatable if it's simple, or an opaque Named (unwrapped via Arc).
+pub fn is_delegatable_param(ty: &TypeRef, opaque_types: &AHashSet<String>) -> bool {
+    match ty {
+        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Unit => true,
+        TypeRef::Named(name) => opaque_types.contains(name.as_str()), // Opaque: &*param.inner
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => is_delegatable_param(inner, opaque_types),
+        TypeRef::Map(k, v) => is_delegatable_param(k, opaque_types) && is_delegatable_param(v, opaque_types),
+        TypeRef::Json => false,
+    }
 }
 
 /// Return types are more permissive — Named types work via .into() (core→binding From exists).
