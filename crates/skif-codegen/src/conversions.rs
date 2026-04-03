@@ -336,6 +336,9 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
         // Optional with inner
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(_) | TypeRef::Path => format!("{name}: val.{name}.map(Into::into)"),
+            TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
+                format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect())")
+            }
             _ => format!("{name}: val.{name}"),
         },
         // Vec of named types -- map each element
@@ -349,8 +352,18 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
             }
             _ => format!("{name}: val.{name}"),
         },
-        // Map -- for now direct (both key and value might need conversion)
-        TypeRef::Map(_, _) => format!("{name}: val.{name}"),
+        // Map -- convert Named keys/values via Into
+        TypeRef::Map(k, v) => {
+            let has_named_key = matches!(k.as_ref(), TypeRef::Named(_));
+            let has_named_val = matches!(v.as_ref(), TypeRef::Named(_));
+            if has_named_key || has_named_val {
+                let k_expr = if has_named_key { "k.into()" } else { "k" };
+                let v_expr = if has_named_val { "v.into()" } else { "v" };
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| ({k_expr}, {v_expr})).collect()")
+            } else {
+                format!("{name}: val.{name}")
+            }
+        }
     }
 }
 
@@ -370,6 +383,16 @@ pub fn field_conversion_from_core(
         if let TypeRef::Vec(inner) = ty {
             if matches!(inner.as_ref(), TypeRef::String) {
                 return format!("{name}: val.{name}.iter().map(|v| format!(\"{{:?}}\", v)).collect()");
+            }
+        }
+        // Check if binding type is Optional<Vec<String>> (sanitized from Optional<Vec<Unknown>>)
+        if let TypeRef::Optional(opt_inner) = ty {
+            if let TypeRef::Vec(vec_inner) = opt_inner.as_ref() {
+                if matches!(vec_inner.as_ref(), TypeRef::String) {
+                    return format!(
+                        "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())"
+                    );
+                }
             }
         }
         if optional {
