@@ -14,13 +14,13 @@ impl Pyo3Backend {
         RustBindingConfig {
             struct_attrs: &["pyclass(frozen, from_py_object)"],
             field_attrs: &["pyo3(get)"],
-            struct_derives: &["Clone"],
+            struct_derives: &["Clone", "serde::Serialize"],
             method_block_attr: Some("pymethods"),
             constructor_attr: "#[new]",
             static_attr: Some("staticmethod"),
             function_attr: "#[pyfunction]",
             enum_attrs: &["pyclass(eq, eq_int, from_py_object)"],
-            enum_derives: &["Clone", "PartialEq"],
+            enum_derives: &["Clone", "PartialEq", "serde::Serialize"],
             needs_signature: true,
             signature_prefix: "    #[pyo3(signature = (",
             signature_suffix: "))]",
@@ -72,6 +72,9 @@ impl Backend for Pyo3Backend {
             }
         }
 
+        // serde_json is needed for serde-based param conversion (Named params without From)
+        builder.add_import("serde_json");
+
         // Check if we have async functions and add imports if needed
         let has_async =
             api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
@@ -102,6 +105,8 @@ impl Backend for Pyo3Backend {
         // Clippy allows for generated FFI code
         builder.add_inner_attribute("allow(clippy::too_many_arguments)");
         builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
+        builder.add_inner_attribute("allow(clippy::useless_conversion)");
+        builder.add_inner_attribute("allow(clippy::let_unit_value)");
 
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Python);

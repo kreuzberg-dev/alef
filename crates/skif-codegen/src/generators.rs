@@ -71,9 +71,9 @@ fn wrap_opaque_return(expr: &str, return_type: &TypeRef, type_name: &str, opaque
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             format!("{n} {{ inner: std::sync::Arc::new({expr}) }}")
         }
-        TypeRef::Named(n) => {
-            // Non-opaque Named return type — From impl may not exist, use todo!()
-            format!("todo!(\"convert return type {n} from core\")")
+        TypeRef::Named(_) => {
+            // Non-opaque Named return type — use .into() for core→binding From conversion
+            format!("{expr}.into()")
         }
         // String/Bytes: .into() handles &str→String, &[u8]→Vec<u8>
         TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
@@ -195,9 +195,9 @@ fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 // Opaque type: borrow through Arc to get &CoreType
                 if p.optional {
-                    format!("{}.as_ref().map(|v| &*v.inner)", p.name)
+                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
                 } else {
-                    format!("&*{}.inner", p.name)
+                    format!("&{}.inner", p.name)
                 }
             }
             TypeRef::Named(_) => {
@@ -226,9 +226,9 @@ fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<
         .map(|p| match &p.ty {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if p.optional {
-                    format!("{}.as_ref().map(|v| &*v.inner)", p.name)
+                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
                 } else {
-                    format!("&*{}.inner", p.name)
+                    format!("&{}.inner", p.name)
                 }
             }
             TypeRef::Named(_) => {
@@ -257,6 +257,53 @@ fn gen_named_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) 
                     write!(bindings, "let {}_core = {}.map(Into::into);\n    ", p.name, p.name).ok();
                 } else {
                     write!(bindings, "let {}_core = {}.into();\n    ", p.name, p.name).ok();
+                }
+            }
+        }
+    }
+    bindings
+}
+
+/// Generate serde-based let bindings for non-opaque Named params.
+/// Serializes binding types to JSON and deserializes to core types.
+/// Used when From impls don't exist (e.g., types with sanitized fields).
+/// `indent` is the whitespace prefix for each generated line (e.g., "    " for functions, "        " for methods).
+fn gen_serde_let_bindings(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+    err_conv: &str,
+    indent: &str,
+) -> String {
+    let mut bindings = String::new();
+    for p in params {
+        if let TypeRef::Named(name) = &p.ty {
+            if !opaque_types.contains(name.as_str()) {
+                let core_path = format!("{}::{}", core_import, name);
+                if p.optional {
+                    write!(
+                        bindings,
+                        "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n\
+                         {indent}    let json = serde_json::to_string(&v){err_conv}?;\n\
+                         {indent}    serde_json::from_str(&json){err_conv}\n\
+                         {indent}}}).transpose()?;\n{indent}",
+                        name = p.name,
+                        core_path = core_path,
+                        err_conv = err_conv,
+                        indent = indent,
+                    )
+                    .ok();
+                } else {
+                    write!(
+                        bindings,
+                        "let {name}_json = serde_json::to_string(&{name}){err_conv}?;\n\
+                         {indent}let {name}_core: {core_path} = serde_json::from_str(&{name}_json){err_conv}?;\n{indent}",
+                        name = p.name,
+                        core_path = core_path,
+                        err_conv = err_conv,
+                        indent = indent,
+                    )
+                    .ok();
                 }
             }
         }
@@ -477,6 +524,33 @@ pub fn gen_method(
         let adapter_key = format!("{}.{}", type_name, method.name);
         if let Some(adapter_body) = adapter_bodies.get(&adapter_key) {
             adapter_body.clone()
+        } else if is_opaque
+            && !method.sanitized
+            && has_named_params(&method.params, opaque_types)
+            && method.error_type.is_some()
+            && crate::shared::is_opaque_delegatable_type(&method.return_type)
+        {
+            // Serde-based param conversion for opaque methods with non-opaque Named params.
+            let err_conv = match cfg.async_pattern {
+                AsyncPattern::Pyo3FutureIntoPy => {
+                    ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
+                }
+                AsyncPattern::NapiNativeAsync => {
+                    ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+                }
+                AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                _ => ".map_err(|e| e.to_string())",
+            };
+            let serde_bindings =
+                gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
+            let serde_call_args = gen_call_args_with_let_bindings(&method.params, opaque_types);
+            let core_call = format!("self.inner.{}({serde_call_args})", method.name);
+            if matches!(method.return_type, TypeRef::Unit) {
+                format!("{serde_bindings}{core_call}{err_conv}?;\n        Ok(())")
+            } else {
+                let wrap = wrap_opaque_return("result", &method.return_type, type_name, opaque_types);
+                format!("{serde_bindings}let result = {core_call}{err_conv}?;\n        Ok({wrap})")
+            }
         } else {
             format!("todo!(\"wire up {}.{}\")", type_name, method.name)
         }
@@ -510,8 +584,13 @@ pub fn gen_method(
                 _ => ".map_err(|e| e.to_string())",
             };
             if is_opaque {
-                let wrap = wrap_opaque_return("result", &method.return_type, type_name, opaque_types);
-                format!("let result = {core_call}{err_conv}?;\n        Ok({wrap})")
+                if matches!(method.return_type, TypeRef::Unit) {
+                    // Unit return: avoid let_unit_value by not binding the result
+                    format!("{core_call}{err_conv}?;\n        Ok(())")
+                } else {
+                    let wrap = wrap_opaque_return("result", &method.return_type, type_name, opaque_types);
+                    format!("let result = {core_call}{err_conv}?;\n        Ok({wrap})")
+                }
             } else {
                 format!("{core_call}{err_conv}")
             }
@@ -752,11 +831,50 @@ pub fn gen_function(
 
     let can_delegate = crate::shared::can_auto_delegate_function(func, opaque_types);
 
+    // Backend-specific error conversion string for serde bindings
+    let serde_err_conv = match cfg.async_pattern {
+        AsyncPattern::Pyo3FutureIntoPy => ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))",
+        AsyncPattern::NapiNativeAsync => ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))",
+        AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+        _ => ".map_err(|e| e.to_string())",
+    };
+
     // Generate the body based on async pattern
     let body = if !can_delegate {
         // Check if an adapter provides the body
         if let Some(adapter_body) = adapter_bodies.get(&func.name) {
             adapter_body.clone()
+        } else if use_let_bindings && func.error_type.is_some() {
+            // Serde-based param conversion: serialize binding types to JSON, deserialize to core types.
+            // This handles Named params (e.g., ProcessConfig) that lack binding→core From impls.
+            let serde_bindings =
+                gen_serde_let_bindings(&func.params, opaque_types, core_import, serde_err_conv, "    ");
+            let core_call = format!("{core_fn_path}({call_args})");
+
+            // Determine return wrapping strategy (same as delegatable case)
+            let wrap_return = |expr: &str| -> String {
+                match &func.return_type {
+                    TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                        format!("{name} {{ inner: std::sync::Arc::new({expr}) }}")
+                    }
+                    TypeRef::Named(_name) => format!("{expr}.into()"),
+                    TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
+                    TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
+                    _ => expr.to_string(),
+                }
+            };
+
+            if matches!(func.return_type, TypeRef::Unit) {
+                // Unit return with error: avoid let_unit_value
+                format!("{serde_bindings}{core_call}{serde_err_conv}?;\n    Ok(())")
+            } else {
+                let wrapped = wrap_return("val");
+                if wrapped == "val" {
+                    format!("{serde_bindings}{core_call}{serde_err_conv}")
+                } else {
+                    format!("{serde_bindings}{core_call}.map(|val| {wrapped}){serde_err_conv}")
+                }
+            }
         } else {
             format!("todo!(\"wire up {}\")", func.name)
         }
