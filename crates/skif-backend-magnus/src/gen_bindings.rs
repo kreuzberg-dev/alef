@@ -5,7 +5,7 @@ use skif_codegen::shared::{constructor_parts, function_params};
 use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
-use skif_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef};
+use skif_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -52,10 +52,22 @@ impl Backend for MagnusBackend {
         builder.add_import(
             "magnus::{function, method, prelude::*, Error, Ruby, IntoValueFromNative, try_convert::TryConvertOwned}",
         );
-        builder.add_import("std::collections::HashMap");
-        builder.add_import(&core_import);
+
+        // Only import HashMap when Map-typed fields or returns are present
+        let has_maps = api
+            .types
+            .iter()
+            .any(|t| t.fields.iter().any(|f| matches!(&f.ty, TypeRef::Map(_, _))))
+            || api
+                .functions
+                .iter()
+                .any(|f| matches!(&f.return_type, TypeRef::Map(_, _)));
+        if has_maps {
+            builder.add_import("std::collections::HashMap");
+        }
 
         // Clippy allows for generated code
+        builder.add_inner_attribute("allow(unused_imports)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments)");
         builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
         builder.add_inner_attribute("allow(unused_variables)");
@@ -174,7 +186,7 @@ fn gen_opaque_struct(typ: &TypeDef, core_import: &str) -> String {
     writeln!(out, "#[derive(Clone)]").ok();
     writeln!(out, r#"#[magnus::wrap(class = "{}")]"#, class_path).ok();
     writeln!(out, "pub struct {} {{", typ.name).ok();
-    writeln!(out, "    inner: std::sync::Arc<{}::{}>,", core_import, typ.name).ok();
+    writeln!(out, "    inner: Arc<{}::{}>,", core_import, typ.name).ok();
     writeln!(out, "}}").ok();
     let name = &typ.name;
     writeln!(out).ok();

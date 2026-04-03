@@ -87,9 +87,9 @@ impl Backend for ExtendrBackend {
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_import("extendr_api::prelude::*");
-        builder.add_import(&core_import);
 
         // Clippy allows for generated code
+        builder.add_inner_attribute("allow(unused_imports)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments)");
         builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
 

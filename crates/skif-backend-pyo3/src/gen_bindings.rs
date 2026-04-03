@@ -69,34 +69,33 @@ impl Backend for Pyo3Backend {
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_import("pyo3::prelude::*");
-        // Only import core crate if we generate types from it (and skip_core_import is not set)
-        if !config.crate_config.skip_core_import
-            && (!api.types.is_empty() || !api.functions.is_empty() || !api.enums.is_empty())
-        {
-            builder.add_import(&core_import);
-            // Add imports for all mapped crates when path_mappings exist
-            for target_crate in config.crate_config.path_mappings.values() {
-                let crate_name = target_crate.split("::").next().unwrap_or(target_crate);
-                builder.add_import(crate_name);
-            }
-        }
+        // Note: core_import and path_mapping crates are referenced via fully-qualified paths
+        // in generated code (e.g. `core_import::TypeName`), so no bare `use crate_name;`
+        // import is needed — that would trigger clippy::single_component_path_imports.
 
         // Import serde_json when available (needed for serde-based param conversion)
         if has_serde {
             builder.add_import("serde_json");
         }
 
-        // Check if we have async functions and add imports if needed
-        let has_async =
-            api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+        // Check if we have non-sanitized async functions (sanitized async methods produce stubs, not async code)
+        let has_async = api.functions.iter().any(|f| f.is_async && !f.sanitized)
+            || api
+                .types
+                .iter()
+                .any(|t| t.methods.iter().any(|m| m.is_async && !m.sanitized));
         if has_async {
             builder.add_import("pyo3_async_runtimes");
             // PyRuntimeError is needed for async error mapping via PyErr::new::<PyRuntimeError, _>
-            let has_async_error = api.functions.iter().any(|f| f.is_async && f.error_type.is_some())
-                || api
-                    .types
-                    .iter()
-                    .any(|t| t.methods.iter().any(|m| m.is_async && m.error_type.is_some()));
+            let has_async_error = api
+                .functions
+                .iter()
+                .any(|f| f.is_async && !f.sanitized && f.error_type.is_some())
+                || api.types.iter().any(|t| {
+                    t.methods
+                        .iter()
+                        .any(|m| m.is_async && !m.sanitized && m.error_type.is_some())
+                });
             if has_async_error {
                 builder.add_import("pyo3::exceptions::PyRuntimeError");
             }
@@ -113,7 +112,8 @@ impl Backend for Pyo3Backend {
             builder.add_import("std::sync::Arc");
         }
 
-        // Clippy allows for generated FFI code
+        // Suppress warnings for generated FFI code
+        builder.add_inner_attribute("allow(unused_imports)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments)");
         builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
         builder.add_inner_attribute("allow(clippy::useless_conversion)");

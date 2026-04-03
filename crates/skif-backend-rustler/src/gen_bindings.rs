@@ -4,7 +4,7 @@ use skif_codegen::builder::RustFileBuilder;
 use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
-use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
+use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use std::path::PathBuf;
 
 pub struct RustlerBackend;
@@ -35,10 +35,22 @@ impl Backend for RustlerBackend {
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_import("rustler::{Env, Term, NifResult, ResourceArc}");
-        builder.add_import("std::collections::HashMap");
-        builder.add_import(&core_import);
+
+        // Only import HashMap when Map-typed fields or returns are present
+        let has_maps = api
+            .types
+            .iter()
+            .any(|t| t.fields.iter().any(|f| matches!(&f.ty, TypeRef::Map(_, _))))
+            || api
+                .functions
+                .iter()
+                .any(|f| matches!(&f.return_type, TypeRef::Map(_, _)));
+        if has_maps {
+            builder.add_import("std::collections::HashMap");
+        }
 
         // Clippy allows for generated code
+        builder.add_inner_attribute("allow(unused_imports)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments)");
         builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
         builder.add_inner_attribute("allow(unused_variables)");
@@ -167,7 +179,7 @@ fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_types: &AHashSe
     let mut out = String::with_capacity(256);
     out.push_str("#[derive(Clone)]\n");
     out.push_str(&format!("pub struct {} {{\n", typ.name));
-    out.push_str(&format!("    inner: std::sync::Arc<{}::{}>,\n", core_import, typ.name));
+    out.push_str(&format!("    inner: Arc<{}::{}>,\n", core_import, typ.name));
     out.push_str("}\n\n");
     out.push_str(&format!("impl rustler::Resource for {} {{}}", typ.name));
     out

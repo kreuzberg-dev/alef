@@ -35,7 +35,7 @@ pub fn is_delegatable_param(ty: &TypeRef, opaque_types: &AHashSet<String>) -> bo
 }
 
 /// Return types are more permissive — Named types work via .into() (core→binding From exists).
-fn is_delegatable_return(ty: &TypeRef) -> bool {
+pub fn is_delegatable_return(ty: &TypeRef) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Unit => true,
         TypeRef::Named(_) => true, // core→binding From impl generated for all convertible types

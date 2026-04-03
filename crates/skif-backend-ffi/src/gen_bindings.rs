@@ -82,7 +82,6 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &SkifConfig) -> String {
     builder.add_import("std::cell::RefCell");
     builder.add_import("serde_json");
     let core_import = config.core_import();
-    builder.add_import(&core_import);
 
     // Collect opaque type names for skipping serde/clone operations
     let opaque_types: HashSet<String> = api
@@ -93,6 +92,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &SkifConfig) -> String {
         .collect();
 
     // Clippy allows for generated code
+    builder.add_inner_attribute("allow(unused_imports)");
     builder.add_inner_attribute("allow(clippy::too_many_arguments)");
     builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
     builder.add_inner_attribute("allow(unused_variables)");

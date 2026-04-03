@@ -553,6 +553,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
                 field.sanitized = true;
             }
         }
+        let type_name = typ.name.clone();
         for method in &mut typ.methods {
             let mut method_sanitized = false;
             for param in &mut method.params {
@@ -561,7 +562,11 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
                     method_sanitized = true;
                 }
             }
-            if sanitize_type_ref(&mut method.return_type, &known_types, &known_enums) {
+            // Skip sanitizing return type if it's Named(parent_type) — builder/factory pattern.
+            // Methods that return their own type (e.g. with_foo(&self) -> Self) should keep
+            // the Named return so codegen can delegate them correctly.
+            let is_self_return = matches!(&method.return_type, TypeRef::Named(n) if n == &type_name);
+            if !is_self_return && sanitize_type_ref(&mut method.return_type, &known_types, &known_enums) {
                 method_sanitized = true;
             }
             if method_sanitized {

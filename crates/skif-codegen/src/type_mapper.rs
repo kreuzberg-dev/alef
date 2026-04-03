@@ -58,9 +58,9 @@ pub trait TypeMapper {
         format!("Vec<{inner}>")
     }
 
-    /// Map a map type. Default: "std::collections::HashMap<K, V>"
+    /// Map a map type. Default: "HashMap<K, V>"
     fn map(&self, key: &str, value: &str) -> String {
-        format!("std::collections::HashMap<{key}, {value}>")
+        format!("HashMap<{key}, {value}>")
     }
 
     /// Map a named type. Default: identity.

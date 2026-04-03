@@ -209,7 +209,7 @@ pub fn core_to_binding_match_arm(core_prefix: &str, variant_name: &str, fields: 
 }
 
 /// Derive the Rust import path from rust_path, replacing hyphens with underscores.
-fn core_type_path(typ: &TypeDef, core_import: &str) -> String {
+pub fn core_type_path(typ: &TypeDef, core_import: &str) -> String {
     // rust_path is like "liter-llm::tower::RateLimitConfig"
     // We need "liter_llm::tower::RateLimitConfig"
     let path = typ.rust_path.replace('-', "_");
@@ -388,9 +388,9 @@ pub fn field_conversion_from_core(
         // Opaque Named types: wrap in Arc to create the binding wrapper
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if optional {
-                format!("{name}: val.{name}.map(|v| {n} {{ inner: std::sync::Arc::new(v) }})")
+                format!("{name}: val.{name}.map(|v| {n} {{ inner: Arc::new(v) }})")
             } else {
-                format!("{name}: {n} {{ inner: std::sync::Arc::new(val.{name}) }}")
+                format!("{name}: {n} {{ inner: Arc::new(val.{name}) }}")
             }
         }
         // Everything else is symmetric

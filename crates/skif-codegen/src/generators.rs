@@ -67,13 +67,19 @@ pub struct RustBindingConfig<'a> {
 /// - `TypeRef::Named(n)` where `n` is a non-opaque type → `todo!()` placeholder (From may not exist)
 /// - Everything else (primitives, String, Vec, etc.) → pass through unchanged
 /// - `TypeRef::Unit` → pass through unchanged
-fn wrap_opaque_return(expr: &str, return_type: &TypeRef, type_name: &str, opaque_types: &AHashSet<String>) -> String {
+fn wrap_return(
+    expr: &str,
+    return_type: &TypeRef,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+    self_is_opaque: bool,
+) -> String {
     match return_type {
-        TypeRef::Named(n) if n == type_name => {
-            format!("Self {{ inner: std::sync::Arc::new({expr}) }}")
+        TypeRef::Named(n) if n == type_name && self_is_opaque => {
+            format!("Self {{ inner: Arc::new({expr}) }}")
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-            format!("{n} {{ inner: std::sync::Arc::new({expr}) }}")
+            format!("{n} {{ inner: Arc::new({expr}) }}")
         }
         TypeRef::Named(_) => {
             // Non-opaque Named return type — use .into() for core→binding From conversion
@@ -360,6 +366,62 @@ fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) -> boo
         .any(|p| matches!(&p.ty, TypeRef::Named(name) if !opaque_types.contains(name.as_str())))
 }
 
+/// Check if a param type is safe for non-opaque delegation (no complex conversions needed).
+/// Vec and Map params can cause type mismatches (e.g. Vec<String> vs &[&str]).
+fn is_simple_non_opaque_param(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path | TypeRef::Unit => true,
+        TypeRef::Optional(inner) => is_simple_non_opaque_param(inner),
+        _ => false,
+    }
+}
+
+/// Generate a lossy binding→core struct literal for non-opaque delegation.
+/// Sanitized fields use `Default::default()`, non-sanitized fields are cloned and converted.
+/// Fields are accessed via `self.` (behind &self), so all non-Copy types need `.clone()`.
+fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str) -> String {
+    let core_path = crate::conversions::core_type_path(typ, core_import);
+    let mut out = format!("let core_self = {core_path} {{\n");
+    for field in &typ.fields {
+        let name = &field.name;
+        if field.sanitized {
+            writeln!(out, "            {name}: Default::default(),").ok();
+        } else {
+            let expr = match &field.ty {
+                TypeRef::Primitive(_) => format!("self.{name}"),
+                TypeRef::String | TypeRef::Bytes => {
+                    if field.optional {
+                        format!("self.{name}.clone()")
+                    } else {
+                        format!("self.{name}.clone()")
+                    }
+                }
+                TypeRef::Path => {
+                    if field.optional {
+                        format!("self.{name}.clone().map(Into::into)")
+                    } else {
+                        format!("self.{name}.clone().into()")
+                    }
+                }
+                TypeRef::Named(_) => {
+                    if field.optional {
+                        format!("self.{name}.clone().map(Into::into)")
+                    } else {
+                        format!("self.{name}.clone().into()")
+                    }
+                }
+                TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                    format!("self.{name}.clone()")
+                }
+                TypeRef::Unit | TypeRef::Json => format!("self.{name}.clone()"),
+            };
+            writeln!(out, "            {name}: {expr},").ok();
+        }
+    }
+    out.push_str("        };\n        ");
+    out
+}
+
 /// Generate a struct definition using the builder.
 pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfig) -> String {
     let mut sb = StructBuilder::new(&typ.name);
@@ -397,9 +459,9 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
     writeln!(out, "pub struct {} {{", typ.name).ok();
     let core_path = typ.rust_path.replace('-', "_");
     if typ.is_trait {
-        writeln!(out, "    inner: std::sync::Arc<dyn {core_path} + Send + Sync>,").ok();
+        writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
     } else {
-        writeln!(out, "    inner: std::sync::Arc<{core_path}>,").ok();
+        writeln!(out, "    inner: Arc<{core_path}>,").ok();
     }
     write!(out, "}}").ok();
     out
@@ -417,9 +479,9 @@ pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix
     let core_path = typ.rust_path.replace('-', "_");
     writeln!(out, "pub struct {}{} {{", prefix, typ.name).ok();
     if typ.is_trait {
-        writeln!(out, "    inner: std::sync::Arc<dyn {core_path} + Send + Sync>,").ok();
+        writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
     } else {
-        writeln!(out, "    inner: std::sync::Arc<{core_path}>,").ok();
+        writeln!(out, "    inner: Arc<{core_path}>,").ok();
     }
     write!(out, "}}").ok();
     out
@@ -517,12 +579,11 @@ pub fn gen_method(
     let is_owned_receiver = matches!(method.receiver.as_ref(), Some(skif_core::ir::ReceiverKind::Owned));
 
     // Auto-delegate opaque methods: unwrap Arc for params, wrap Arc for returns.
-    // Async methods excluded (future_into_py changes return type).
-    // Owned receivers excluded (can't move out of Arc without Clone).
+    // Owned receivers require the type to implement Clone (builder pattern).
+    // Async methods are allowed — gen_async_body handles them below.
     let opaque_can_delegate = is_opaque
         && !method.sanitized
-        && !method.is_async
-        && !is_owned_receiver
+        && (!is_owned_receiver || typ.is_clone)
         && method
             .params
             .iter()
@@ -560,7 +621,7 @@ pub fn gen_method(
     //   - Named(other) → OtherType::from(result)
     //   - primitives/String/Vec/Unit → pass through
     let async_result_wrap = if is_opaque {
-        wrap_opaque_return("result", &method.return_type, type_name, opaque_types)
+        wrap_return("result", &method.return_type, type_name, opaque_types, is_opaque)
     } else {
         // For non-opaque types, only use From conversion if the return type is simple
         // enough. Named return types may not have a From impl.
@@ -602,8 +663,41 @@ pub fn gen_method(
             if matches!(method.return_type, TypeRef::Unit) {
                 format!("{serde_bindings}{core_call}{err_conv}?;\n        Ok(())")
             } else {
-                let wrap = wrap_opaque_return("result", &method.return_type, type_name, opaque_types);
+                let wrap = wrap_return("result", &method.return_type, type_name, opaque_types, is_opaque);
                 format!("{serde_bindings}let result = {core_call}{err_conv}?;\n        Ok({wrap})")
+            }
+        } else if !is_opaque
+            && !method.sanitized
+            && method
+                .params
+                .iter()
+                .all(|p| !p.sanitized && is_simple_non_opaque_param(&p.ty))
+            && crate::shared::is_delegatable_return(&method.return_type)
+        {
+            // Non-opaque delegation: construct core type field-by-field, call method, convert back.
+            // Sanitized fields use Default::default() (lossy but functional for builder pattern).
+            let field_conversions = gen_lossy_binding_to_core_fields(typ, cfg.core_import);
+            let core_call = format!("core_self.{}({call_args})", method.name);
+            let result_wrap = match &method.return_type {
+                TypeRef::Named(n) if n == type_name => ".into()".to_string(),
+                TypeRef::Named(_) => ".into()".to_string(),
+                TypeRef::String | TypeRef::Bytes | TypeRef::Path => ".into()".to_string(),
+                _ => String::new(),
+            };
+            if method.error_type.is_some() {
+                let err_conv = match cfg.async_pattern {
+                    AsyncPattern::Pyo3FutureIntoPy => {
+                        ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
+                    }
+                    AsyncPattern::NapiNativeAsync => {
+                        ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+                    }
+                    AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                    _ => ".map_err(|e| e.to_string())",
+                };
+                format!("{field_conversions}let result = {core_call}{err_conv}?;\n        Ok(result{result_wrap})")
+            } else {
+                format!("{field_conversions}{core_call}{result_wrap}")
             }
         } else {
             gen_unimplemented_body(
@@ -647,14 +741,14 @@ pub fn gen_method(
                     // Unit return: avoid let_unit_value by not binding the result
                     format!("{core_call}{err_conv}?;\n        Ok(())")
                 } else {
-                    let wrap = wrap_opaque_return("result", &method.return_type, type_name, opaque_types);
+                    let wrap = wrap_return("result", &method.return_type, type_name, opaque_types, is_opaque);
                     format!("let result = {core_call}{err_conv}?;\n        Ok({wrap})")
                 }
             } else {
                 format!("{core_call}{err_conv}")
             }
         } else if is_opaque {
-            wrap_opaque_return(&core_call, &method.return_type, type_name, opaque_types)
+            wrap_return(&core_call, &method.return_type, type_name, opaque_types, is_opaque)
         } else {
             core_call
         }
@@ -662,11 +756,20 @@ pub fn gen_method(
 
     let needs_py = method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
     let self_param = match (needs_py, params.is_empty()) {
-        (true, true) => "&self, py: Python<'_>",
-        (true, false) => "&self, py: Python<'_>, ",
+        (true, true) => "&self, py: Python<'py>",
+        (true, false) => "&self, py: Python<'py>, ",
         (false, true) => "&self",
         (false, false) => "&self, ",
     };
+
+    // For async PyO3 methods, override return type to PyResult<Bound<'py, PyAny>>
+    // and add the 'py lifetime generic on the method name.
+    let ret = if needs_py {
+        "PyResult<Bound<'py, PyAny>>".to_string()
+    } else {
+        ret
+    };
+    let method_lifetime = if needs_py { "<'py>" } else { "" };
 
     // Wrap long signature if necessary
     let (sig_start, sig_params, sig_end) = if self_param.len() + params.len() > 100 {
@@ -683,15 +786,18 @@ pub fn gen_method(
             })
             .collect::<Vec<_>>()
             .join(",\n        ");
-        let py_param = if needs_py { "\n        py: Python<'_>," } else { "" };
+        let py_param = if needs_py { "\n        py: Python<'py>," } else { "" };
         (
-            format!("pub fn {}(\n        &self,{}\n        ", method.name, py_param),
+            format!(
+                "pub fn {}{method_lifetime}(\n        &self,{}\n        ",
+                method.name, py_param
+            ),
             wrapped_params,
             "\n    ) -> ".to_string(),
         )
     } else {
         (
-            format!("pub fn {}({}", method.name, self_param),
+            format!("pub fn {}{method_lifetime}({}", method.name, self_param),
             params,
             ") -> ".to_string(),
         )
@@ -765,7 +871,7 @@ pub fn gen_static_method(
                 _ => ".map_err(|e| e.to_string())",
             };
             // Wrap the Ok value if the return type needs conversion (e.g. PathBuf→String)
-            let wrapped = wrap_opaque_return("val", &method.return_type, type_name, opaque_types);
+            let wrapped = wrap_return("val", &method.return_type, type_name, opaque_types, typ.is_opaque);
             if wrapped == "val" {
                 format!("{core_call}{err_conv}")
             } else {
@@ -773,9 +879,19 @@ pub fn gen_static_method(
             }
         } else {
             // Wrap return value for non-error case too (e.g. PathBuf→String)
-            wrap_opaque_return(&core_call, &method.return_type, type_name, opaque_types)
+            wrap_return(&core_call, &method.return_type, type_name, opaque_types, typ.is_opaque)
         }
     };
+
+    let static_needs_py = method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+
+    // For async PyO3 static methods, override return type and add lifetime generic.
+    let ret = if static_needs_py {
+        "PyResult<Bound<'py, PyAny>>".to_string()
+    } else {
+        ret
+    };
+    let method_lifetime = if static_needs_py { "<'py>" } else { "" };
 
     // Wrap long signature if necessary
     let (sig_start, sig_params, sig_end) = if params.len() > 100 {
@@ -793,9 +909,9 @@ pub fn gen_static_method(
             .collect::<Vec<_>>()
             .join(",\n        ");
         // For async PyO3, add py parameter
-        if method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy {
+        if static_needs_py {
             (
-                format!("pub fn {}(py: Python<'_>,\n        ", method.name),
+                format!("pub fn {}{method_lifetime}(py: Python<'py>,\n        ", method.name),
                 wrapped_params,
                 "\n    ) -> ".to_string(),
             )
@@ -807,9 +923,9 @@ pub fn gen_static_method(
             )
         }
     } else {
-        if method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy {
+        if static_needs_py {
             (
-                format!("pub fn {}(py: Python<'_>, ", method.name),
+                format!("pub fn {}{method_lifetime}(py: Python<'py>, ", method.name),
                 params,
                 ") -> ".to_string(),
             )
@@ -923,7 +1039,7 @@ pub fn gen_function(
             let wrap_return = |expr: &str| -> String {
                 match &func.return_type {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                        format!("{name} {{ inner: std::sync::Arc::new({expr}) }}")
+                        format!("{name} {{ inner: Arc::new({expr}) }}")
                     }
                     TypeRef::Named(_name) => format!("{expr}.into()"),
                     TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
@@ -960,7 +1076,7 @@ pub fn gen_function(
             match &func.return_type {
                 // Opaque type return: wrap in Arc
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                    format!("{name} {{ inner: std::sync::Arc::new({expr}) }}")
+                    format!("{name} {{ inner: Arc::new({expr}) }}")
                 }
                 // Non-opaque Named: use .into() if From impl exists
                 TypeRef::Named(_name) => {
@@ -975,7 +1091,7 @@ pub fn gen_function(
                 // Optional with opaque inner
                 TypeRef::Optional(inner) => match inner.as_ref() {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                        format!("{expr}.map(|v| {name} {{ inner: std::sync::Arc::new(v) }})")
+                        format!("{expr}.map(|v| {name} {{ inner: Arc::new(v) }})")
                     }
                     TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
                         format!("{expr}.map(Into::into)")
@@ -985,7 +1101,7 @@ pub fn gen_function(
                 // Vec<Named>: map each element through Into
                 TypeRef::Vec(inner) => match inner.as_ref() {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                        format!("{expr}.into_iter().map(|v| {name} {{ inner: std::sync::Arc::new(v) }}).collect()")
+                        format!("{expr}.into_iter().map(|v| {name} {{ inner: Arc::new(v) }}).collect()")
                     }
                     TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
                         format!("{expr}.into_iter().map(Into::into).collect()")
@@ -1028,6 +1144,16 @@ pub fn gen_function(
 
     // Wrap long signature if necessary
     let async_kw = if func.is_async { "async " } else { "" };
+    let func_needs_py = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+
+    // For async PyO3 free functions, override return type and add lifetime generic.
+    let ret = if func_needs_py {
+        "PyResult<Bound<'py, PyAny>>".to_string()
+    } else {
+        ret
+    };
+    let func_lifetime = if func_needs_py { "<'py>" } else { "" };
+
     let (func_sig, _params_formatted) = if params.len() > 100 {
         let wrapped_params = func
             .params
@@ -1044,10 +1170,10 @@ pub fn gen_function(
             .join(",\n    ");
 
         // For async PyO3, we need special signature handling
-        if func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy {
+        if func_needs_py {
             (
                 format!(
-                    "pub fn {}(py: Python<'_>,\n    {}\n) -> {ret}",
+                    "pub fn {}{func_lifetime}(py: Python<'py>,\n    {}\n) -> {ret}",
                     func.name,
                     wrapped_params,
                     ret = ret
@@ -1066,8 +1192,14 @@ pub fn gen_function(
             )
         }
     } else {
-        if func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy {
-            (format!("pub fn {}(py: Python<'_>, {params}) -> {ret}", func.name), "")
+        if func_needs_py {
+            (
+                format!(
+                    "pub fn {}{func_lifetime}(py: Python<'py>, {params}) -> {ret}",
+                    func.name
+                ),
+                "",
+            )
         } else {
             (format!("pub {async_kw}fn {}({params}) -> {ret}", func.name), "")
         }

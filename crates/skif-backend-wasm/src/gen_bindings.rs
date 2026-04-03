@@ -56,10 +56,22 @@ impl Backend for WasmBackend {
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_import("wasm_bindgen::prelude::*");
-        builder.add_import("std::collections::HashMap");
-        builder.add_import(&core_import);
+
+        // Only import HashMap when Map-typed fields or returns are present
+        let has_maps = api
+            .types
+            .iter()
+            .any(|t| t.fields.iter().any(|f| matches!(&f.ty, TypeRef::Map(_, _))))
+            || api
+                .functions
+                .iter()
+                .any(|f| matches!(&f.return_type, TypeRef::Map(_, _)));
+        if has_maps {
+            builder.add_import("std::collections::HashMap");
+        }
 
         // Clippy allows for generated code
+        builder.add_inner_attribute("allow(unused_imports)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments)");
         builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
         builder.add_inner_attribute("allow(unused_variables)");
@@ -153,7 +165,7 @@ fn gen_opaque_struct(typ: &TypeDef, core_import: &str) -> String {
     writeln!(out, "#[derive(Clone)]").ok();
     writeln!(out, "#[wasm_bindgen]").ok();
     writeln!(out, "pub struct {} {{", js_name).ok();
-    writeln!(out, "    inner: std::sync::Arc<{core_import}::{}>,", typ.name).ok();
+    writeln!(out, "    inner: Arc<{core_import}::{}>,", typ.name).ok();
     write!(out, "}}").ok();
     out
 }

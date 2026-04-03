@@ -313,6 +313,11 @@ fn build_rust_path(crate_name: &str, module_path: &str, name: &str) -> String {
 }
 
 /// Extract the condition string from a `#[cfg(...)]` attribute, if present.
+/// Check if any attribute is a `#[cfg(...)]` — indicates feature-gated code.
+fn has_cfg_attribute(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|a| a.path().is_ident("cfg"))
+}
+
 fn extract_cfg_condition(attrs: &[syn::Attribute]) -> Option<String> {
     for attr in attrs {
         if attr.path().is_ident("cfg") {
@@ -507,6 +512,10 @@ fn extract_impl_block(
                     if !method.sig.generics.params.is_empty() {
                         return None;
                     }
+                    // Skip feature-gated methods — they may not be available in binding crates
+                    if has_cfg_attribute(&method.attrs) {
+                        return None;
+                    }
                     // Skip methods named "new" that return Self — constructor already generated from fields
                     let method_name = method.sig.ident.to_string();
                     if method_name == "new" {
@@ -516,7 +525,7 @@ fn extract_impl_block(
                             }
                         }
                     }
-                    return Some(extract_method(method, crate_name));
+                    return Some(extract_method(method, crate_name, &type_name));
                 }
             }
             None
@@ -579,7 +588,11 @@ fn extract_trait_impl_methods(
             if !method.sig.generics.params.is_empty() {
                 continue;
             }
-            let method_def = extract_method(method, crate_name);
+            // Skip feature-gated methods
+            if has_cfg_attribute(&method.attrs) {
+                continue;
+            }
+            let method_def = extract_method(method, crate_name, &type_name);
             // Don't add duplicates
             if !type_def.methods.iter().any(|m| m.name == method_def.name) {
                 type_def.methods.push(method_def);
@@ -589,7 +602,8 @@ fn extract_trait_impl_methods(
 }
 
 /// Extract a single method from an impl block.
-fn extract_method(method: &syn::ImplItemFn, _crate_name: &str) -> MethodDef {
+/// `parent_type_name` is used to resolve `Self` references in return types and params.
+fn extract_method(method: &syn::ImplItemFn, _crate_name: &str, parent_type_name: &str) -> MethodDef {
     let name = method.sig.ident.to_string();
     let doc = extract_doc_comments(&method.attrs);
     let mut is_async = method.sig.asyncness.is_some();
@@ -605,8 +619,14 @@ fn extract_method(method: &syn::ImplItemFn, _crate_name: &str) -> MethodDef {
         }
     }
 
+    // Resolve `Self` → actual parent type name in return types and params
+    resolve_self_refs(&mut return_type, parent_type_name);
+
     let (receiver, is_static) = detect_receiver(&method.sig.inputs);
-    let params = extract_params(&method.sig.inputs);
+    let mut params = extract_params(&method.sig.inputs);
+    for param in &mut params {
+        resolve_self_refs(&mut param.ty, parent_type_name);
+    }
 
     MethodDef {
         name,
@@ -618,6 +638,19 @@ fn extract_method(method: &syn::ImplItemFn, _crate_name: &str) -> MethodDef {
         doc,
         receiver,
         sanitized: false,
+    }
+}
+
+/// Replace `TypeRef::Named("Self")` with the actual parent type name, recursively.
+fn resolve_self_refs(ty: &mut TypeRef, parent_type_name: &str) {
+    match ty {
+        TypeRef::Named(n) if n == "Self" => *n = parent_type_name.to_string(),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => resolve_self_refs(inner, parent_type_name),
+        TypeRef::Map(k, v) => {
+            resolve_self_refs(k, parent_type_name);
+            resolve_self_refs(v, parent_type_name);
+        }
+        _ => {}
     }
 }
 
