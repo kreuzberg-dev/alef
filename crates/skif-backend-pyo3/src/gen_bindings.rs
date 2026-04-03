@@ -3,29 +3,30 @@ use ahash::AHashSet;
 use skif_codegen::builder::RustFileBuilder;
 use skif_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
-use skif_core::config::{AdapterPattern, Language, SkifConfig, resolve_output_dir};
+use skif_core::config::{AdapterPattern, Language, SkifConfig, detect_serde_available, resolve_output_dir};
 use skif_core::ir::ApiSurface;
 use std::path::PathBuf;
 
 pub struct Pyo3Backend;
 
 impl Pyo3Backend {
-    fn binding_config(core_import: &str) -> RustBindingConfig<'_> {
+    fn binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
         RustBindingConfig {
             struct_attrs: &["pyclass(frozen, from_py_object)"],
             field_attrs: &["pyo3(get)"],
-            struct_derives: &["Clone", "serde::Serialize"],
+            struct_derives: &["Clone"],
             method_block_attr: Some("pymethods"),
             constructor_attr: "#[new]",
             static_attr: Some("staticmethod"),
             function_attr: "#[pyfunction]",
             enum_attrs: &["pyclass(eq, eq_int, from_py_object)"],
-            enum_derives: &["Clone", "PartialEq", "serde::Serialize"],
+            enum_derives: &["Clone", "PartialEq"],
             needs_signature: true,
             signature_prefix: "    #[pyo3(signature = (",
             signature_suffix: "))]",
             core_import,
             async_pattern: AsyncPattern::Pyo3FutureIntoPy,
+            has_serde,
         }
     }
 }
@@ -53,7 +54,15 @@ impl Backend for Pyo3Backend {
     fn generate_bindings(&self, api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let mapper = Pyo3Mapper;
         let core_import = config.core_import();
-        let cfg = Self::binding_config(&core_import);
+
+        // Detect serde availability from the output crate's Cargo.toml
+        let output_dir = resolve_output_dir(
+            config.output.python.as_ref(),
+            &config.crate_config.name,
+            "crates/{name}-py/src/",
+        );
+        let has_serde = detect_serde_available(&output_dir);
+        let cfg = Self::binding_config(&core_import, has_serde);
 
         // Build adapter body map for method body substitution
         let adapter_bodies = skif_adapters::build_adapter_bodies(config, Language::Python)?;
@@ -72,8 +81,10 @@ impl Backend for Pyo3Backend {
             }
         }
 
-        // serde_json is needed for serde-based param conversion (Named params without From)
-        builder.add_import("serde_json");
+        // Import serde_json when available (needed for serde-based param conversion)
+        if has_serde {
+            builder.add_import("serde_json");
+        }
 
         // Check if we have async functions and add imports if needed
         let has_async =
@@ -204,12 +215,6 @@ impl Backend for Pyo3Backend {
         builder.add_item(&gen_module_init(&config.python_module_name(), api, config));
 
         let content = builder.build();
-
-        let output_dir = resolve_output_dir(
-            config.output.python.as_ref(),
-            &config.crate_config.name,
-            "crates/{name}-py/src/",
-        );
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("lib.rs"),

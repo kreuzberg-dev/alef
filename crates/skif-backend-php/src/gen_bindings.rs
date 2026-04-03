@@ -28,6 +28,7 @@ impl PhpBackend {
             signature_suffix: "",
             core_import,
             async_pattern: AsyncPattern::TokioBlockOn,
+            has_serde: true,
         }
     }
 }

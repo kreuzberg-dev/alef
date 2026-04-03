@@ -54,6 +54,10 @@ pub struct RustBindingConfig<'a> {
     pub core_import: &'a str,
     /// Async pattern supported by this backend.
     pub async_pattern: AsyncPattern,
+    /// Whether serde/serde_json are available in the output crate's dependencies.
+    /// When true, the generator can use serde-based param conversion and add `serde::Serialize` derives.
+    /// When false, non-convertible Named params fall back to `gen_unimplemented_body`.
+    pub has_serde: bool,
 }
 
 /// Wrap a core-call result for opaque delegation methods.
@@ -365,6 +369,9 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     for d in cfg.struct_derives {
         sb.add_derive(d);
     }
+    if cfg.has_serde {
+        sb.add_derive("serde::Serialize");
+    }
     for field in &typ.fields {
         let ty = if field.optional {
             mapper.optional(&mapper.map_type(&field.ty))
@@ -562,7 +569,8 @@ pub fn gen_method(
         let adapter_key = format!("{}.{}", type_name, method.name);
         if let Some(adapter_body) = adapter_bodies.get(&adapter_key) {
             adapter_body.clone()
-        } else if is_opaque
+        } else if cfg.has_serde
+            && is_opaque
             && !method.sanitized
             && has_named_params(&method.params, opaque_types)
             && method.error_type.is_some()
@@ -826,8 +834,12 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // Data variants are flattened to unit variants; the From/Into conversions
     // handle the lossy mapping (discarding / providing defaults for field data).
     let mut out = String::with_capacity(512);
-    if !cfg.enum_derives.is_empty() {
-        writeln!(out, "#[derive({})]", cfg.enum_derives.join(", ")).ok();
+    let mut derives: Vec<&str> = cfg.enum_derives.to_vec();
+    if cfg.has_serde {
+        derives.push("serde::Serialize");
+    }
+    if !derives.is_empty() {
+        writeln!(out, "#[derive({})]", derives.join(", ")).ok();
     }
     for attr in cfg.enum_attrs {
         writeln!(out, "#[{attr}]").ok();
@@ -892,7 +904,7 @@ pub fn gen_function(
         // Check if an adapter provides the body
         if let Some(adapter_body) = adapter_bodies.get(&func.name) {
             adapter_body.clone()
-        } else if use_let_bindings && func.error_type.is_some() {
+        } else if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
             // Serde-based param conversion: serialize binding types to JSON, deserialize to core types.
             // This handles Named params (e.g., ProcessConfig) that lack binding→core From impls.
             let serde_bindings =

@@ -26,6 +26,7 @@ impl ExtendrBackend {
             signature_suffix: "",
             core_import,
             async_pattern: AsyncPattern::None,
+            has_serde: true,
         }
     }
 }

@@ -30,6 +30,7 @@ impl NapiBackend {
             signature_suffix: "",
             core_import,
             async_pattern: AsyncPattern::NapiNativeAsync,
+            has_serde: true,
         }
     }
 }
