@@ -5,14 +5,14 @@ use skif_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use skif_codegen::shared::{constructor_parts, function_params, partition_methods};
 use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
-use skif_core::config::{Language, SkifConfig, resolve_output_dir};
+use skif_core::config::{Language, SkifConfig, detect_serde_available, resolve_output_dir};
 use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use std::path::PathBuf;
 
 pub struct PhpBackend;
 
 impl PhpBackend {
-    fn binding_config(core_import: &str) -> RustBindingConfig<'_> {
+    fn binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
         RustBindingConfig {
             struct_attrs: &["php_class"],
             field_attrs: &[],
@@ -28,7 +28,7 @@ impl PhpBackend {
             signature_suffix: "",
             core_import,
             async_pattern: AsyncPattern::TokioBlockOn,
-            has_serde: true,
+            has_serde,
         }
     }
 }
@@ -57,11 +57,23 @@ impl Backend for PhpBackend {
         let enum_names = api.enums.iter().map(|e| e.name.clone()).collect();
         let mapper = PhpMapper { enum_names };
         let core_import = config.core_import();
-        let cfg = Self::binding_config(&core_import);
+
+        let output_dir = resolve_output_dir(
+            config.output.php.as_ref(),
+            &config.crate_config.name,
+            "crates/{name}-php/src/",
+        );
+        let has_serde = detect_serde_available(&output_dir);
+        let cfg = Self::binding_config(&core_import, has_serde);
 
         // Build the inner module content (types, methods, conversions)
         let mut builder = RustFileBuilder::new();
         builder.add_import("ext_php_rs::prelude::*");
+
+        // Import serde_json when available (needed for serde-based param conversion)
+        if has_serde {
+            builder.add_import("serde_json");
+        }
 
         // Only import HashMap when Map-typed fields or returns are present
         let has_maps = api
@@ -158,12 +170,6 @@ impl Backend for PhpBackend {
         }
 
         let content = builder.build();
-
-        let output_dir = resolve_output_dir(
-            config.output.php.as_ref(),
-            &config.crate_config.name,
-            "crates/{name}-php/src/",
-        );
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("lib.rs"),

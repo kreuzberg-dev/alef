@@ -450,8 +450,11 @@ fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
             writeln!(out, "{indent}}}").unwrap();
         }
         TypeRef::Json => {
-            writeln!(out, "{indent}match CString::new({expr}.clone()) {{").unwrap();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").unwrap();
+            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").unwrap();
+            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").unwrap();
+            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").unwrap();
+            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").unwrap();
+            writeln!(out, "{indent}    }},").unwrap();
             writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
             writeln!(out, "{indent}}}").unwrap();
         }
@@ -1122,9 +1125,18 @@ fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
                 writeln!(out, "{indent}{expr}").unwrap();
             }
         },
-        TypeRef::String | TypeRef::Json => {
+        TypeRef::String => {
             writeln!(out, "{indent}match CString::new({expr}) {{").unwrap();
             writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").unwrap();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
+            writeln!(out, "{indent}}}").unwrap();
+        }
+        TypeRef::Json => {
+            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").unwrap();
+            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").unwrap();
+            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").unwrap();
+            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").unwrap();
+            writeln!(out, "{indent}    }},").unwrap();
             writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
             writeln!(out, "{indent}}}").unwrap();
         }
