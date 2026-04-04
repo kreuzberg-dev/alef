@@ -2,7 +2,7 @@ use crate::type_map::MagnusMapper;
 use ahash::AHashSet;
 use skif_codegen::builder::{ImplBuilder, RustFileBuilder, StructBuilder};
 use skif_codegen::generators;
-use skif_codegen::shared::{constructor_parts, function_params};
+use skif_codegen::shared::{self, constructor_parts, function_params};
 use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
@@ -103,7 +103,7 @@ impl Backend for MagnusBackend {
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
             } else {
                 builder.add_item(&gen_struct(typ, &mapper));
-                builder.add_item(&gen_struct_methods(typ, &mapper));
+                builder.add_item(&gen_struct_methods(typ, &mapper, &opaque_types, &core_import));
             }
         }
 
@@ -115,9 +115,9 @@ impl Backend for MagnusBackend {
 
         for func in &api.functions {
             if !is_reserved_fn(&func.name) {
-                builder.add_item(&gen_function(func, &mapper));
+                builder.add_item(&gen_function(func, &mapper, &opaque_types, &core_import));
                 if func.is_async {
-                    builder.add_item(&gen_async_function(func, &mapper));
+                    builder.add_item(&gen_async_function(func, &mapper, &opaque_types, &core_import));
                 }
             }
         }
@@ -217,15 +217,20 @@ fn gen_opaque_struct(typ: &TypeDef, core_import: &str) -> String {
 }
 
 /// Generate Magnus methods for an opaque struct (delegates to self.inner).
-fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &MagnusMapper, _opaque_types: &AHashSet<String>) -> String {
+fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &MagnusMapper, opaque_types: &AHashSet<String>) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
     for method in &typ.methods {
         if !method.is_static {
             if method.is_async {
-                impl_builder.add_method(&gen_opaque_async_instance_method(method, mapper));
+                impl_builder.add_method(&gen_opaque_async_instance_method(
+                    method,
+                    mapper,
+                    &typ.name,
+                    opaque_types,
+                ));
             } else {
-                impl_builder.add_method(&gen_opaque_instance_method(method, mapper));
+                impl_builder.add_method(&gen_opaque_instance_method(method, mapper, &typ.name, opaque_types));
             }
         }
     }
@@ -234,12 +239,38 @@ fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &MagnusMapper, _opaque_types
 }
 
 /// Generate an opaque sync instance method for Magnus (delegates to self.inner).
-fn gen_opaque_instance_method(method: &MethodDef, mapper: &MagnusMapper) -> String {
+fn gen_opaque_instance_method(
+    method: &MethodDef,
+    mapper: &MagnusMapper,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let body = gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some());
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let core_call = format!("self.inner.{}({})", method.name, call_args);
+        if method.error_type.is_some() {
+            if matches!(method.return_type, TypeRef::Unit) {
+                format!(
+                    "{core_call}.map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        Ok(())"
+                )
+            } else {
+                let wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, true);
+                format!(
+                    "let result = {core_call}.map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        Ok({wrap})"
+                )
+            }
+        } else {
+            generators::wrap_return(&core_call, &method.return_type, type_name, opaque_types, true)
+        }
+    } else {
+        gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    };
     format!(
         "fn {}(&self, {params}) -> {return_annotation} {{\n        \
          {body}\n    }}",
@@ -248,16 +279,43 @@ fn gen_opaque_instance_method(method: &MethodDef, mapper: &MagnusMapper) -> Stri
 }
 
 /// Generate an opaque async instance method for Magnus (block on runtime, delegates to self.inner).
-fn gen_opaque_async_instance_method(method: &MethodDef, mapper: &MagnusMapper) -> String {
+fn gen_opaque_async_instance_method(
+    method: &MethodDef,
+    mapper: &MagnusMapper,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let body = gen_magnus_unimplemented_body(
-        &method.return_type,
-        &format!("{}_async", method.name),
-        method.error_type.is_some(),
-    );
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let inner_clone = "let inner = self.inner.clone();\n        ";
+        let core_call = format!("inner.{}({})", method.name, call_args);
+        let result_wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, true);
+        if method.error_type.is_some() {
+            format!(
+                "{inner_clone}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                 Ok({result_wrap})"
+            )
+        } else {
+            format!(
+                "{inner_clone}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ {core_call}.await }});\n        \
+                 {result_wrap}"
+            )
+        }
+    } else {
+        gen_magnus_unimplemented_body(
+            &method.return_type,
+            &format!("{}_async", method.name),
+            method.error_type.is_some(),
+        )
+    };
     format!(
         "fn {}_async(&self, {params}) -> {return_annotation} {{\n        \
          {body}\n    \
@@ -309,7 +367,12 @@ fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper) -> String {
 }
 
 /// Generate Magnus methods for a struct.
-fn gen_struct_methods(typ: &TypeDef, mapper: &MagnusMapper) -> String {
+fn gen_struct_methods(
+    typ: &TypeDef,
+    mapper: &MagnusMapper,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
     if !typ.fields.is_empty() {
@@ -326,9 +389,15 @@ fn gen_struct_methods(typ: &TypeDef, mapper: &MagnusMapper) -> String {
     for method in &typ.methods {
         if !method.is_static {
             if method.is_async {
-                impl_builder.add_method(&gen_async_instance_method(method, mapper));
+                impl_builder.add_method(&gen_async_instance_method(
+                    method,
+                    mapper,
+                    typ,
+                    opaque_types,
+                    core_import,
+                ));
             } else {
-                impl_builder.add_method(&gen_instance_method(method, mapper));
+                impl_builder.add_method(&gen_instance_method(method, mapper, typ, opaque_types, core_import));
             }
         }
     }
@@ -361,13 +430,43 @@ fn is_primitive_copy(ty: &skif_core::ir::TypeRef) -> bool {
     matches!(ty, skif_core::ir::TypeRef::Primitive(_) | skif_core::ir::TypeRef::Unit)
 }
 
-/// Generate an instance method binding.
-fn gen_instance_method(method: &MethodDef, mapper: &MagnusMapper) -> String {
+/// Generate an instance method binding for a non-opaque struct.
+fn gen_instance_method(
+    method: &MethodDef,
+    mapper: &MagnusMapper,
+    typ: &TypeDef,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let body = gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some());
+    let can_delegate = !method.sanitized
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && generators::is_simple_non_opaque_param(&p.ty))
+        && shared::is_delegatable_return(&method.return_type);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import);
+        let core_call = format!("core_self.{}({})", method.name, call_args);
+        let result_wrap = match &method.return_type {
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => ".into()".to_string(),
+            _ => String::new(),
+        };
+        if method.error_type.is_some() {
+            format!(
+                "{field_conversions}let result = {core_call}.map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        Ok(result{result_wrap})"
+            )
+        } else {
+            format!("{field_conversions}{core_call}{result_wrap}")
+        }
+    } else {
+        gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    };
     format!(
         "fn {}(&self, {params}) -> {return_annotation} {{\n        \
          {body}\n    }}",
@@ -376,17 +475,54 @@ fn gen_instance_method(method: &MethodDef, mapper: &MagnusMapper) -> String {
 }
 
 /// Generate an async instance method binding for Magnus (block on runtime).
-fn gen_async_instance_method(method: &MethodDef, mapper: &MagnusMapper) -> String {
+fn gen_async_instance_method(
+    method: &MethodDef,
+    mapper: &MagnusMapper,
+    typ: &TypeDef,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let body = gen_magnus_unimplemented_body(
-        &method.return_type,
-        &format!("{}_async", method.name),
-        method.error_type.is_some(),
-    );
-    // Append "_async" to the method name for Ruby
+    let can_delegate = !method.sanitized
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && generators::is_simple_non_opaque_param(&p.ty))
+        && shared::is_delegatable_return(&method.return_type);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import);
+        let _core_call = format!("core_self.{}({})", method.name, call_args);
+        let result_wrap = match &method.return_type {
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => ".into()".to_string(),
+            _ => String::new(),
+        };
+        if method.error_type.is_some() {
+            format!(
+                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ core_self.{name}({call_args}).await }}).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                 Ok(result{result_wrap})",
+                name = method.name
+            )
+        } else {
+            format!(
+                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n        \
+                 let result = rt.block_on(async {{ core_self.{name}({call_args}).await }});\n        \
+                 result{result_wrap}",
+                name = method.name
+            )
+        }
+    } else {
+        gen_magnus_unimplemented_body(
+            &method.return_type,
+            &format!("{}_async", method.name),
+            method.error_type.is_some(),
+        )
+    };
     format!(
         "fn {}_async(&self, {params}) -> {return_annotation} {{\n        \
          {body}\n    \
@@ -471,12 +607,32 @@ fn gen_enum(enum_def: &EnumDef) -> String {
 }
 
 /// Generate a free function binding.
-fn gen_function(func: &FunctionDef, mapper: &MagnusMapper) -> String {
+fn gen_function(
+    func: &FunctionDef,
+    mapper: &MagnusMapper,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
     let params = function_params(&func.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let body = gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some());
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&func.params, opaque_types);
+        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        if func.error_type.is_some() {
+            let wrap = generators::wrap_return("result", &func.return_type, "", opaque_types, false);
+            format!(
+                "let result = {core_call}.map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    Ok({wrap})"
+            )
+        } else {
+            generators::wrap_return(&core_call, &func.return_type, "", opaque_types, false)
+        }
+    } else {
+        gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
+    };
     format!(
         "fn {}({params}) -> {return_annotation} {{\n    \
          {body}\n}}",
@@ -485,17 +641,42 @@ fn gen_function(func: &FunctionDef, mapper: &MagnusMapper) -> String {
 }
 
 /// Generate an async free function binding for Magnus (block on runtime).
-fn gen_async_function(func: &FunctionDef, mapper: &MagnusMapper) -> String {
+fn gen_async_function(
+    func: &FunctionDef,
+    mapper: &MagnusMapper,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
     let params = function_params(&func.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let body = gen_magnus_unimplemented_body(
-        &func.return_type,
-        &format!("{}_async", func.name),
-        func.error_type.is_some(),
-    );
-    // Append "_async" to the function name for Ruby
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&func.params, opaque_types);
+        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let result_wrap = generators::wrap_return("result", &func.return_type, "", opaque_types, false);
+        if func.error_type.is_some() {
+            format!(
+                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                 let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                 Ok({result_wrap})"
+            )
+        } else {
+            format!(
+                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                 let result = rt.block_on(async {{ {core_call}.await }});\n    \
+                 {result_wrap}"
+            )
+        }
+    } else {
+        gen_magnus_unimplemented_body(
+            &func.return_type,
+            &format!("{}_async", func.name),
+            func.error_type.is_some(),
+        )
+    };
     format!(
         "fn {}_async({params}) -> {return_annotation} {{\n    \
          {body}\n\

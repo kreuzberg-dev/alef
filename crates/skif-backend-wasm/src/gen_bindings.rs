@@ -1,9 +1,9 @@
 use crate::type_map::WasmMapper;
 use ahash::AHashSet;
 use skif_codegen::builder::{ImplBuilder, RustFileBuilder};
-use skif_codegen::generators;
+use skif_codegen::generators::{self};
 use skif_codegen::naming::to_node_name;
-use skif_codegen::shared::constructor_parts;
+use skif_codegen::shared::{self, constructor_parts};
 use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
@@ -111,7 +111,13 @@ impl Backend for WasmBackend {
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
             } else {
                 builder.add_item(&gen_struct(typ, &mapper));
-                builder.add_item(&gen_struct_methods(typ, &mapper, &exclude_types, &core_import));
+                builder.add_item(&gen_struct_methods(
+                    typ,
+                    &mapper,
+                    &exclude_types,
+                    &core_import,
+                    &opaque_types,
+                ));
             }
         }
 
@@ -123,7 +129,7 @@ impl Backend for WasmBackend {
 
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
-                builder.add_item(&gen_function(func, &mapper, &core_import));
+                builder.add_item(&gen_function(func, &mapper, &core_import, &opaque_types));
             }
         }
 
@@ -178,21 +184,25 @@ fn gen_opaque_struct(typ: &TypeDef, core_import: &str) -> String {
 }
 
 /// Generate wasm-bindgen methods for an opaque struct.
-fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &WasmMapper, _opaque_types: &AHashSet<String>) -> String {
+fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &WasmMapper, opaque_types: &AHashSet<String>) -> String {
     let js_name = format!("Js{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
     impl_builder.add_attr("wasm_bindgen");
 
     for method in &typ.methods {
-        impl_builder.add_method(&gen_opaque_method(method, mapper, &typ.name));
+        impl_builder.add_method(&gen_opaque_method(method, mapper, &typ.name, opaque_types));
     }
 
     impl_builder.build()
 }
 
 /// Generate a method for an opaque wasm-bindgen struct that delegates to self.inner.
-/// Only auto-delegates simple methods (no params, not async, not sanitized, simple return type).
-fn gen_opaque_method(method: &MethodDef, mapper: &WasmMapper, _type_name: &str) -> String {
+fn gen_opaque_method(
+    method: &MethodDef,
+    mapper: &WasmMapper,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
     let params: Vec<String> = method
         .params
         .iter()
@@ -209,25 +219,35 @@ fn gen_opaque_method(method: &MethodDef, mapper: &WasmMapper, _type_name: &str) 
         String::new()
     };
 
-    // Check if this method can be auto-delegated:
-    // - Not sanitized
-    // - No params (params may need type conversions like String -> &str)
-    // - Not async (async needs runtime bridging)
-    // - No error type
-    // - Simple return type (primitives, String, etc. — not Named or complex)
-    let can_delegate = !method.sanitized
-        && method.params.is_empty()
-        && !method.is_async
-        && method.error_type.is_none()
-        && matches!(
-            method.return_type,
-            TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Unit
-        );
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
     let async_kw = if method.is_async { "async " } else { "" };
 
     let body = if can_delegate {
-        format!("self.inner.{}()", method.name)
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let core_call = format!("self.inner.{}({})", method.name, call_args);
+        if method.is_async {
+            // WASM async: native async fn becomes a Promise automatically
+            let result_wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, true);
+            if method.error_type.is_some() {
+                format!(
+                    "let result = {core_call}.await\n        \
+                     .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
+                     Ok({result_wrap})"
+                )
+            } else {
+                format!("let result = {core_call}.await;\n    Ok({result_wrap})")
+            }
+        } else if method.error_type.is_some() {
+            if matches!(method.return_type, TypeRef::Unit) {
+                format!("{core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok(())")
+            } else {
+                let wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, true);
+                format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
+            }
+        } else {
+            generators::wrap_return(&core_call, &method.return_type, type_name, opaque_types, true)
+        }
     } else {
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
@@ -264,7 +284,13 @@ fn gen_struct(typ: &TypeDef, mapper: &WasmMapper) -> String {
 }
 
 /// Generate wasm-bindgen methods for a struct.
-fn gen_struct_methods(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], core_import: &str) -> String {
+fn gen_struct_methods(
+    typ: &TypeDef,
+    mapper: &WasmMapper,
+    exclude_types: &[String],
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
     let js_name = format!("Js{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
     impl_builder.add_attr("wasm_bindgen");
@@ -280,7 +306,7 @@ fn gen_struct_methods(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[Strin
 
     if !exclude_types.contains(&typ.name) {
         for method in &typ.methods {
-            impl_builder.add_method(&gen_method(method, mapper, &typ.name, core_import));
+            impl_builder.add_method(&gen_method(method, mapper, &typ.name, core_import, opaque_types));
         }
     }
 
@@ -348,7 +374,13 @@ fn gen_setter(field: &FieldDef, mapper: &WasmMapper) -> String {
 }
 
 /// Generate a method binding for a struct method.
-fn gen_method(method: &MethodDef, mapper: &WasmMapper, type_name: &str, core_import: &str) -> String {
+fn gen_method(
+    method: &MethodDef,
+    mapper: &WasmMapper,
+    type_name: &str,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
     let params: Vec<String> = method
         .params
         .iter()
@@ -365,20 +397,10 @@ fn gen_method(method: &MethodDef, mapper: &WasmMapper, type_name: &str, core_imp
         String::new()
     };
 
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
     if method.is_async {
-        // For WASM, native async fn automatically becomes a Promise
-        let call_args = method
-            .params
-            .iter()
-            .map(|p| {
-                if matches!(p.ty, skif_core::ir::TypeRef::Named(_)) {
-                    format!("{}.into()", p.name)
-                } else {
-                    p.name.clone()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
         let core_call = format!(
             "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
             method_name = method.name
@@ -405,7 +427,18 @@ fn gen_method(method: &MethodDef, mapper: &WasmMapper, type_name: &str, core_imp
             return_annotation
         )
     } else if method.is_static {
-        let body = gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some());
+        let body = if can_delegate {
+            let call_args = generators::gen_call_args(&method.params, opaque_types);
+            let core_call = format!("{core_import}::{type_name}::{}({call_args})", method.name);
+            if method.error_type.is_some() {
+                let wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, false);
+                format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
+            } else {
+                generators::wrap_return(&core_call, &method.return_type, type_name, opaque_types, false)
+            }
+        } else {
+            gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        };
         format!(
             "#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
              {body}\n}}",
@@ -414,7 +447,21 @@ fn gen_method(method: &MethodDef, mapper: &WasmMapper, type_name: &str, core_imp
             return_annotation
         )
     } else {
-        let body = gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some());
+        let body = if can_delegate {
+            let call_args = generators::gen_call_args(&method.params, opaque_types);
+            let core_call = format!(
+                "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
+                method_name = method.name
+            );
+            if method.error_type.is_some() {
+                let wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, false);
+                format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
+            } else {
+                generators::wrap_return(&core_call, &method.return_type, type_name, opaque_types, false)
+            }
+        } else {
+            gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        };
         format!(
             "#[wasm_bindgen{js_name_attr}]\npub fn {}(&self, {}) -> {} {{\n    \
              {body}\n}}",
@@ -443,7 +490,7 @@ fn gen_enum(enum_def: &EnumDef) -> String {
 }
 
 /// Generate a free function binding.
-fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str) -> String {
+fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaque_types: &AHashSet<String>) -> String {
     let params: Vec<String> = func
         .params
         .iter()
@@ -460,20 +507,10 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str) -> S
         String::new()
     };
 
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+
     if func.is_async {
-        // For WASM, native async fn automatically becomes a Promise
-        let call_args = func
-            .params
-            .iter()
-            .map(|p| {
-                if matches!(p.ty, skif_core::ir::TypeRef::Named(_)) {
-                    format!("{}.into()", p.name)
-                } else {
-                    p.name.clone()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
+        let call_args = generators::gen_call_args(&func.params, opaque_types);
         let core_call = format!("{core_import}::{}({call_args})", func.name);
         let body = if func.error_type.is_some() {
             format!(
@@ -491,6 +528,22 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str) -> S
         };
         format!(
             "#[wasm_bindgen{js_name_attr}]\npub async fn {}({}) -> {} {{\n    \
+             {body}\n}}",
+            func.name,
+            params.join(", "),
+            return_annotation
+        )
+    } else if can_delegate {
+        let call_args = generators::gen_call_args(&func.params, opaque_types);
+        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let body = if func.error_type.is_some() {
+            let wrap = generators::wrap_return("result", &func.return_type, "", opaque_types, false);
+            format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
+        } else {
+            generators::wrap_return(&core_call, &func.return_type, "", opaque_types, false)
+        };
+        format!(
+            "#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
              {body}\n}}",
             func.name,
             params.join(", "),

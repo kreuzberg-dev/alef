@@ -2,7 +2,7 @@ use crate::type_map::PhpMapper;
 use ahash::AHashSet;
 use skif_codegen::builder::{ImplBuilder, RustFileBuilder};
 use skif_codegen::generators::{self, AsyncPattern, RustBindingConfig};
-use skif_codegen::shared::{constructor_parts, function_params, partition_methods};
+use skif_codegen::shared::{self, constructor_parts, function_params, partition_methods};
 use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, detect_serde_available, resolve_output_dir};
@@ -133,7 +133,13 @@ impl Backend for PhpBackend {
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
             } else {
                 builder.add_item(&gen_php_struct(typ, &mapper, &cfg));
-                builder.add_item(&gen_struct_methods(typ, &mapper, has_serde, &core_import));
+                builder.add_item(&gen_struct_methods(
+                    typ,
+                    &mapper,
+                    has_serde,
+                    &core_import,
+                    &opaque_types,
+                ));
             }
         }
 
@@ -143,9 +149,9 @@ impl Backend for PhpBackend {
 
         for func in &api.functions {
             if func.is_async {
-                builder.add_item(&gen_async_function(func, &mapper));
+                builder.add_item(&gen_async_function(func, &mapper, &opaque_types, &core_import));
             } else {
-                builder.add_item(&gen_function(func, &mapper));
+                builder.add_item(&gen_function(func, &mapper, &opaque_types, &core_import));
             }
         }
 
@@ -215,7 +221,7 @@ impl Backend for PhpBackend {
 }
 
 /// Generate ext-php-rs methods for an opaque struct (delegates to self.inner).
-fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &PhpMapper, _opaque_types: &AHashSet<String>) -> String {
+fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &PhpMapper, opaque_types: &AHashSet<String>) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
 
@@ -223,16 +229,22 @@ fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &PhpMapper, _opaque_types: &
 
     for method in &instance {
         if method.is_async {
-            impl_builder.add_method(&gen_async_instance_method(method, mapper));
+            impl_builder.add_method(&gen_async_instance_method(
+                method,
+                mapper,
+                true,
+                &typ.name,
+                opaque_types,
+            ));
         } else {
-            impl_builder.add_method(&gen_instance_method(method, mapper));
+            impl_builder.add_method(&gen_instance_method(method, mapper, true, &typ.name, opaque_types));
         }
     }
     for method in &statics {
         if method.is_async {
-            impl_builder.add_method(&gen_async_static_method(method, mapper));
+            impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
-            impl_builder.add_method(&gen_static_method(method, mapper));
+            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types));
         }
     }
 
@@ -284,7 +296,13 @@ fn type_ref_has_named(ty: &skif_core::ir::TypeRef) -> bool {
 }
 
 /// Generate ext-php-rs methods for a struct.
-fn gen_struct_methods(typ: &TypeDef, mapper: &PhpMapper, has_serde: bool, _core_import: &str) -> String {
+fn gen_struct_methods(
+    typ: &TypeDef,
+    mapper: &PhpMapper,
+    has_serde: bool,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
 
@@ -292,9 +310,6 @@ fn gen_struct_methods(typ: &TypeDef, mapper: &PhpMapper, has_serde: bool, _core_
         let has_named_params = typ.fields.iter().any(|f| type_ref_has_named(&f.ty));
         if has_named_params {
             if has_serde {
-                // ext-php-rs cannot pass custom struct types as owned constructor params
-                // (FromZvalMut not satisfied). When serde is available, generate a from_json
-                // static method that deserializes from a JSON string, bypassing the limitation.
                 let constructor = "pub fn from_json(json: String) -> PhpResult<Self> {\n    \
                      serde_json::from_str(&json)\n        \
                      .map_err(|e| PhpException::default(e.to_string()).into())\n\
@@ -302,7 +317,6 @@ fn gen_struct_methods(typ: &TypeDef, mapper: &PhpMapper, has_serde: bool, _core_
                 .to_string();
                 impl_builder.add_method(&constructor);
             } else {
-                // No serde available — generate a stub constructor.
                 let constructor = format!(
                     "pub fn __construct() -> PhpResult<Self> {{\n    \
                      Err(PhpException::default(\"Not implemented: constructor for {} requires complex params\".to_string()).into())\n\
@@ -327,50 +341,176 @@ fn gen_struct_methods(typ: &TypeDef, mapper: &PhpMapper, has_serde: bool, _core_
 
     for method in &instance {
         if method.is_async {
-            impl_builder.add_method(&gen_async_instance_method(method, mapper));
+            impl_builder.add_method(&gen_async_instance_method(
+                method,
+                mapper,
+                false,
+                &typ.name,
+                opaque_types,
+            ));
         } else {
-            impl_builder.add_method(&gen_instance_method(method, mapper));
+            impl_builder.add_method(&gen_instance_method_non_opaque(
+                method,
+                mapper,
+                typ,
+                core_import,
+                opaque_types,
+            ));
         }
     }
     for method in &statics {
         if method.is_async {
-            impl_builder.add_method(&gen_async_static_method(method, mapper));
+            impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
-            impl_builder.add_method(&gen_static_method(method, mapper));
+            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types));
         }
     }
 
     impl_builder.build()
 }
 
-/// Generate an instance method binding.
-fn gen_instance_method(method: &MethodDef, mapper: &PhpMapper) -> String {
-    let _params = function_params(&method.params, &|ty| mapper.map_type(ty));
+/// Generate an instance method binding for an opaque struct.
+fn gen_instance_method(
+    method: &MethodDef,
+    mapper: &PhpMapper,
+    is_opaque: bool,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
+    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let body = gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some());
-    format!(
-        "pub fn {}(&self) -> {return_annotation} {{\n    \
-         {body}\n\
-         }}",
-        method.name
-    )
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
+    let params_str = if params.is_empty() { String::new() } else { params };
+
+    let body = if can_delegate && is_opaque {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let core_call = format!("self.inner.{}({})", method.name, call_args);
+        if method.error_type.is_some() {
+            if matches!(method.return_type, TypeRef::Unit) {
+                format!(
+                    "{core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(())"
+                )
+            } else {
+                let wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, true);
+                format!(
+                    "let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+                )
+            }
+        } else {
+            generators::wrap_return(&core_call, &method.return_type, type_name, opaque_types, true)
+        }
+    } else {
+        gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    };
+
+    if params_str.is_empty() {
+        format!(
+            "pub fn {}(&self) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    } else {
+        format!(
+            "pub fn {}(&self, {params_str}) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    }
+}
+
+/// Generate an instance method binding for a non-opaque struct (uses gen_lossy_binding_to_core_fields).
+fn gen_instance_method_non_opaque(
+    method: &MethodDef,
+    mapper: &PhpMapper,
+    typ: &TypeDef,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
+    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
+    let return_type = mapper.map_type(&method.return_type);
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+
+    let can_delegate = !method.sanitized
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && generators::is_simple_non_opaque_param(&p.ty))
+        && shared::is_delegatable_return(&method.return_type);
+
+    let params_str = if params.is_empty() { String::new() } else { params };
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import);
+        let core_call = format!("core_self.{}({})", method.name, call_args);
+        let result_wrap = match &method.return_type {
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => ".into()".to_string(),
+            _ => String::new(),
+        };
+        if method.error_type.is_some() {
+            format!(
+                "{field_conversions}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(result{result_wrap})"
+            )
+        } else {
+            format!("{field_conversions}{core_call}{result_wrap}")
+        }
+    } else {
+        gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    };
+
+    if params_str.is_empty() {
+        format!(
+            "pub fn {}(&self) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    } else {
+        format!(
+            "pub fn {}(&self, {params_str}) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    }
 }
 
 /// Generate a static method binding.
-fn gen_static_method(method: &MethodDef, mapper: &PhpMapper) -> String {
-    let _params = function_params(&method.params, &|ty| mapper.map_type(ty));
+fn gen_static_method(method: &MethodDef, mapper: &PhpMapper, opaque_types: &AHashSet<String>) -> String {
+    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let body = gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some());
-    format!(
-        "pub fn {}() -> {return_annotation} {{\n    \
-         {body}\n\
-         }}",
-        method.name
-    )
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
+    let body = if can_delegate {
+        let _call_args = generators::gen_call_args(&method.params, opaque_types);
+        // Static methods don't have a type context here, use unimplemented for now
+        gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    } else {
+        gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    };
+
+    if params.is_empty() {
+        format!(
+            "pub fn {}() -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    } else {
+        format!(
+            "pub fn {}({params}) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    }
 }
 
 /// Generate PHP enum constants (enums as string constants).
@@ -386,61 +526,154 @@ fn gen_enum_constants(enum_def: &EnumDef) -> String {
 }
 
 /// Generate a free function binding.
-fn gen_function(func: &FunctionDef, mapper: &PhpMapper) -> String {
-    let _params = function_params(&func.params, &|ty| mapper.map_type(ty));
+fn gen_function(func: &FunctionDef, mapper: &PhpMapper, opaque_types: &AHashSet<String>, core_import: &str) -> String {
+    let params = function_params(&func.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let body = gen_php_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some());
-    format!(
-        "#[php_function]\npub fn {}() -> {return_annotation} {{\n    \
-         {body}\n\
-         }}",
-        func.name
-    )
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&func.params, opaque_types);
+        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        if func.error_type.is_some() {
+            let wrap = generators::wrap_return("result", &func.return_type, "", opaque_types, false);
+            format!(
+                "let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+            )
+        } else {
+            generators::wrap_return(&core_call, &func.return_type, "", opaque_types, false)
+        }
+    } else {
+        gen_php_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
+    };
+
+    if params.is_empty() {
+        format!(
+            "#[php_function]\npub fn {}() -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            func.name
+        )
+    } else {
+        format!(
+            "#[php_function]\npub fn {}({params}) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            func.name
+        )
+    }
 }
 
 /// Generate an async free function binding for PHP (block on runtime).
-fn gen_async_function(func: &FunctionDef, mapper: &PhpMapper) -> String {
-    let _params = function_params(&func.params, &|ty| mapper.map_type(ty));
+fn gen_async_function(
+    func: &FunctionDef,
+    mapper: &PhpMapper,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let params = function_params(&func.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let body = gen_php_unimplemented_body(
-        &func.return_type,
-        &format!("{}_async", func.name),
-        func.error_type.is_some(),
-    );
-    format!(
-        "#[php_function]\npub fn {}_async() -> {return_annotation} {{\n    \
-         {body}\n\
-         }}",
-        func.name
-    )
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&func.params, opaque_types);
+        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let result_wrap = generators::wrap_return("result", &func.return_type, "", opaque_types, false);
+        if func.error_type.is_some() {
+            format!(
+                "WORKER_RUNTIME.block_on(async {{\n        \
+                 let result = {core_call}.await.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
+                 Ok({result_wrap})\n    }})"
+            )
+        } else {
+            format!("let result = WORKER_RUNTIME.block_on(async {{ {core_call}.await }});\n    {result_wrap}")
+        }
+    } else {
+        gen_php_unimplemented_body(
+            &func.return_type,
+            &format!("{}_async", func.name),
+            func.error_type.is_some(),
+        )
+    };
+
+    if params.is_empty() {
+        format!(
+            "#[php_function]\npub fn {}_async() -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            func.name
+        )
+    } else {
+        format!(
+            "#[php_function]\npub fn {}_async({params}) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            func.name
+        )
+    }
 }
 
 /// Generate an async instance method binding for PHP (block on runtime).
-fn gen_async_instance_method(method: &MethodDef, mapper: &PhpMapper) -> String {
-    let _params = function_params(&method.params, &|ty| mapper.map_type(ty));
+fn gen_async_instance_method(
+    method: &MethodDef,
+    mapper: &PhpMapper,
+    is_opaque: bool,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
+    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let body = gen_php_unimplemented_body(
-        &method.return_type,
-        &format!("{}_async", method.name),
-        method.error_type.is_some(),
-    );
-    format!(
-        "pub fn {}_async(&self) -> {return_annotation} {{\n    \
-         {body}\n\
-         }}",
-        method.name
-    )
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
+    let body = if can_delegate && is_opaque {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let inner_clone = "let inner = self.inner.clone();\n    ";
+        let core_call = format!("inner.{}({})", method.name, call_args);
+        let result_wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, true);
+        if method.error_type.is_some() {
+            format!(
+                "{inner_clone}WORKER_RUNTIME.block_on(async {{\n        \
+                 let result = {core_call}.await.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
+                 Ok({result_wrap})\n    }})"
+            )
+        } else {
+            format!(
+                "{inner_clone}let result = WORKER_RUNTIME.block_on(async {{ {core_call}.await }});\n    {result_wrap}"
+            )
+        }
+    } else {
+        gen_php_unimplemented_body(
+            &method.return_type,
+            &format!("{}_async", method.name),
+            method.error_type.is_some(),
+        )
+    };
+
+    if params.is_empty() {
+        format!(
+            "pub fn {}_async(&self) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    } else {
+        format!(
+            "pub fn {}_async(&self, {params}) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    }
 }
 
 /// Generate an async static method binding for PHP (block on runtime).
-fn gen_async_static_method(method: &MethodDef, mapper: &PhpMapper) -> String {
-    let _params = function_params(&method.params, &|ty| mapper.map_type(ty));
+fn gen_async_static_method(method: &MethodDef, mapper: &PhpMapper, _opaque_types: &AHashSet<String>) -> String {
+    let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -449,12 +682,22 @@ fn gen_async_static_method(method: &MethodDef, mapper: &PhpMapper) -> String {
         &format!("{}_async", method.name),
         method.error_type.is_some(),
     );
-    format!(
-        "pub fn {}_async() -> {return_annotation} {{\n    \
-         {body}\n\
-         }}",
-        method.name
-    )
+
+    if params.is_empty() {
+        format!(
+            "pub fn {}_async() -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    } else {
+        format!(
+            "pub fn {}_async({params}) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            method.name
+        )
+    }
 }
 
 /// Generate a type-appropriate unimplemented body for PHP (no todo!()).

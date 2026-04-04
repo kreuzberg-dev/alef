@@ -3,7 +3,7 @@ use ahash::AHashSet;
 use skif_codegen::builder::{ImplBuilder, RustFileBuilder, StructBuilder};
 use skif_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use skif_codegen::naming::to_node_name;
-use skif_codegen::shared::{function_params, partition_methods};
+use skif_codegen::shared::{can_auto_delegate, function_params, partition_methods};
 use skif_codegen::type_mapper::TypeMapper;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
@@ -146,7 +146,7 @@ impl Backend for NapiBackend {
                 }
             });
             if !has_opaque_param {
-                builder.add_item(&gen_function(func, &mapper));
+                builder.add_item(&gen_function(func, &mapper, &cfg, &opaque_types));
             }
         }
 
@@ -214,8 +214,8 @@ fn gen_struct(typ: &TypeDef, mapper: &NapiMapper) -> String {
 fn gen_opaque_struct_methods(
     typ: &TypeDef,
     mapper: &NapiMapper,
-    _cfg: &RustBindingConfig,
-    _opaque_types: &AHashSet<String>,
+    cfg: &RustBindingConfig,
+    opaque_types: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&format!("Js{}", typ.name));
     impl_builder.add_attr("napi");
@@ -223,19 +223,23 @@ fn gen_opaque_struct_methods(
     let (instance, statics) = partition_methods(&typ.methods);
 
     for method in &instance {
-        impl_builder.add_method(&gen_opaque_instance_method(method, mapper));
+        impl_builder.add_method(&gen_opaque_instance_method(method, mapper, typ, cfg, opaque_types));
     }
     for method in &statics {
-        impl_builder.add_method(&gen_static_method(method, mapper));
+        impl_builder.add_method(&gen_static_method(method, mapper, typ, cfg, opaque_types));
     }
 
     impl_builder.build()
 }
 
 /// Generate an opaque instance method that delegates to self.inner.
-fn gen_opaque_instance_method(method: &MethodDef, mapper: &NapiMapper) -> String {
-    use skif_core::ir::TypeRef;
-
+fn gen_opaque_instance_method(
+    method: &MethodDef,
+    mapper: &NapiMapper,
+    typ: &TypeDef,
+    cfg: &RustBindingConfig,
+    opaque_types: &AHashSet<String>,
+) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
@@ -249,34 +253,82 @@ fn gen_opaque_instance_method(method: &MethodDef, mapper: &NapiMapper) -> String
 
     let async_kw = if method.is_async { "async " } else { "" };
 
-    // Check if this method can be auto-delegated:
-    // - Not sanitized
-    // - No params (params may need conversion)
-    // - Not async (async needs runtime bridging)
-    // - No error type
-    // - Simple return type
-    let can_delegate = !method.sanitized
-        && method.params.is_empty()
-        && !method.is_async
-        && method.error_type.is_none()
-        && matches!(
-            method.return_type,
-            TypeRef::Primitive(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Unit | TypeRef::Duration
-        );
+    let type_name = &typ.name;
+    let is_owned_receiver = matches!(method.receiver.as_ref(), Some(skif_core::ir::ReceiverKind::Owned));
+    let call_args = generators::gen_call_args(&method.params, opaque_types);
 
-    let body = if can_delegate {
-        // Simple delegation — return type is compatible
-        match &method.return_type {
-            TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
-                format!("self.inner.{}().into()", method.name)
-            }
-            TypeRef::Primitive(p) if needs_napi_cast(p) => {
-                format!("self.inner.{}() as i64", method.name)
-            }
-            _ => format!("self.inner.{}()", method.name),
+    // Use the shared can_auto_delegate check for opaque instance methods.
+    let opaque_can_delegate = !method.sanitized
+        && (!is_owned_receiver || typ.is_clone)
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && skif_codegen::shared::is_delegatable_param(&p.ty, opaque_types))
+        && skif_codegen::shared::is_opaque_delegatable_type(&method.return_type);
+
+    let make_core_call = |method_name: &str| -> String {
+        if is_owned_receiver {
+            format!("(*self.inner).clone().{method_name}({call_args})")
+        } else {
+            format!("self.inner.{method_name}({call_args})")
         }
+    };
+
+    let make_async_core_call = |method_name: &str| -> String { format!("inner.{method_name}({call_args})") };
+
+    let async_result_wrap = napi_wrap_return("result", &method.return_type, type_name, opaque_types, true);
+
+    let body = if !opaque_can_delegate {
+        // Try serde-based param conversion for methods with non-opaque Named params
+        if cfg.has_serde
+            && !method.sanitized
+            && generators::has_named_params(&method.params, opaque_types)
+            && method.error_type.is_some()
+            && skif_codegen::shared::is_opaque_delegatable_type(&method.return_type)
+        {
+            let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+            let serde_bindings =
+                generators::gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
+            let serde_call_args = generators::gen_call_args_with_let_bindings(&method.params, opaque_types);
+            let core_call = format!("self.inner.{}({serde_call_args})", method.name);
+            if matches!(method.return_type, TypeRef::Unit) {
+                format!("{serde_bindings}{core_call}{err_conv}?;\n    Ok(())")
+            } else {
+                let wrap = napi_wrap_return("result", &method.return_type, type_name, opaque_types, true);
+                format!("{serde_bindings}let result = {core_call}{err_conv}?;\n    Ok({wrap})")
+            }
+        } else {
+            generators::gen_unimplemented_body(
+                &method.return_type,
+                &format!("{type_name}.{}", method.name),
+                method.error_type.is_some(),
+                cfg,
+            )
+        }
+    } else if method.is_async {
+        let inner_clone_line = "let inner = self.inner.clone();\n    ";
+        let core_call_str = make_async_core_call(&method.name);
+        generators::gen_async_body(
+            &core_call_str,
+            cfg,
+            method.error_type.is_some(),
+            &async_result_wrap,
+            true,
+            inner_clone_line,
+        )
     } else {
-        gen_napi_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+        let core_call = make_core_call(&method.name);
+        if method.error_type.is_some() {
+            let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+            if matches!(method.return_type, TypeRef::Unit) {
+                format!("{core_call}{err_conv}?;\n    Ok(())")
+            } else {
+                let wrap = napi_wrap_return("result", &method.return_type, type_name, opaque_types, true);
+                format!("let result = {core_call}{err_conv}?;\n    Ok({wrap})")
+            }
+        } else {
+            napi_wrap_return(&core_call, &method.return_type, type_name, opaque_types, true)
+        }
     };
 
     format!(
@@ -287,7 +339,13 @@ fn gen_opaque_instance_method(method: &MethodDef, mapper: &NapiMapper) -> String
 }
 
 /// Generate a static method binding.
-fn gen_static_method(method: &MethodDef, mapper: &NapiMapper) -> String {
+fn gen_static_method(
+    method: &MethodDef,
+    mapper: &NapiMapper,
+    typ: &TypeDef,
+    cfg: &RustBindingConfig,
+    opaque_types: &AHashSet<String>,
+) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
@@ -299,8 +357,39 @@ fn gen_static_method(method: &MethodDef, mapper: &NapiMapper) -> String {
         String::new()
     };
 
+    let type_name = &typ.name;
+    let core_type_path = typ.rust_path.replace('-', "_");
+    let call_args = generators::gen_call_args(&method.params, opaque_types);
+    let can_delegate_static = can_auto_delegate(method, opaque_types);
+
     let async_kw = if method.is_async { "async " } else { "" };
-    let body = gen_napi_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some());
+
+    let body = if !can_delegate_static {
+        generators::gen_unimplemented_body(
+            &method.return_type,
+            &format!("{type_name}::{}", method.name),
+            method.error_type.is_some(),
+            cfg,
+        )
+    } else if method.is_async {
+        let core_call = format!("{core_type_path}::{}({call_args})", method.name);
+        let return_wrap = napi_wrap_return("result", &method.return_type, type_name, opaque_types, typ.is_opaque);
+        generators::gen_async_body(&core_call, cfg, method.error_type.is_some(), &return_wrap, false, "")
+    } else {
+        let core_call = format!("{core_type_path}::{}({call_args})", method.name);
+        if method.error_type.is_some() {
+            let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+            let wrapped = napi_wrap_return("val", &method.return_type, type_name, opaque_types, typ.is_opaque);
+            if wrapped == "val" {
+                format!("{core_call}{err_conv}")
+            } else {
+                format!("{core_call}.map(|val| {wrapped}){err_conv}")
+            }
+        } else {
+            napi_wrap_return(&core_call, &method.return_type, type_name, opaque_types, typ.is_opaque)
+        }
+    };
+
     format!(
         "#[napi{js_name_attr}]\npub {async_kw}fn {}({params}) -> {return_annotation} {{\n    \
          {body}\n}}",
@@ -325,7 +414,12 @@ fn gen_enum(enum_def: &EnumDef) -> String {
 }
 
 /// Generate a free function binding.
-fn gen_function(func: &FunctionDef, mapper: &NapiMapper) -> String {
+fn gen_function(
+    func: &FunctionDef,
+    mapper: &NapiMapper,
+    cfg: &RustBindingConfig,
+    opaque_types: &AHashSet<String>,
+) -> String {
     let params = function_params(&func.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
@@ -337,13 +431,129 @@ fn gen_function(func: &FunctionDef, mapper: &NapiMapper) -> String {
         String::new()
     };
 
+    let core_import = cfg.core_import;
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+
+    // Use let-binding pattern for non-opaque Named params
+    let use_let_bindings = generators::has_named_params(&func.params, opaque_types);
+    let call_args = if use_let_bindings {
+        generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
+    } else {
+        generators::gen_call_args(&func.params, opaque_types)
+    };
+
+    let can_delegate_fn = skif_codegen::shared::can_auto_delegate_function(func, opaque_types);
+
+    let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+
     let async_kw = if func.is_async { "async " } else { "" };
-    let body = gen_napi_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some());
+
+    let body = if !can_delegate_fn {
+        // Try serde-based conversion for non-delegatable functions with Named params
+        if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
+            let serde_bindings =
+                generators::gen_serde_let_bindings(&func.params, opaque_types, core_import, err_conv, "    ");
+            let core_call = format!("{core_fn_path}({call_args})");
+
+            if matches!(func.return_type, TypeRef::Unit) {
+                format!("{serde_bindings}{core_call}{err_conv}?;\n    Ok(())")
+            } else {
+                let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types);
+                if wrapped == "val" {
+                    format!("{serde_bindings}{core_call}{err_conv}")
+                } else {
+                    format!("{serde_bindings}{core_call}.map(|val| {wrapped}){err_conv}")
+                }
+            }
+        } else {
+            generators::gen_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some(), cfg)
+        }
+    } else if func.is_async {
+        let core_call = format!("{core_fn_path}({call_args})");
+        let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types);
+        generators::gen_async_body(&core_call, cfg, func.error_type.is_some(), &return_wrap, false, "")
+    } else {
+        let core_call = format!("{core_fn_path}({call_args})");
+
+        // When can_delegate_fn is true, params are simple enough that gen_call_args
+        // handles conversion directly (no extra let bindings needed).
+        if func.error_type.is_some() {
+            let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types);
+            if wrapped == "val" {
+                format!("{core_call}{err_conv}")
+            } else {
+                format!("{core_call}.map(|val| {wrapped}){err_conv}")
+            }
+        } else {
+            napi_wrap_return_fn(&core_call, &func.return_type, opaque_types)
+        }
+    };
+
     format!(
         "#[napi{js_name_attr}]\npub {async_kw}fn {}({params}) -> {return_annotation} {{\n    \
          {body}\n}}",
         func.name
     )
+}
+
+/// NAPI-specific return wrapping for opaque instance methods.
+/// Extends the shared `wrap_return` with i64 casts for u64/usize/isize primitives.
+fn napi_wrap_return(
+    expr: &str,
+    return_type: &TypeRef,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+    self_is_opaque: bool,
+) -> String {
+    match return_type {
+        TypeRef::Primitive(p) if needs_napi_cast(p) => {
+            format!("{expr} as i64")
+        }
+        TypeRef::Duration => format!("{expr}.as_secs() as i64"),
+        _ => generators::wrap_return(expr, return_type, type_name, opaque_types, self_is_opaque),
+    }
+}
+
+/// NAPI-specific return wrapping for free functions (no type_name context).
+fn napi_wrap_return_fn(expr: &str, return_type: &TypeRef, opaque_types: &AHashSet<String>) -> String {
+    match return_type {
+        TypeRef::Primitive(p) if needs_napi_cast(p) => {
+            format!("{expr} as i64")
+        }
+        TypeRef::Duration => format!("{expr}.as_secs() as i64"),
+        TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+            format!("Js{n} {{ inner: Arc::new({expr}) }}")
+        }
+        TypeRef::Named(_) => format!("{expr}.into()"),
+        TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
+        TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                format!("{expr}.map(|v| Js{name} {{ inner: Arc::new(v) }})")
+            }
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+                format!("{expr}.map(Into::into)")
+            }
+            _ => expr.to_string(),
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                format!("{expr}.into_iter().map(|v| Js{name} {{ inner: Arc::new(v) }}).collect()")
+            }
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+                format!("{expr}.into_iter().map(Into::into).collect()")
+            }
+            _ => expr.to_string(),
+        },
+        _ => expr.to_string(),
+    }
 }
 
 /// Generate `impl From<JsType> for core::Type` (NAPI binding -> core).
@@ -525,30 +735,6 @@ fn gen_enum_from_core_to_js_binding(enum_def: &EnumDef, core_import: &str) -> St
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();
     out
-}
-
-/// Generate a type-appropriate unimplemented body for NAPI (no todo!()).
-fn gen_napi_unimplemented_body(return_type: &skif_core::ir::TypeRef, fn_name: &str, has_error: bool) -> String {
-    use skif_core::ir::TypeRef;
-    let err_msg = format!("Not implemented: {fn_name}");
-    if has_error {
-        format!("Err(napi::Error::new(napi::Status::GenericFailure, \"{err_msg}\"))")
-    } else {
-        match return_type {
-            TypeRef::Unit => "()".to_string(),
-            TypeRef::String | TypeRef::Path => format!("String::from(\"[unimplemented: {fn_name}]\")"),
-            TypeRef::Bytes => "Vec::new()".to_string(),
-            TypeRef::Primitive(p) => match p {
-                skif_core::ir::PrimitiveType::Bool => "false".to_string(),
-                _ => "0".to_string(),
-            },
-            TypeRef::Optional(_) => "None".to_string(),
-            TypeRef::Vec(_) => "Vec::new()".to_string(),
-            TypeRef::Map(_, _) => "Default::default()".to_string(),
-            TypeRef::Duration => "0".to_string(),
-            TypeRef::Named(_) | TypeRef::Json => format!("panic!(\"skif: {fn_name} not auto-delegatable\")"),
-        }
-    }
 }
 
 /// Generate a global Tokio runtime for NAPI async support.
