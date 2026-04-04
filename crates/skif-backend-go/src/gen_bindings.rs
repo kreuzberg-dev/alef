@@ -303,7 +303,7 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
         if matches!(func.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
-            format!("*{}, error", go_type(&func.return_type))
+            format!("(*{}, error)", go_type(&func.return_type))
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
         "".to_string()
@@ -414,7 +414,7 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
         if matches!(method.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
-            format!("*{}, error", go_type(&method.return_type))
+            format!("(*{}, error)", go_type(&method.return_type))
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
         "".to_string()
