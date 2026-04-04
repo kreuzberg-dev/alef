@@ -127,13 +127,25 @@ impl Backend for PhpBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Build adapter body map BEFORE type loop
+        let adapter_bodies = skif_adapters::build_adapter_bodies(config, Language::Php)?;
+
+        // Use shared generators for opaque method delegation
         for typ in &api.types {
             if typ.is_opaque {
                 builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
+                let impl_block = generators::gen_opaque_impl_block(typ, &mapper, &cfg, &opaque_types, &adapter_bodies);
+                if !impl_block.is_empty() {
+                    builder.add_item(&impl_block);
+                }
             } else {
                 builder.add_item(&gen_php_struct(typ, &mapper, &cfg));
+                // Keep custom constructor but use shared gen for methods
                 builder.add_item(&gen_struct_methods(typ, &mapper, has_serde, &core_import));
+                let impl_block = generators::gen_impl_block(typ, &mapper, &cfg, &adapter_bodies);
+                if !impl_block.is_empty() {
+                    builder.add_item(&impl_block);
+                }
             }
         }
 
@@ -142,11 +154,13 @@ impl Backend for PhpBackend {
         }
 
         for func in &api.functions {
-            if func.is_async {
-                builder.add_item(&gen_async_function(func, &mapper));
-            } else {
-                builder.add_item(&gen_function(func, &mapper));
-            }
+            builder.add_item(&generators::gen_function(
+                func,
+                &mapper,
+                &cfg,
+                &adapter_bodies,
+                &opaque_types,
+            ));
         }
 
         let convertible = skif_codegen::conversions::convertible_types(api);
@@ -193,7 +207,7 @@ impl Backend for PhpBackend {
             }
         }
 
-        let _adapter_bodies = skif_adapters::build_adapter_bodies(config, Language::Php)?;
+        // adapter_bodies already built above
 
         // Add feature gate as inner attribute — entire crate is gated
         let php_config = config.php.as_ref();

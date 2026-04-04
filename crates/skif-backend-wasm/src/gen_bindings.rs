@@ -25,6 +25,29 @@ fn is_copy_type(ty: &TypeRef) -> bool {
 
 pub struct WasmBackend;
 
+impl WasmBackend {
+    fn binding_config(core_import: &str) -> generators::RustBindingConfig<'_> {
+        generators::RustBindingConfig {
+            struct_attrs: &["wasm_bindgen"],
+            field_attrs: &[],
+            struct_derives: &["Clone"],
+            method_block_attr: Some("wasm_bindgen"),
+            constructor_attr: "#[wasm_bindgen(constructor)]",
+            static_attr: None,
+            function_attr: "#[wasm_bindgen]",
+            enum_attrs: &["wasm_bindgen"],
+            enum_derives: &["Clone", "PartialEq"],
+            needs_signature: false,
+            signature_prefix: "",
+            signature_suffix: "",
+            core_import,
+            async_pattern: generators::AsyncPattern::WasmNativeAsync,
+            has_serde: false,
+            type_name_prefix: "Js",
+        }
+    }
+}
+
 impl Backend for WasmBackend {
     fn name(&self) -> &str {
         "wasm"
@@ -102,16 +125,27 @@ impl Backend for WasmBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Build adapter body map BEFORE type loop (used by shared generators)
+        let adapter_bodies = skif_adapters::build_adapter_bodies(config, Language::Wasm)?;
+        let cfg = Self::binding_config(&core_import);
+
+        // Use shared generators for method delegation (same logic as PyO3)
         for typ in &api.types {
             if exclude_types.contains(&typ.name) {
                 continue;
             }
             if typ.is_opaque {
-                builder.add_item(&gen_opaque_struct(typ, &core_import));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
+                builder.add_item(&generators::gen_opaque_struct_prefixed(typ, &cfg, "Js"));
+                let impl_block = generators::gen_opaque_impl_block(typ, &mapper, &cfg, &opaque_types, &adapter_bodies);
+                if !impl_block.is_empty() {
+                    builder.add_item(&impl_block);
+                }
             } else {
                 builder.add_item(&gen_struct(typ, &mapper));
-                builder.add_item(&gen_struct_methods(typ, &mapper, &exclude_types, &core_import));
+                let impl_block = generators::gen_impl_block(typ, &mapper, &cfg, &adapter_bodies);
+                if !impl_block.is_empty() {
+                    builder.add_item(&impl_block);
+                }
             }
         }
 
@@ -123,7 +157,13 @@ impl Backend for WasmBackend {
 
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
-                builder.add_item(&gen_function(func, &mapper, &core_import));
+                builder.add_item(&generators::gen_function(
+                    func,
+                    &mapper,
+                    &cfg,
+                    &adapter_bodies,
+                    &opaque_types,
+                ));
             }
         }
 
@@ -143,9 +183,6 @@ impl Backend for WasmBackend {
                 builder.add_item(&gen_enum_from_core_to_js_binding(e, &core_import));
             }
         }
-
-        // Build adapter body map (consumed by generators via body substitution)
-        let _adapter_bodies = skif_adapters::build_adapter_bodies(config, Language::Wasm)?;
 
         let content = builder.build();
 

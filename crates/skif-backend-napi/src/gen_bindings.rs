@@ -117,17 +117,25 @@ impl Backend for NapiBackend {
             builder.add_import("std::sync::Arc");
         }
 
-        // NAPI has some unique patterns: Js-prefixed names, Option-wrapped fields,
-        // and custom constructor. Use shared generators for enums and functions,
-        // but keep struct/method generation custom.
+        // Build adapter body map BEFORE type loop (used by shared generators)
+        let adapter_bodies = skif_adapters::build_adapter_bodies(config, Language::Node)?;
+
+        // Use shared generators for opaque types (full delegation logic).
+        // Non-opaque structs use #[napi(object)] — plain JS objects without method impl blocks.
         for typ in &api.types {
             if typ.is_opaque {
-                builder.add_item(&skif_codegen::generators::gen_opaque_struct_prefixed(typ, &cfg, "Js"));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &cfg, &opaque_types));
+                builder.add_item(&generators::gen_opaque_struct_prefixed(typ, &cfg, "Js"));
+                let impl_block = generators::gen_opaque_impl_block(typ, &mapper, &cfg, &opaque_types, &adapter_bodies);
+                if !impl_block.is_empty() {
+                    builder.add_item(&impl_block);
+                }
             } else {
-                // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
-                // napi(object) structs cannot have #[napi] impl blocks.
                 builder.add_item(&gen_struct(typ, &mapper));
+                // Non-opaque types can have methods via shared gen_impl_block
+                let impl_block = generators::gen_impl_block(typ, &mapper, &cfg, &adapter_bodies);
+                if !impl_block.is_empty() {
+                    builder.add_item(&impl_block);
+                }
             }
         }
 
@@ -136,18 +144,13 @@ impl Backend for NapiBackend {
         }
 
         for func in &api.functions {
-            // Skip functions with opaque type params — NAPI opaque structs don't implement FromNapiValue.
-            // These functions are todo!() stubs and need manual wiring via class methods instead.
-            let has_opaque_param = func.params.iter().any(|p| {
-                if let skif_core::ir::TypeRef::Named(n) = &p.ty {
-                    opaque_types.contains(n)
-                } else {
-                    false
-                }
-            });
-            if !has_opaque_param {
-                builder.add_item(&gen_function(func, &mapper));
-            }
+            builder.add_item(&generators::gen_function(
+                func,
+                &mapper,
+                &cfg,
+                &adapter_bodies,
+                &opaque_types,
+            ));
         }
 
         let convertible = skif_codegen::conversions::convertible_types(api);
@@ -164,9 +167,6 @@ impl Backend for NapiBackend {
                 builder.add_item(&gen_enum_from_core_to_js_binding(e, &core_import));
             }
         }
-
-        // Build adapter body map (consumed by generators via body substitution)
-        let _adapter_bodies = skif_adapters::build_adapter_bodies(config, Language::Node)?;
 
         let content = builder.build();
 
