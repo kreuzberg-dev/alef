@@ -146,14 +146,35 @@ impl Backend for PhpBackend {
         let convertible = skif_codegen::conversions::convertible_types(api);
         let core_to_binding = skif_codegen::conversions::core_to_binding_convertible_types(api);
         // From/Into conversions with PHP-specific i64 casts.
-        // Types with enum Named fields: PHP maps enums to String. Can't round-trip
-        // String→enum (no From<String>), so skip binding→core for those types.
-        // Core→binding is always safe (enum→String via format!("{:?}")).
+        // Types with enum Named fields (or that reference such types transitively) can't
+        // have binding→core From impls because PHP maps enums to String and there's no
+        // From<String> for the core enum type. Core→binding is always safe.
         let enum_names_ref = &mapper.enum_names;
+        // Build transitive set of types that can't have binding→core From
+        let mut enum_tainted: AHashSet<String> = AHashSet::new();
         for typ in &api.types {
-            let has_enum = has_enum_named_field(typ, enum_names_ref);
-            // binding→core: only when no enum fields (String→enum impossible)
-            if !has_enum && skif_codegen::conversions::can_generate_conversion(typ, &convertible) {
+            if has_enum_named_field(typ, enum_names_ref) {
+                enum_tainted.insert(typ.name.clone());
+            }
+        }
+        // Transitively mark types that reference enum-tainted types
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for typ in &api.types {
+                if !enum_tainted.contains(&typ.name)
+                    && typ.fields.iter().any(|f| references_named_type(&f.ty, &enum_tainted))
+                {
+                    enum_tainted.insert(typ.name.clone());
+                    changed = true;
+                }
+            }
+        }
+        for typ in &api.types {
+            // binding→core: only when not enum-tainted
+            if !enum_tainted.contains(&typ.name)
+                && skif_codegen::conversions::can_generate_conversion(typ, &convertible)
+            {
                 builder.add_item(&gen_php_from_binding_to_core(typ, &core_import));
             }
             // core→binding: always (enum→String via format, sanitized fields via format)
@@ -455,13 +476,27 @@ fn php_field_conversion_from_core(
     sanitized: bool,
     enum_names: &AHashSet<String>,
 ) -> String {
-    use skif_core::ir::TypeRef;
+    use skif_core::ir::{PrimitiveType, TypeRef};
     // Sanitized fields: use format!("{:?}") to convert to String
     if sanitized {
         if optional {
             return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))");
         }
         return format!("{name}: format!(\"{{:?}}\", val.{name})");
+    }
+    // PHP maps U64/Usize to i64 — need `as i64` cast for core→binding
+    match ty {
+        TypeRef::Primitive(p) if matches!(p, PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize) => {
+            if optional {
+                return format!("{name}: val.{name}.map(|v| v as i64)");
+            }
+            return format!("{name}: val.{name} as i64");
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Primitive(p) if matches!(p, PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize)) =>
+        {
+            return format!("{name}: val.{name}.map(|v| v as i64)");
+        }
+        _ => {}
     }
     // Enum Named fields: PHP maps enums to String, use format!("{:?}")
     match ty {
@@ -589,6 +624,17 @@ fn php_field_conversion(name: &str, ty: &skif_core::ir::TypeRef, optional: bool,
 /// Return true if any field of the type (recursively through Optional/Vec) is a Named type
 /// that is an enum. PHP maps enum Named types to String, so From/Into impls would need
 /// From<String> for the core enum which doesn't exist — skip generation for such types.
+/// Check if a TypeRef references any type in the given set (transitively through containers).
+fn references_named_type(ty: &skif_core::ir::TypeRef, names: &AHashSet<String>) -> bool {
+    use skif_core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(name) => names.contains(name.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => references_named_type(inner, names),
+        TypeRef::Map(k, v) => references_named_type(k, names) || references_named_type(v, names),
+        _ => false,
+    }
+}
+
 fn has_enum_named_field(typ: &skif_core::ir::TypeDef, enum_names: &AHashSet<String>) -> bool {
     fn type_ref_has_enum_named(ty: &skif_core::ir::TypeRef, enum_names: &AHashSet<String>) -> bool {
         use skif_core::ir::TypeRef;
