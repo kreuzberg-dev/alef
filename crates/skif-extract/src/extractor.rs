@@ -615,11 +615,12 @@ fn extract_trait_impl_methods(
         if STD_TRAITS.contains(&trait_name) {
             return None;
         }
-        // Prefix with crate_name if the trait path is a single segment (local trait)
-        // Replace hyphens with underscores for Rust import paths
-        let crate_import = crate_name.replace('-', "_");
+        // Only record multi-segment trait paths (e.g. "tower::CacheStore").
+        // Single-segment traits (e.g. just "CacheStore") can't be reliably
+        // resolved to their full path — they may be in submodules not re-exported
+        // at the crate root. The binding crate's Cargo.toml should import them.
         if segments.len() == 1 {
-            Some(format!("{crate_import}::{}", segments[0]))
+            None // Skip — can't determine full import path
         } else {
             Some(segments.join("::").replace('-', "_"))
         }
