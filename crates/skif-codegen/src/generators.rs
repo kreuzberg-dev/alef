@@ -70,7 +70,7 @@ pub struct RustBindingConfig<'a> {
 /// - `TypeRef::Named(n)` where `n` is a non-opaque type → `todo!()` placeholder (From may not exist)
 /// - Everything else (primitives, String, Vec, etc.) → pass through unchanged
 /// - `TypeRef::Unit` → pass through unchanged
-fn wrap_return(
+pub fn wrap_return(
     expr: &str,
     return_type: &TypeRef,
     type_name: &str,
@@ -110,7 +110,12 @@ fn wrap_return(
 ///
 /// Generate a compilable body for functions that can't be auto-delegated.
 /// Returns a default value or error instead of `todo!()` which would panic.
-fn gen_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool, cfg: &RustBindingConfig) -> String {
+pub fn gen_unimplemented_body(
+    return_type: &TypeRef,
+    fn_name: &str,
+    has_error: bool,
+    cfg: &RustBindingConfig,
+) -> String {
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
         // Backend-specific error return
@@ -152,7 +157,7 @@ fn gen_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: bool,
 /// - `inner_clone_line`: optional statement emitted before the pattern-specific body,
 ///   e.g. `"let inner = self.inner.clone();\n        "` for opaque instance methods, or `""`.
 ///   Required when `core_call` references `inner` (Pyo3FutureIntoPy opaque case).
-fn gen_async_body(
+pub fn gen_async_body(
     core_call: &str,
     cfg: &RustBindingConfig,
     has_error: bool,
@@ -244,7 +249,7 @@ fn gen_async_body(
 /// - Opaque Named types: unwrap Arc wrapper via `(*param.inner).clone()`
 /// - Non-opaque Named types: `.into()` for From conversion
 /// - String/Path/Bytes: `&param` since core functions typically take `&str`/`&Path`/`&[u8]`
-fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     params
         .iter()
         .map(|p| match &p.ty {
@@ -278,7 +283,7 @@ fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String
 
 /// Build call argument expressions using pre-bound let bindings for non-opaque Named params.
 /// Non-opaque Named params use `&{name}_core` references instead of `.into()`.
-fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     params
         .iter()
         .map(|p| match &p.ty {
@@ -327,7 +332,7 @@ fn gen_named_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) 
 /// Serializes binding types to JSON and deserializes to core types.
 /// Used when From impls don't exist (e.g., types with sanitized fields).
 /// `indent` is the whitespace prefix for each generated line (e.g., "    " for functions, "        " for methods).
-fn gen_serde_let_bindings(
+pub fn gen_serde_let_bindings(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
     core_import: &str,
@@ -371,7 +376,7 @@ fn gen_serde_let_bindings(
 }
 
 /// Check if params contain any non-opaque Named types that need let bindings.
-fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) -> bool {
+pub fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) -> bool {
     params
         .iter()
         .any(|p| matches!(&p.ty, TypeRef::Named(name) if !opaque_types.contains(name.as_str())))
@@ -379,7 +384,7 @@ fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) -> boo
 
 /// Check if a param type is safe for non-opaque delegation (no complex conversions needed).
 /// Vec and Map params can cause type mismatches (e.g. Vec<String> vs &[&str]).
-fn is_simple_non_opaque_param(ty: &TypeRef) -> bool {
+pub fn is_simple_non_opaque_param(ty: &TypeRef) -> bool {
     match ty {
         TypeRef::Primitive(_)
         | TypeRef::String
@@ -395,7 +400,7 @@ fn is_simple_non_opaque_param(ty: &TypeRef) -> bool {
 /// Generate a lossy binding→core struct literal for non-opaque delegation.
 /// Sanitized fields use `Default::default()`, non-sanitized fields are cloned and converted.
 /// Fields are accessed via `self.` (behind &self), so all non-Copy types need `.clone()`.
-fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str) -> String {
+pub fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str) -> String {
     let core_path = crate::conversions::core_type_path(typ, core_import);
     let mut out = format!("let core_self = {core_path} {{\n");
     for field in &typ.fields {
