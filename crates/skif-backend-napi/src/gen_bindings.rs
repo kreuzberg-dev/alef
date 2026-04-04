@@ -30,7 +30,8 @@ impl NapiBackend {
             signature_suffix: "",
             core_import,
             async_pattern: AsyncPattern::NapiNativeAsync,
-            has_serde: true,
+            // NAPI napi(object) structs don't derive Serialize — disable serde bridge
+            has_serde: false,
             type_name_prefix: "Js",
         }
     }
