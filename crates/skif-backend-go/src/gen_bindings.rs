@@ -204,8 +204,10 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
 
     for variant in &enum_def.variants {
         for field in &variant.fields {
-            // Skip unnamed tuple fields (name is "0", "1", etc.) — Go structs require named fields
-            if field.name.chars().next().is_none_or(|c| c.is_ascii_digit()) {
+            // Skip unnamed tuple fields (name is "_0", "_1", "0", "1", etc.) — Go structs require named fields
+            if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
+                || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
+            {
                 continue;
             }
             if let Some(entry) = seen_fields.iter_mut().find(|(name, _, _)| *name == field.name) {
