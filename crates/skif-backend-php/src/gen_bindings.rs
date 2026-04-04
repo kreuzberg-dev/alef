@@ -130,7 +130,7 @@ impl Backend for PhpBackend {
         for typ in &api.types {
             if typ.is_opaque {
                 builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
+                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types, &core_import));
             } else {
                 builder.add_item(&gen_php_struct(typ, &mapper, &cfg));
                 builder.add_item(&gen_struct_methods(
@@ -221,7 +221,12 @@ impl Backend for PhpBackend {
 }
 
 /// Generate ext-php-rs methods for an opaque struct (delegates to self.inner).
-fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &PhpMapper, opaque_types: &AHashSet<String>) -> String {
+fn gen_opaque_struct_methods(
+    typ: &TypeDef,
+    mapper: &PhpMapper,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
 
@@ -244,7 +249,7 @@ fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &PhpMapper, opaque_types: &A
         if method.is_async {
             impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
-            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types));
+            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types, typ, core_import));
         }
     }
 
@@ -362,7 +367,7 @@ fn gen_struct_methods(
         if method.is_async {
             impl_builder.add_method(&gen_async_static_method(method, mapper, opaque_types));
         } else {
-            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types));
+            impl_builder.add_method(&gen_static_method(method, mapper, opaque_types, typ, core_import));
         }
     }
 
@@ -481,14 +486,36 @@ fn gen_instance_method_non_opaque(
 }
 
 /// Generate a static method binding.
-fn gen_static_method(method: &MethodDef, mapper: &PhpMapper, _opaque_types: &AHashSet<String>) -> String {
+fn gen_static_method(
+    method: &MethodDef,
+    mapper: &PhpMapper,
+    opaque_types: &AHashSet<String>,
+    typ: &TypeDef,
+    _core_import: &str,
+) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    // Static methods don't have a type/core_import context here to build the full core call path.
-    // Fall back to unimplemented for now — static method delegation requires the parent type name.
-    let body = gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some());
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+    let core_type_path = typ.rust_path.replace('-', "_");
+    let call_args = generators::gen_call_args(&method.params, opaque_types);
+
+    let body = if can_delegate {
+        let core_call = format!("{core_type_path}::{}({call_args})", method.name);
+        if method.error_type.is_some() {
+            let wrap = generators::wrap_return("val", &method.return_type, &typ.name, opaque_types, typ.is_opaque);
+            if wrap == "val" {
+                format!("{core_call}.map_err(|e| PhpException::default(e.to_string()))")
+            } else {
+                format!("{core_call}.map(|val| {wrap}).map_err(|e| PhpException::default(e.to_string()))")
+            }
+        } else {
+            generators::wrap_return(&core_call, &method.return_type, &typ.name, opaque_types, typ.is_opaque)
+        }
+    } else {
+        gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    };
 
     if params.is_empty() {
         format!(
