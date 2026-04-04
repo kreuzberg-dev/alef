@@ -3,7 +3,7 @@ use heck::{ToPascalCase, ToSnakeCase};
 use skif_codegen::naming::to_go_name;
 use skif_core::backend::{Backend, Capabilities, GeneratedFile};
 use skif_core::config::{Language, SkifConfig, resolve_output_dir};
-use skif_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
+use skif_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -126,12 +126,27 @@ fn gen_last_error_helper(ffi_prefix: &str) -> String {
     )
 }
 
-/// Generate a Go enum type definition with constants.
+/// Generate a Go enum type definition.
+///
+/// For unit enums (all variants have no fields): generates `type X string` with constants.
+/// For data enums (any variant has fields): generates a flattened Go struct with all
+/// variant fields collected and deduplicated, using pointer types for fields not present
+/// in every variant.
 fn gen_enum_type(enum_def: &EnumDef) -> String {
+    let is_data_enum = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+
+    if is_data_enum {
+        gen_data_enum_type(enum_def)
+    } else {
+        gen_unit_enum_type(enum_def)
+    }
+}
+
+/// Generate a Go unit enum as `type X string` with const block.
+fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(1024);
 
     if !enum_def.doc.is_empty() {
-        // Ensure all lines of the doc comment are properly prefixed with //
         for line in enum_def.doc.lines() {
             writeln!(out, "// {}", line.trim()).ok();
         }
@@ -146,7 +161,6 @@ fn gen_enum_type(enum_def: &EnumDef) -> String {
         let const_name = format!("{}{}", enum_def.name, variant.name.to_pascal_case());
         let variant_snake = variant.name.to_snake_case();
         if !variant.doc.is_empty() {
-            // Ensure all lines of the doc comment are properly prefixed with //
             for line in variant.doc.lines() {
                 writeln!(out, "    // {}", line.trim()).ok();
             }
@@ -155,6 +169,74 @@ fn gen_enum_type(enum_def: &EnumDef) -> String {
     }
 
     writeln!(out, ")").ok();
+    out
+}
+
+/// Generate a Go data enum as a flattened struct with JSON tags.
+///
+/// All fields from all variants are collected and deduplicated by name.
+/// Fields that don't appear in every variant are made optional (pointer type).
+fn gen_data_enum_type(enum_def: &EnumDef) -> String {
+    let mut out = String::with_capacity(1024);
+
+    // Collect variant names for the doc comment
+    let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
+    let total_variants = enum_def.variants.len();
+
+    if !enum_def.doc.is_empty() {
+        for line in enum_def.doc.lines() {
+            writeln!(out, "// {}", line.trim()).ok();
+        }
+    } else {
+        writeln!(
+            out,
+            "// {} is a tagged union type (discriminated by JSON tag).",
+            enum_def.name
+        )
+        .ok();
+    }
+    writeln!(out, "// Variants: {}", variant_names.join(", ")).ok();
+    writeln!(out, "type {} struct {{", enum_def.name).ok();
+
+    // Collect and deduplicate fields across all variants.
+    // Track: field name -> (FieldDef, count of variants containing it)
+    let mut seen_fields: Vec<(String, FieldDef, usize)> = Vec::new();
+
+    for variant in &enum_def.variants {
+        for field in &variant.fields {
+            if let Some(entry) = seen_fields.iter_mut().find(|(name, _, _)| *name == field.name) {
+                entry.2 += 1;
+            } else {
+                seen_fields.push((field.name.clone(), field.clone(), 1));
+            }
+        }
+    }
+
+    for (field_name, field, count) in &seen_fields {
+        // A field is optional if it's already marked optional OR if it doesn't appear in all variants
+        let is_optional = field.optional || *count < total_variants;
+
+        let field_type = if is_optional {
+            go_optional_type(&field.ty)
+        } else {
+            go_type(&field.ty)
+        };
+
+        let json_tag = if is_optional {
+            format!("json:\"{},omitempty\"", field_name)
+        } else {
+            format!("json:\"{}\"", field_name)
+        };
+
+        if !field.doc.is_empty() {
+            for line in field.doc.lines() {
+                writeln!(out, "    // {}", line.trim()).ok();
+            }
+        }
+        writeln!(out, "    {} {} `{}`", to_go_name(field_name), field_type, json_tag).ok();
+    }
+
+    writeln!(out, "}}").ok();
     out
 }
 

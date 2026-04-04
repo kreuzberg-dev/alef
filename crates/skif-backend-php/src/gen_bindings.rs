@@ -282,7 +282,7 @@ fn type_ref_has_named(ty: &skif_core::ir::TypeRef) -> bool {
 }
 
 /// Generate ext-php-rs methods for a struct.
-fn gen_struct_methods(typ: &TypeDef, mapper: &PhpMapper, has_serde: bool, core_import: &str) -> String {
+fn gen_struct_methods(typ: &TypeDef, mapper: &PhpMapper, has_serde: bool, _core_import: &str) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
 
@@ -293,14 +293,11 @@ fn gen_struct_methods(typ: &TypeDef, mapper: &PhpMapper, has_serde: bool, core_i
                 // ext-php-rs cannot pass custom struct types as owned constructor params
                 // (FromZvalMut not satisfied). When serde is available, generate a from_json
                 // static method that deserializes from a JSON string, bypassing the limitation.
-                let core_type = format!("{core_import}::{}", typ.name);
-                let constructor = format!(
-                    "pub fn from_json(json: String) -> PhpResult<Self> {{\n    \
-                     let core: {core_type} = serde_json::from_str(&json)\n        \
-                     .map_err(|e| PhpException::default(e.to_string()))?;\n    \
-                     Ok(core.into())\n\
-                     }}"
-                );
+                let constructor = "pub fn from_json(json: String) -> PhpResult<Self> {\n    \
+                     serde_json::from_str(&json)\n        \
+                     .map_err(|e| PhpException::default(e.to_string()).into())\n\
+                     }"
+                .to_string();
                 impl_builder.add_method(&constructor);
             } else {
                 // No serde available — generate a stub constructor.
