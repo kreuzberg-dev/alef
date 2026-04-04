@@ -144,17 +144,21 @@ impl Backend for PhpBackend {
         }
 
         let convertible = skif_codegen::conversions::convertible_types(api);
+        let core_to_binding = skif_codegen::conversions::core_to_binding_convertible_types(api);
         // From/Into conversions with PHP-specific i64 casts.
-        // Skip types with enum Named fields: PhpMapper maps enum Named→String, so the
-        // binding stores a String where the core has an enum. Auto-generated .into()
-        // calls would require From<String> for the core enum which doesn't exist.
+        // Types with enum Named fields: PHP maps enums to String. Can't round-trip
+        // String→enum (no From<String>), so skip binding→core for those types.
+        // Core→binding is always safe (enum→String via format!("{:?}")).
         let enum_names_ref = &mapper.enum_names;
         for typ in &api.types {
-            if skif_codegen::conversions::can_generate_conversion(typ, &convertible)
-                && !has_enum_named_field(typ, enum_names_ref)
-            {
+            let has_enum = has_enum_named_field(typ, enum_names_ref);
+            // binding→core: only when no enum fields (String→enum impossible)
+            if !has_enum && skif_codegen::conversions::can_generate_conversion(typ, &convertible) {
                 builder.add_item(&gen_php_from_binding_to_core(typ, &core_import));
-                builder.add_item(&gen_php_from_core_to_binding(typ, &core_import));
+            }
+            // core→binding: always (enum→String via format, sanitized fields via format)
+            if skif_codegen::conversions::can_generate_conversion(typ, &core_to_binding) {
+                builder.add_item(&gen_php_from_core_to_binding(typ, &core_import, enum_names_ref));
             }
         }
 
@@ -423,20 +427,72 @@ fn gen_php_from_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
 }
 
 /// Generate `impl From<core::Type> for Type` with PHP-specific i64 casts.
-fn gen_php_from_core_to_binding(typ: &TypeDef, core_import: &str) -> String {
+fn gen_php_from_core_to_binding(typ: &TypeDef, core_import: &str, enum_names: &AHashSet<String>) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(256);
     writeln!(out, "impl From<{core_import}::{}> for {} {{", typ.name, typ.name).ok();
     writeln!(out, "    fn from(val: {core_import}::{}) -> Self {{", typ.name).ok();
     writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
-        let conversion = php_field_conversion(&field.name, &field.ty, field.optional, "val", false);
+        let conversion =
+            php_field_conversion_from_core(&field.name, &field.ty, field.optional, field.sanitized, enum_names);
         writeln!(out, "            {conversion},").ok();
     }
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();
     out
+}
+
+/// PHP-specific core→binding field conversion.
+/// Enum Named fields → format!("{:?}") since PHP maps enums to String.
+/// Sanitized fields → format!("{:?}").
+/// Everything else delegates to the shared conversion.
+fn php_field_conversion_from_core(
+    name: &str,
+    ty: &skif_core::ir::TypeRef,
+    optional: bool,
+    sanitized: bool,
+    enum_names: &AHashSet<String>,
+) -> String {
+    use skif_core::ir::TypeRef;
+    // Sanitized fields: use format!("{:?}") to convert to String
+    if sanitized {
+        if optional {
+            return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))");
+        }
+        return format!("{name}: format!(\"{{:?}}\", val.{name})");
+    }
+    // Enum Named fields: PHP maps enums to String, use format!("{:?}")
+    match ty {
+        TypeRef::Named(n) if enum_names.contains(n.as_str()) => {
+            if optional {
+                format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))")
+            } else {
+                format!("{name}: format!(\"{{:?}}\", val.{name})")
+            }
+        }
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())) => {
+            if optional {
+                format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())")
+            } else {
+                format!("{name}: val.{name}.iter().map(|v| format!(\"{{:?}}\", v)).collect()")
+            }
+        }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if enum_names.contains(n.as_str()) => {
+                format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))")
+            }
+            _ => {
+                let opaque_types = AHashSet::new();
+                skif_codegen::conversions::field_conversion_from_core(name, ty, optional, false, &opaque_types)
+            }
+        },
+        _ => {
+            let opaque_types = AHashSet::new();
+            skif_codegen::conversions::field_conversion_from_core(name, ty, optional, false, &opaque_types)
+        }
+    }
 }
 
 /// PHP-specific field conversion that handles U64/Usize→i64 type casts.
