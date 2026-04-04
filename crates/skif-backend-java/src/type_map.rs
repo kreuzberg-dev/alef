@@ -11,12 +11,12 @@ pub fn java_type(ty: &TypeRef) -> Cow<'static, str> {
         TypeRef::Optional(inner) => java_boxed_type(inner),
         TypeRef::Vec(inner) => {
             let inner_type = java_boxed_type(inner);
-            Cow::Owned(format!("java.util.List<{}>", inner_type))
+            Cow::Owned(format!("List<{}>", inner_type))
         }
         TypeRef::Map(k, v) => {
             let key_type = java_boxed_type(k);
             let val_type = java_boxed_type(v);
-            Cow::Owned(format!("java.util.Map<{}, {}>", key_type, val_type))
+            Cow::Owned(format!("Map<{}, {}>", key_type, val_type))
         }
         TypeRef::Named(name) => Cow::Owned(name.clone()),
         TypeRef::Path => Cow::Borrowed("java.nio.file.Path"),
@@ -44,12 +44,12 @@ pub fn java_boxed_type(ty: &TypeRef) -> Cow<'static, str> {
         TypeRef::Optional(inner) => java_boxed_type(inner),
         TypeRef::Vec(inner) => {
             let inner_type = java_boxed_type(inner);
-            Cow::Owned(format!("java.util.List<{}>", inner_type))
+            Cow::Owned(format!("List<{}>", inner_type))
         }
         TypeRef::Map(k, v) => {
             let key_type = java_boxed_type(k);
             let val_type = java_boxed_type(v);
-            Cow::Owned(format!("java.util.Map<{}, {}>", key_type, val_type))
+            Cow::Owned(format!("Map<{}, {}>", key_type, val_type))
         }
         TypeRef::Named(name) => Cow::Owned(name.clone()),
         TypeRef::Path => Cow::Borrowed("java.nio.file.Path"),

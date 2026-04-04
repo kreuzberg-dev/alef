@@ -215,6 +215,8 @@ fn default_error_style() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GoConfig {
     pub module: Option<String>,
+    /// Override the Go package name (default: derived from module path)
+    pub package_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

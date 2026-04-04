@@ -44,7 +44,11 @@ impl Backend for GoBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let module_path = config.go_module();
-        let pkg_name = Self::package_name(&module_path);
+        let pkg_name = config
+            .go
+            .as_ref()
+            .and_then(|g| g.package_name.clone())
+            .unwrap_or_else(|| Self::package_name(&module_path));
         let ffi_prefix = config.ffi_prefix();
 
         let output_dir = resolve_output_dir(config.output.go.as_ref(), &config.crate_config.name, "packages/go/");
