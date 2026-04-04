@@ -27,6 +27,7 @@ impl ExtendrBackend {
             core_import,
             async_pattern: AsyncPattern::None,
             has_serde: true,
+            type_name_prefix: "",
         }
     }
 }

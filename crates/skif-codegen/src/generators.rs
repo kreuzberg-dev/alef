@@ -58,6 +58,9 @@ pub struct RustBindingConfig<'a> {
     /// When true, the generator can use serde-based param conversion and add `serde::Serialize` derives.
     /// When false, non-convertible Named params fall back to `gen_unimplemented_body`.
     pub has_serde: bool,
+    /// Prefix for binding type names (e.g. "Js" for NAPI/WASM, "" for PyO3/PHP).
+    /// Used in impl block targets: `impl {prefix}{TypeName}`.
+    pub type_name_prefix: &'a str,
 }
 
 /// Wrap a core-call result for opaque delegation methods.
@@ -531,10 +534,11 @@ pub fn gen_opaque_impl_block(
     }
 
     let mut out = String::with_capacity(2048);
+    let prefixed_name = format!("{}{}", cfg.type_name_prefix, typ.name);
     if let Some(block_attr) = cfg.method_block_attr {
         writeln!(out, "#[{block_attr}]").ok();
     }
-    writeln!(out, "impl {} {{", typ.name).ok();
+    writeln!(out, "impl {prefixed_name} {{").ok();
 
     // Instance methods — delegate to self.inner
     for m in &instance {
@@ -1258,11 +1262,12 @@ pub fn gen_impl_block(
     }
 
     let empty_opaque = AHashSet::new();
+    let prefixed_name = format!("{}{}", cfg.type_name_prefix, typ.name);
     let mut out = String::with_capacity(2048);
     if let Some(block_attr) = cfg.method_block_attr {
         writeln!(out, "#[{block_attr}]").ok();
     }
-    writeln!(out, "impl {} {{", typ.name).ok();
+    writeln!(out, "impl {prefixed_name} {{").ok();
 
     // Constructor
     if !typ.fields.is_empty() {

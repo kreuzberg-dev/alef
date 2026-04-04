@@ -31,6 +31,7 @@ impl NapiBackend {
             core_import,
             async_pattern: AsyncPattern::NapiNativeAsync,
             has_serde: true,
+            type_name_prefix: "Js",
         }
     }
 }

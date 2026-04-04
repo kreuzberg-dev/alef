@@ -27,6 +27,7 @@ impl Pyo3Backend {
             core_import,
             async_pattern: AsyncPattern::Pyo3FutureIntoPy,
             has_serde,
+            type_name_prefix: "",
         }
     }
 }

@@ -29,6 +29,7 @@ impl PhpBackend {
             core_import,
             async_pattern: AsyncPattern::TokioBlockOn,
             has_serde,
+            type_name_prefix: "",
         }
     }
 }
@@ -262,6 +263,7 @@ fn gen_php_struct(typ: &TypeDef, mapper: &PhpMapper, cfg: &RustBindingConfig<'_>
             core_import: cfg.core_import,
             async_pattern: cfg.async_pattern,
             has_serde: cfg.has_serde,
+            type_name_prefix: cfg.type_name_prefix,
         };
         generators::gen_struct(typ, mapper, &modified_cfg)
     } else {
