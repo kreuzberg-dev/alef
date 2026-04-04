@@ -122,9 +122,39 @@ impl Backend for MagnusBackend {
             }
         }
 
-        // Magnus backend: skip From/Into conversions entirely.
-        // In Magnus, binding types ARE the core types (no Js/Py prefix wrapper),
-        // so generating From<T> for T is nonsensical and violates orphan rules.
+        // Magnus binding types are separate structs from core types and need From impls
+        // for delegation. Generate both directions where possible.
+        let binding_to_core = skif_codegen::conversions::convertible_types(api);
+        let core_to_binding = skif_codegen::conversions::core_to_binding_convertible_types(api);
+        for typ in &api.types {
+            if typ.is_opaque {
+                continue;
+            }
+            let is_strict = skif_codegen::conversions::can_generate_conversion(typ, &binding_to_core);
+            let is_relaxed = skif_codegen::conversions::can_generate_conversion(typ, &core_to_binding);
+            if is_strict {
+                builder.add_item(&skif_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
+            }
+            if is_relaxed {
+                builder.add_item(&skif_codegen::conversions::gen_from_core_to_binding(
+                    typ,
+                    &core_import,
+                    &opaque_types,
+                ));
+            }
+        }
+        for e in &api.enums {
+            if skif_codegen::conversions::can_generate_enum_conversion(e) {
+                builder.add_item(&skif_codegen::conversions::gen_enum_from_binding_to_core(
+                    e,
+                    &core_import,
+                ));
+                builder.add_item(&skif_codegen::conversions::gen_enum_from_core_to_binding(
+                    e,
+                    &core_import,
+                ));
+            }
+        }
 
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = skif_adapters::build_adapter_bodies(config, Language::Ruby)?;

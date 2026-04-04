@@ -108,7 +108,7 @@ impl Backend for WasmBackend {
             }
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_struct(typ, &core_import));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
+                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types, &core_import));
             } else {
                 builder.add_item(&gen_struct(typ, &mapper));
                 builder.add_item(&gen_struct_methods(
@@ -134,12 +134,20 @@ impl Backend for WasmBackend {
         }
 
         let convertible = skif_codegen::conversions::convertible_types(api);
+        let core_to_binding_convertible = skif_codegen::conversions::core_to_binding_convertible_types(api);
         // From/Into conversions (WASM uses Js prefix, so we need custom generation)
         for typ in &api.types {
-            if skif_codegen::conversions::can_generate_conversion(typ, &convertible)
-                && !exclude_types.contains(&typ.name)
-            {
+            if exclude_types.contains(&typ.name) {
+                continue;
+            }
+            let is_strict = skif_codegen::conversions::can_generate_conversion(typ, &convertible);
+            let is_relaxed = skif_codegen::conversions::can_generate_conversion(typ, &core_to_binding_convertible);
+            if is_strict {
+                // Both directions
                 builder.add_item(&gen_from_js_binding_to_core(typ, &core_import));
+                builder.add_item(&gen_from_core_to_js_binding(typ, &core_import, &opaque_types));
+            } else if is_relaxed {
+                // Only core→binding (sanitized fields prevent binding→core)
                 builder.add_item(&gen_from_core_to_js_binding(typ, &core_import, &opaque_types));
             }
         }
@@ -184,13 +192,28 @@ fn gen_opaque_struct(typ: &TypeDef, core_import: &str) -> String {
 }
 
 /// Generate wasm-bindgen methods for an opaque struct.
-fn gen_opaque_struct_methods(typ: &TypeDef, mapper: &WasmMapper, opaque_types: &AHashSet<String>) -> String {
+fn gen_opaque_struct_methods(
+    typ: &TypeDef,
+    mapper: &WasmMapper,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
     let js_name = format!("Js{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
     impl_builder.add_attr("wasm_bindgen");
 
     for method in &typ.methods {
-        impl_builder.add_method(&gen_opaque_method(method, mapper, &typ.name, opaque_types));
+        if method.is_static {
+            impl_builder.add_method(&gen_opaque_static_method(
+                method,
+                mapper,
+                &typ.name,
+                opaque_types,
+                core_import,
+            ));
+        } else {
+            impl_builder.add_method(&gen_opaque_method(method, mapper, &typ.name, opaque_types));
+        }
     }
 
     impl_builder.build()
@@ -228,7 +251,7 @@ fn gen_opaque_method(
         let core_call = format!("self.inner.{}({})", method.name, call_args);
         if method.is_async {
             // WASM async: native async fn becomes a Promise automatically
-            let result_wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, true);
+            let result_wrap = wasm_wrap_return("result", &method.return_type, type_name, opaque_types, true);
             if method.error_type.is_some() {
                 format!(
                     "let result = {core_call}.await\n        \
@@ -242,11 +265,11 @@ fn gen_opaque_method(
             if matches!(method.return_type, TypeRef::Unit) {
                 format!("{core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok(())")
             } else {
-                let wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, true);
+                let wrap = wasm_wrap_return("result", &method.return_type, type_name, opaque_types, true);
                 format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
             }
         } else {
-            generators::wrap_return(&core_call, &method.return_type, type_name, opaque_types, true)
+            wasm_wrap_return(&core_call, &method.return_type, type_name, opaque_types, true)
         }
     } else {
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
@@ -254,6 +277,55 @@ fn gen_opaque_method(
 
     format!(
         "#[wasm_bindgen{js_name_attr}]\npub {async_kw}fn {}(&self, {}) -> {} {{\n    \
+         {body}\n}}",
+        method.name,
+        params.join(", "),
+        return_annotation
+    )
+}
+
+/// Generate a static method for an opaque wasm-bindgen struct.
+/// Static methods call CoreType::method() instead of self.inner.method().
+fn gen_opaque_static_method(
+    method: &MethodDef,
+    mapper: &WasmMapper,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", p.name, mapper.map_type(&p.ty)))
+        .collect();
+
+    let return_type = mapper.map_type(&method.return_type);
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+
+    let js_name = to_node_name(&method.name);
+    let js_name_attr = if js_name != method.name {
+        format!("(js_name = \"{}\")", js_name)
+    } else {
+        String::new()
+    };
+
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
+    let body = if can_delegate {
+        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let core_call = format!("{core_import}::{type_name}::{}({call_args})", method.name);
+        if method.error_type.is_some() {
+            let wrap = wasm_wrap_return("result", &method.return_type, type_name, opaque_types, true);
+            format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
+        } else {
+            wasm_wrap_return(&core_call, &method.return_type, type_name, opaque_types, true)
+        }
+    } else {
+        gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
+    };
+
+    format!(
+        "#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
          {body}\n}}",
         method.name,
         params.join(", "),
@@ -431,10 +503,10 @@ fn gen_method(
             let call_args = generators::gen_call_args(&method.params, opaque_types);
             let core_call = format!("{core_import}::{type_name}::{}({call_args})", method.name);
             if method.error_type.is_some() {
-                let wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, false);
+                let wrap = wasm_wrap_return("result", &method.return_type, type_name, opaque_types, false);
                 format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
             } else {
-                generators::wrap_return(&core_call, &method.return_type, type_name, opaque_types, false)
+                wasm_wrap_return(&core_call, &method.return_type, type_name, opaque_types, false)
             }
         } else {
             gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
@@ -454,10 +526,10 @@ fn gen_method(
                 method_name = method.name
             );
             if method.error_type.is_some() {
-                let wrap = generators::wrap_return("result", &method.return_type, type_name, opaque_types, false);
+                let wrap = wasm_wrap_return("result", &method.return_type, type_name, opaque_types, false);
                 format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
             } else {
-                generators::wrap_return(&core_call, &method.return_type, type_name, opaque_types, false)
+                wasm_wrap_return(&core_call, &method.return_type, type_name, opaque_types, false)
             }
         } else {
             gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
@@ -537,10 +609,10 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaq
         let call_args = generators::gen_call_args(&func.params, opaque_types);
         let core_call = format!("{core_import}::{}({call_args})", func.name);
         let body = if func.error_type.is_some() {
-            let wrap = generators::wrap_return("result", &func.return_type, "", opaque_types, false);
+            let wrap = wasm_wrap_return_fn("result", &func.return_type, opaque_types);
             format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
         } else {
-            generators::wrap_return(&core_call, &func.return_type, "", opaque_types, false)
+            wasm_wrap_return_fn(&core_call, &func.return_type, opaque_types)
         };
         format!(
             "#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
@@ -581,6 +653,72 @@ fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: 
             TypeRef::Duration => "0u64".to_string(),
             TypeRef::Named(_) | TypeRef::Json => format!("panic!(\"skif: {fn_name} not auto-delegatable\")"),
         }
+    }
+}
+
+/// WASM-specific return wrapping for opaque methods (adds Js prefix for opaque Named returns).
+fn wasm_wrap_return(
+    expr: &str,
+    return_type: &TypeRef,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+    self_is_opaque: bool,
+) -> String {
+    match return_type {
+        // Self-returning opaque method
+        TypeRef::Named(n) if n == type_name && self_is_opaque => {
+            format!("Self {{ inner: Arc::new({expr}) }}")
+        }
+        // Other opaque Named return: needs Js prefix
+        TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+            format!("Js{n} {{ inner: Arc::new({expr}) }}")
+        }
+        // Optional<opaque>: wrap with Js prefix
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                format!("{expr}.map(|v| Js{name} {{ inner: Arc::new(v) }})")
+            }
+            _ => generators::wrap_return(expr, return_type, type_name, opaque_types, self_is_opaque),
+        },
+        // Vec<opaque>: wrap with Js prefix
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                format!("{expr}.into_iter().map(|v| Js{name} {{ inner: Arc::new(v) }}).collect()")
+            }
+            _ => generators::wrap_return(expr, return_type, type_name, opaque_types, self_is_opaque),
+        },
+        _ => generators::wrap_return(expr, return_type, type_name, opaque_types, self_is_opaque),
+    }
+}
+
+/// WASM-specific return wrapping for free functions (no type_name context, adds Js prefix).
+fn wasm_wrap_return_fn(expr: &str, return_type: &TypeRef, opaque_types: &AHashSet<String>) -> String {
+    match return_type {
+        TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+            format!("Js{n} {{ inner: Arc::new({expr}) }}")
+        }
+        TypeRef::Named(_) => format!("{expr}.into()"),
+        TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
+        TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                format!("{expr}.map(|v| Js{name} {{ inner: Arc::new(v) }})")
+            }
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+                format!("{expr}.map(Into::into)")
+            }
+            _ => expr.to_string(),
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                format!("{expr}.into_iter().map(|v| Js{name} {{ inner: Arc::new(v) }}).collect()")
+            }
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+                format!("{expr}.into_iter().map(Into::into).collect()")
+            }
+            _ => expr.to_string(),
+        },
+        _ => expr.to_string(),
     }
 }
 

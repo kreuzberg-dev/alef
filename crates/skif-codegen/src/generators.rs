@@ -94,6 +94,27 @@ pub fn wrap_return(
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         // Duration: core returns std::time::Duration, binding uses u64 (secs)
         TypeRef::Duration => format!("{expr}.as_secs()"),
+        // Optional: wrap inner conversion in .map(...)
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                format!("{expr}.map(|v| {n} {{ inner: Arc::new(v) }})")
+            }
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+                format!("{expr}.map(Into::into)")
+            }
+            TypeRef::Duration => format!("{expr}.map(|d| d.as_secs())"),
+            _ => expr.to_string(),
+        },
+        // Vec: map each element through the appropriate conversion
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                format!("{expr}.into_iter().map(|v| {n} {{ inner: Arc::new(v) }}).collect()")
+            }
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+                format!("{expr}.into_iter().map(Into::into).collect()")
+            }
+            _ => expr.to_string(),
+        },
         _ => expr.to_string(),
     }
 }
