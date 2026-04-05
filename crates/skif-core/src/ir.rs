@@ -27,6 +27,10 @@ pub struct TypeDef {
     /// Trait types need `dyn` keyword when used as opaque inner types.
     #[serde(default)]
     pub is_trait: bool,
+    /// True if the type implements Default (via derive or manual impl).
+    /// Used by backends like NAPI to make all fields optional with defaults.
+    #[serde(default)]
+    pub has_default: bool,
 }
 
 /// A field on a public struct.

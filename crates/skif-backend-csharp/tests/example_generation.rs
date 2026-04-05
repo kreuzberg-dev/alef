@@ -35,6 +35,7 @@ fn test_generated_code_example() {
             is_opaque: false,
             is_clone: true,
             is_trait: false,
+            has_default: false,
             doc: "Configuration for text extraction".to_string(),
             cfg: None,
         }],

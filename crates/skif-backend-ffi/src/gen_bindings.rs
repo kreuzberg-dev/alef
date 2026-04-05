@@ -1385,9 +1385,10 @@ mod tests {
                 methods: vec![],
                 is_opaque: false,
                 is_clone: true,
+                is_trait: false,
+                has_default: false,
                 doc: "Configuration struct.".to_string(),
                 cfg: None,
-                is_trait: false,
             }],
             functions: vec![FunctionDef {
                 name: "extract".to_string(),

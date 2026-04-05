@@ -28,6 +28,7 @@ fn test_basic_generation() {
             is_opaque: false,
             is_clone: true,
             is_trait: false,
+            has_default: false,
             doc: "Test config".to_string(),
             cfg: None,
         }],

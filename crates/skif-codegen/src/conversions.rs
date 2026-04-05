@@ -17,6 +17,10 @@ pub struct ConversionConfig<'a> {
     /// When true, Map fields use `serde_wasm_bindgen` for conversion instead of
     /// iterator-based collect patterns (JsValue is not iterable).
     pub map_uses_jsvalue: bool,
+    /// When true, non-optional fields on defaultable types are wrapped in Option<T>
+    /// in the binding struct and need `.unwrap_or_default()` in binding→core From.
+    /// Used by NAPI to make JS-facing structs fully optional.
+    pub optionalize_defaults: bool,
 }
 
 /// Returns true if a primitive type needs i64 casting in NAPI/PHP.
@@ -290,9 +294,14 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
     writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
     writeln!(out, "        Self {{").ok();
+    let optionalized = config.optionalize_defaults && typ.has_default;
     for field in &typ.fields {
         let conversion = if field.sanitized {
             format!("{}: Default::default()", field.name)
+        } else if optionalized && !field.optional {
+            // Field was wrapped in Option<T> for JS ergonomics but core expects T.
+            // Use unwrap_or_default() for simple types, unwrap_or_default() + into for Named.
+            gen_optionalized_field_to_core(&field.name, &field.ty, config)
         } else {
             field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
         };
@@ -302,6 +311,44 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();
     out
+}
+
+/// Generate field conversion for a non-optional field that was optionalized
+/// (wrapped in Option<T>) in the binding struct for JS ergonomics.
+fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &ConversionConfig) -> String {
+    match ty {
+        TypeRef::Named(_) => {
+            // Named type: unwrap Option, convert via .into(), or use Default
+            format!("{name}: val.{name}.map(Into::into).unwrap_or_default()")
+        }
+        TypeRef::Primitive(p) if config.cast_large_ints_to_i64 && needs_i64_cast(p) => {
+            let core_ty = core_prim_str(p);
+            format!("{name}: val.{name}.map(|v| v as {core_ty}).unwrap_or_default()")
+        }
+        TypeRef::Duration if config.cast_large_ints_to_i64 => {
+            format!("{name}: val.{name}.map(|v| std::time::Duration::from_secs(v as u64)).unwrap_or_default()")
+        }
+        TypeRef::Duration => {
+            format!("{name}: val.{name}.map(std::time::Duration::from_secs).unwrap_or_default()")
+        }
+        TypeRef::Path => {
+            format!("{name}: val.{name}.map(Into::into).unwrap_or_default()")
+        }
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(_) => {
+                format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect()).unwrap_or_default()")
+            }
+            _ => format!("{name}: val.{name}.unwrap_or_default()"),
+        },
+        TypeRef::Map(_, _) => {
+            // Collect to handle HashMap↔BTreeMap conversion
+            format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")
+        }
+        _ => {
+            // Simple types (primitives, String, etc): unwrap_or_default()
+            format!("{name}: val.{name}.unwrap_or_default()")
+        }
+    }
 }
 
 /// Generate `impl From<core::Type> for BindingType` (core -> binding).
@@ -321,9 +368,10 @@ pub fn gen_from_core_to_binding_cfg(
     let mut out = String::with_capacity(256);
     writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();
     writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
+    let optionalized = config.optionalize_defaults && typ.has_default;
     writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
-        let conversion = field_conversion_from_core_cfg(
+        let base_conversion = field_conversion_from_core_cfg(
             &field.name,
             &field.ty,
             field.optional,
@@ -331,6 +379,17 @@ pub fn gen_from_core_to_binding_cfg(
             opaque_types,
             config,
         );
+        // Optionalized non-optional fields need Some() wrapping in core→binding direction
+        let conversion = if optionalized && !field.optional {
+            // Extract the value expression after "name: " and wrap in Some()
+            if let Some(expr) = base_conversion.strip_prefix(&format!("{}: ", field.name)) {
+                format!("{}: Some({})", field.name, expr)
+            } else {
+                base_conversion
+            }
+        } else {
+            base_conversion
+        };
         writeln!(out, "            {conversion},").ok();
     }
     writeln!(out, "        }}").ok();
@@ -704,6 +763,7 @@ mod tests {
             is_opaque: false,
             is_clone: true,
             is_trait: false,
+            has_default: false,
             doc: String::new(),
             cfg: None,
         }

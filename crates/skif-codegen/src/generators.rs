@@ -316,11 +316,7 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                 }
             }
             TypeRef::Named(_) => {
-                if p.optional {
-                    format!("{}_core", p.name)
-                } else {
-                    format!("{}_core", p.name)
-                }
+                format!("{}_core", p.name)
             }
             TypeRef::String => format!("&{}", p.name),
             TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),

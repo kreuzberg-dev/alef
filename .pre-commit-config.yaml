@@ -72,7 +72,7 @@ repos:
 
   # Markdown linting
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: "v0.1.64"
+    rev: "v0.1.67"
     hooks:
       - id: rumdl-fmt
 

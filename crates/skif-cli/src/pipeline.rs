@@ -531,9 +531,10 @@ fn inject_declared_opaque_types(api: &mut ApiSurface, config: &SkifConfig) {
                 methods: vec![],
                 is_opaque: true,
                 is_clone: false,
+                is_trait: false,
+                has_default: false,
                 doc: String::new(),
                 cfg: None,
-                is_trait: false,
             });
             debug!("Injected declared opaque type: {name} -> {rust_path}");
         }

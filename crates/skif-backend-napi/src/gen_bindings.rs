@@ -155,6 +155,7 @@ impl Backend for NapiBackend {
         let napi_conv_config = skif_codegen::conversions::ConversionConfig {
             type_name_prefix: "Js",
             cast_large_ints_to_i64: true,
+            optionalize_defaults: true,
             ..Default::default()
         };
         // From/Into conversions using shared parameterized generators
@@ -220,7 +221,9 @@ fn gen_struct(typ: &TypeDef, mapper: &NapiMapper) -> String {
 
     for field in &typ.fields {
         let mapped_type = mapper.map_type(&field.ty);
-        let field_type = if field.optional {
+        // For types with Default, make all fields optional so JS callers
+        // can pass partial objects (missing fields get defaults).
+        let field_type = if field.optional || typ.has_default {
             format!("Option<{}>", mapped_type)
         } else {
             mapped_type

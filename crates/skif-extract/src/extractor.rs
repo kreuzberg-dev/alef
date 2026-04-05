@@ -108,6 +108,7 @@ fn extract_items(
                         is_opaque: true, // type aliases are opaque (no fields)
                         is_clone: false,
                         is_trait: false,
+                        has_default: false,
                         doc,
                         cfg: None,
                     });
@@ -171,9 +172,10 @@ fn extract_items(
                         methods,
                         is_opaque: true,
                         is_clone: false,
+                        is_trait: true,
+                        has_default: false,
                         doc,
                         cfg: None,
-                        is_trait: true,
                     });
                 }
             }
@@ -350,6 +352,7 @@ fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_path: &str) -
     };
 
     let is_clone = has_derive(item.attrs.as_slice(), "Clone");
+    let has_default = has_derive(item.attrs.as_slice(), "Default");
     let doc = extract_doc_comments(&item.attrs);
     let is_opaque = fields.is_empty();
     let rust_path = build_rust_path(crate_name, module_path, &name);
@@ -362,6 +365,7 @@ fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_path: &str) -
         is_opaque,
         is_clone,
         is_trait: false,
+        has_default,
         doc,
         cfg,
     })
@@ -556,6 +560,7 @@ fn extract_impl_block(
             is_opaque: true,
             is_clone: false,
             is_trait: false,
+            has_default: false,
             doc: String::new(),
             cfg: None,
         });
@@ -627,6 +632,13 @@ fn extract_trait_impl_methods(
     });
 
     let type_def = &mut surface.types[idx];
+
+    // Detect `impl Default for Type` — mark type as has_default
+    if let Some((_, path, _)) = &item.trait_ {
+        if path.segments.last().is_some_and(|s| s.ident == "Default") {
+            type_def.has_default = true;
+        }
+    }
 
     // Extract methods from the trait impl (trait methods are implicitly pub)
     for impl_item in &item.items {
@@ -1664,6 +1676,7 @@ mod tests {
                 is_opaque: true,
                 is_clone: false,
                 is_trait: false,
+                has_default: false,
                 doc: String::new(),
                 cfg: None,
             }],
@@ -1684,6 +1697,7 @@ mod tests {
                     is_opaque: true,
                     is_clone: false,
                     is_trait: false,
+                    has_default: false,
                     doc: String::new(),
                     cfg: None,
                 },
@@ -1695,6 +1709,7 @@ mod tests {
                     is_opaque: true,
                     is_clone: false,
                     is_trait: false,
+                    has_default: false,
                     doc: String::new(),
                     cfg: None,
                 },
@@ -1733,6 +1748,7 @@ mod tests {
                     is_opaque: true,
                     is_clone: false,
                     is_trait: false,
+                    has_default: false,
                     doc: String::new(),
                     cfg: None,
                 },
@@ -1744,6 +1760,7 @@ mod tests {
                     is_opaque: true,
                     is_clone: false,
                     is_trait: false,
+                    has_default: false,
                     doc: String::new(),
                     cfg: None,
                 },
