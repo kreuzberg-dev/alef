@@ -34,6 +34,15 @@ impl TypeMapper for WasmMapper {
         "JsValue".to_string()
     }
 
+    /// WASM can't handle nested Vec (Vec<Vec<T>>) — use JsValue instead.
+    fn vec(&self, inner: &str) -> String {
+        if inner.starts_with("Vec<") || inner == "JsValue" {
+            "JsValue".to_string()
+        } else {
+            format!("Vec<{inner}>")
+        }
+    }
+
     fn error_wrapper(&self) -> &str {
         "Result"
     }

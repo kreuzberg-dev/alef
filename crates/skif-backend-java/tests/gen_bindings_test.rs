@@ -23,6 +23,8 @@ fn test_basic_generation() {
                 default: None,
                 doc: "Timeout in seconds".to_string(),
                 sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
             }],
             methods: vec![],
             is_opaque: false,

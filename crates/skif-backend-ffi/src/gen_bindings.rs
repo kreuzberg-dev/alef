@@ -344,7 +344,23 @@ fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, core_import
         field.ty.clone()
     };
 
-    let mut ret_type = c_return_type(&effective_ty, core_import).into_owned();
+    // When the field has a specific type_rust_path, use it for Named types to avoid
+    // ambiguity when multiple types share the same short name.
+    let field_core_import = if let Some(ref rust_path) = field.type_rust_path {
+        // type_rust_path is e.g. "types::extraction::OutputFormat" — we need the module path
+        // prefix without the type name itself.
+        if let Some(pos) = rust_path.rfind("::") {
+            // e.g. "types::extraction" from "types::extraction::OutputFormat"
+            // Prefix with core_import to get the fully qualified module
+            format!("{core_import}::{}", &rust_path[..pos])
+        } else {
+            core_import.to_string()
+        }
+    } else {
+        core_import.to_string()
+    };
+
+    let mut ret_type = c_return_type(&effective_ty, &field_core_import).into_owned();
     // Replace "Self" with the actual qualified type name in FFI signatures
     if ret_type.contains("Self") {
         ret_type = ret_type.replace("Self", &qualified);
@@ -393,8 +409,11 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
 
     if field.optional {
         // Wrap in match on Option — val is a reference from &Option<T> destructure
+        // When is_boxed: val is &Box<T>, so deref twice (**val) to get &T
         let val_expr = if matches!(field.ty, TypeRef::Primitive(_)) {
             "*val" // dereference for Copy types
+        } else if field.is_boxed {
+            "(**val)" // deref &Box<T> → &T
         } else {
             "val"
         };
@@ -417,12 +436,13 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
         writeln!(out, "    }}").unwrap();
         writeln!(out, "    data.as_ptr() as *mut u8").unwrap();
     } else {
-        write!(
-            out,
-            "{}",
-            gen_value_to_c(&format!("obj.{field_name}"), &field.ty, "    ")
-        )
-        .unwrap();
+        // When is_boxed: obj.field_name is Box<T>, deref to get T before cloning
+        let access_expr = if field.is_boxed {
+            format!("(*obj.{field_name})")
+        } else {
+            format!("obj.{field_name}")
+        };
+        write!(out, "{}", gen_value_to_c(&access_expr, &field.ty, "    ")).unwrap();
     }
 
     out
@@ -1364,6 +1384,8 @@ mod tests {
                         default: None,
                         doc: String::new(),
                         sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
                     },
                     FieldDef {
                         name: "name".to_string(),
@@ -1372,6 +1394,8 @@ mod tests {
                         default: None,
                         doc: String::new(),
                         sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
                     },
                     FieldDef {
                         name: "verbose".to_string(),
@@ -1380,6 +1404,8 @@ mod tests {
                         default: None,
                         doc: String::new(),
                         sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
                     },
                 ],
                 methods: vec![],

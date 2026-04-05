@@ -603,9 +603,11 @@ pub fn field_conversion_from_core(
 
 /// Binding→core field conversion with backend-specific config (i64 casts, etc.).
 pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, config: &ConversionConfig) -> String {
-    // WASM JsValue maps: use serde_wasm_bindgen for deserialization
+    // WASM JsValue: use serde_wasm_bindgen for Map and nested Vec types
     if config.map_uses_jsvalue {
-        if let TypeRef::Map(_, _) = ty {
+        let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));
+        let is_map = matches!(ty, TypeRef::Map(_, _));
+        if is_nested_vec || is_map {
             if optional {
                 return format!(
                     "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::from_value(v.clone()).ok())"
@@ -613,9 +615,10 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
             }
             return format!("{name}: serde_wasm_bindgen::from_value(val.{name}.clone()).unwrap_or_default()");
         }
-        // Optional<Map> handled here too
         if let TypeRef::Optional(inner) = ty {
-            if matches!(inner.as_ref(), TypeRef::Map(_, _)) {
+            let is_inner_nested = matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Vec(_)));
+            let is_inner_map = matches!(inner.as_ref(), TypeRef::Map(_, _));
+            if is_inner_nested || is_inner_map {
                 return format!(
                     "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::from_value(v.clone()).ok())"
                 );
@@ -695,16 +698,20 @@ pub fn field_conversion_from_core_cfg(
         return field_conversion_from_core(name, ty, optional, sanitized, opaque_types);
     }
 
-    // WASM JsValue maps: use serde_wasm_bindgen for serialization
+    // WASM JsValue: use serde_wasm_bindgen for Map and nested Vec types
     if config.map_uses_jsvalue {
-        if let TypeRef::Map(_, _) = ty {
+        let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));
+        let is_map = matches!(ty, TypeRef::Map(_, _));
+        if is_nested_vec || is_map {
             if optional {
                 return format!("{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())");
             }
             return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
         }
         if let TypeRef::Optional(inner) = ty {
-            if matches!(inner.as_ref(), TypeRef::Map(_, _)) {
+            let is_inner_nested = matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Vec(_)));
+            let is_inner_map = matches!(inner.as_ref(), TypeRef::Map(_, _));
+            if is_inner_nested || is_inner_map {
                 return format!("{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())");
             }
         }
@@ -810,6 +817,8 @@ mod tests {
                     default: None,
                     doc: String::new(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
                 FieldDef {
                     name: "timeout".into(),
@@ -818,6 +827,8 @@ mod tests {
                     default: None,
                     doc: String::new(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
                 FieldDef {
                     name: "backend".into(),
@@ -826,6 +837,8 @@ mod tests {
                     default: None,
                     doc: String::new(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
             ],
             methods: vec![],

@@ -45,6 +45,14 @@ pub struct FieldDef {
     /// Fields marked sanitized cannot participate in auto-generated From/Into conversions.
     #[serde(default)]
     pub sanitized: bool,
+    /// True if the core field type is `Box<T>` (or `Option<Box<T>>`).
+    /// Used by FFI backends to insert proper deref when cloning field values.
+    #[serde(default)]
+    pub is_boxed: bool,
+    /// Fully qualified Rust path for the field's type (e.g. `my_crate::types::OutputFormat`).
+    /// Used by backends to disambiguate types with the same short name.
+    #[serde(default)]
+    pub type_rust_path: Option<String>,
 }
 
 /// A method on a public struct.

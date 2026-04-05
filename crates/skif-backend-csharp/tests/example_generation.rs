@@ -21,6 +21,8 @@ fn test_generated_code_example() {
                     default: None,
                     doc: "OCR backend to use".to_string(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
                 FieldDef {
                     name: "timeout".to_string(),
@@ -29,6 +31,8 @@ fn test_generated_code_example() {
                     default: None,
                     doc: "Timeout in milliseconds".to_string(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
             ],
             methods: vec![],

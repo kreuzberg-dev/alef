@@ -50,7 +50,80 @@ pub fn extract(
         )?;
     }
 
+    // Post-processing: resolve newtype wrappers.
+    // Single-field tuple structs like `pub struct Foo(String)` are detected by having
+    // exactly one field named `_0`. We replace all `TypeRef::Named("Foo")` references
+    // with the inner type, then remove the newtype TypeDefs from the surface.
+    resolve_newtypes(&mut surface);
+
     Ok(surface)
+}
+
+/// Resolve newtype wrappers in the API surface.
+///
+/// Single-field tuple structs (`pub struct Foo(T)`) are identified by having exactly
+/// one field named `_0` and no methods. For each such newtype, all `TypeRef::Named("Foo")`
+/// references throughout the surface are replaced with the inner type `T`, and the
+/// newtype TypeDef itself is removed. This makes newtypes fully transparent to backends.
+fn resolve_newtypes(surface: &mut ApiSurface) {
+    // Build a map of newtype name → inner TypeRef.
+    let newtype_map: AHashMap<String, TypeRef> = surface
+        .types
+        .iter()
+        .filter(|t| t.fields.len() == 1 && t.fields[0].name == "_0" && t.methods.is_empty())
+        .map(|t| (t.name.clone(), t.fields[0].ty.clone()))
+        .collect();
+
+    if newtype_map.is_empty() {
+        return;
+    }
+
+    // Remove newtype TypeDefs from the surface.
+    surface.types.retain(|t| !newtype_map.contains_key(&t.name));
+
+    // Walk all TypeRefs in the surface and replace Named references to newtypes.
+    for typ in &mut surface.types {
+        for field in &mut typ.fields {
+            resolve_typeref(&newtype_map, &mut field.ty);
+        }
+        for method in &mut typ.methods {
+            for param in &mut method.params {
+                resolve_typeref(&newtype_map, &mut param.ty);
+            }
+            resolve_typeref(&newtype_map, &mut method.return_type);
+        }
+    }
+    for func in &mut surface.functions {
+        for param in &mut func.params {
+            resolve_typeref(&newtype_map, &mut param.ty);
+        }
+        resolve_typeref(&newtype_map, &mut func.return_type);
+    }
+    for enum_def in &mut surface.enums {
+        for variant in &mut enum_def.variants {
+            for field in &mut variant.fields {
+                resolve_typeref(&newtype_map, &mut field.ty);
+            }
+        }
+    }
+}
+
+/// Recursively replace `TypeRef::Named(name)` with the newtype's inner type.
+fn resolve_typeref(newtype_map: &AHashMap<String, TypeRef>, ty: &mut TypeRef) {
+    match ty {
+        TypeRef::Named(name) => {
+            if let Some(inner) = newtype_map.get(name.as_str()) {
+                *ty = inner.clone();
+            }
+        }
+        TypeRef::Optional(inner) => resolve_typeref(newtype_map, inner),
+        TypeRef::Vec(inner) => resolve_typeref(newtype_map, inner),
+        TypeRef::Map(k, v) => {
+            resolve_typeref(newtype_map, k);
+            resolve_typeref(newtype_map, v);
+        }
+        _ => {}
+    }
 }
 
 /// Extract items from a parsed syn file or module.
@@ -343,6 +416,10 @@ fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_path: &str) -
     }
     let cfg = extract_cfg_condition(&item.attrs);
     let name = item.ident.to_string();
+
+    // Detect single-field tuple structs (newtype wrappers like `pub struct Foo(String)`).
+    // These get a single field named `_0` so the post-processing pass in `extract()`
+    // can identify them and resolve `TypeRef::Named("Foo")` → inner type transparently.
     let fields = match &item.fields {
         syn::Fields::Named(named) => named
             .named
@@ -350,6 +427,21 @@ fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_path: &str) -
             .filter(|f| is_pub(&f.vis))
             .map(extract_field)
             .collect(),
+        syn::Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 => {
+            let field = &unnamed.unnamed[0];
+            let resolved = type_resolver::resolve_type(&field.ty);
+            let (ty, optional) = unwrap_optional(resolved);
+            vec![FieldDef {
+                name: "_0".to_string(),
+                ty,
+                optional,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: syn_type_is_boxed(&field.ty),
+                type_rust_path: extract_field_type_rust_path(&field.ty),
+            }]
+        }
         _ => vec![],
     };
 
@@ -378,6 +470,9 @@ fn extract_field(field: &syn::Field) -> FieldDef {
     let name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
     let doc = extract_doc_comments(&field.attrs);
 
+    let is_boxed = syn_type_is_boxed(&field.ty);
+    let type_rust_path = extract_field_type_rust_path(&field.ty);
+
     let resolved = type_resolver::resolve_type(&field.ty);
     let (ty, optional) = unwrap_optional(resolved);
 
@@ -388,7 +483,111 @@ fn extract_field(field: &syn::Field) -> FieldDef {
         default: None,
         doc,
         sanitized: false,
+        is_boxed,
+        type_rust_path,
     }
+}
+
+/// Check if a syn::Type is `Box<T>` or `Option<Box<T>>`.
+fn syn_type_is_boxed(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            let ident = segment.ident.to_string();
+            if ident == "Box" {
+                // Direct Box<T> — but not Box<dyn Trait> (those are opaque)
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    for arg in &args.args {
+                        if let syn::GenericArgument::Type(inner) = arg {
+                            // Box<dyn Trait> is not a "boxed field" in our sense
+                            if matches!(inner, syn::Type::TraitObject(_)) {
+                                return false;
+                            }
+                            return true;
+                        }
+                    }
+                }
+            } else if ident == "Option" {
+                // Option<Box<T>>
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    for arg in &args.args {
+                        if let syn::GenericArgument::Type(inner) = arg {
+                            return syn_type_is_boxed(inner);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Extract the fully qualified Rust path for a field's type when it uses a multi-segment
+/// path (e.g., `crate::types::OutputFormat` → `types::OutputFormat`).
+/// Returns `None` for simple single-segment types like `OutputFormat` or primitives.
+fn extract_field_type_rust_path(ty: &syn::Type) -> Option<String> {
+    // Unwrap Option<T> to look at inner type
+    let inner_ty = if let syn::Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Option" {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    args.args.iter().find_map(|arg| {
+                        if let syn::GenericArgument::Type(inner) = arg {
+                            Some(inner)
+                        } else {
+                            None
+                        }
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let check_ty = inner_ty.unwrap_or(ty);
+
+    // Unwrap Box<T> to look at inner type
+    let check_ty = if let syn::Type::Path(type_path) = check_ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Box" {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    args.args
+                        .iter()
+                        .find_map(|arg| {
+                            if let syn::GenericArgument::Type(inner) = arg {
+                                Some(inner)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(check_ty)
+                } else {
+                    check_ty
+                }
+            } else {
+                check_ty
+            }
+        } else {
+            check_ty
+        }
+    } else {
+        check_ty
+    };
+
+    // Now check if the type has a multi-segment path
+    if let syn::Type::Path(type_path) = check_ty {
+        if type_path.path.segments.len() >= 2 {
+            let segments: Vec<String> = type_path.path.segments.iter().map(|s| s.ident.to_string()).collect();
+            return Some(segments.join("::"));
+        }
+    }
+    None
 }
 
 /// If the resolved type is `TypeRef::Optional(inner)`, unwrap it and mark as optional.
@@ -429,6 +628,8 @@ fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: &str) -> Op
                             default: None,
                             doc: extract_doc_comments(&f.attrs),
                             sanitized: false,
+                            is_boxed: syn_type_is_boxed(&f.ty),
+                            type_rust_path: extract_field_type_rust_path(&f.ty),
                         }
                     })
                     .collect(),
@@ -1341,6 +1542,7 @@ mod tests {
             &mut visited,
         )
         .unwrap();
+        resolve_newtypes(&mut surface);
         surface
     }
 
@@ -2018,6 +2220,103 @@ pub struct Beta { pub name: String }
         assert!(
             !find_method("result_owned").returns_ref,
             "result_owned() should have returns_ref=false"
+        );
+    }
+
+    #[test]
+    fn test_newtype_wrapper_resolved() {
+        let source = r#"
+            /// An element identifier.
+            pub struct ElementId(String);
+
+            /// A widget with an element id.
+            pub struct Widget {
+                pub id: ElementId,
+                pub label: String,
+            }
+        "#;
+
+        let surface = extract_from_source(source);
+
+        // The newtype `ElementId` should be removed from the surface
+        assert!(
+            !surface.types.iter().any(|t| t.name == "ElementId"),
+            "Newtype wrapper ElementId should be removed from types"
+        );
+
+        // Widget should exist with `id` resolved to String
+        let widget = surface
+            .types
+            .iter()
+            .find(|t| t.name == "Widget")
+            .expect("Widget should exist");
+        assert!(!widget.is_opaque);
+        assert_eq!(widget.fields.len(), 2);
+        assert_eq!(widget.fields[0].name, "id");
+        assert_eq!(
+            widget.fields[0].ty,
+            TypeRef::String,
+            "ElementId should resolve to String"
+        );
+        assert_eq!(widget.fields[1].name, "label");
+        assert_eq!(widget.fields[1].ty, TypeRef::String);
+    }
+
+    #[test]
+    fn test_newtype_wrapper_with_methods_not_resolved() {
+        // Newtypes that have impl methods should NOT be resolved — they're real types.
+        let source = r#"
+            pub struct Token(String);
+
+            impl Token {
+                pub fn value(&self) -> &str {
+                    &self.0
+                }
+            }
+        "#;
+
+        let surface = extract_from_source(source);
+
+        // Token has methods, so it should remain in the surface (not resolved away)
+        assert!(
+            surface.types.iter().any(|t| t.name == "Token"),
+            "Newtype with methods should be kept"
+        );
+    }
+
+    #[test]
+    fn test_newtype_in_optional_and_vec_resolved() {
+        let source = r#"
+            pub struct Id(u64);
+
+            pub struct Container {
+                pub primary: Option<Id>,
+                pub all_ids: Vec<Id>,
+            }
+        "#;
+
+        let surface = extract_from_source(source);
+
+        assert!(
+            !surface.types.iter().any(|t| t.name == "Id"),
+            "Newtype Id should be removed"
+        );
+
+        let container = surface
+            .types
+            .iter()
+            .find(|t| t.name == "Container")
+            .expect("Container should exist");
+        // primary: Option<Id> → Optional(u64)
+        assert_eq!(container.fields[0].name, "primary");
+        assert!(container.fields[0].optional);
+        assert_eq!(container.fields[0].ty, TypeRef::Primitive(PrimitiveType::U64));
+
+        // all_ids: Vec<Id> → Vec(u64)
+        assert_eq!(container.fields[1].name, "all_ids");
+        assert_eq!(
+            container.fields[1].ty,
+            TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U64)))
         );
     }
 }

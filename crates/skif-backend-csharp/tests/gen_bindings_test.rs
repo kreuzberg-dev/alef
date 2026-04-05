@@ -24,6 +24,8 @@ fn test_basic_generation() {
                     default: None,
                     doc: String::new(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
                 FieldDef {
                     name: "backend".to_string(),
@@ -32,6 +34,8 @@ fn test_basic_generation() {
                     default: None,
                     doc: String::new(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
             ],
             methods: vec![],
@@ -361,6 +365,8 @@ fn test_type_mapping() {
                     default: None,
                     doc: String::new(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
                 FieldDef {
                     name: "i64_val".to_string(),
@@ -369,6 +375,8 @@ fn test_type_mapping() {
                     default: None,
                     doc: String::new(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
                 FieldDef {
                     name: "string_val".to_string(),
@@ -377,6 +385,8 @@ fn test_type_mapping() {
                     default: None,
                     doc: String::new(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
                 FieldDef {
                     name: "list_val".to_string(),
@@ -385,6 +395,8 @@ fn test_type_mapping() {
                     default: None,
                     doc: String::new(),
                     sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
                 },
             ],
             methods: vec![],
