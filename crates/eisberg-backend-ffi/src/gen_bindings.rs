@@ -83,7 +83,6 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &SkifConfig) -> String {
     // Imports
     builder.add_import("std::ffi::{c_char, CStr, CString}");
     builder.add_import("std::cell::RefCell");
-    builder.add_import("serde_json");
     let core_import = config.core_import();
 
     // Import traits needed for trait method dispatch
@@ -98,6 +97,31 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &SkifConfig) -> String {
         .filter(|t| t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
+
+    // Only import serde_json when types need from_json deserialization or
+    // when Json/Vec/Map fields/returns require serialization
+    let has_from_json_types = api
+        .types
+        .iter()
+        .any(|t| !t.is_opaque && !t.fields.iter().any(|f| f.sanitized));
+    let has_serde_fields = api.types.iter().any(|t| {
+        t.fields.iter().any(|f| {
+            matches!(f.ty, TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _))
+                || matches!(&f.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _)))
+        })
+    });
+    let has_serde_returns = api.types.iter().any(|t| {
+        t.methods.iter().any(|m| {
+            matches!(m.return_type, TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _))
+                || matches!(&m.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _)))
+        })
+    }) || api.functions.iter().any(|f| {
+        matches!(f.return_type, TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _))
+            || matches!(&f.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _)))
+    });
+    if has_from_json_types || has_serde_fields || has_serde_returns {
+        builder.add_import("serde_json");
+    }
 
     // Custom module declarations
     let custom_mods = config.custom_modules.for_language(Language::Ffi);
@@ -591,6 +615,13 @@ fn gen_method_wrapper(
         "/// Returned pointers must be freed with the appropriate free function."
     )
     .unwrap();
+    // Count total FFI params: this + params + extra _len for Bytes params
+    let ffi_param_count = (if method.is_static { 0 } else { 1 })
+        + method.params.len()
+        + method.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
+    if ffi_param_count > 7 {
+        writeln!(out, "#[allow(clippy::too_many_arguments)]").unwrap();
+    }
     writeln!(out, "#[unsafe(no_mangle)]").unwrap();
 
     let qualified = format!("{core_import}::{type_name}");
@@ -782,6 +813,11 @@ fn gen_free_function(
         "/// Returned pointers must be freed with the appropriate free function."
     )
     .unwrap();
+    // Count total FFI params: params + extra _len for Bytes params
+    let ffi_param_count = func.params.len() + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
+    if ffi_param_count > 7 {
+        writeln!(out, "#[allow(clippy::too_many_arguments)]").unwrap();
+    }
     writeln!(out, "#[unsafe(no_mangle)]").unwrap();
 
     // Build parameter list

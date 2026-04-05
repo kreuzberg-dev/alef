@@ -59,18 +59,38 @@ pub fn extract(
     Ok(surface)
 }
 
+/// Returns `true` if the type is a simple leaf type (primitive, String, Bytes, Path, etc.)
+/// rather than a complex Named, collection, or Optional type.
+fn is_simple_type(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::Primitive(_)
+            | TypeRef::String
+            | TypeRef::Bytes
+            | TypeRef::Path
+            | TypeRef::Unit
+            | TypeRef::Duration
+            | TypeRef::Json
+    )
+}
+
 /// Resolve newtype wrappers in the API surface.
 ///
 /// Single-field tuple structs (`pub struct Foo(T)`) are identified by having exactly
-/// one field named `_0` and no methods. For each such newtype, all `TypeRef::Named("Foo")`
-/// references throughout the surface are replaced with the inner type `T`, and the
-/// newtype TypeDef itself is removed. This makes newtypes fully transparent to backends.
+/// one field named `_0`, no methods, and a simple inner type (primitive, String, etc.).
+/// For each such newtype, all `TypeRef::Named("Foo")` references throughout the surface
+/// are replaced with the inner type `T`, and the newtype TypeDef itself is removed.
+/// This makes newtypes fully transparent to backends.
+///
+/// Tuple structs wrapping complex Named types (e.g., builders) are kept as-is.
 fn resolve_newtypes(surface: &mut ApiSurface) {
     // Build a map of newtype name → inner TypeRef.
     let newtype_map: AHashMap<String, TypeRef> = surface
         .types
         .iter()
-        .filter(|t| t.fields.len() == 1 && t.fields[0].name == "_0" && t.methods.is_empty())
+        .filter(|t| {
+            t.fields.len() == 1 && t.fields[0].name == "_0" && t.methods.is_empty() && is_simple_type(&t.fields[0].ty)
+        })
         .map(|t| (t.name.clone(), t.fields[0].ty.clone()))
         .collect();
 
@@ -2317,6 +2337,71 @@ pub struct Beta { pub name: String }
         assert_eq!(
             container.fields[1].ty,
             TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U64)))
+        );
+    }
+
+    #[test]
+    fn test_tuple_struct_wrapping_named_type_not_resolved() {
+        // A tuple struct wrapping a complex Named type (like a builder pattern)
+        // should NOT be resolved as a transparent newtype.
+        let source = r#"
+            pub struct ConversionOptions {
+                pub format: String,
+            }
+
+            pub struct ConversionOptionsBuilder(ConversionOptions);
+
+            impl ConversionOptionsBuilder {
+                pub fn format(&mut self, fmt: String) -> &mut Self {
+                    self.0.format = fmt;
+                    self
+                }
+            }
+        "#;
+
+        let surface = extract_from_source(source);
+
+        // ConversionOptionsBuilder wraps a Named type AND has methods — should be kept
+        assert!(
+            surface.types.iter().any(|t| t.name == "ConversionOptionsBuilder"),
+            "Tuple struct wrapping Named type should not be resolved away"
+        );
+    }
+
+    #[test]
+    fn test_tuple_struct_wrapping_named_type_no_methods_not_resolved() {
+        // Even without methods, a tuple struct wrapping a complex Named type
+        // should NOT be resolved as a transparent newtype.
+        let source = r#"
+            pub struct Inner {
+                pub value: u32,
+            }
+
+            pub struct Wrapper(Inner);
+
+            pub struct Consumer {
+                pub item: Wrapper,
+            }
+        "#;
+
+        let surface = extract_from_source(source);
+
+        // Wrapper wraps a Named type — should be kept even without methods
+        assert!(
+            surface.types.iter().any(|t| t.name == "Wrapper"),
+            "Tuple struct wrapping Named type should not be resolved even without methods"
+        );
+
+        // Consumer should reference Wrapper as Named, not have it inlined
+        let consumer = surface
+            .types
+            .iter()
+            .find(|t| t.name == "Consumer")
+            .expect("Consumer should exist");
+        assert_eq!(
+            consumer.fields[0].ty,
+            TypeRef::Named("Wrapper".to_string()),
+            "Wrapper reference should remain as Named"
         );
     }
 }

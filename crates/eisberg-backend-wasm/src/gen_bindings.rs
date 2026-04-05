@@ -335,13 +335,21 @@ fn gen_opaque_method(
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
-    let trait_allow = if generators::is_trait_method_name(&method.name) {
-        "#[allow(clippy::should_implement_trait)]\n"
-    } else {
-        ""
-    };
+    let mut attrs = String::new();
+    // Per-item clippy suppression: too_many_arguments when >7 params (including &self)
+    if method.params.len() + 1 > 7 {
+        attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
+    if method.error_type.is_some() {
+        attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+    }
+    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
+    if generators::is_trait_method_name(&method.name) {
+        attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
+    }
     format!(
-        "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub {async_kw}fn {}(&self, {}) -> {} {{\n    \
+        "{attrs}#[wasm_bindgen{js_name_attr}]\npub {async_kw}fn {}(&self, {}) -> {} {{\n    \
          {body}\n}}",
         method.name,
         params.join(", "),
@@ -410,13 +418,21 @@ fn gen_opaque_static_method(
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
-    let trait_allow = if generators::is_trait_method_name(&method.name) {
-        "#[allow(clippy::should_implement_trait)]\n"
-    } else {
-        ""
-    };
+    let mut attrs = String::new();
+    // Per-item clippy suppression: too_many_arguments when >7 params
+    if method.params.len() > 7 {
+        attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
+    if method.error_type.is_some() {
+        attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+    }
+    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
+    if generators::is_trait_method_name(&method.name) {
+        attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
+    }
     format!(
-        "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
+        "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
          {body}\n}}",
         method.name,
         params.join(", "),
@@ -569,11 +585,24 @@ fn gen_method(
 
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
-    let trait_allow = if generators::is_trait_method_name(&method.name) {
-        "#[allow(clippy::should_implement_trait)]\n"
+    let mut attrs = String::new();
+    // Per-item clippy suppression: too_many_arguments when >7 params (including &self for instance methods)
+    let effective_param_count = if method.is_static {
+        method.params.len()
     } else {
-        ""
+        method.params.len() + 1
     };
+    if effective_param_count > 7 {
+        attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
+    if method.error_type.is_some() {
+        attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+    }
+    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
+    if generators::is_trait_method_name(&method.name) {
+        attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
+    }
 
     if method.is_async {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
@@ -596,7 +625,7 @@ fn gen_method(
             )
         };
         format!(
-            "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub async fn {}(&self, {}) -> {} {{\n    \
+            "{attrs}#[wasm_bindgen{js_name_attr}]\npub async fn {}(&self, {}) -> {} {{\n    \
              {body}\n}}",
             method.name,
             params.join(", "),
@@ -630,7 +659,7 @@ fn gen_method(
             gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
         };
         format!(
-            "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
+            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
              {body}\n}}",
             method.name,
             params.join(", "),
@@ -667,7 +696,7 @@ fn gen_method(
             gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
         };
         format!(
-            "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub fn {}(&self, {}) -> {} {{\n    \
+            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}(&self, {}) -> {} {{\n    \
              {body}\n}}",
             method.name,
             params.join(", "),
@@ -720,6 +749,16 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaq
 
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
 
+    let mut attrs = String::new();
+    // Per-item clippy suppression: too_many_arguments when >7 params
+    if func.params.len() > 7 {
+        attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning functions
+    if func.error_type.is_some() {
+        attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+    }
+
     if func.is_async {
         let call_args = generators::gen_call_args(&func.params, opaque_types);
         let core_call = format!("{core_import}::{}({call_args})", func.name);
@@ -738,7 +777,7 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaq
             )
         };
         format!(
-            "#[wasm_bindgen{js_name_attr}]\npub async fn {}({}) -> {} {{\n    \
+            "{attrs}#[wasm_bindgen{js_name_attr}]\npub async fn {}({}) -> {} {{\n    \
              {body}\n}}",
             func.name,
             params.join(", "),
@@ -754,7 +793,7 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaq
             wasm_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref)
         };
         format!(
-            "#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
+            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
              {body}\n}}",
             func.name,
             params.join(", "),
@@ -763,7 +802,7 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaq
     } else {
         let body = gen_wasm_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some());
         format!(
-            "#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
+            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
              {body}\n}}",
             func.name,
             params.join(", "),
