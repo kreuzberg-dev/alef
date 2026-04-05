@@ -332,7 +332,7 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
 
     if matches!(func.return_type, TypeRef::Unit) {
         writeln!(out, "            {}.invoke({});", ffi_handle, call_args.join(", ")).ok();
-        writeln!(out, "        }} catch (Throwable t) {{").ok();
+        writeln!(out, "        }} catch (Exception e) {{").ok();
         writeln!(
             out,
             "            throw new {}Exception(\"FFI call failed\", t);",
@@ -359,7 +359,7 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
         writeln!(out, "            return result;").ok();
-        writeln!(out, "        }} catch (Throwable t) {{").ok();
+        writeln!(out, "        }} catch (Exception e) {{").ok();
         writeln!(
             out,
             "            throw new {}Exception(\"FFI call failed\", t);",
@@ -377,7 +377,7 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
         )
         .ok();
         writeln!(out, "            return result;").ok();
-        writeln!(out, "        }} catch (Throwable t) {{").ok();
+        writeln!(out, "        }} catch (Exception e) {{").ok();
         writeln!(
             out,
             "            throw new {}Exception(\"FFI call failed\", t);",
