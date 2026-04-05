@@ -1,6 +1,17 @@
 use ahash::AHashSet;
 use skif_core::ir::{FieldDef, MethodDef, ParamDef, TypeRef};
 
+/// Returns true if this parameter is required but must be promoted to optional
+/// because it follows an optional parameter in the list.
+/// PyO3 requires that required params come before all optional params.
+pub fn is_promoted_optional(params: &[ParamDef], idx: usize) -> bool {
+    if params[idx].optional {
+        return false; // naturally optional
+    }
+    // Check if any earlier param is optional
+    params[..idx].iter().any(|p| p.optional)
+}
+
 /// Check if a free function can be auto-delegated to the core crate.
 /// Opaque Named params are allowed (unwrapped via Arc). Non-opaque Named params are not
 /// (require From impls that may not exist for types with sanitized fields).
@@ -160,10 +171,16 @@ pub fn constructor_parts(fields: &[FieldDef], type_mapper: &dyn Fn(&TypeRef) -> 
 
 /// Build a function parameter list.
 pub fn function_params(params: &[ParamDef], type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
+    // After the first optional param, all subsequent params must also be optional
+    // to satisfy PyO3's signature constraint (required params can't follow optional ones).
+    let mut seen_optional = false;
     params
         .iter()
         .map(|p| {
-            let ty = if p.optional {
+            if p.optional {
+                seen_optional = true;
+            }
+            let ty = if p.optional || seen_optional {
                 format!("Option<{}>", type_mapper(&p.ty))
             } else {
                 type_mapper(&p.ty)
@@ -176,10 +193,16 @@ pub fn function_params(params: &[ParamDef], type_mapper: &dyn Fn(&TypeRef) -> St
 
 /// Build a function signature defaults string (for pyo3 signature etc.).
 pub fn function_sig_defaults(params: &[ParamDef]) -> String {
+    // After the first optional param, all subsequent params must also use =None
+    // to satisfy PyO3's signature constraint (required params can't follow optional ones).
+    let mut seen_optional = false;
     params
         .iter()
         .map(|p| {
             if p.optional {
+                seen_optional = true;
+            }
+            if p.optional || seen_optional {
                 format!("{}=None", p.name)
             } else {
                 p.name.clone()

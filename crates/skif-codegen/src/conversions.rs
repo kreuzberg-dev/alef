@@ -351,6 +351,12 @@ fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &ConversionC
             TypeRef::Named(_) => {
                 format!("{name}: val.{name}.map(|v| v.into_iter().map(Into::into).collect()).unwrap_or_default()")
             }
+            TypeRef::Primitive(p) if config.cast_large_ints_to_i64 && needs_i64_cast(p) => {
+                let core_ty = core_prim_str(p);
+                format!(
+                    "{name}: val.{name}.map(|v| v.into_iter().map(|x| x as {core_ty}).collect()).unwrap_or_default()"
+                )
+            }
             _ => format!("{name}: val.{name}.unwrap_or_default()"),
         },
         TypeRef::Map(_, _) => {
@@ -647,6 +653,19 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                 field_conversion_to_core(name, ty, optional)
             }
         }
+        // Vec<f32> needs element-wise cast when f32→f64 mapping is active
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::F32)) => {
+            if optional {
+                format!("{name}: val.{name}.map(|v| v.into_iter().map(|x| x as f32).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(|v| v as f32).collect()")
+            }
+        }
+        // Optional(Vec(f32)) needs element-wise cast
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(PrimitiveType::F32))) =>
+        {
+            format!("{name}: val.{name}.map(|v| v.into_iter().map(|x| x as f32).collect())")
+        }
         // Fall through to default for everything else
         _ => field_conversion_to_core(name, ty, optional),
     }
@@ -718,6 +737,23 @@ pub fn field_conversion_from_core_cfg(
             } else {
                 format!("{name}: format!(\"{{:?}}\", val.{name})")
             }
+        }
+        // Vec<f32> needs element-wise cast to f64 when f32→f64 mapping is active
+        TypeRef::Vec(inner)
+            if config.cast_large_ints_to_i64 && matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::F32)) =>
+        {
+            if optional {
+                format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as f64).collect())")
+            } else {
+                format!("{name}: val.{name}.iter().map(|&v| v as f64).collect()")
+            }
+        }
+        // Optional(Vec(f32)) needs element-wise cast to f64
+        TypeRef::Optional(inner)
+            if config.cast_large_ints_to_i64
+                && matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(PrimitiveType::F32))) =>
+        {
+            format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as f64).collect())")
         }
         // Optional with i64-cast inner
         TypeRef::Optional(inner)

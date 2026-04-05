@@ -312,30 +312,74 @@ pub fn gen_async_body(
 pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     params
         .iter()
-        .map(|p| match &p.ty {
-            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                // Opaque type: borrow through Arc to get &CoreType
-                if p.optional {
-                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
-                } else {
-                    format!("&{}.inner", p.name)
+        .enumerate()
+        .map(|(idx, p)| {
+            let promoted = crate::shared::is_promoted_optional(params, idx);
+            // If a required param was promoted to optional, unwrap it before use
+            let unwrap_suffix = if promoted {
+                format!(".expect(\"'{}' is required\")", p.name)
+            } else {
+                String::new()
+            };
+            match &p.ty {
+                TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                    // Opaque type: borrow through Arc to get &CoreType
+                    if p.optional {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                    } else if promoted {
+                        format!("{}{}.inner.as_ref()", p.name, unwrap_suffix)
+                    } else {
+                        format!("&{}.inner", p.name)
+                    }
+                }
+                TypeRef::Named(_) => {
+                    if p.optional {
+                        format!("{}.map(Into::into)", p.name)
+                    } else if promoted {
+                        format!("{}{}.into()", p.name, unwrap_suffix)
+                    } else {
+                        format!("{}.into()", p.name)
+                    }
+                }
+                // String → &str for core function calls
+                TypeRef::String => {
+                    if promoted {
+                        format!("&{}{}", p.name, unwrap_suffix)
+                    } else {
+                        format!("&{}", p.name)
+                    }
+                }
+                // Path → PathBuf for core function calls (core expects PathBuf, binding has String)
+                TypeRef::Path => {
+                    if promoted {
+                        format!("std::path::PathBuf::from({}{})", p.name, unwrap_suffix)
+                    } else {
+                        format!("std::path::PathBuf::from({})", p.name)
+                    }
+                }
+                TypeRef::Bytes => {
+                    if promoted {
+                        format!("&{}{}", p.name, unwrap_suffix)
+                    } else {
+                        format!("&{}", p.name)
+                    }
+                }
+                // Duration: binding uses u64 (secs), core uses std::time::Duration
+                TypeRef::Duration => {
+                    if promoted {
+                        format!("std::time::Duration::from_secs({}{})", p.name, unwrap_suffix)
+                    } else {
+                        format!("std::time::Duration::from_secs({})", p.name)
+                    }
+                }
+                _ => {
+                    if promoted {
+                        format!("{}{}", p.name, unwrap_suffix)
+                    } else {
+                        p.name.clone()
+                    }
                 }
             }
-            TypeRef::Named(_) => {
-                if p.optional {
-                    format!("{}.map(Into::into)", p.name)
-                } else {
-                    format!("{}.into()", p.name)
-                }
-            }
-            // String → &str for core function calls
-            TypeRef::String => format!("&{}", p.name),
-            // Path → PathBuf for core function calls (core expects PathBuf, binding has String)
-            TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
-            TypeRef::Bytes => format!("&{}", p.name),
-            // Duration: binding uses u64 (secs), core uses std::time::Duration
-            TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
-            _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -346,22 +390,63 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
 pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     params
         .iter()
-        .map(|p| match &p.ty {
-            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                if p.optional {
-                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
-                } else {
-                    format!("&{}.inner", p.name)
+        .enumerate()
+        .map(|(idx, p)| {
+            let promoted = crate::shared::is_promoted_optional(params, idx);
+            let unwrap_suffix = if promoted {
+                format!(".expect(\"'{}' is required\")", p.name)
+            } else {
+                String::new()
+            };
+            match &p.ty {
+                TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                    if p.optional {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                    } else if promoted {
+                        format!("{}{}.inner.as_ref()", p.name, unwrap_suffix)
+                    } else {
+                        format!("&{}.inner", p.name)
+                    }
+                }
+                TypeRef::Named(_) => {
+                    format!("{}_core", p.name)
+                }
+                TypeRef::String => {
+                    if promoted {
+                        format!("&{}{}", p.name, unwrap_suffix)
+                    } else {
+                        format!("&{}", p.name)
+                    }
+                }
+                TypeRef::Path => {
+                    if promoted {
+                        format!("std::path::PathBuf::from({}{})", p.name, unwrap_suffix)
+                    } else {
+                        format!("std::path::PathBuf::from({})", p.name)
+                    }
+                }
+                TypeRef::Bytes => {
+                    if promoted {
+                        format!("&{}{}", p.name, unwrap_suffix)
+                    } else {
+                        format!("&{}", p.name)
+                    }
+                }
+                TypeRef::Duration => {
+                    if promoted {
+                        format!("std::time::Duration::from_secs({}{})", p.name, unwrap_suffix)
+                    } else {
+                        format!("std::time::Duration::from_secs({})", p.name)
+                    }
+                }
+                _ => {
+                    if promoted {
+                        format!("{}{}", p.name, unwrap_suffix)
+                    } else {
+                        p.name.clone()
+                    }
                 }
             }
-            TypeRef::Named(_) => {
-                format!("{}_core", p.name)
-            }
-            TypeRef::String => format!("&{}", p.name),
-            TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
-            TypeRef::Bytes => format!("&{}", p.name),
-            TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
-            _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -373,11 +458,20 @@ pub fn gen_named_let_bindings_pub(params: &[ParamDef], opaque_types: &AHashSet<S
 }
 fn gen_named_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     let mut bindings = String::new();
-    for p in params {
+    for (idx, p) in params.iter().enumerate() {
         if let TypeRef::Named(name) = &p.ty {
             if !opaque_types.contains(name.as_str()) {
+                let promoted = crate::shared::is_promoted_optional(params, idx);
                 if p.optional {
                     write!(bindings, "let {}_core = {}.map(Into::into);\n    ", p.name, p.name).ok();
+                } else if promoted {
+                    // Promoted-optional: unwrap then convert
+                    write!(
+                        bindings,
+                        "let {}_core = {}.expect(\"'{}' is required\").into();\n    ",
+                        p.name, p.name, p.name
+                    )
+                    .ok();
                 } else {
                     write!(bindings, "let {}_core = {}.into();\n    ", p.name, p.name).ok();
                 }

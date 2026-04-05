@@ -415,7 +415,7 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
         writeln!(out, "    if !out_len.is_null() {{").unwrap();
         writeln!(out, "        unsafe {{ *out_len = data.len(); }}").unwrap();
         writeln!(out, "    }}").unwrap();
-        writeln!(out, "    data.as_ptr()").unwrap();
+        writeln!(out, "    data.as_ptr() as *mut u8").unwrap();
     } else {
         write!(
             out,
@@ -480,8 +480,8 @@ fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
             writeln!(out, "{indent}}}").unwrap();
         }
         TypeRef::Bytes => {
-            // Return pointer; caller must also get length
-            writeln!(out, "{indent}{expr}.as_ptr()").unwrap();
+            // Return pointer; caller must also get length. Cast to *mut u8 to match FFI signature.
+            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").unwrap();
         }
         TypeRef::Duration => {
             writeln!(out, "{indent}{expr}.as_secs()").unwrap();
@@ -1185,8 +1185,8 @@ fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
             writeln!(out, "{indent}}}").unwrap();
         }
         TypeRef::Bytes => {
-            // Return pointer; assume out-param for length
-            writeln!(out, "{indent}{expr}.as_ptr()").unwrap();
+            // Return pointer; assume out-param for length. Cast to *mut u8 to match FFI signature.
+            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").unwrap();
         }
         TypeRef::Optional(inner) => {
             writeln!(out, "{indent}match {expr} {{").unwrap();
