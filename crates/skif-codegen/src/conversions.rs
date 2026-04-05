@@ -17,18 +17,17 @@ pub struct ConversionConfig<'a> {
     /// When true, Map fields use `serde_wasm_bindgen` for conversion instead of
     /// iterator-based collect patterns (JsValue is not iterable).
     pub map_uses_jsvalue: bool,
+    /// When true, f32 is mapped to f64 (NAPI only — JS has no f32).
+    pub cast_f32_to_f64: bool,
     /// When true, non-optional fields on defaultable types are wrapped in Option<T>
     /// in the binding struct and need `.unwrap_or_default()` in binding→core From.
     /// Used by NAPI to make JS-facing structs fully optional.
     pub optionalize_defaults: bool,
 }
 
-/// Returns true if a primitive type needs casting in NAPI/PHP (i64 for ints, f64 for f32).
+/// Returns true if a primitive type needs i64 casting (NAPI/PHP — JS/PHP lack native u64).
 fn needs_i64_cast(p: &PrimitiveType) -> bool {
-    matches!(
-        p,
-        PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize | PrimitiveType::F32
-    )
+    matches!(p, PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize)
 }
 
 /// Returns the core primitive type string for cast primitives.
@@ -46,7 +45,6 @@ fn core_prim_str(p: &PrimitiveType) -> &'static str {
 fn binding_prim_str(p: &PrimitiveType) -> &'static str {
     match p {
         PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "i64",
-        PrimitiveType::F32 => "f64",
         _ => unreachable!(),
     }
 }
@@ -625,12 +623,12 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
     }
 
-    if !config.cast_large_ints_to_i64 {
+    if !config.cast_large_ints_to_i64 && !config.cast_f32_to_f64 {
         return field_conversion_to_core(name, ty, optional);
     }
-    // i64-cast mode: handle primitives and Duration differently
+    // Cast mode: handle primitives and Duration differently
     match ty {
-        TypeRef::Primitive(p) if needs_i64_cast(p) => {
+        TypeRef::Primitive(p) if config.cast_large_ints_to_i64 && needs_i64_cast(p) => {
             let core_ty = core_prim_str(p);
             if optional {
                 format!("{name}: val.{name}.map(|v| v as {core_ty})")
@@ -638,7 +636,15 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                 format!("{name}: val.{name} as {core_ty}")
             }
         }
-        TypeRef::Duration => {
+        // f64→f32 cast (NAPI binding f64 → core f32)
+        TypeRef::Primitive(PrimitiveType::F32) if config.cast_f32_to_f64 => {
+            if optional {
+                format!("{name}: val.{name}.map(|v| v as f32)")
+            } else {
+                format!("{name}: val.{name} as f32")
+            }
+        }
+        TypeRef::Duration if config.cast_large_ints_to_i64 => {
             if optional {
                 format!("{name}: val.{name}.map(|v| std::time::Duration::from_secs(v as u64))")
             } else {
@@ -653,16 +659,20 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                 field_conversion_to_core(name, ty, optional)
             }
         }
-        // Vec<f32> needs element-wise cast when f32→f64 mapping is active
-        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::F32)) => {
+        // Vec<f32> needs element-wise cast when f32→f64 mapping is active (NAPI)
+        TypeRef::Vec(inner)
+            if config.cast_f32_to_f64 && matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::F32)) =>
+        {
             if optional {
                 format!("{name}: val.{name}.map(|v| v.into_iter().map(|x| x as f32).collect())")
             } else {
                 format!("{name}: val.{name}.into_iter().map(|v| v as f32).collect()")
             }
         }
-        // Optional(Vec(f32)) needs element-wise cast
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(PrimitiveType::F32))) =>
+        // Optional(Vec(f32)) needs element-wise cast (NAPI only)
+        TypeRef::Optional(inner)
+            if config.cast_f32_to_f64
+                && matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(PrimitiveType::F32))) =>
         {
             format!("{name}: val.{name}.map(|v| v.into_iter().map(|x| x as f32).collect())")
         }
@@ -704,13 +714,21 @@ pub fn field_conversion_from_core_cfg(
     let is_enum_string = |n: &str| -> bool { config.enum_string_names.as_ref().is_some_and(|names| names.contains(n)) };
 
     match ty {
-        // Primitive casting (i64 for large ints, f64 for f32)
+        // i64 casting for large int primitives
         TypeRef::Primitive(p) if config.cast_large_ints_to_i64 && needs_i64_cast(p) => {
             let cast_to = binding_prim_str(p);
             if optional {
                 format!("{name}: val.{name}.map(|v| v as {cast_to})")
             } else {
                 format!("{name}: val.{name} as {cast_to}")
+            }
+        }
+        // f32→f64 casting (NAPI only)
+        TypeRef::Primitive(PrimitiveType::F32) if config.cast_f32_to_f64 => {
+            if optional {
+                format!("{name}: val.{name}.map(|v| v as f64)")
+            } else {
+                format!("{name}: val.{name} as f64")
             }
         }
         // Duration with i64 casting
@@ -740,7 +758,7 @@ pub fn field_conversion_from_core_cfg(
         }
         // Vec<f32> needs element-wise cast to f64 when f32→f64 mapping is active
         TypeRef::Vec(inner)
-            if config.cast_large_ints_to_i64 && matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::F32)) =>
+            if config.cast_f32_to_f64 && matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::F32)) =>
         {
             if optional {
                 format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as f64).collect())")
@@ -750,7 +768,7 @@ pub fn field_conversion_from_core_cfg(
         }
         // Optional(Vec(f32)) needs element-wise cast to f64
         TypeRef::Optional(inner)
-            if config.cast_large_ints_to_i64
+            if config.cast_f32_to_f64
                 && matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(PrimitiveType::F32))) =>
         {
             format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as f64).collect())")

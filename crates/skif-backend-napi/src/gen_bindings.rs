@@ -155,6 +155,7 @@ impl Backend for NapiBackend {
         let napi_conv_config = skif_codegen::conversions::ConversionConfig {
             type_name_prefix: "Js",
             cast_large_ints_to_i64: true,
+            cast_f32_to_f64: true,
             optionalize_defaults: true,
             ..Default::default()
         };
