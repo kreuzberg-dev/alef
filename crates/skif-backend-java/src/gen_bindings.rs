@@ -238,7 +238,7 @@ fn gen_main_class(api: &ApiSurface, _config: &SkifConfig, package: &str, class_n
         }
     }
 
-    // Add helper methods
+    // Add helper methods only if they are referenced in the body
     gen_helper_methods(&mut body);
 
     writeln!(body, "}}").ok();
@@ -370,13 +370,12 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
     } else {
         writeln!(
             out,
-            "            var result = ({}) {}.invoke({});",
+            "            return ({}) {}.invoke({});",
             java_ffi_return_cast(&func.return_type),
             ffi_handle,
             call_args.join(", ")
         )
         .ok();
-        writeln!(out, "            return result;").ok();
         writeln!(out, "        }} catch (Exception e) {{").ok();
         writeln!(
             out,
@@ -658,29 +657,43 @@ fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
 }
 
 fn gen_helper_methods(out: &mut String) {
+    // Only emit helper methods that are actually called in the generated body.
+    let needs_read_cstring = out.contains("readCString(");
+    let needs_read_bytes = out.contains("readBytes(");
+
+    if !needs_read_cstring && !needs_read_bytes {
+        return;
+    }
+
     writeln!(out, "    // Helper methods for FFI marshalling").ok();
     writeln!(out).ok();
-    writeln!(out, "    private static String readCString(MemorySegment ptr) {{").ok();
-    writeln!(out, "        if (ptr == null || ptr.address() == 0) {{").ok();
-    writeln!(out, "            return null;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "        return ptr.getUtf8String(0);").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "    private static byte[] readBytes(MemorySegment ptr, long len) {{"
-    )
-    .ok();
-    writeln!(out, "        if (ptr == null || ptr.address() == 0) {{").ok();
-    writeln!(out, "            return null;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "        byte[] bytes = new byte[(int) len];").ok();
-    writeln!(
-        out,
-        "        MemorySegment.copy(ptr, ValueLayout.JAVA_BYTE.byteSize() * 0, bytes, 0, (int) len);"
-    )
-    .ok();
-    writeln!(out, "        return bytes;").ok();
-    writeln!(out, "    }}").ok();
+
+    if needs_read_cstring {
+        writeln!(out, "    private static String readCString(MemorySegment ptr) {{").ok();
+        writeln!(out, "        if (ptr == null || ptr.address() == 0) {{").ok();
+        writeln!(out, "            return null;").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "        return ptr.getUtf8String(0);").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
+    }
+
+    if needs_read_bytes {
+        writeln!(
+            out,
+            "    private static byte[] readBytes(MemorySegment ptr, long len) {{"
+        )
+        .ok();
+        writeln!(out, "        if (ptr == null || ptr.address() == 0) {{").ok();
+        writeln!(out, "            return new byte[0];").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "        byte[] bytes = new byte[(int) len];").ok();
+        writeln!(
+            out,
+            "        MemorySegment.copy(ptr, ValueLayout.JAVA_BYTE.byteSize() * 0, bytes, 0, (int) len);"
+        )
+        .ok();
+        writeln!(out, "        return bytes;").ok();
+        writeln!(out, "    }}").ok();
+    }
 }

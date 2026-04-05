@@ -382,6 +382,43 @@ pub fn lint(config: &SkifConfig, languages: &[Language]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Auto-format generated Rust files using `cargo fmt` (best-effort, doesn't fail on error).
+pub fn format_rust_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) {
+    let rs_files: Vec<_> = files
+        .iter()
+        .flat_map(|(_, lang_files)| lang_files.iter())
+        .filter(|f| f.path.extension().is_some_and(|ext| ext == "rs"))
+        .map(|f| base_dir.join(&f.path))
+        .collect();
+
+    if rs_files.is_empty() {
+        return;
+    }
+
+    // Run rustfmt on each file individually (more reliable than cargo fmt for specific files)
+    for path in &rs_files {
+        let result = std::process::Command::new("rustfmt")
+            .arg("--edition")
+            .arg("2024")
+            .arg(path)
+            .output();
+        match result {
+            Ok(output) if !output.status.success() => {
+                debug!(
+                    "rustfmt warning on {}: {}",
+                    path.display(),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            Err(e) => {
+                debug!("rustfmt not available: {e}");
+                return; // Don't try other files if rustfmt isn't installed
+            }
+            _ => {}
+        }
+    }
+}
+
 fn run_command(cmd: &str) -> anyhow::Result<()> {
     info!("Running: {cmd}");
     let status = std::process::Command::new("sh").args(["-c", cmd]).status()?;

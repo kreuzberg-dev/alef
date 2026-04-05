@@ -56,14 +56,6 @@ impl Backend for RustlerBackend {
             builder.add_import("std::collections::HashMap");
         }
 
-        // Clippy allows for generated code
-        builder.add_inner_attribute("allow(unused_imports)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments)");
-        builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
-        builder.add_inner_attribute("allow(unused_variables)");
-        builder.add_inner_attribute("allow(dead_code)");
-        builder.add_inner_attribute("allow(clippy::should_implement_trait)");
-
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Elixir);
         for module in custom_mods {

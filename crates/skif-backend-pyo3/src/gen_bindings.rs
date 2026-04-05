@@ -133,16 +133,6 @@ impl Backend for Pyo3Backend {
             builder.add_import("std::collections::HashMap");
         }
 
-        // Suppress warnings for generated FFI code
-        builder.add_inner_attribute("allow(unused_imports)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments)");
-        builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
-        builder.add_inner_attribute("allow(clippy::useless_conversion)");
-        builder.add_inner_attribute("allow(clippy::let_unit_value)");
-        builder.add_inner_attribute("allow(unused_variables)");
-        builder.add_inner_attribute("allow(dead_code)");
-        builder.add_inner_attribute("allow(clippy::should_implement_trait)");
-
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Python);
         for module in custom_mods {

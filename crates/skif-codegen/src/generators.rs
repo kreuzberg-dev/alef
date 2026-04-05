@@ -63,6 +63,20 @@ pub struct RustBindingConfig<'a> {
     pub type_name_prefix: &'a str,
 }
 
+/// Method names that conflict with standard trait methods.
+/// When a generated method has one of these names, we add
+/// `#[allow(clippy::should_implement_trait)]` to suppress the lint.
+const TRAIT_METHOD_NAMES: &[&str] = &[
+    "default", "from", "from_str", "into", "eq", "ne", "lt", "le", "gt", "ge", "add", "sub", "mul", "div", "rem",
+    "neg", "not", "index", "deref",
+];
+
+/// Returns true when `name` matches a known trait method that would trigger
+/// `clippy::should_implement_trait`.
+pub fn is_trait_method_name(name: &str) -> bool {
+    TRAIT_METHOD_NAMES.contains(&name)
+}
+
 /// Wrap a core-call result for opaque delegation methods.
 ///
 /// - `TypeRef::Named(n)` where `n == type_name` → re-wrap in `Self { inner: Arc::new(...) }`
@@ -102,8 +116,15 @@ pub fn wrap_return(
                 format!("{expr}.into()")
             }
         }
-        // String/Bytes: .into() handles both owned and borrowed (&str→String, &[u8]→Vec<u8>)
-        TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
+        // String/Bytes: only convert when the core returns a reference (&str→String, &[u8]→Vec<u8>).
+        // When owned (returns_ref=false), both sides are already String/Vec<u8> — skip .into().
+        TypeRef::String | TypeRef::Bytes => {
+            if returns_ref {
+                format!("{expr}.into()")
+            } else {
+                expr.to_string()
+            }
+        }
         // Path: PathBuf→String needs to_string_lossy, &Path→String too
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         // Duration: core returns std::time::Duration, binding uses u64 (secs)
@@ -126,8 +147,15 @@ pub fn wrap_return(
                     format!("{expr}.map(Into::into)")
                 }
             }
-            TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+            TypeRef::Path => {
                 format!("{expr}.map(Into::into)")
+            }
+            TypeRef::String | TypeRef::Bytes => {
+                if returns_ref {
+                    format!("{expr}.map(Into::into)")
+                } else {
+                    expr.to_string()
+                }
             }
             TypeRef::Duration => format!("{expr}.map(|d| d.as_secs())"),
             TypeRef::Json => format!("{expr}.map(|v| v.to_string())"),
@@ -149,8 +177,15 @@ pub fn wrap_return(
                     format!("{expr}.into_iter().map(Into::into).collect()")
                 }
             }
-            TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+            TypeRef::Path => {
                 format!("{expr}.into_iter().map(Into::into).collect()")
+            }
+            TypeRef::String | TypeRef::Bytes => {
+                if returns_ref {
+                    format!("{expr}.into_iter().map(Into::into).collect()")
+                } else {
+                    expr.to_string()
+                }
             }
             _ => expr.to_string(),
         },
@@ -175,9 +210,21 @@ pub fn gen_unimplemented_body(
     fn_name: &str,
     has_error: bool,
     cfg: &RustBindingConfig,
+    params: &[ParamDef],
 ) -> String {
+    // Suppress unused_variables by binding all params to `_`
+    let suppress = if params.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<&str> = params.iter().map(|p| p.name.as_str()).collect();
+        if names.len() == 1 {
+            format!("let _ = {};\n        ", names[0])
+        } else {
+            format!("let _ = ({});\n        ", names.join(", "))
+        }
+    };
     let err_msg = format!("Not implemented: {fn_name}");
-    if has_error {
+    let body = if has_error {
         // Backend-specific error return
         match cfg.async_pattern {
             AsyncPattern::Pyo3FutureIntoPy => {
@@ -210,7 +257,8 @@ pub fn gen_unimplemented_body(
                 format!("panic!(\"skif: {fn_name} not auto-delegatable\")")
             }
         }
-    }
+    };
+    format!("{suppress}{body}")
 }
 
 /// - `is_opaque`: whether the binding type is Arc-wrapped (affects TokioBlockOn wrapping)
@@ -224,6 +272,7 @@ pub fn gen_async_body(
     return_wrap: &str,
     is_opaque: bool,
     inner_clone_line: &str,
+    is_unit_return: bool,
 ) -> String {
     let pattern_body = match cfg.async_pattern {
         AsyncPattern::Pyo3FutureIntoPy => {
@@ -232,13 +281,20 @@ pub fn gen_async_body(
                     "let result = {core_call}.await\n            \
                      .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;"
                 )
+            } else if is_unit_return {
+                format!("{core_call}.await;")
             } else {
                 format!("let result = {core_call}.await;")
+            };
+            let ok_expr = if is_unit_return && !has_error {
+                "()"
+            } else {
+                return_wrap
             };
             format!(
                 "pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n            \
                  {result_handling}\n            \
-                 Ok({return_wrap})\n        }})"
+                 Ok({ok_expr})\n        }})"
             )
         }
         AsyncPattern::WasmNativeAsync => {
@@ -247,12 +303,19 @@ pub fn gen_async_body(
                     "let result = {core_call}.await\n        \
                      .map_err(|e| JsValue::from_str(&e.to_string()))?;"
                 )
+            } else if is_unit_return {
+                format!("{core_call}.await;")
             } else {
                 format!("let result = {core_call}.await;")
             };
+            let ok_expr = if is_unit_return && !has_error {
+                "()"
+            } else {
+                return_wrap
+            };
             format!(
                 "{result_handling}\n        \
-                 Ok({return_wrap})"
+                 Ok({ok_expr})"
             )
         }
         AsyncPattern::NapiNativeAsync => {
@@ -261,12 +324,19 @@ pub fn gen_async_body(
                     "let result = {core_call}.await\n            \
                      .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;"
                 )
+            } else if is_unit_return {
+                format!("{core_call}.await;")
             } else {
                 format!("let result = {core_call}.await;")
             };
+            let ok_expr = if is_unit_return && !has_error {
+                "()"
+            } else {
+                return_wrap
+            };
             format!(
                 "{result_handling}\n            \
-                 Ok({return_wrap})"
+                 Ok({ok_expr})"
             )
         }
         AsyncPattern::TokioBlockOn => {
@@ -284,11 +354,18 @@ pub fn gen_async_body(
                     )
                 }
             } else if is_opaque {
-                format!(
-                    "let rt = tokio::runtime::Runtime::new()?;\n        \
-                     let result = rt.block_on(async {{ {core_call}.await }});\n        \
-                     {return_wrap}"
-                )
+                if is_unit_return {
+                    format!(
+                        "let rt = tokio::runtime::Runtime::new()?;\n        \
+                         rt.block_on(async {{ {core_call}.await }});"
+                    )
+                } else {
+                    format!(
+                        "let rt = tokio::runtime::Runtime::new()?;\n        \
+                         let result = rt.block_on(async {{ {core_call}.await }});\n        \
+                         {return_wrap}"
+                    )
+                }
             } else {
                 format!(
                     "let rt = tokio::runtime::Runtime::new()?;\n        \
@@ -722,6 +799,10 @@ pub fn gen_constructor(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBinding
     let (param_list, sig_defaults, assignments) = constructor_parts(&typ.fields, &map_fn);
 
     let mut out = String::with_capacity(512);
+    // Per-item clippy suppression: too_many_arguments when >7 params
+    if typ.fields.len() > 7 {
+        writeln!(out, "    #[allow(clippy::too_many_arguments)]").ok();
+    }
     if cfg.needs_signature {
         writeln!(
             out,
@@ -906,6 +987,7 @@ pub fn gen_method(
                 &format!("{type_name}.{}", method.name),
                 method.error_type.is_some(),
                 cfg,
+                &method.params,
             )
         }
     } else if method.is_async {
@@ -922,6 +1004,7 @@ pub fn gen_method(
             &async_result_wrap,
             is_opaque,
             inner_clone_line,
+            matches!(method.return_type, TypeRef::Unit),
         )
     } else {
         let core_call = make_core_call(&method.name);
@@ -1019,6 +1102,19 @@ pub fn gen_method(
     };
 
     let mut out = String::with_capacity(1024);
+    // Per-item clippy suppression: too_many_arguments when >7 params (including &self and py)
+    let total_params = method.params.len() + 1 + if needs_py { 1 } else { 0 };
+    if total_params > 7 {
+        writeln!(out, "    #[allow(clippy::too_many_arguments)]").ok();
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
+    if method.error_type.is_some() {
+        writeln!(out, "    #[allow(clippy::missing_errors_doc)]").ok();
+    }
+    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
+    if is_trait_method_name(&method.name) {
+        writeln!(out, "    #[allow(clippy::should_implement_trait)]").ok();
+    }
     if cfg.needs_signature {
         let sig = function_sig_defaults(&method.params);
         writeln!(out, "    {}{}{}", cfg.signature_prefix, sig, cfg.signature_suffix).ok();
@@ -1065,12 +1161,21 @@ pub fn gen_static_method(
                 &format!("{type_name}::{}", method.name),
                 method.error_type.is_some(),
                 cfg,
+                &method.params,
             )
         }
     } else if method.is_async {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
         let return_wrap = format!("{return_type}::from(result)");
-        gen_async_body(&core_call, cfg, method.error_type.is_some(), &return_wrap, false, "")
+        gen_async_body(
+            &core_call,
+            cfg,
+            method.error_type.is_some(),
+            &return_wrap,
+            false,
+            "",
+            matches!(method.return_type, TypeRef::Unit),
+        )
     } else {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
         if method.error_type.is_some() {
@@ -1164,6 +1269,19 @@ pub fn gen_static_method(
     };
 
     let mut out = String::with_capacity(1024);
+    // Per-item clippy suppression: too_many_arguments when >7 params (including py)
+    let total_params = method.params.len() + if static_needs_py { 1 } else { 0 };
+    if total_params > 7 {
+        writeln!(out, "    #[allow(clippy::too_many_arguments)]").ok();
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
+    if method.error_type.is_some() {
+        writeln!(out, "    #[allow(clippy::missing_errors_doc)]").ok();
+    }
+    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
+    if is_trait_method_name(&method.name) {
+        writeln!(out, "    #[allow(clippy::should_implement_trait)]").ok();
+    }
     if let Some(attr) = cfg.static_attr {
         writeln!(out, "    #[{attr}]").ok();
     }
@@ -1302,12 +1420,26 @@ pub fn gen_function(
             }
         } else {
             // Function can't be auto-delegated — return a default/error based on return type
-            gen_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some(), cfg)
+            gen_unimplemented_body(
+                &func.return_type,
+                &func.name,
+                func.error_type.is_some(),
+                cfg,
+                &func.params,
+            )
         }
     } else if func.is_async {
         let core_call = format!("{core_fn_path}({call_args})");
         let return_wrap = format!("{return_type}::from(result)");
-        let async_body = gen_async_body(&core_call, cfg, func.error_type.is_some(), &return_wrap, false, "");
+        let async_body = gen_async_body(
+            &core_call,
+            cfg,
+            func.error_type.is_some(),
+            &return_wrap,
+            false,
+            "",
+            matches!(func.return_type, TypeRef::Unit),
+        );
         format!("{let_bindings}{async_body}")
     } else {
         let core_call = format!("{core_fn_path}({call_args})");
@@ -1478,6 +1610,15 @@ pub fn gen_function(
     };
 
     let mut out = String::with_capacity(1024);
+    // Per-item clippy suppression: too_many_arguments when >7 params (including py)
+    let total_params = func.params.len() + if func_needs_py { 1 } else { 0 };
+    if total_params > 7 {
+        writeln!(out, "#[allow(clippy::too_many_arguments)]").ok();
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning functions
+    if func.error_type.is_some() {
+        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
+    }
     let attr_inner = cfg
         .function_attr
         .trim_start_matches('#')

@@ -94,11 +94,6 @@ impl Backend for ExtendrBackend {
             builder.add_import(&trait_path);
         }
 
-        // Clippy allows for generated code
-        builder.add_inner_attribute("allow(unused_imports)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments)");
-        builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
-
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::R);
         for module in custom_mods {

@@ -64,7 +64,6 @@ impl Backend for NapiBackend {
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_import("napi::*");
         builder.add_import("napi_derive::napi");
-        builder.add_import("serde_json");
 
         // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {
@@ -83,14 +82,6 @@ impl Backend for NapiBackend {
         if has_maps {
             builder.add_import("std::collections::HashMap");
         }
-
-        // Clippy allows for generated code
-        builder.add_inner_attribute("allow(unused_imports)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments)");
-        builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
-        builder.add_inner_attribute("allow(unused_variables)");
-        builder.add_inner_attribute("allow(dead_code)");
-        builder.add_inner_attribute("allow(clippy::should_implement_trait)");
 
         // Custom module declarations (NAPI auto-exports, no explicit registration needed)
         let custom_mods = config.custom_modules.for_language(Language::Node);
@@ -348,6 +339,7 @@ fn gen_opaque_instance_method(
                 &format!("{type_name}.{}", method.name),
                 method.error_type.is_some(),
                 cfg,
+                &method.params,
             )
         }
     } else if method.is_async {
@@ -360,6 +352,7 @@ fn gen_opaque_instance_method(
             &async_result_wrap,
             true,
             inner_clone_line,
+            matches!(method.return_type, TypeRef::Unit),
         )
     } else {
         let core_call = make_core_call(&method.name);
@@ -390,8 +383,21 @@ fn gen_opaque_instance_method(
         }
     };
 
+    let mut attrs = String::new();
+    // Per-item clippy suppression: too_many_arguments when >7 params (including &self)
+    if method.params.len() + 1 > 7 {
+        attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
+    if method.error_type.is_some() {
+        attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+    }
+    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
+    if generators::is_trait_method_name(&method.name) {
+        attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
+    }
     format!(
-        "#[napi{js_name_attr}]\npub {async_kw}fn {}(&self, {params}) -> {return_annotation} {{\n    \
+        "{attrs}#[napi{js_name_attr}]\npub {async_kw}fn {}(&self, {params}) -> {return_annotation} {{\n    \
          {body}\n}}",
         method.name
     )
@@ -429,6 +435,7 @@ fn gen_static_method(
             &format!("{type_name}::{}", method.name),
             method.error_type.is_some(),
             cfg,
+            &method.params,
         )
     } else if method.is_async {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
@@ -440,7 +447,15 @@ fn gen_static_method(
             typ.is_opaque,
             method.returns_ref,
         );
-        generators::gen_async_body(&core_call, cfg, method.error_type.is_some(), &return_wrap, false, "")
+        generators::gen_async_body(
+            &core_call,
+            cfg,
+            method.error_type.is_some(),
+            &return_wrap,
+            false,
+            "",
+            matches!(method.return_type, TypeRef::Unit),
+        )
     } else {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
         if method.error_type.is_some() {
@@ -470,8 +485,21 @@ fn gen_static_method(
         }
     };
 
+    let mut attrs = String::new();
+    // Per-item clippy suppression: too_many_arguments when >7 params
+    if method.params.len() > 7 {
+        attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning methods
+    if method.error_type.is_some() {
+        attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+    }
+    // Per-item clippy suppression: should_implement_trait for trait-conflicting names
+    if generators::is_trait_method_name(&method.name) {
+        attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
+    }
     format!(
-        "#[napi{js_name_attr}]\npub {async_kw}fn {}({params}) -> {return_annotation} {{\n    \
+        "{attrs}#[napi{js_name_attr}]\npub {async_kw}fn {}({params}) -> {return_annotation} {{\n    \
          {body}\n}}",
         method.name
     )
@@ -553,12 +581,26 @@ fn gen_function(
                 }
             }
         } else {
-            generators::gen_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some(), cfg)
+            generators::gen_unimplemented_body(
+                &func.return_type,
+                &func.name,
+                func.error_type.is_some(),
+                cfg,
+                &func.params,
+            )
         }
     } else if func.is_async {
         let core_call = format!("{core_fn_path}({call_args})");
         let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref);
-        generators::gen_async_body(&core_call, cfg, func.error_type.is_some(), &return_wrap, false, "")
+        generators::gen_async_body(
+            &core_call,
+            cfg,
+            func.error_type.is_some(),
+            &return_wrap,
+            false,
+            "",
+            matches!(func.return_type, TypeRef::Unit),
+        )
     } else {
         let core_call = format!("{core_fn_path}({call_args})");
         // Generate let bindings for Named params if needed
@@ -583,8 +625,17 @@ fn gen_function(
         }
     };
 
+    let mut attrs = String::new();
+    // Per-item clippy suppression: too_many_arguments when >7 params
+    if func.params.len() > 7 {
+        attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
+    }
+    // Per-item clippy suppression: missing_errors_doc for Result-returning functions
+    if func.error_type.is_some() {
+        attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
+    }
     format!(
-        "#[napi{js_name_attr}]\npub {async_kw}fn {}({params}) -> {return_annotation} {{\n    \
+        "{attrs}#[napi{js_name_attr}]\npub {async_kw}fn {}({params}) -> {return_annotation} {{\n    \
          {body}\n}}",
         func.name
     )
@@ -700,7 +751,13 @@ fn napi_wrap_return_fn(
                 format!("{expr}.into()")
             }
         }
-        TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
+        TypeRef::String | TypeRef::Bytes => {
+            if returns_ref {
+                format!("{expr}.into()")
+            } else {
+                expr.to_string()
+            }
+        }
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         TypeRef::Json => format!("{expr}.to_string()"),
         TypeRef::Optional(inner) => match inner.as_ref() {
@@ -718,8 +775,15 @@ fn napi_wrap_return_fn(
                     format!("{expr}.map(Into::into)")
                 }
             }
-            TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+            TypeRef::Path => {
                 format!("{expr}.map(Into::into)")
+            }
+            TypeRef::String | TypeRef::Bytes => {
+                if returns_ref {
+                    format!("{expr}.map(Into::into)")
+                } else {
+                    expr.to_string()
+                }
             }
             _ => expr.to_string(),
         },
@@ -738,8 +802,15 @@ fn napi_wrap_return_fn(
                     format!("{expr}.into_iter().map(Into::into).collect()")
                 }
             }
-            TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+            TypeRef::Path => {
                 format!("{expr}.into_iter().map(Into::into).collect()")
+            }
+            TypeRef::String | TypeRef::Bytes => {
+                if returns_ref {
+                    format!("{expr}.into_iter().map(Into::into).collect()")
+                } else {
+                    expr.to_string()
+                }
             }
             _ => expr.to_string(),
         },

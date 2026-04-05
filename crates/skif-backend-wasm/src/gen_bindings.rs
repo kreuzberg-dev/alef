@@ -77,14 +77,6 @@ impl Backend for WasmBackend {
             builder.add_import("std::collections::HashMap");
         }
 
-        // Clippy allows for generated code
-        builder.add_inner_attribute("allow(unused_imports)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments)");
-        builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
-        builder.add_inner_attribute("allow(unused_variables)");
-        builder.add_inner_attribute("allow(dead_code)");
-        builder.add_inner_attribute("allow(clippy::should_implement_trait)");
-
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Wasm);
         for module in custom_mods {
@@ -343,8 +335,13 @@ fn gen_opaque_method(
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
+    let trait_allow = if generators::is_trait_method_name(&method.name) {
+        "#[allow(clippy::should_implement_trait)]\n"
+    } else {
+        ""
+    };
     format!(
-        "#[wasm_bindgen{js_name_attr}]\npub {async_kw}fn {}(&self, {}) -> {} {{\n    \
+        "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub {async_kw}fn {}(&self, {}) -> {} {{\n    \
          {body}\n}}",
         method.name,
         params.join(", "),
@@ -413,8 +410,13 @@ fn gen_opaque_static_method(
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
+    let trait_allow = if generators::is_trait_method_name(&method.name) {
+        "#[allow(clippy::should_implement_trait)]\n"
+    } else {
+        ""
+    };
     format!(
-        "#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
+        "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
          {body}\n}}",
         method.name,
         params.join(", "),
@@ -567,6 +569,12 @@ fn gen_method(
 
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
+    let trait_allow = if generators::is_trait_method_name(&method.name) {
+        "#[allow(clippy::should_implement_trait)]\n"
+    } else {
+        ""
+    };
+
     if method.is_async {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
         let core_call = format!(
@@ -588,7 +596,7 @@ fn gen_method(
             )
         };
         format!(
-            "#[wasm_bindgen{js_name_attr}]\npub async fn {}(&self, {}) -> {} {{\n    \
+            "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub async fn {}(&self, {}) -> {} {{\n    \
              {body}\n}}",
             method.name,
             params.join(", "),
@@ -622,7 +630,7 @@ fn gen_method(
             gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
         };
         format!(
-            "#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
+            "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
              {body}\n}}",
             method.name,
             params.join(", "),
@@ -659,7 +667,7 @@ fn gen_method(
             gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
         };
         format!(
-            "#[wasm_bindgen{js_name_attr}]\npub fn {}(&self, {}) -> {} {{\n    \
+            "{trait_allow}#[wasm_bindgen{js_name_attr}]\npub fn {}(&self, {}) -> {} {{\n    \
              {body}\n}}",
             method.name,
             params.join(", "),
@@ -861,7 +869,13 @@ fn wasm_wrap_return_fn(
                 format!("{expr}.into()")
             }
         }
-        TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
+        TypeRef::String | TypeRef::Bytes => {
+            if returns_ref {
+                format!("{expr}.into()")
+            } else {
+                expr.to_string()
+            }
+        }
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         TypeRef::Json => format!("{expr}.to_string()"),
         TypeRef::Optional(inner) => match inner.as_ref() {
@@ -879,8 +893,15 @@ fn wasm_wrap_return_fn(
                     format!("{expr}.map(Into::into)")
                 }
             }
-            TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+            TypeRef::Path => {
                 format!("{expr}.map(Into::into)")
+            }
+            TypeRef::String | TypeRef::Bytes => {
+                if returns_ref {
+                    format!("{expr}.map(Into::into)")
+                } else {
+                    expr.to_string()
+                }
             }
             _ => expr.to_string(),
         },
@@ -899,8 +920,15 @@ fn wasm_wrap_return_fn(
                     format!("{expr}.into_iter().map(Into::into).collect()")
                 }
             }
-            TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+            TypeRef::Path => {
                 format!("{expr}.into_iter().map(Into::into).collect()")
+            }
+            TypeRef::String | TypeRef::Bytes => {
+                if returns_ref {
+                    format!("{expr}.into_iter().map(Into::into).collect()")
+                } else {
+                    expr.to_string()
+                }
             }
             _ => expr.to_string(),
         },

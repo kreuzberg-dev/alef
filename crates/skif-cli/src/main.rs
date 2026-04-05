@@ -135,6 +135,8 @@ fn main() -> Result<()> {
             let files = pipeline::generate(&api, &config, &languages, clean)?;
             let base_dir = std::env::current_dir()?;
             let count = pipeline::write_files(&files, &base_dir)?;
+            // Auto-format generated Rust files
+            pipeline::format_rust_files(&files, &base_dir);
             println!("Generated {count} files");
             Ok(())
         }
@@ -260,6 +262,7 @@ fn main() -> Result<()> {
             let bindings = pipeline::generate(&api, &config, &languages, clean)?;
             let base_dir = std::env::current_dir()?;
             let binding_count = pipeline::write_files(&bindings, &base_dir)?;
+            pipeline::format_rust_files(&bindings, &base_dir);
 
             eprintln!("Generating type stubs...");
             let stubs = pipeline::generate_stubs(&api, &config, &languages)?;

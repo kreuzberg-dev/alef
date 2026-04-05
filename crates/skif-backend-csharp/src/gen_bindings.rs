@@ -51,7 +51,7 @@ impl Backend for CsharpBackend {
         // 1. Generate NativeMethods.cs
         files.push(GeneratedFile {
             path: base_path.join("NativeMethods.cs"),
-            content: gen_native_methods(api, &namespace, &lib_name, &prefix),
+            content: strip_trailing_whitespace(&gen_native_methods(api, &namespace, &lib_name, &prefix)),
             generated_header: true,
         });
 
@@ -59,7 +59,7 @@ impl Backend for CsharpBackend {
         let exception_class_name = format!("{}Exception", api.crate_name.to_pascal_case());
         files.push(GeneratedFile {
             path: base_path.join(format!("{}.cs", exception_class_name)),
-            content: gen_exception_class(&namespace, &exception_class_name),
+            content: strip_trailing_whitespace(&gen_exception_class(&namespace, &exception_class_name)),
             generated_header: true,
         });
 
@@ -72,7 +72,13 @@ impl Backend for CsharpBackend {
         };
         files.push(GeneratedFile {
             path: base_path.join(format!("{}.cs", wrapper_class_name)),
-            content: gen_wrapper_class(api, &namespace, &wrapper_class_name, &exception_class_name, &prefix),
+            content: strip_trailing_whitespace(&gen_wrapper_class(
+                api,
+                &namespace,
+                &wrapper_class_name,
+                &exception_class_name,
+                &prefix,
+            )),
             generated_header: true,
         });
 
@@ -82,7 +88,7 @@ impl Backend for CsharpBackend {
                 let type_filename = typ.name.to_pascal_case();
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.cs", type_filename)),
-                    content: gen_record_type(typ, &namespace),
+                    content: strip_trailing_whitespace(&gen_record_type(typ, &namespace)),
                     generated_header: true,
                 });
             }
@@ -93,7 +99,7 @@ impl Backend for CsharpBackend {
             let enum_filename = enum_def.name.to_pascal_case();
             files.push(GeneratedFile {
                 path: base_path.join(format!("{}.cs", enum_filename)),
-                content: gen_enum(enum_def, &namespace),
+                content: strip_trailing_whitespace(&gen_enum(enum_def, &namespace)),
                 generated_header: true,
             });
         }
@@ -103,6 +109,19 @@ impl Backend for CsharpBackend {
 
         Ok(files)
     }
+}
+
+/// Strip trailing whitespace from every line and ensure the file ends with a single newline.
+fn strip_trailing_whitespace(content: &str) -> String {
+    let mut result: String = content
+        .lines()
+        .map(|line| line.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------

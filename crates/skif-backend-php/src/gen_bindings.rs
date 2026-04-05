@@ -96,14 +96,6 @@ impl Backend for PhpBackend {
             builder.add_import("std::collections::HashMap");
         }
 
-        // Clippy allows for generated code
-        builder.add_inner_attribute("allow(unused_imports)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments)");
-        builder.add_inner_attribute("allow(clippy::missing_errors_doc)");
-        builder.add_inner_attribute("allow(unused_variables)");
-        builder.add_inner_attribute("allow(dead_code)");
-        builder.add_inner_attribute("allow(clippy::should_implement_trait)");
-
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Php);
         for module in custom_mods {
@@ -467,16 +459,21 @@ fn gen_instance_method(
         gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
+    let trait_allow = if generators::is_trait_method_name(&method.name) {
+        "#[allow(clippy::should_implement_trait)]\n"
+    } else {
+        ""
+    };
     if params_str.is_empty() {
         format!(
-            "pub fn {}(&self) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}(&self) -> {return_annotation} {{\n    \
              {body}\n\
              }}",
             method.name
         )
     } else {
         format!(
-            "pub fn {}(&self, {params_str}) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}(&self, {params_str}) -> {return_annotation} {{\n    \
              {body}\n\
              }}",
             method.name
@@ -539,16 +536,21 @@ fn gen_instance_method_non_opaque(
         gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
+    let trait_allow = if generators::is_trait_method_name(&method.name) {
+        "#[allow(clippy::should_implement_trait)]\n"
+    } else {
+        ""
+    };
     if params_str.is_empty() {
         format!(
-            "pub fn {}(&self) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}(&self) -> {return_annotation} {{\n    \
              {body}\n\
              }}",
             method.name
         )
     } else {
         format!(
-            "pub fn {}(&self, {params_str}) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}(&self, {params_str}) -> {return_annotation} {{\n    \
              {body}\n\
              }}",
             method.name
@@ -617,16 +619,21 @@ fn gen_static_method(
         gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
+    let trait_allow = if generators::is_trait_method_name(&method.name) {
+        "#[allow(clippy::should_implement_trait)]\n"
+    } else {
+        ""
+    };
     if params.is_empty() {
         format!(
-            "pub fn {}() -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}() -> {return_annotation} {{\n    \
              {body}\n\
              }}",
             method.name
         )
     } else {
         format!(
-            "pub fn {}({params}) -> {return_annotation} {{\n    \
+            "{trait_allow}pub fn {}({params}) -> {return_annotation} {{\n    \
              {body}\n\
              }}",
             method.name

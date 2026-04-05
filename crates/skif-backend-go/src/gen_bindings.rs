@@ -55,7 +55,7 @@ impl Backend for GoBackend {
 
         let ffi_lib_name = config.ffi_lib_name();
         let ffi_header = config.ffi_header_name();
-        let content = gen_go_file(api, &ffi_prefix, &pkg_name, &ffi_lib_name, &ffi_header);
+        let content = strip_trailing_whitespace(&gen_go_file(api, &ffi_prefix, &pkg_name, &ffi_lib_name, &ffi_header));
 
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = skif_adapters::build_adapter_bodies(config, Language::Go)?;
@@ -66,6 +66,19 @@ impl Backend for GoBackend {
             generated_header: true,
         }])
     }
+}
+
+/// Strip trailing whitespace from every line and ensure the file ends with a single newline.
+fn strip_trailing_whitespace(content: &str) -> String {
+    let mut result: String = content
+        .lines()
+        .map(|line| line.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result
 }
 
 /// Generate the complete Go binding file wrapping the C FFI layer.
