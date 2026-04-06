@@ -279,92 +279,292 @@ impl Backend for Pyo3Backend {
     }
 
     fn generate_public_api(&self, api: &ApiSurface, config: &SkifConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Convert crate name to Python package name (replace hyphens with underscores)
-        let package_name = config.crate_config.name.replace('-', "_");
         let module_name = config.python_module_name();
 
-        // Generate __init__.py content
-        let mut imports = vec![];
-        let mut exports = vec![];
+        // Use stubs output path as the package directory (e.g., packages/python/html_to_markdown/)
+        // This ensures we write to the correct Python package, not the Rust crate name.
+        let output_base = config
+            .python
+            .as_ref()
+            .and_then(|p| p.stubs.as_ref())
+            .map(|s| PathBuf::from(&s.output))
+            .unwrap_or_else(|| {
+                let package_name = config.crate_config.name.replace('-', "_");
+                PathBuf::from(format!("packages/python/{}", package_name))
+            });
+        let package_name = output_base
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| config.crate_config.name.replace('-', "_"));
 
-        // Collect all types
-        for typ in &api.types {
-            imports.push(typ.name.clone());
-            exports.push(typ.name.clone());
+        let mut files = vec![];
+
+        // 1. Generate options.py (enums and dataclasses)
+        let options_content = gen_options_py(api, &package_name);
+        files.push(GeneratedFile {
+            path: output_base.join("options.py"),
+            content: options_content,
+            generated_header: true,
+        });
+
+        // 2. Generate api.py (wrapper functions)
+        let api_content = gen_api_py(api, &module_name);
+        files.push(GeneratedFile {
+            path: output_base.join("api.py"),
+            content: api_content,
+            generated_header: true,
+        });
+
+        // 3. Generate exceptions.py (exception hierarchy)
+        let exceptions_content = gen_exceptions_py(api);
+        files.push(GeneratedFile {
+            path: output_base.join("exceptions.py"),
+            content: exceptions_content,
+            generated_header: true,
+        });
+
+        // 4. Generate __init__.py (re-exports)
+        let init_content = gen_init_py(api, &module_name, &api.version);
+        files.push(GeneratedFile {
+            path: output_base.join("__init__.py"),
+            content: init_content,
+            generated_header: true,
+        });
+
+        Ok(files)
+    }
+}
+
+/// Generate options.py with enums and dataclasses for types with defaults.
+fn gen_options_py(api: &ApiSurface, _package_name: &str) -> String {
+    use crate::type_map::python_type;
+    use eisberg_core::ir::{DefaultValue, TypeRef};
+
+    let mut lines = vec![
+        "\"\"\"Options and enums for conversion.\"\"\"".to_string(),
+        "".to_string(),
+        "from dataclasses import dataclass, field".to_string(),
+        "from enum import Enum".to_string(),
+        "".to_string(),
+    ];
+
+    // Generate enums
+    for enum_def in &api.enums {
+        lines.push(format!("class {}(str, Enum):", enum_def.name));
+        lines.push("    \"\"\"\"".to_string() + enum_def.doc.lines().next().unwrap_or("") + "\"\"\"");
+        for variant in &enum_def.variants {
+            // Use the variant name in lowercase as the string value
+            let variant_value = variant.name.to_lowercase();
+            lines.push(format!("    {} = \"{}\"", variant.name, variant_value));
         }
+        lines.push("".to_string());
+    }
 
-        // Collect all enums
-        for enum_def in &api.enums {
-            imports.push(enum_def.name.clone());
-            exports.push(enum_def.name.clone());
-        }
+    // Generate dataclasses for types with has_default=true
+    for typ in &api.types {
+        if typ.has_default && !typ.fields.is_empty() {
+            lines.push("@dataclass".to_string());
+            lines.push(format!("class {}:", typ.name));
+            lines.push("    \"\"\"\"".to_string() + typ.doc.lines().next().unwrap_or("") + "\"\"\"");
 
-        // Collect all functions
-        for func in &api.functions {
-            imports.push(func.name.clone());
-            exports.push(func.name.clone());
-        }
+            for field in &typ.fields {
+                let field_type = python_type(&field.ty);
 
-        // Collect all error types
-        for error in &api.errors {
-            imports.push(error.name.clone());
-            exports.push(error.name.clone());
-        }
+                // Generate type hint
+                let type_hint = if field.optional {
+                    format!("{} | None", python_type(&field.ty.clone()))
+                } else {
+                    field_type
+                };
 
-        // Sort for consistent output
-        imports.sort();
-        exports.sort();
+                // Generate default value
+                if let Some(typed_default) = &field.typed_default {
+                    let default_val = match typed_default {
+                        DefaultValue::BoolLiteral(b) => {
+                            if *b {
+                                "True".to_string()
+                            } else {
+                                "False".to_string()
+                            }
+                        }
+                        DefaultValue::StringLiteral(s) => format!("\"{}\"", s.escape_default()),
+                        DefaultValue::IntLiteral(i) => i.to_string(),
+                        DefaultValue::FloatLiteral(f) => f.to_string(),
+                        DefaultValue::EnumVariant(v) => {
+                            // For enum defaults, use the enum class and variant
+                            format!("\"{}\".lower()", v)
+                        }
+                        DefaultValue::Empty => match &field.ty {
+                            TypeRef::Vec(_) => "field(default_factory=list)".to_string(),
+                            TypeRef::Map(_, _) => "field(default_factory=dict)".to_string(),
+                            TypeRef::String => "\"\"".to_string(),
+                            _ => "None".to_string(),
+                        },
+                        DefaultValue::None => "None".to_string(),
+                    };
 
-        // Generate imports line
-        let import_list = if imports.is_empty() {
-            String::new()
-        } else {
-            format!("from .{module_name} import (\n{}\n)", {
-                imports
-                    .iter()
-                    .map(|name| format!("    {},", name))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-        };
-
-        // Generate __all__ list
-        let all_list = if exports.is_empty() {
-            "__all__ = []".to_string()
-        } else {
-            format!("__all__ = [\n{}\n]", {
-                exports
-                    .iter()
-                    .map(|name| format!("    \"{}\",", name))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-        };
-
-        // Build the __init__.py content
-        let mut lines = vec![
-            "# This file is auto-generated by eisberg. DO NOT EDIT.".to_string(),
-            "".to_string(),
-        ];
-
-        if !import_list.is_empty() {
-            lines.push(import_list);
+                    lines.push(format!("    {}: {} = {}", field.name, type_hint, default_val));
+                } else {
+                    lines.push(format!("    {}: {}", field.name, type_hint));
+                }
+            }
             lines.push("".to_string());
         }
-
-        lines.push(all_list);
-
-        let content = lines.join("\n");
-
-        // Determine output path: packages/python/{package_name}/__init__.py
-        let output_path = PathBuf::from(format!("packages/python/{}", package_name)).join("__init__.py");
-
-        Ok(vec![GeneratedFile {
-            path: output_path,
-            content,
-            generated_header: false,
-        }])
     }
+
+    lines.join("\n")
+}
+
+/// Generate api.py with wrapper functions that convert Python types to Rust bindings.
+fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
+    use crate::type_map::python_type;
+
+    let mut lines = vec![
+        "\"\"\"Public API surface for conversion.\"\"\"".to_string(),
+        "".to_string(),
+        format!("import {} as _rust", module_name),
+        "from .options import *  # noqa: F401, F403".to_string(),
+        "".to_string(),
+    ];
+
+    // Generate wrapper functions for each top-level function
+    for func in &api.functions {
+        let return_type = python_type(&func.return_type);
+
+        // Build function signature
+        let mut params = vec!["self".to_string()];
+        for param in &func.params {
+            let param_type = python_type(&param.ty);
+            params.push(format!("{}: {}", param.name, param_type));
+        }
+
+        lines.push(format!("def {}({}) -> {}:", func.name, params.join(", "), return_type));
+
+        if !func.doc.is_empty() {
+            lines.push(format!("    \"\"\"{}\"\"\"", func.doc.lines().next().unwrap_or("")));
+        }
+
+        // Build the Rust call
+        let mut rust_args = vec![];
+        for param in &func.params {
+            rust_args.push(format!("_rust.{}={}", param.name, param.name));
+        }
+
+        lines.push(format!("    return _rust.{}({})", func.name, rust_args.join(", ")));
+        lines.push("".to_string());
+    }
+
+    lines.join("\n")
+}
+
+/// Generate exceptions.py with exception hierarchy from IR errors.
+fn gen_exceptions_py(api: &ApiSurface) -> String {
+    let mut lines = vec![
+        "\"\"\"Exception hierarchy for errors.\"\"\"".to_string(),
+        "".to_string(),
+    ];
+
+    // Generate base exception for each error
+    for error in &api.errors {
+        lines.push(format!("class {}(Exception):", error.name));
+        lines.push(format!("    \"\"\"{}\"\"\"", error.doc));
+        lines.push("    pass".to_string());
+        lines.push("".to_string());
+
+        // Generate specific exceptions for each variant
+        for variant in &error.variants {
+            lines.push(format!("class {}({}Exception):", variant.name, error.name));
+            lines.push(format!("    \"\"\"{}\"\"\"", variant.doc));
+            lines.push("    pass".to_string());
+            lines.push("".to_string());
+        }
+    }
+
+    lines.join("\n")
+}
+
+/// Generate __init__.py with re-exports of public API.
+fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
+    let mut lines = vec![
+        "\"\"\"Public API for the conversion library.\"\"\"".to_string(),
+        "".to_string(),
+    ];
+
+    // Import and re-export from api module
+    if !api.functions.is_empty() {
+        let func_names: Vec<_> = api.functions.iter().map(|f| f.name.clone()).collect();
+        lines.push(format!("from .api import {}", func_names.join(", ")));
+    }
+
+    // Import and re-export from options module
+    let mut option_names = vec![];
+    for enum_def in &api.enums {
+        option_names.push(enum_def.name.clone());
+    }
+    for typ in &api.types {
+        if typ.has_default {
+            option_names.push(typ.name.clone());
+        }
+    }
+
+    if !option_names.is_empty() {
+        lines.push(format!("from .options import {}", option_names.join(", ")));
+    }
+
+    // Import and re-export from exceptions module
+    let mut exception_names = vec![];
+    for error in &api.errors {
+        exception_names.push(error.name.clone());
+        for variant in &error.variants {
+            exception_names.push(variant.name.clone());
+        }
+    }
+
+    if !exception_names.is_empty() {
+        lines.push(format!("from .exceptions import {}", exception_names.join(", ")));
+    }
+
+    lines.push("".to_string());
+
+    // Build __all__ list
+    let mut all_items = vec![];
+    for func in &api.functions {
+        all_items.push(func.name.clone());
+    }
+    for enum_def in &api.enums {
+        all_items.push(enum_def.name.clone());
+    }
+    for typ in &api.types {
+        if typ.has_default {
+            all_items.push(typ.name.clone());
+        }
+    }
+    for error in &api.errors {
+        all_items.push(error.name.clone());
+        for variant in &error.variants {
+            all_items.push(variant.name.clone());
+        }
+    }
+
+    all_items.sort();
+    all_items.push("__version__".to_string());
+
+    if !all_items.is_empty() {
+        lines.push(format!("__all__ = [\n{}\n]", {
+            all_items
+                .iter()
+                .map(|name| format!("    \"{}\",", name))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }));
+    } else {
+        lines.push("__all__: list[str] = []".to_string());
+    }
+
+    lines.push("".to_string());
+    lines.push(format!("__version__ = \"{}\"", version));
+
+    lines.join("\n")
 }
 
 /// Generate the async runtime initialization function.

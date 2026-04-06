@@ -1,4 +1,4 @@
-/target
+target/
 .eisberg/
 *.swp
 *.swo
@@ -6,4 +6,9 @@
 .DS_Store
 .idea/
 .vscode/
+.rumdl_cache/
 *.iml
+
+# AI Rules generated files
+.claude/
+CLAUDE.md
