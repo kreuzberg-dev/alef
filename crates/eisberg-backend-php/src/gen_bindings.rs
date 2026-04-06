@@ -1028,9 +1028,9 @@ fn gen_php_call_args_with_let_bindings(
             }
             TypeRef::Named(_) => {
                 if p.optional {
-                    format!("{}_core.as_ref()", p.name)
+                    format!("{}_core", p.name)
                 } else {
-                    format!("&{}_core", p.name)
+                    format!("{}_core", p.name)
                 }
             }
             TypeRef::String => format!("&{}", p.name),
