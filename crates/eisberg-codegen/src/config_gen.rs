@@ -488,34 +488,40 @@ pub fn gen_magnus_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRe
     out
 }
 
-/// Generate a PHP kwargs constructor (via #[php_method]) for a type with `has_default`.
-/// All fields become Option<T> parameters with defaults.
+/// Generate a PHP kwargs constructor for a type with `has_default`.
+/// All fields become `Option<T>` parameters so PHP users can omit any field.
+/// Assignments wrap non-Optional fields in `Some()` and apply defaults.
 pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
 
-    writeln!(out, "#[php_method]").ok();
-    writeln!(out, "pub fn new(").ok();
+    writeln!(out, "pub fn __construct(").ok();
 
-    // Add parameters - all as Option<T> (no defaults; ext-php-rs handles PHP defaults)
+    // All params are Option<MappedType> — PHP users can omit any field
     for (i, field) in typ.fields.iter().enumerate() {
-        let field_type = type_mapper(&field.ty);
+        let mapped = type_mapper(&field.ty);
         let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        writeln!(out, "    {}: Option<{}>{}", field.name, field_type, comma).ok();
+        writeln!(out, "    {}: Option<{}>{}", field.name, mapped, comma).ok();
     }
 
     writeln!(out, ") -> Self {{").ok();
     writeln!(out, "    Self {{").ok();
 
-    // Field assignments with defaults
     for field in &typ.fields {
-        let default_str = default_value_for_field(field, "php");
-        writeln!(
-            out,
-            "        {}: {}.unwrap_or({}),",
-            field.name, field.name, default_str
-        )
-        .ok();
+        let is_optional_field = field.optional || matches!(&field.ty, TypeRef::Optional(_));
+        if is_optional_field {
+            // Struct field is Option<T>, param is Option<T> — pass through directly
+            writeln!(out, "        {},", field.name).ok();
+        } else {
+            // Struct field is T, param is Option<T> — unwrap with default
+            let default_str = default_value_for_field(field, "php");
+            writeln!(
+                out,
+                "        {}: {}.unwrap_or({}),",
+                field.name, field.name, default_str
+            )
+            .ok();
+        }
     }
 
     writeln!(out, "    }}").ok();

@@ -766,6 +766,7 @@ fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_path: &str)
     let variants = item
         .variants
         .iter()
+        .filter(|v| !has_cfg_attribute(&v.attrs)) // Skip cfg-gated variants
         .map(|v| {
             let message_template = extract_error_message_template(&v.attrs);
             let variant_doc = extract_doc_comments(&v.attrs);

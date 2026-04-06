@@ -47,6 +47,8 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
         lines.push(format!("        {pattern} => {}::new_err(msg),", variant.name));
     }
 
+    // Catch-all for cfg-gated variants not in the IR
+    lines.push(format!("        _ => {}::new_err(msg),", error.name));
     lines.push("    }".to_string());
     lines.push("}".to_string());
     lines.join("\n")
@@ -141,6 +143,8 @@ pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
         ));
     }
 
+    // Catch-all for cfg-gated variants not in the IR
+    lines.push("        _ => napi::Error::new(napi::Status::GenericFailure, msg),".to_string());
     lines.push("    }".to_string());
     lines.push("}".to_string());
     lines.join("\n")
@@ -214,6 +218,8 @@ pub fn gen_php_error_converter(error: &ErrorDef, core_import: &str) -> String {
         ));
     }
 
+    // Catch-all for cfg-gated variants not in the IR
+    lines.push("        _ => ext_php_rs::exception::PhpException::default(msg),".to_string());
     lines.push("    }".to_string());
     lines.push("}".to_string());
     lines.join("\n")

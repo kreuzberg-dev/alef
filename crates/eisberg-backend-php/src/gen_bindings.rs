@@ -438,18 +438,19 @@ fn gen_struct_methods(
             }
         } else {
             let map_fn = |ty: &eisberg_core::ir::TypeRef| mapper.map_type(ty);
-            let (param_list, _, assignments) = constructor_parts(&typ.fields, &map_fn);
-            let constructor = format!(
-                "pub fn __construct({param_list}) -> Self {{\n    \
-                 Self {{ {assignments} }}\n\
-                 }}"
-            );
-            impl_builder.add_method(&constructor);
-
-            // Generate config builder if type has Default
             if typ.has_default {
+                // kwargs-style constructor: all fields optional with defaults
                 let config_method = eisberg_codegen::config_gen::gen_php_kwargs_constructor(typ, &map_fn);
                 impl_builder.add_method(&config_method);
+            } else {
+                // Normal positional constructor
+                let (param_list, _, assignments) = constructor_parts(&typ.fields, &map_fn);
+                let constructor = format!(
+                    "pub fn __construct({param_list}) -> Self {{\n    \
+                     Self {{ {assignments} }}\n\
+                     }}"
+                );
+                impl_builder.add_method(&constructor);
             }
         }
     }
