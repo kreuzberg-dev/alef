@@ -201,23 +201,30 @@ fn gen_native_lib(api: &ApiSurface, _config: &AlefConfig, package: &str, prefix:
         writeln!(body, "    );").ok();
     }
 
-    // Error handling
-    if !api.errors.is_empty() {
-        let error_name = &api.errors[0].name;
-        let handle_name = format!("{}_GET_{}_MESSAGE", prefix.to_uppercase(), error_name.to_uppercase());
+    // Error handling — use the FFI's last_error_code and last_error_context symbols
+    {
         writeln!(
             body,
-            "    static final MethodHandle {} = LINKER.downcallHandle(",
-            handle_name
+            "    static final MethodHandle {}_LAST_ERROR_CODE = LINKER.downcallHandle(",
+            prefix.to_uppercase()
         )
-        .unwrap();
+        .ok();
+        writeln!(body, "        LIB.find(\"{}_last_error_code\").orElseThrow(),", prefix).ok();
+        writeln!(body, "        FunctionDescriptor.of(ValueLayout.JAVA_INT)").ok();
+        writeln!(body, "    );").ok();
+
         writeln!(
             body,
-            "        LIB.find(\"{}_get_{}_message\").orElseThrow(),",
-            prefix,
-            error_name.to_lowercase()
+            "    static final MethodHandle {}_LAST_ERROR_CONTEXT = LINKER.downcallHandle(",
+            prefix.to_uppercase()
         )
-        .unwrap();
+        .ok();
+        writeln!(
+            body,
+            "        LIB.find(\"{}_last_error_context\").orElseThrow(),",
+            prefix
+        )
+        .ok();
         writeln!(body, "        FunctionDescriptor.of(ValueLayout.ADDRESS)").ok();
         writeln!(body, "    );").ok();
     }
@@ -601,6 +608,19 @@ fn gen_facade_class(api: &ApiSurface, package: &str, public_class: &str, raw_cla
             raw_class
         )
         .ok();
+
+        // Null checks for required parameters
+        for param in &func.params {
+            if !param.optional {
+                let pname = to_java_name(&param.name);
+                writeln!(
+                    body,
+                    "        java.util.Objects.requireNonNull({}, \"{} must not be null\");",
+                    pname, pname
+                )
+                .ok();
+            }
+        }
 
         // Delegate to the raw FFI class
         let call_args: Vec<String> = func.params.iter().map(|p| to_java_name(&p.name)).collect();
