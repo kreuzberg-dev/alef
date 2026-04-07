@@ -131,11 +131,13 @@ impl Backend for JavaBackend {
 
         let base_path = PathBuf::from(&output_dir).join(&package_path);
 
-        // Generate a high-level facade class that wraps the raw class
-        let facade_content = gen_facade_class(api, &package, &main_class, &prefix);
+        // Generate a high-level public API class that wraps the raw FFI class.
+        // Class name = main_class without "Rs" suffix (e.g., HtmlToMarkdownRs -> HtmlToMarkdown)
+        let public_class = main_class.trim_end_matches("Rs").to_string();
+        let facade_content = gen_facade_class(api, &package, &public_class, &main_class, &prefix);
 
         Ok(vec![GeneratedFile {
-            path: base_path.join(format!("{}Facade.java", main_class)),
+            path: base_path.join(format!("{}.java", public_class)),
             content: facade_content,
             generated_header: true,
         }])
@@ -378,7 +380,7 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
 
     if matches!(func.return_type, TypeRef::Unit) {
         writeln!(out, "            {}.invoke({});", ffi_handle, call_args.join(", ")).ok();
-        writeln!(out, "        }} catch (Exception e) {{").ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
             "            throw new {}Exception(\"FFI call failed\", e);",
@@ -405,7 +407,7 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
         writeln!(out, "            return result;").ok();
-        writeln!(out, "        }} catch (Exception e) {{").ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
             "            throw new {}Exception(\"FFI call failed\", e);",
@@ -447,7 +449,7 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
             return_type_name
         )
         .ok();
-        writeln!(out, "        }} catch (Exception e) {{").ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
             "            throw new {}Exception(\"FFI call failed\", e);",
@@ -464,7 +466,7 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
             call_args.join(", ")
         )
         .ok();
-        writeln!(out, "        }} catch (Exception e) {{").ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
             "            throw new {}Exception(\"FFI call failed\", e);",
@@ -513,7 +515,7 @@ fn gen_async_wrapper_method(out: &mut String, func: &FunctionDef) {
         param_names.join(", ")
     )
     .ok();
-    writeln!(out, "            }} catch (Exception e) {{").ok();
+    writeln!(out, "            }} catch (Throwable e) {{").ok();
     writeln!(out, "                throw new CompletionException(e);").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "        }});").ok();
@@ -561,11 +563,11 @@ fn gen_exception_class(package: &str, class_name: &str) -> String {
 // High-level facade class (public API)
 // ---------------------------------------------------------------------------
 
-fn gen_facade_class(api: &ApiSurface, package: &str, main_class: &str, _prefix: &str) -> String {
+fn gen_facade_class(api: &ApiSurface, package: &str, public_class: &str, raw_class: &str, _prefix: &str) -> String {
     let mut body = String::with_capacity(4096);
 
-    writeln!(body, "public final class {}Facade {{", main_class).ok();
-    writeln!(body, "    private {}Facade() {{ }}", main_class).ok();
+    writeln!(body, "public final class {} {{", public_class).ok();
+    writeln!(body, "    private {}() {{ }}", public_class).ok();
     writeln!(body).ok();
 
     // Generate static methods for free functions
@@ -596,18 +598,18 @@ fn gen_facade_class(api: &ApiSurface, package: &str, main_class: &str, _prefix: 
             return_type,
             to_java_name(&func.name),
             params.join(", "),
-            main_class
+            raw_class
         )
         .ok();
 
-        // Delegate to the raw class
+        // Delegate to the raw FFI class
         let call_args: Vec<String> = func.params.iter().map(|p| to_java_name(&p.name)).collect();
 
         if matches!(func.return_type, TypeRef::Unit) {
             writeln!(
                 body,
                 "        {}.{}({});",
-                main_class,
+                raw_class,
                 to_java_name(&func.name),
                 call_args.join(", ")
             )
@@ -616,7 +618,7 @@ fn gen_facade_class(api: &ApiSurface, package: &str, main_class: &str, _prefix: 
             writeln!(
                 body,
                 "        return {}.{}({});",
-                main_class,
+                raw_class,
                 to_java_name(&func.name),
                 call_args.join(", ")
             )
@@ -625,6 +627,58 @@ fn gen_facade_class(api: &ApiSurface, package: &str, main_class: &str, _prefix: 
 
         writeln!(body, "    }}").ok();
         writeln!(body).ok();
+
+        // Generate overload without optional params (convenience method)
+        let has_optional = func.params.iter().any(|p| p.optional);
+        if has_optional {
+            let required_params: Vec<String> = func
+                .params
+                .iter()
+                .filter(|p| !p.optional)
+                .map(|p| {
+                    let ptype = java_type(&p.ty);
+                    format!("{} {}", ptype, to_java_name(&p.name))
+                })
+                .collect();
+
+            writeln!(
+                body,
+                "    public static {} {}({}) throws {}Exception {{",
+                return_type,
+                to_java_name(&func.name),
+                required_params.join(", "),
+                raw_class
+            )
+            .ok();
+
+            // Build call with null for optional params
+            let full_args: Vec<String> = func
+                .params
+                .iter()
+                .map(|p| {
+                    if p.optional {
+                        "null".to_string()
+                    } else {
+                        to_java_name(&p.name)
+                    }
+                })
+                .collect();
+
+            if matches!(func.return_type, TypeRef::Unit) {
+                writeln!(body, "        {}({});", to_java_name(&func.name), full_args.join(", ")).ok();
+            } else {
+                writeln!(
+                    body,
+                    "        return {}({});",
+                    to_java_name(&func.name),
+                    full_args.join(", ")
+                )
+                .ok();
+            }
+
+            writeln!(body, "    }}").ok();
+            writeln!(body).ok();
+        }
     }
 
     writeln!(body, "}}").ok();
