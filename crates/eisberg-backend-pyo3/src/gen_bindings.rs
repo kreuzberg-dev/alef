@@ -614,13 +614,14 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
     let mut out = String::with_capacity(4096);
     out.push_str("\"\"\"Public API for conversion.\"\"\"\n\n");
     out.push_str("from __future__ import annotations\n\n");
-    out.push_str("from typing import Any\n\n");
+    out.push_str("from typing import TYPE_CHECKING, Any\n\n");
     out.push_str(&format!("import {package_name}.{module_name} as _rust\n"));
 
-    // Import needed option types from .options
+    // Import needed option types from .options in TYPE_CHECKING block
     if !needed_converters.is_empty() {
+        out.push_str("\nif TYPE_CHECKING:\n");
         let imports: Vec<&str> = needed_converters.iter().map(|s| s.as_str()).collect();
-        out.push_str(&format!("from .options import {}\n", imports.join(", ")));
+        out.push_str(&format!("    from .options import {}\n", imports.join(", ")));
     }
     out.push_str("\n\n");
 
@@ -629,7 +630,9 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
         let typ = default_types[type_name];
         let snake = type_name.to_snake_case();
 
-        out.push_str(&format!("def _to_rust_{snake}(value: {type_name} | None) -> Any:\n"));
+        out.push_str(&format!(
+            "def _to_rust_{snake}(value: \"{type_name} | None\") -> Any:\n"
+        ));
         out.push_str(&format!(
             "    \"\"\"Convert Python {type_name} to Rust binding type.\"\"\"\n"
         ));
@@ -683,7 +686,13 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
 
         out.push_str(&format!("def {}({}) -> Any:\n", func.name, sig_parts.join(", ")));
         if !func.doc.is_empty() {
-            out.push_str(&format!("    \"\"\"{}\"\"\"\n", func.doc.lines().next().unwrap_or("")));
+            let doc_first_line = func.doc.lines().next().unwrap_or("");
+            let doc_with_period = if doc_first_line.ends_with('.') {
+                doc_first_line.to_string()
+            } else {
+                format!("{}.", doc_first_line)
+            };
+            out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc_with_period));
         }
 
         // For each param that has a converter, emit a local conversion variable
@@ -760,7 +769,7 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
 
     let mut out = String::with_capacity(1024);
     out.push_str(&format!(
-        "\"\"\"Public API for the conversion library.\n\nVersion: {version}\"\"\"\n\n"
+        "\"\"\"Public API for the conversion library.\n\nVersion: {version}\n\"\"\"\n\n"
     ));
 
     // Collect enum names referenced by config types (user-facing enums only)

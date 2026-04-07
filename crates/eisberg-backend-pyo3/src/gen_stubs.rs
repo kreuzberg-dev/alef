@@ -1,5 +1,5 @@
 use crate::type_map::python_type;
-use eisberg_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
+use eisberg_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
 /// Convert a name to be safe for Python by escaping reserved keywords.
 fn python_safe_name(name: &str) -> String {
@@ -12,6 +12,21 @@ fn python_safe_name(name: &str) -> String {
         format!("{name}_")
     } else {
         name.to_string()
+    }
+}
+
+/// For constructor parameters, convert enum types to `str` since PyO3 accepts any string.
+/// This avoids mypy errors when passing string values to Literal-typed parameters.
+fn constructor_param_type(ty: &TypeRef, api: &ApiSurface) -> String {
+    let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+
+    match ty {
+        TypeRef::Named(name) if enum_names.contains(name) => "str".to_string(),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if enum_names.contains(name) => "str | None".to_string(),
+            _ => python_type(ty),
+        },
+        _ => python_type(ty),
     }
 }
 
@@ -30,7 +45,7 @@ pub fn gen_stubs(api: &ApiSurface) -> String {
             lines.push(gen_opaque_type_stub(typ));
             lines.push("".to_string());
         } else {
-            lines.push(gen_type_stub(typ));
+            lines.push(gen_type_stub(typ, api));
             lines.push("".to_string());
         }
     }
@@ -84,7 +99,7 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
 }
 
 /// Generate a Python type stub for a struct.
-fn gen_type_stub(typ: &TypeDef) -> String {
+fn gen_type_stub(typ: &TypeDef, api: &ApiSurface) -> String {
     let mut lines = vec![];
 
     // Add docstring if present
@@ -107,7 +122,7 @@ fn gen_type_stub(typ: &TypeDef) -> String {
     }
 
     // Add __init__ signature
-    lines.push(gen_type_init_stub(typ));
+    lines.push(gen_type_init_stub(typ, api));
 
     // Add instance methods
     for method in &typ.methods {
@@ -127,21 +142,22 @@ fn gen_type_stub(typ: &TypeDef) -> String {
 }
 
 /// Generate __init__ signature stub for a struct.
-fn gen_type_init_stub(typ: &TypeDef) -> String {
+fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
     // Partition fields into required (non-optional) and optional
     let (required, optional): (Vec<_>, Vec<_>) = typ.fields.iter().partition(|f| !f.optional);
 
     // Generate required params first, then optional params
+    // For constructor params, use str instead of enum types (PyO3 accepts any string)
     let mut params: Vec<String> = required
         .iter()
         .map(|f| {
-            let param_type = python_type(&f.ty);
+            let param_type = constructor_param_type(&f.ty, api);
             format!("{}: {}", f.name, param_type)
         })
         .collect();
 
     params.extend(optional.iter().map(|f| {
-        let type_str = python_type(&f.ty);
+        let type_str = constructor_param_type(&f.ty, api);
         let param_type = if !type_str.contains("| None") {
             format!("{} | None", type_str)
         } else {
