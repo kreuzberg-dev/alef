@@ -679,10 +679,10 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
         out.push_str(&format!("def {}({}) -> Any:\n", func.name, sig_parts.join(", ")));
         if !func.doc.is_empty() {
             let doc_first_line = func.doc.lines().next().unwrap_or("");
-            let doc_with_period = if doc_first_line.ends_with('.') {
+            let doc_with_period = if doc_first_line.trim().ends_with('.') {
                 doc_first_line.to_string()
             } else {
-                format!("{}.", doc_first_line)
+                format!("{}.", doc_first_line.trim())
             };
             out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc_with_period));
         }
@@ -781,18 +781,23 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
         }
     }
 
+    // Collect all imports and sort them
+    let mut imports_from_api = Vec::new();
+    let mut imports_from_options = Vec::new();
+    let mut imports_from_exceptions = Vec::new();
+
     // Import functions from api
     if !api.functions.is_empty() {
-        let names: Vec<_> = api.functions.iter().map(|f| f.name.as_str()).collect();
-        out.push_str(&format!("from .api import {}\n", names.join(", ")));
+        let mut names: Vec<_> = api.functions.iter().map(|f| f.name.clone()).collect();
+        names.sort();
+        imports_from_api.extend(names);
     }
 
     // Import config types and enums from options
     let mut opt_imports = needed_enums.clone();
     opt_imports.extend(config_types.iter().cloned());
-    if !opt_imports.is_empty() {
-        out.push_str(&format!("from .options import {}\n", opt_imports.join(", ")));
-    }
+    opt_imports.sort();
+    imports_from_options.extend(opt_imports);
 
     // Import exceptions
     let mut exc_names = Vec::new();
@@ -802,8 +807,46 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
             exc_names.push(variant.name.clone());
         }
     }
-    if !exc_names.is_empty() {
-        out.push_str(&format!("from .exceptions import {}\n", exc_names.join(", ")));
+    exc_names.sort();
+    imports_from_exceptions.extend(exc_names.clone());
+
+    // Output imports in sorted order (by module name: api, exceptions, options)
+    // Use multi-line format if the import line would be too long (>88 chars for ruff)
+    if !imports_from_api.is_empty() {
+        let import_line = format!("from .api import {}", imports_from_api.join(", "));
+        if import_line.len() > 88 {
+            out.push_str("from .api import (\n");
+            for name in &imports_from_api {
+                out.push_str(&format!("    {},\n", name));
+            }
+            out.push_str(")\n");
+        } else {
+            out.push_str(&format!("{}\n", import_line));
+        }
+    }
+    if !imports_from_exceptions.is_empty() {
+        let import_line = format!("from .exceptions import {}", imports_from_exceptions.join(", "));
+        if import_line.len() > 88 {
+            out.push_str("from .exceptions import (\n");
+            for name in &imports_from_exceptions {
+                out.push_str(&format!("    {},\n", name));
+            }
+            out.push_str(")\n");
+        } else {
+            out.push_str(&format!("{}\n", import_line));
+        }
+    }
+    if !imports_from_options.is_empty() {
+        let import_line = format!("from .options import {}", imports_from_options.join(", "));
+        if import_line.len() > 88 {
+            out.push_str("from .options import (\n");
+            for name in &imports_from_options {
+                out.push_str(&format!("    {},\n", name));
+            }
+            out.push_str(")\n");
+        } else {
+            out.push_str(&format!("{}\n", import_line));
+        }
     }
 
     // __all__

@@ -1,4 +1,4 @@
-use alef_core::ir::{DefaultValue, FieldDef, TypeDef, TypeRef};
+use alef_core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToPascalCase, ToShoutySnakeCase};
 
 /// Generate a PyO3 `#[new]` constructor with kwargs for a type with `has_default`.
@@ -300,17 +300,47 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
                 "rust" => format!("{}::{}", field.ty.type_name(), v.to_pascal_case()),
                 _ => v.clone(),
             },
-            DefaultValue::Empty => match language {
-                "python" => "[]".to_string(),
-                "ruby" => "[]".to_string(),
-                "go" => "make([]interface{}, 0)".to_string(),
-                "java" => "new java.util.ArrayList<>()".to_string(),
-                "csharp" => "[]".to_string(),
-                "php" => "[]".to_string(),
-                "r" => "c()".to_string(),
-                "rust" => "vec![]".to_string(),
-                _ => "null".to_string(),
-            },
+            DefaultValue::Empty => {
+                // Empty means "type's default" — check field type to pick the right zero value
+                match &field.ty {
+                    TypeRef::Vec(_) => match language {
+                        "python" | "ruby" | "csharp" => "[]".to_string(),
+                        "go" => "nil".to_string(),
+                        "java" => "List.of()".to_string(),
+                        "php" => "[]".to_string(),
+                        "r" => "c()".to_string(),
+                        "rust" => "vec![]".to_string(),
+                        _ => "null".to_string(),
+                    },
+                    TypeRef::Map(_, _) => match language {
+                        "python" => "{}".to_string(),
+                        "go" => "nil".to_string(),
+                        "java" => "Map.of()".to_string(),
+                        "rust" => "Default::default()".to_string(),
+                        _ => "null".to_string(),
+                    },
+                    TypeRef::Primitive(p) => match p {
+                        PrimitiveType::Bool => match language {
+                            "python" => "False".to_string(),
+                            "ruby" => "false".to_string(),
+                            _ => "false".to_string(),
+                        },
+                        PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
+                        _ => "0".to_string(),
+                    },
+                    TypeRef::String | TypeRef::Path | TypeRef::Json => match language {
+                        "rust" => "String::new()".to_string(),
+                        _ => "\"\"".to_string(),
+                    },
+                    _ => match language {
+                        "python" => "None".to_string(),
+                        "ruby" => "nil".to_string(),
+                        "go" => "nil".to_string(),
+                        "rust" => "Default::default()".to_string(),
+                        _ => "null".to_string(),
+                    },
+                }
+            }
             DefaultValue::None => match language {
                 "python" => "None".to_string(),
                 "ruby" => "nil".to_string(),
