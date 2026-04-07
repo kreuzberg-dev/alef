@@ -88,11 +88,13 @@ fn test_basic_generation() {
                     name: "Tesseract".to_string(),
                     fields: vec![],
                     doc: "Tesseract OCR".to_string(),
+                    is_default: false,
                 },
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
                     doc: "PaddleOCR backend".to_string(),
+                    is_default: false,
                 },
             ],
             doc: "Available OCR backends".to_string(),

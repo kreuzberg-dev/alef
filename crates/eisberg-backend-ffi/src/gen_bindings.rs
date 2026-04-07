@@ -1483,11 +1483,13 @@ mod tests {
                         name: "Text".to_string(),
                         fields: vec![],
                         doc: String::new(),
+                        is_default: false,
                     },
                     EnumVariant {
                         name: "Html".to_string(),
                         fields: vec![],
                         doc: String::new(),
+                        is_default: false,
                     },
                 ],
                 doc: "Output format.".to_string(),

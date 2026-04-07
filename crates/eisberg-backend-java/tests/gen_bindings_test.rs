@@ -64,11 +64,13 @@ fn test_basic_generation() {
                     name: "Fast".to_string(),
                     fields: vec![],
                     doc: "Fast mode".to_string(),
+                    is_default: false,
                 },
                 EnumVariant {
                     name: "Accurate".to_string(),
                     fields: vec![],
                     doc: "Accurate mode".to_string(),
+                    is_default: false,
                 },
             ],
             doc: "Processing mode".to_string(),

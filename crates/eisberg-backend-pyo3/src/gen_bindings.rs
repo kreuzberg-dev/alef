@@ -370,6 +370,17 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str) -> String {
         }
     }
 
+    // Build map of enum name → default variant string value.
+    // Uses the variant with is_default=true (#[default] attr), falls back to first variant.
+    let enum_defaults: std::collections::HashMap<String, String> = api
+        .enums
+        .iter()
+        .filter_map(|e| {
+            let default_v = e.variants.iter().find(|v| v.is_default).or(e.variants.first());
+            default_v.map(|v| (e.name.clone(), v.name.to_snake_case()))
+        })
+        .collect();
+
     for enum_def in &api.enums {
         if !needed_enums.contains(&enum_def.name) {
             continue;
@@ -410,7 +421,7 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str) -> String {
 
             // Determine default value
             let default = if let Some(td) = &field.typed_default {
-                typed_default_to_python(td, &field.ty)
+                typed_default_to_python(td, &field.ty, &enum_defaults)
             } else if field.optional {
                 "None".to_string()
             } else {
@@ -467,8 +478,13 @@ fn python_field_type(
 }
 
 /// Convert a typed default value to Python literal.
-fn typed_default_to_python(td: &eisberg_core::ir::DefaultValue, _ty: &eisberg_core::ir::TypeRef) -> String {
-    use eisberg_core::ir::DefaultValue;
+/// For `Empty` on enum-typed fields, resolves to the enum's default (first) variant.
+fn typed_default_to_python(
+    td: &eisberg_core::ir::DefaultValue,
+    ty: &eisberg_core::ir::TypeRef,
+    enum_defaults: &std::collections::HashMap<String, String>,
+) -> String {
+    use eisberg_core::ir::{DefaultValue, TypeRef};
     match td {
         DefaultValue::BoolLiteral(true) => "True".to_string(),
         DefaultValue::BoolLiteral(false) => "False".to_string(),
@@ -479,7 +495,22 @@ fn typed_default_to_python(td: &eisberg_core::ir::DefaultValue, _ty: &eisberg_co
             use heck::ToSnakeCase;
             format!("\"{}\"", v.to_snake_case())
         }
-        DefaultValue::Empty => "None".to_string(),
+        DefaultValue::Empty => {
+            // For enum-typed fields, resolve to the default variant's string value.
+            // For other Named types, use None (Rust binding applies its own default).
+            if let TypeRef::Named(name) = ty {
+                if let Some(default_variant) = enum_defaults.get(name) {
+                    return format!("\"{}\"", default_variant);
+                }
+            }
+            // For Vec/Map/String, use Python-appropriate empty
+            match ty {
+                TypeRef::Vec(_) => "None".to_string(),
+                TypeRef::Map(_, _) => "None".to_string(),
+                TypeRef::String => "\"\"".to_string(),
+                _ => "None".to_string(),
+            }
+        }
         DefaultValue::None => "None".to_string(),
     }
 }

@@ -85,11 +85,13 @@ fn test_generated_code_example() {
                     name: "Tesseract".to_string(),
                     fields: vec![],
                     doc: "Tesseract OCR engine".to_string(),
+                    is_default: false,
                 },
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
                     doc: "PaddleOCR engine".to_string(),
+                    is_default: false,
                 },
             ],
             doc: "Available OCR backends".to_string(),

@@ -167,6 +167,9 @@ pub struct EnumVariant {
     pub name: String,
     pub fields: Vec<FieldDef>,
     pub doc: String,
+    /// True if this variant has `#[default]` attribute (used by `#[derive(Default)]`).
+    #[serde(default)]
+    pub is_default: bool,
 }
 
 /// An error type (enum used in Result<T, E>).

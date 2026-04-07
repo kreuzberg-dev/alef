@@ -975,11 +975,13 @@ mod tests {
                     name: "Cpu".into(),
                     fields: vec![],
                     doc: String::new(),
+                    is_default: false,
                 },
                 EnumVariant {
                     name: "Gpu".into(),
                     fields: vec![],
                     doc: String::new(),
+                    is_default: false,
                 },
             ],
             doc: String::new(),
