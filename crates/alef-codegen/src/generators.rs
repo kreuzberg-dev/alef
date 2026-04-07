@@ -767,6 +767,13 @@ pub fn gen_struct_default_impl(typ: &TypeDef, name_prefix: &str) -> String {
         };
         writeln!(out, "            {}: {},", field.name, default_val).ok();
     }
+    // Add synthetic field defaults for cfg-gated fields exposed in NAPI binding.
+    // When name_prefix is "Js" (NAPI backend), we add synthetic fields for known cfg-gated fields.
+    if name_prefix == "Js" && typ.name == "ConversionResult" {
+        // ConversionResult has a metadata: HtmlMetadata field behind #[cfg(feature = "metadata")]
+        // Default to None for the Option<JsHtmlMetadata> field.
+        writeln!(out, "            metadata: None,").ok();
+    }
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();

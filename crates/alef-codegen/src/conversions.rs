@@ -445,6 +445,15 @@ pub fn gen_from_core_to_binding_cfg(
         }
         writeln!(out, "            {conversion},").ok();
     }
+
+    // Add synthetic field conversions for cfg-gated fields that are exposed in NAPI binding.
+    // When type_name_prefix is "Js" (NAPI backend), we add synthetic fields for known cfg-gated fields.
+    if config.type_name_prefix == "Js" && typ.name == "ConversionResult" {
+        // ConversionResult has a metadata: HtmlMetadata field behind #[cfg(feature = "metadata")]
+        // Convert it to Option<JsHtmlMetadata> for the NAPI binding.
+        writeln!(out, "            metadata: Some(val.metadata.into()),").ok();
+    }
+
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     write!(out, "}}").ok();
