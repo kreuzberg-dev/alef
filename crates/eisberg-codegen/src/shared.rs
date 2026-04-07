@@ -222,7 +222,7 @@ pub fn function_sig_defaults(params: &[ParamDef]) -> String {
 pub fn format_default_value(default: &DefaultValue) -> String {
     match default {
         DefaultValue::BoolLiteral(b) => format!("{}", b),
-        DefaultValue::StringLiteral(s) => format!("\"{}\"", s.escape_default()),
+        DefaultValue::StringLiteral(s) => format!("\"{}\".to_string()", s.escape_default()),
         DefaultValue::IntLiteral(i) => format!("{}", i),
         DefaultValue::FloatLiteral(f) => format!("{}", f),
         DefaultValue::EnumVariant(v) => v.clone(),
@@ -265,11 +265,21 @@ pub fn config_constructor_parts(
         .iter()
         .filter(|f| f.cfg.is_none())
         .map(|f| {
-            if let Some(ref typed_default) = f.typed_default {
-                let default_val = format_default_value(typed_default);
-                format!("{}: {}.unwrap_or_else(|| {})", f.name, f.name, default_val)
-            } else if f.optional {
+            if f.optional || matches!(&f.ty, TypeRef::Optional(_)) {
+                // Optional fields: passthrough (both param and field are Option<T>)
                 format!("{}: {}", f.name, f.name)
+            } else if let Some(ref typed_default) = f.typed_default {
+                // For EnumVariant and Empty defaults, use unwrap_or_default()
+                // because we can't generate qualified Rust paths here.
+                match typed_default {
+                    DefaultValue::EnumVariant(_) | DefaultValue::Empty => {
+                        format!("{}: {}.unwrap_or_default()", f.name, f.name)
+                    }
+                    _ => {
+                        let default_val = format_default_value(typed_default);
+                        format!("{}: {}.unwrap_or_else(|| {})", f.name, f.name, default_val)
+                    }
+                }
             } else {
                 // All binding types should impl Default (enums default to first variant,
                 // structs default via From<CoreType::default()>). unwrap_or_default() works.
