@@ -1,0 +1,232 @@
+use alef_codegen::builder::RustFileBuilder;
+use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
+use alef_codegen::type_mapper::TypeMapper;
+use alef_core::backend::{Backend, Capabilities, GeneratedFile};
+use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::ir::ApiSurface;
+use std::borrow::Cow;
+use std::path::PathBuf;
+
+pub struct ExtendrBackend;
+
+impl ExtendrBackend {
+    fn binding_config(core_import: &str) -> RustBindingConfig<'_> {
+        RustBindingConfig {
+            struct_attrs: &[],
+            field_attrs: &[],
+            struct_derives: &["Clone"],
+            method_block_attr: None,
+            constructor_attr: "",
+            static_attr: None,
+            function_attr: "#[extendr]",
+            enum_attrs: &[],
+            enum_derives: &["Clone", "PartialEq"],
+            needs_signature: false,
+            signature_prefix: "",
+            signature_suffix: "",
+            core_import,
+            async_pattern: AsyncPattern::None,
+            has_serde: true,
+            type_name_prefix: "",
+        }
+    }
+}
+
+impl TypeMapper for ExtendrBackend {
+    fn primitive(&self, prim: &alef_core::ir::PrimitiveType) -> Cow<'static, str> {
+        use alef_core::ir::PrimitiveType;
+        match prim {
+            PrimitiveType::Bool => Cow::Borrowed("bool"),
+            PrimitiveType::U8
+            | PrimitiveType::U16
+            | PrimitiveType::U32
+            | PrimitiveType::I8
+            | PrimitiveType::I16
+            | PrimitiveType::I32 => Cow::Borrowed("i32"),
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
+                Cow::Borrowed("f64")
+            }
+            PrimitiveType::F32 | PrimitiveType::F64 => Cow::Borrowed("f64"),
+        }
+    }
+
+    fn json(&self) -> Cow<'static, str> {
+        Cow::Borrowed("String")
+    }
+
+    fn error_wrapper(&self) -> &str {
+        "Result"
+    }
+}
+
+impl Backend for ExtendrBackend {
+    fn name(&self) -> &str {
+        "extendr"
+    }
+
+    fn language(&self) -> Language {
+        Language::R
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities {
+            supports_async: false,
+            supports_classes: true,
+            supports_enums: true,
+            supports_option: true,
+            supports_result: true,
+            ..Capabilities::default()
+        }
+    }
+
+    fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let core_import = config.core_import();
+        let cfg = Self::binding_config(&core_import);
+
+        // Build adapter body map for method body substitution
+        let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::R)?;
+
+        let mut builder = RustFileBuilder::new().with_generated_header();
+        builder.add_import("extendr_api::prelude::*");
+
+        // Import traits needed for trait method dispatch
+        for trait_path in generators::collect_trait_imports(api) {
+            builder.add_import(&trait_path);
+        }
+
+        // Custom module declarations
+        let custom_mods = config.custom_modules.for_language(Language::R);
+        for module in custom_mods {
+            builder.add_item(&format!("pub mod {module};"));
+        }
+
+        let opaque_types: ahash::AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque)
+            .map(|t| t.name.clone())
+            .collect();
+
+        // Generate type bindings
+        for typ in &api.types {
+            builder.add_item(&generators::gen_struct(typ, self, &cfg));
+            if typ.has_default {
+                builder.add_item(&generators::gen_struct_default_impl(typ, ""));
+            }
+            let impl_block = generators::gen_impl_block(typ, self, &cfg, &adapter_bodies, &opaque_types);
+            if !impl_block.is_empty() {
+                builder.add_item(&impl_block);
+            }
+            // Generate config constructor if type has Default
+            if typ.has_default && !typ.fields.is_empty() {
+                let map_fn = |ty: &alef_core::ir::TypeRef| self.map_type(ty);
+                let config_fn = alef_codegen::config_gen::gen_extendr_kwargs_constructor(typ, &map_fn);
+                builder.add_item(&config_fn);
+            }
+        }
+
+        // Generate enum bindings
+        for e in &api.enums {
+            builder.add_item(&generators::gen_enum(e, &cfg));
+        }
+
+        // Generate function bindings
+        for func in &api.functions {
+            builder.add_item(&generators::gen_function(
+                func,
+                self,
+                &cfg,
+                &adapter_bodies,
+                &opaque_types,
+            ));
+        }
+
+        // Module registration
+        let module_name = config.r_package_name().replace('-', "_");
+        let module_items = format!(
+            "extendr_module! {{\n    mod {module};\n{types}{funcs}}}\n",
+            module = module_name,
+            types = api
+                .types
+                .iter()
+                .map(|t| format!("    impl {};\n", t.name))
+                .collect::<String>(),
+            funcs = api
+                .functions
+                .iter()
+                .map(|f| format!("    fn {};\n", f.name))
+                .collect::<String>(),
+        );
+        builder.add_item(&module_items);
+
+        let output_path = resolve_output_dir(
+            config.output.r.as_ref(),
+            &config.crate_config.name,
+            "packages/r/src/rust/src",
+        );
+
+        Ok(vec![GeneratedFile {
+            path: PathBuf::from(&output_path).join("lib.rs"),
+            content: builder.build(),
+            generated_header: false,
+        }])
+    }
+
+    fn generate_public_api(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let package_name = config.r_package_name();
+        let prefix = config.ffi_prefix();
+
+        // Generate R namespace file with wrapper functions
+        let mut content = String::from("# This file is auto-generated by alef. DO NOT EDIT.\n\n");
+
+        // Add useDynLib directive
+        content.push_str(&format!("#' @useDynLib {}, .registration = TRUE\n", package_name));
+        content.push_str("NULL\n\n");
+
+        // Generate wrapper functions for all API functions
+        for func in &api.functions {
+            let doc_line = func.doc.lines().next().unwrap_or("Function");
+            content.push_str(&format!("#' {}\n", doc_line));
+            content.push_str("#' @export\n");
+            content.push_str(&format!("{} <- function(", func.name));
+
+            // Parameters with default values
+            let params: Vec<String> = func
+                .params
+                .iter()
+                .map(|p| {
+                    if p.optional {
+                        format!("{} = NULL", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                })
+                .collect();
+            content.push_str(&params.join(", "));
+
+            content.push_str(") {\n");
+
+            // Call the native function
+            let param_names: Vec<String> = func.params.iter().map(|p| p.name.clone()).collect();
+            content.push_str(&format!(
+                "  .Call(\"{}_{}\"{})\n",
+                prefix,
+                func.name,
+                if param_names.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", param_names.join(", "))
+                }
+            ));
+            content.push_str("}\n\n");
+        }
+
+        let output_dir = resolve_output_dir(config.output.r.as_ref(), &config.crate_config.name, "packages/r/R/");
+
+        Ok(vec![GeneratedFile {
+            path: PathBuf::from(&output_dir).join(format!("{}.R", package_name)),
+            content,
+            generated_header: false,
+        }])
+    }
+}

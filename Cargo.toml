@@ -1,24 +1,24 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/eisberg-adapters",
-    "crates/eisberg-backend-csharp",
-    "crates/eisberg-backend-extendr",
-    "crates/eisberg-backend-ffi",
-    "crates/eisberg-backend-go",
-    "crates/eisberg-backend-java",
-    "crates/eisberg-backend-magnus",
-    "crates/eisberg-backend-napi",
-    "crates/eisberg-backend-php",
-    "crates/eisberg-backend-pyo3",
-    "crates/eisberg-backend-rustler",
-    "crates/eisberg-backend-wasm",
-    "crates/eisberg-cli",
-    "crates/eisberg-codegen",
-    "crates/eisberg-core",
-    "crates/eisberg-extract",
-    "crates/eisberg-readme",
-    "crates/eisberg-scaffold",
+    "crates/alef-adapters",
+    "crates/alef-backend-csharp",
+    "crates/alef-backend-extendr",
+    "crates/alef-backend-ffi",
+    "crates/alef-backend-go",
+    "crates/alef-backend-java",
+    "crates/alef-backend-magnus",
+    "crates/alef-backend-napi",
+    "crates/alef-backend-php",
+    "crates/alef-backend-pyo3",
+    "crates/alef-backend-rustler",
+    "crates/alef-backend-wasm",
+    "crates/alef-cli",
+    "crates/alef-codegen",
+    "crates/alef-core",
+    "crates/alef-extract",
+    "crates/alef-readme",
+    "crates/alef-scaffold",
 ]
 
 [workspace.package]
@@ -26,16 +26,16 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
-repository = "https://github.com/kreuzberg-dev/eisberg"
+repository = "https://github.com/kreuzberg-dev/alef"
 
 [workspace.dependencies]
 ahash = "0.8"
+alef-adapters = { path = "crates/alef-adapters" }
+alef-codegen = { path = "crates/alef-codegen" }
+alef-core = { path = "crates/alef-core" }
+alef-extract = { path = "crates/alef-extract" }
 anyhow = "1"
 blake3 = "1"
-eisberg-adapters = { path = "crates/eisberg-adapters" }
-eisberg-codegen = { path = "crates/eisberg-codegen" }
-eisberg-core = { path = "crates/eisberg-core" }
-eisberg-extract = { path = "crates/eisberg-extract" }
 heck = "0.5"
 regex = "1"
 serde = { version = "1", features = ["derive"] }

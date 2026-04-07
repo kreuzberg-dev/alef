@@ -1,0 +1,13 @@
+[package]
+name = "alef-adapters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "FFI adapter pattern generators for alef"
+repository.workspace = true
+
+[dependencies]
+ahash = { workspace = true }
+alef-core = { workspace = true }
+anyhow = { workspace = true }

@@ -25,6 +25,219 @@ dependencies = [
 ]
 
 [[package]]
+name = "alef-adapters"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
+name = "alef-backend-csharp"
+version = "0.1.0"
+dependencies = [
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+ "heck",
+]
+
+[[package]]
+name = "alef-backend-extendr"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
+name = "alef-backend-ffi"
+version = "0.1.0"
+dependencies = [
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+ "heck",
+ "toml",
+]
+
+[[package]]
+name = "alef-backend-go"
+version = "0.1.0"
+dependencies = [
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+ "heck",
+]
+
+[[package]]
+name = "alef-backend-java"
+version = "0.1.0"
+dependencies = [
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
+name = "alef-backend-magnus"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
+name = "alef-backend-napi"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
+name = "alef-backend-php"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+ "heck",
+]
+
+[[package]]
+name = "alef-backend-pyo3"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+ "heck",
+]
+
+[[package]]
+name = "alef-backend-rustler"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+ "heck",
+]
+
+[[package]]
+name = "alef-backend-wasm"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-adapters",
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
+name = "alef-cli"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-backend-csharp",
+ "alef-backend-extendr",
+ "alef-backend-ffi",
+ "alef-backend-go",
+ "alef-backend-java",
+ "alef-backend-magnus",
+ "alef-backend-napi",
+ "alef-backend-php",
+ "alef-backend-pyo3",
+ "alef-backend-rustler",
+ "alef-backend-wasm",
+ "alef-core",
+ "alef-extract",
+ "alef-readme",
+ "alef-scaffold",
+ "anyhow",
+ "blake3",
+ "clap",
+ "regex",
+ "serde_json",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "alef-codegen"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-core",
+ "heck",
+ "minijinja",
+]
+
+[[package]]
+name = "alef-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "heck",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
+name = "alef-extract"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "alef-core",
+ "anyhow",
+ "quote",
+ "syn",
+ "toml",
+]
+
+[[package]]
+name = "alef-readme"
+version = "0.1.0"
+dependencies = [
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
+name = "alef-scaffold"
+version = "0.1.0"
+dependencies = [
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -181,219 +394,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "eisberg-adapters"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "eisberg-core",
-]
-
-[[package]]
-name = "eisberg-backend-csharp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
- "heck",
-]
-
-[[package]]
-name = "eisberg-backend-extendr"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
-]
-
-[[package]]
-name = "eisberg-backend-ffi"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
- "heck",
- "toml",
-]
-
-[[package]]
-name = "eisberg-backend-go"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
- "heck",
-]
-
-[[package]]
-name = "eisberg-backend-java"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
-]
-
-[[package]]
-name = "eisberg-backend-magnus"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
-]
-
-[[package]]
-name = "eisberg-backend-napi"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
-]
-
-[[package]]
-name = "eisberg-backend-php"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
- "heck",
-]
-
-[[package]]
-name = "eisberg-backend-pyo3"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
- "heck",
-]
-
-[[package]]
-name = "eisberg-backend-rustler"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
- "heck",
-]
-
-[[package]]
-name = "eisberg-backend-wasm"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "eisberg-adapters",
- "eisberg-codegen",
- "eisberg-core",
-]
-
-[[package]]
-name = "eisberg-cli"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "blake3",
- "clap",
- "eisberg-backend-csharp",
- "eisberg-backend-extendr",
- "eisberg-backend-ffi",
- "eisberg-backend-go",
- "eisberg-backend-java",
- "eisberg-backend-magnus",
- "eisberg-backend-napi",
- "eisberg-backend-php",
- "eisberg-backend-pyo3",
- "eisberg-backend-rustler",
- "eisberg-backend-wasm",
- "eisberg-core",
- "eisberg-extract",
- "eisberg-readme",
- "eisberg-scaffold",
- "regex",
- "serde_json",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "eisberg-codegen"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "eisberg-core",
- "heck",
- "minijinja",
-]
-
-[[package]]
-name = "eisberg-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "heck",
- "serde",
- "serde_json",
- "thiserror",
- "toml",
-]
-
-[[package]]
-name = "eisberg-extract"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "anyhow",
- "eisberg-core",
- "quote",
- "syn",
- "toml",
-]
-
-[[package]]
-name = "eisberg-readme"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "eisberg-core",
-]
-
-[[package]]
-name = "eisberg-scaffold"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "eisberg-core",
 ]
 
 [[package]]

@@ -1,20 +1,20 @@
-# eisberg
+# alef
 
 <div align="center" style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 20px 0;">
-  <a href="https://crates.io/crates/eisberg-cli">
-    <img src="https://img.shields.io/crates/v/eisberg-cli?label=crates.io&color=007ec6" alt="crates.io">
+  <a href="https://crates.io/crates/alef-cli">
+    <img src="https://img.shields.io/crates/v/alef-cli?label=crates.io&color=007ec6" alt="crates.io">
   </a>
-  <a href="https://github.com/kreuzberg-dev/eisberg/releases">
-    <img src="https://img.shields.io/github/v/release/kreuzberg-dev/eisberg?label=Release&color=007ec6" alt="Release">
+  <a href="https://github.com/kreuzberg-dev/alef/releases">
+    <img src="https://img.shields.io/github/v/release/kreuzberg-dev/alef?label=Release&color=007ec6" alt="Release">
   </a>
-  <a href="https://github.com/kreuzberg-dev/eisberg/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/kreuzberg-dev/eisberg/ci.yml?label=CI&color=007ec6" alt="CI">
+  <a href="https://github.com/kreuzberg-dev/alef/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/kreuzberg-dev/alef/ci.yml?label=CI&color=007ec6" alt="CI">
   </a>
-  <a href="https://github.com/kreuzberg-dev/eisberg/blob/main/LICENSE">
+  <a href="https://github.com/kreuzberg-dev/alef/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-007ec6" alt="License">
   </a>
-  <a href="https://docs.rs/eisberg-cli">
-    <img src="https://img.shields.io/badge/docs.rs-eisberg-007ec6" alt="docs.rs">
+  <a href="https://docs.rs/alef-cli">
+    <img src="https://img.shields.io/badge/docs.rs-alef-007ec6" alt="docs.rs">
   </a>
 </div>
 
@@ -46,18 +46,18 @@ Polyglot binding generator for Rust. One config file, ten languages, lint-clean 
 ## Install
 
 ```bash
-cargo install eisberg-cli
+cargo install alef-cli
 ```
 
 Or via Homebrew:
 
 ```bash
-brew install kreuzberg-dev/tap/eisberg
+brew install kreuzberg-dev/tap/alef
 ```
 
 ## Quick Start
 
-Create `eisberg.toml` in your Rust workspace root:
+Create `alef.toml` in your Rust workspace root:
 
 ```toml
 languages = ["python", "node", "ffi", "go"]
@@ -89,7 +89,7 @@ module = "github.com/my-org/my-lib-go"
 Generate bindings:
 
 ```bash
-eisberg generate
+alef generate
 ```
 
 Build everything:
@@ -100,7 +100,7 @@ cargo build -p my-lib-py -p my-lib-node -p my-lib-ffi
 
 ## In Production
 
-eisberg generates bindings for:
+alef generates bindings for:
 
 | Project | Languages | Types | Description |
 |---------|-----------|-------|-------------|
@@ -112,16 +112,16 @@ eisberg generates bindings for:
 ## How It Works
 
 ```text
-eisberg.toml + Rust source
+alef.toml + Rust source
         |
         v
-   eisberg extract          syn parses pub types, functions, enums
+   alef extract          syn parses pub types, functions, enums
         |
         v
-   IR (ApiSurface)          cached as JSON in .eisberg/
+   IR (ApiSurface)          cached as JSON in .alef/
         |
         v
-   eisberg generate         per-language backend emits code
+   alef generate         per-language backend emits code
         |
         +-> crates/{name}-py/src/lib.rs       PyO3 bindings
         +-> crates/{name}-node/src/lib.rs     NAPI-RS bindings
@@ -138,18 +138,18 @@ Generated Rust code is automatically formatted with `rustfmt` and passes `cargo 
 
 | Command | Description |
 |---------|-------------|
-| `eisberg generate` | Generate bindings for all configured languages |
-| `eisberg generate --lang python,node` | Generate specific languages only |
-| `eisberg generate --clean` | Regenerate ignoring cache |
-| `eisberg stubs` | Generate type stubs (`.pyi`, `.rbs`) |
-| `eisberg scaffold` | Generate package metadata |
-| `eisberg readme` | Generate per-language README files |
-| `eisberg sync-versions` | Sync version to all manifests |
-| `eisberg verify --exit-code` | CI: fail if bindings are stale |
-| `eisberg diff` | Show what would change without writing |
-| `eisberg lint` | Run configured linters on generated output |
-| `eisberg all` | Run everything (generate + stubs + scaffold + readme) |
-| `eisberg init` | Create `eisberg.toml` interactively |
+| `alef generate` | Generate bindings for all configured languages |
+| `alef generate --lang python,node` | Generate specific languages only |
+| `alef generate --clean` | Regenerate ignoring cache |
+| `alef stubs` | Generate type stubs (`.pyi`, `.rbs`) |
+| `alef scaffold` | Generate package metadata |
+| `alef readme` | Generate per-language README files |
+| `alef sync-versions` | Sync version to all manifests |
+| `alef verify --exit-code` | CI: fail if bindings are stale |
+| `alef diff` | Show what would change without writing |
+| `alef lint` | Run configured linters on generated output |
+| `alef all` | Run everything (generate + stubs + scaffold + readme) |
+| `alef init` | Create `alef.toml` interactively |
 
 ## Configuration Reference
 
@@ -213,14 +213,14 @@ wasm = "crates/my-lib-wasm/src/"
 
 ## Caching
 
-eisberg caches the extracted IR and per-language output hashes in `.eisberg/` (add to `.gitignore`). Only backends whose inputs changed are regenerated. Use `--clean` to bypass.
+alef caches the extracted IR and per-language output hashes in `.alef/` (add to `.gitignore`). Only backends whose inputs changed are regenerated. Use `--clean` to bypass.
 
 ## CI Integration
 
 Verify bindings are up to date in CI:
 
 ```yaml
-- run: eisberg verify --exit-code
+- run: alef verify --exit-code
 ```
 
 Or as a pre-commit hook:
@@ -229,9 +229,9 @@ Or as a pre-commit hook:
 # .pre-commit-config.yaml
 - repo: local
   hooks:
-    - id: eisberg-verify
-      name: eisberg verify
-      entry: eisberg verify --exit-code
+    - id: alef-verify
+      name: alef verify
+      entry: alef verify --exit-code
       language: system
       pass_filenames: false
 ```

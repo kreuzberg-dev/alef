@@ -32,7 +32,7 @@ tasks:
   build:release:
     desc: "Build release binary"
     cmds:
-      - cargo build --release -p eisberg-cli
+      - cargo build --release -p alef-cli
 
   test:
     desc: "Run all tests"
@@ -58,4 +58,4 @@ tasks:
     desc: "Clean build artifacts"
     cmds:
       - cargo clean
-      - rm -rf .eisberg/
+      - rm -rf .alef/

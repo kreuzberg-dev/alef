@@ -1,0 +1,37 @@
+[package]
+name = "alef-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "CLI for the alef polyglot binding generator"
+
+[[bin]]
+name = "alef"
+path = "src/main.rs"
+
+[dependencies]
+ahash = { workspace = true }
+alef-backend-csharp = { path = "../alef-backend-csharp" }
+alef-backend-extendr = { path = "../alef-backend-extendr" }
+alef-backend-ffi = { path = "../alef-backend-ffi" }
+alef-backend-go = { path = "../alef-backend-go" }
+alef-backend-java = { path = "../alef-backend-java" }
+alef-backend-magnus = { path = "../alef-backend-magnus" }
+alef-backend-napi = { path = "../alef-backend-napi" }
+alef-backend-php = { path = "../alef-backend-php" }
+alef-backend-pyo3 = { path = "../alef-backend-pyo3" }
+alef-backend-rustler = { path = "../alef-backend-rustler" }
+alef-backend-wasm = { path = "../alef-backend-wasm" }
+alef-core = { workspace = true }
+alef-extract = { path = "../alef-extract" }
+alef-readme = { path = "../alef-readme" }
+alef-scaffold = { path = "../alef-scaffold" }
+anyhow = { workspace = true }
+blake3 = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+regex = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["fmt"] }

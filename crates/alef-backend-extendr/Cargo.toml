@@ -1,0 +1,15 @@
+[package]
+name = "alef-backend-extendr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "R (extendr) backend for alef"
+repository.workspace = true
+
+[dependencies]
+ahash = { workspace = true }
+alef-adapters = { workspace = true }
+alef-codegen = { path = "../alef-codegen" }
+alef-core = { workspace = true }
+anyhow = { workspace = true }

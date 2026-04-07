@@ -1,0 +1,14 @@
+[package]
+name = "alef-backend-java"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Java (Panama FFM) backend for alef"
+repository.workspace = true
+
+[dependencies]
+alef-adapters = { workspace = true }
+alef-codegen = { path = "../alef-codegen" }
+alef-core = { workspace = true }
+anyhow = { workspace = true }

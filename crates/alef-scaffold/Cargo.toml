@@ -1,0 +1,12 @@
+[package]
+name = "alef-scaffold"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Package scaffolding generator for alef"
+repository.workspace = true
+
+[dependencies]
+alef-core = { workspace = true }
+anyhow = { workspace = true }
