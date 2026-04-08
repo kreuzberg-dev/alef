@@ -90,8 +90,6 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
 
         // String types
         "String" => TypeRef::String,
-        // char is treated as a single-character string across language boundaries
-        "char" => TypeRef::String,
 
         // Path types
         "PathBuf" => TypeRef::Path,

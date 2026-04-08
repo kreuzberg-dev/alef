@@ -884,9 +884,16 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
 
 /// Returns true if the type was sanitized (changed from original).
 fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enums: &AHashSet<String>) -> bool {
+    // Built-in Rust types that are handled by backends directly
+    const BUILTIN_TYPES: &[&str] = &["char"];
+
     match ty {
         TypeRef::Named(name) => {
-            if !known_types.contains(name.as_str()) && !known_enums.contains(name.as_str()) {
+            if BUILTIN_TYPES.contains(&name.as_str()) {
+                // char is handled directly by backends — replace with String for binding layer
+                *ty = TypeRef::String;
+                false // NOT sanitized — backends can still generate from_json etc.
+            } else if !known_types.contains(name.as_str()) && !known_enums.contains(name.as_str()) {
                 *ty = TypeRef::String;
                 true
             } else {
