@@ -67,6 +67,22 @@ pub fn extract(
         }
     }
 
+    // Mark types that appear as function return types.
+    // These may use a different DTO style (e.g., TypedDict in Python).
+    let return_type_names: ahash::AHashSet<String> = surface
+        .functions
+        .iter()
+        .filter_map(|f| match &f.return_type {
+            TypeRef::Named(name) => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    for typ in &mut surface.types {
+        if return_type_names.contains(&typ.name) {
+            typ.is_return_type = true;
+        }
+    }
+
     Ok(surface)
 }
 
@@ -218,6 +234,7 @@ fn extract_items(
                         is_trait: false,
                         has_default: false,
                         has_stripped_cfg_fields: false,
+                        is_return_type: false,
                         doc,
                         cfg: None,
                     });
@@ -286,6 +303,7 @@ fn extract_items(
                         is_trait: true,
                         has_default: false,
                         has_stripped_cfg_fields: false,
+                        is_return_type: false,
                         doc,
                         cfg: None,
                     });
@@ -509,6 +527,7 @@ fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_path: &str) -
         is_trait: false,
         has_default,
         has_stripped_cfg_fields,
+        is_return_type: false,
         doc,
         cfg,
     })
@@ -971,6 +990,7 @@ fn extract_impl_block(
             is_trait: false,
             has_default: false,
             has_stripped_cfg_fields: false,
+            is_return_type: false,
             doc: String::new(),
             cfg: None,
         });
@@ -2387,6 +2407,7 @@ mod tests {
                 is_trait: false,
                 has_default: false,
                 has_stripped_cfg_fields: false,
+                is_return_type: false,
                 doc: String::new(),
                 cfg: None,
             }],
@@ -2409,6 +2430,7 @@ mod tests {
                     is_trait: false,
                     has_default: false,
                     has_stripped_cfg_fields: false,
+                    is_return_type: false,
                     doc: String::new(),
                     cfg: None,
                 },
@@ -2422,6 +2444,7 @@ mod tests {
                     is_trait: false,
                     has_default: false,
                     has_stripped_cfg_fields: false,
+                    is_return_type: false,
                     doc: String::new(),
                     cfg: None,
                 },
@@ -2462,6 +2485,7 @@ mod tests {
                     is_trait: false,
                     has_default: false,
                     has_stripped_cfg_fields: false,
+                    is_return_type: false,
                     doc: String::new(),
                     cfg: None,
                 },
@@ -2475,6 +2499,7 @@ mod tests {
                     is_trait: false,
                     has_default: false,
                     has_stripped_cfg_fields: false,
+                    is_return_type: false,
                     doc: String::new(),
                     cfg: None,
                 },

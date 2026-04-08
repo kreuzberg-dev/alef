@@ -45,6 +45,7 @@ fn test_generated_code_example() {
             is_trait: false,
             has_default: false,
             has_stripped_cfg_fields: false,
+            is_return_type: false,
             doc: "Configuration for text extraction".to_string(),
             cfg: None,
         }],
@@ -143,6 +144,7 @@ fn test_generated_code_example() {
         opaque_types: std::collections::HashMap::new(),
         generate: alef_core::config::GenerateConfig::default(),
         generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

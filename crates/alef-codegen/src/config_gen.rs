@@ -678,6 +678,7 @@ mod tests {
             is_trait: false,
             has_default: true,
             has_stripped_cfg_fields: false,
+            is_return_type: false,
         }
     }
 

@@ -3,7 +3,9 @@ use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
-use alef_core::config::{AdapterPattern, AlefConfig, Language, detect_serde_available, resolve_output_dir};
+use alef_core::config::{
+    AdapterPattern, AlefConfig, DtoConfig, Language, PythonDtoStyle, detect_serde_available, resolve_output_dir,
+};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -294,7 +296,7 @@ impl Backend for Pyo3Backend {
         let mut files = vec![];
 
         // 1. Generate options.py (enums and dataclasses)
-        let options_content = gen_options_py(api, &package_name);
+        let options_content = gen_options_py(api, &package_name, &config.dto);
         files.push(GeneratedFile {
             path: output_base.join("options.py"),
             content: options_content,
@@ -338,21 +340,36 @@ impl Backend for Pyo3Backend {
     }
 }
 
-/// Generate options.py — Python-side enums (StrEnum) and @dataclass config types.
+/// Generate options.py — Python-side enums (StrEnum) and @dataclass / TypedDict config types.
 ///
 /// Enum fields in dataclasses use `str` type (not enum class) so users can pass
 /// plain strings like `"atx"` instead of `HeadingStyle.Atx`.
 /// Default values come from `typed_default` if available, otherwise type-appropriate zeros.
-fn gen_options_py(api: &ApiSurface, _package_name: &str) -> String {
+///
+/// When `dto.python_output_style() == TypedDict` and a type has `is_return_type = true`,
+/// it is emitted as a `TypedDict` (with `total=False`) instead of a `@dataclass`.
+fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> String {
     use alef_core::ir::TypeRef;
     use heck::ToSnakeCase;
+
+    // Determine whether any type will be emitted as TypedDict so we know which imports to add.
+    let output_style = dto.python_output_style();
+    let any_typeddict = output_style == PythonDtoStyle::TypedDict
+        && api
+            .types
+            .iter()
+            .any(|t| t.has_default && t.is_return_type && !t.fields.is_empty() && !t.name.ends_with("Update"));
 
     let mut out = String::with_capacity(4096);
     out.push_str("\"\"\"Configuration options for the conversion API.\"\"\"\n\n");
     out.push_str("from __future__ import annotations\n\n");
     out.push_str("from dataclasses import dataclass, field\n");
     out.push_str("from enum import Enum\n");
-    out.push_str("from typing import Any\n\n\n");
+    if any_typeddict {
+        out.push_str("from typing import Any, TypedDict\n\n\n");
+    } else {
+        out.push_str("from typing import Any\n\n\n");
+    }
 
     // Collect enum names for type detection
     let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
@@ -433,7 +450,7 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str) -> String {
         }
     }
 
-    // Generate @dataclass for types with has_default (user-facing config types)
+    // Generate @dataclass or TypedDict for types with has_default (user-facing config types)
     for typ in &api.types {
         if !typ.has_default || typ.fields.is_empty() {
             continue;
@@ -443,45 +460,97 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str) -> String {
             continue;
         }
 
-        out.push_str("@dataclass\n");
-        out.push_str(&format!("class {}:\n", typ.name));
-        if !typ.doc.is_empty() {
-            out.push_str(&format!("    \"\"\"{}\"\"\"\n\n", typ.doc.lines().next().unwrap_or("")));
-        }
+        // Use TypedDict for return types when the output style is configured as TypedDict.
+        let use_typeddict = output_style == PythonDtoStyle::TypedDict && typ.is_return_type;
 
-        for field in &typ.fields {
-            // Determine Python type hint
-            let type_hint = python_field_type(&field.ty, field.optional, &enum_names);
-
-            // Determine default value and check if we need | None
-            let (type_hint_with_none, default) = if let Some(td) = &field.typed_default {
-                let default = typed_default_to_python(td, &field.ty, &enum_defaults);
-                (type_hint.clone(), default)
-            } else if field.optional {
-                // If default is None but type is Named (not already Optional), add | None
-                let final_hint = if !type_hint.contains('|') && matches!(&field.ty, TypeRef::Named(_)) {
-                    format!("{} | None", type_hint)
-                } else {
-                    type_hint.clone()
-                };
-                (final_hint, "None".to_string())
-            } else {
-                (type_hint.clone(), python_zero_value(&field.ty, &enum_names))
-            };
-
-            if !field.doc.is_empty() {
-                out.push_str(&format!("    {}: {} = {}\n", field.name, type_hint_with_none, default));
-                out.push_str(&format!(
-                    "    \"\"\"{}\"\"\"\n\n",
-                    field.doc.lines().next().unwrap_or("")
-                ));
-            } else {
-                out.push_str(&format!("    {}: {} = {}\n", field.name, type_hint_with_none, default));
+        if use_typeddict {
+            out.push_str(&gen_typeddict(typ, &enum_names));
+        } else {
+            out.push_str("@dataclass\n");
+            out.push_str(&format!("class {}:\n", typ.name));
+            if !typ.doc.is_empty() {
+                out.push_str(&format!("    \"\"\"{}\"\"\"\n\n", typ.doc.lines().next().unwrap_or("")));
             }
+
+            for field in &typ.fields {
+                // Determine Python type hint
+                let type_hint = python_field_type(&field.ty, field.optional, &enum_names);
+
+                // Determine default value and check if we need | None
+                let (type_hint_with_none, default) = if let Some(td) = &field.typed_default {
+                    let default = typed_default_to_python(td, &field.ty, &enum_defaults);
+                    (type_hint.clone(), default)
+                } else if field.optional {
+                    // If default is None but type is Named (not already Optional), add | None
+                    let final_hint = if !type_hint.contains('|') && matches!(&field.ty, TypeRef::Named(_)) {
+                        format!("{} | None", type_hint)
+                    } else {
+                        type_hint.clone()
+                    };
+                    (final_hint, "None".to_string())
+                } else {
+                    (type_hint.clone(), python_zero_value(&field.ty, &enum_names))
+                };
+
+                if !field.doc.is_empty() {
+                    out.push_str(&format!("    {}: {} = {}\n", field.name, type_hint_with_none, default));
+                    out.push_str(&format!(
+                        "    \"\"\"{}\"\"\"\n\n",
+                        field.doc.lines().next().unwrap_or("")
+                    ));
+                } else {
+                    out.push_str(&format!("    {}: {} = {}\n", field.name, type_hint_with_none, default));
+                }
+            }
+            out.push('\n');
         }
-        out.push('\n');
     }
 
+    out
+}
+
+/// Generate a `TypedDict` class for a return type.
+///
+/// TypedDict is emitted with `total=False` because all fields are optional at the
+/// call site — the caller may receive only a subset of keys.  Default values are
+/// not supported by TypedDict, so we only emit field name + type hint.
+///
+/// ```python
+/// class ConversionResult(TypedDict, total=False):
+///     """One-line doc."""
+///
+///     content: str | None
+///     tables: list[ExtractedTable]
+/// ```
+fn gen_typeddict(typ: &alef_core::ir::TypeDef, enum_names: &std::collections::HashSet<String>) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("class {}(TypedDict, total=False):\n", typ.name));
+    if !typ.doc.is_empty() {
+        out.push_str(&format!("    \"\"\"{}\"\"\"\n\n", typ.doc.lines().next().unwrap_or("")));
+    }
+    for field in &typ.fields {
+        let type_hint = python_field_type(&field.ty, field.optional, enum_names);
+        // Ensure Optional-like fields always include `| None`
+        let type_hint_with_none = if field.optional && !type_hint.contains('|') {
+            if matches!(&field.ty, alef_core::ir::TypeRef::Named(_)) {
+                format!("{} | None", type_hint)
+            } else {
+                type_hint
+            }
+        } else {
+            type_hint
+        };
+        if !field.doc.is_empty() {
+            out.push_str(&format!("    {}: {}\n", field.name, type_hint_with_none));
+            out.push_str(&format!(
+                "    \"\"\"{}\"\"\"\n\n",
+                field.doc.lines().next().unwrap_or("")
+            ));
+        } else {
+            out.push_str(&format!("    {}: {}\n", field.name, type_hint_with_none));
+        }
+    }
+    out.push('\n');
     out
 }
 

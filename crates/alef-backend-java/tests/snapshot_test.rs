@@ -52,6 +52,7 @@ fn print_generated_java_code() {
                 is_trait: false,
                 has_default: false,
                 has_stripped_cfg_fields: false,
+                is_return_type: false,
                 doc: "Configuration for extraction".to_string(),
                 cfg: None,
             },
@@ -90,6 +91,7 @@ fn print_generated_java_code() {
                 is_trait: false,
                 has_default: false,
                 has_stripped_cfg_fields: false,
+                is_return_type: false,
                 doc: "Result of extraction".to_string(),
                 cfg: None,
             },
@@ -250,6 +252,7 @@ fn print_generated_java_code() {
         opaque_types: std::collections::HashMap::new(),
         generate: alef_core::config::GenerateConfig::default(),
         generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
     };
 
     let result = backend.generate_bindings(&api, &config).unwrap();

@@ -246,6 +246,7 @@ mod tests {
             opaque_types: std::collections::HashMap::new(),
             generate: GenerateConfig::default(),
             generate_overrides: std::collections::HashMap::new(),
+            dto: Default::default(),
         }
     }
 

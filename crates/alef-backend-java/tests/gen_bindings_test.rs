@@ -34,6 +34,7 @@ fn test_basic_generation() {
             is_trait: false,
             has_default: false,
             has_stripped_cfg_fields: false,
+            is_return_type: false,
             doc: "Test config".to_string(),
             cfg: None,
         }],
@@ -123,6 +124,7 @@ fn test_basic_generation() {
         opaque_types: std::collections::HashMap::new(),
         generate: alef_core::config::GenerateConfig::default(),
         generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
     };
 
     // Generate bindings
@@ -246,6 +248,7 @@ fn test_package_default() {
         opaque_types: std::collections::HashMap::new(),
         generate: alef_core::config::GenerateConfig::default(),
         generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -328,6 +331,7 @@ fn test_optional_field_defaults_in_builder() {
             is_trait: false,
             has_default: true,
             has_stripped_cfg_fields: false,
+            is_return_type: false,
             doc: "Config with defaults".to_string(),
             cfg: None,
         }],
@@ -380,6 +384,7 @@ fn test_optional_field_defaults_in_builder() {
         opaque_types: std::collections::HashMap::new(),
         generate: alef_core::config::GenerateConfig::default(),
         generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
     };
 
     // Generate bindings

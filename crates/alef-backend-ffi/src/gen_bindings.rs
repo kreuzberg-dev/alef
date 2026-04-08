@@ -1489,6 +1489,7 @@ mod tests {
                 is_trait: false,
                 has_default: false,
                 has_stripped_cfg_fields: false,
+                is_return_type: false,
                 doc: "Configuration struct.".to_string(),
                 cfg: None,
             }],

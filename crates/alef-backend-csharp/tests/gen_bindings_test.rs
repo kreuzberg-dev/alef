@@ -48,6 +48,7 @@ fn test_basic_generation() {
             is_trait: false,
             has_default: false,
             has_stripped_cfg_fields: false,
+            is_return_type: false,
             doc: "Extraction configuration".to_string(),
             cfg: None,
         }],
@@ -147,6 +148,7 @@ fn test_basic_generation() {
         opaque_types: std::collections::HashMap::new(),
         generate: alef_core::config::GenerateConfig::default(),
         generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
     };
 
     // Generate bindings
@@ -279,6 +281,7 @@ fn test_namespace_resolution() {
         opaque_types: std::collections::HashMap::new(),
         generate: alef_core::config::GenerateConfig::default(),
         generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -342,6 +345,7 @@ fn test_generated_header() {
         opaque_types: std::collections::HashMap::new(),
         generate: alef_core::config::GenerateConfig::default(),
         generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -428,6 +432,7 @@ fn test_type_mapping() {
             is_trait: false,
             has_default: false,
             has_stripped_cfg_fields: false,
+            is_return_type: false,
             doc: String::new(),
             cfg: None,
         }],
@@ -471,6 +476,7 @@ fn test_type_mapping() {
         opaque_types: std::collections::HashMap::new(),
         generate: alef_core::config::GenerateConfig::default(),
         generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);

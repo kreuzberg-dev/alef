@@ -50,6 +50,10 @@ pub struct TypeDef {
     /// the missing fields that may exist when the core crate is compiled with features.
     #[serde(default)]
     pub has_stripped_cfg_fields: bool,
+    /// True if this type appears as a function return type.
+    /// Used to select output DTO style (e.g., TypedDict for Python return types).
+    #[serde(default)]
+    pub is_return_type: bool,
 }
 
 /// A field on a public struct.
