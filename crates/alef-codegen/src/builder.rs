@@ -151,7 +151,9 @@ impl StructBuilder {
 
         for (name, ty, attrs, doc) in &self.fields {
             if !doc.is_empty() {
-                writeln!(out, "    /// {doc}").unwrap();
+                for line in doc.lines() {
+                    writeln!(out, "    /// {line}").unwrap();
+                }
             }
             for attr in attrs {
                 writeln!(out, "    #[{attr}]").unwrap();

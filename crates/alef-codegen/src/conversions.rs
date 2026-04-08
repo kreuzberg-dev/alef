@@ -27,6 +27,9 @@ pub struct ConversionConfig<'a> {
     /// Core→binding uses `.to_string()`, binding→core uses `Default::default()` (lossy).
     /// Used by PHP where serde_json::Value can't cross the extension boundary.
     pub json_to_string: bool,
+    /// When true, add synthetic metadata field conversion for ConversionResult.
+    /// Only NAPI backend sets this (it adds metadata field to the struct).
+    pub include_cfg_metadata: bool,
 }
 
 /// Returns true if a primitive type needs i64 casting (NAPI/PHP — JS/PHP lack native u64).
@@ -446,11 +449,8 @@ pub fn gen_from_core_to_binding_cfg(
         writeln!(out, "            {conversion},").ok();
     }
 
-    // Add synthetic field conversions for cfg-gated fields that are exposed in NAPI binding.
-    // When type_name_prefix is "Js" (NAPI backend), we add synthetic fields for known cfg-gated fields.
-    if config.type_name_prefix == "Js" && typ.name == "ConversionResult" {
-        // ConversionResult has a metadata: HtmlMetadata field behind #[cfg(feature = "metadata")]
-        // Convert it to Option<JsHtmlMetadata> for the NAPI binding.
+    // Synthetic field conversion for cfg-gated metadata field (NAPI only).
+    if config.include_cfg_metadata && typ.has_stripped_cfg_fields && typ.name == "ConversionResult" {
         writeln!(out, "            metadata: Some(val.metadata.into()),").ok();
     }
 

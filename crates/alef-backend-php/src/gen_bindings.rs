@@ -164,6 +164,7 @@ impl Backend for PhpBackend {
             cast_large_ints_to_i64: true,
             enum_string_names: Some(enum_names_ref),
             json_to_string: true,
+            include_cfg_metadata: false,
             ..Default::default()
         };
         // Build transitive set of types that can't have binding→core From
