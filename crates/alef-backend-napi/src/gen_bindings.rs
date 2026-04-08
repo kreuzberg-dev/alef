@@ -223,9 +223,10 @@ impl Backend for NapiBackend {
             type_exports.push(format!("Js{}", typ.name));
         }
 
-        // Collect all enums (exported with Js prefix from native module) - export type
+        // Collect all enums (exported with Js prefix from native module) - plain export
+        // Enums are runtime values in TypeScript (const enum), not just types
         for enum_def in &api.enums {
-            type_exports.push(format!("Js{}", enum_def.name));
+            function_exports.push(format!("Js{}", enum_def.name));
         }
 
         // Collect all error types (exported from native module) - export type
