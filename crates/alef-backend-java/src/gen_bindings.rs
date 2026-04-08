@@ -838,16 +838,32 @@ fn marshal_param_to_ffi(out: &mut String, name: &str, ty: &TypeRef) {
             let cname = "c".to_string() + name;
             writeln!(out, "            var {} = arena.allocateFrom({});", cname, name).ok();
         }
+        TypeRef::Named(_) => {
+            // Named types are struct pointers in FFI.
+            // For now, pass NULL to use defaults. Full support requires JSON serialization.
+            let cname = "c".to_string() + name;
+            writeln!(out, "            var {} = MemorySegment.NULL;", cname).ok();
+        }
         TypeRef::Optional(inner) => {
             // For optional types, marshal the inner type if not null
-            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path | TypeRef::Json) {
-                let cname = "c".to_string() + name;
-                writeln!(
-                    out,
-                    "            var {} = {} != null ? arena.allocateFrom({}) : MemorySegment.NULL;",
-                    cname, name, name
-                )
-                .ok();
+            match inner.as_ref() {
+                TypeRef::String | TypeRef::Path | TypeRef::Json => {
+                    let cname = "c".to_string() + name;
+                    writeln!(
+                        out,
+                        "            var {} = {} != null ? arena.allocateFrom({}) : MemorySegment.NULL;",
+                        cname, name, name
+                    )
+                    .ok();
+                }
+                TypeRef::Named(_) => {
+                    // Optional named types also pass NULL for now
+                    let cname = "c".to_string() + name;
+                    writeln!(out, "            var {} = MemorySegment.NULL;", cname).ok();
+                }
+                _ => {
+                    // Other optional types (primitives) pass through
+                }
             }
         }
         _ => {
@@ -859,13 +875,11 @@ fn marshal_param_to_ffi(out: &mut String, name: &str, ty: &TypeRef) {
 fn ffi_param_name(name: &str, ty: &TypeRef) -> String {
     match ty {
         TypeRef::String | TypeRef::Path | TypeRef::Json => "c".to_string() + name,
-        TypeRef::Optional(inner) => {
-            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path | TypeRef::Json) {
-                "c".to_string() + name
-            } else {
-                name.to_string()
-            }
-        }
+        TypeRef::Named(_) => "c".to_string() + name,
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Named(_) => "c".to_string() + name,
+            _ => name.to_string(),
+        },
         _ => name.to_string(),
     }
 }
