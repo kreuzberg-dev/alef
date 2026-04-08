@@ -1,7 +1,7 @@
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::borrow::Cow;
@@ -228,5 +228,14 @@ impl Backend for ExtendrBackend {
             content,
             generated_header: false,
         }])
+    }
+
+    fn build_config(&self) -> Option<BuildConfig> {
+        Some(BuildConfig {
+            tool: "cargo",
+            crate_suffix: "-extendr",
+            depends_on_ffi: false,
+            post_build: vec![],
+        })
     }
 }

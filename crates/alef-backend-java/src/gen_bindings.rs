@@ -1,6 +1,6 @@
 use crate::type_map::{java_boxed_type, java_ffi_type, java_type};
 use alef_codegen::naming::{to_class_name, to_java_name};
-use alef_core::backend::{Backend, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -142,6 +142,15 @@ impl Backend for JavaBackend {
             content: facade_content,
             generated_header: true,
         }])
+    }
+
+    fn build_config(&self) -> Option<BuildConfig> {
+        Some(BuildConfig {
+            tool: "mvn",
+            crate_suffix: "",
+            depends_on_ffi: true,
+            post_build: vec![],
+        })
     }
 }
 

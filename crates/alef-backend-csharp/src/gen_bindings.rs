@@ -1,6 +1,6 @@
 use crate::type_map::csharp_type;
 use alef_codegen::naming::to_csharp_name;
-use alef_core::backend::{Backend, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
@@ -138,6 +138,15 @@ impl Backend for CsharpBackend {
     fn generate_public_api(&self, _api: &ApiSurface, _config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         // C#'s wrapper class IS the public API — no additional wrapper needed.
         Ok(vec![])
+    }
+
+    fn build_config(&self) -> Option<BuildConfig> {
+        Some(BuildConfig {
+            tool: "dotnet",
+            crate_suffix: "",
+            depends_on_ffi: true,
+            post_build: vec![],
+        })
     }
 }
 

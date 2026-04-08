@@ -4,7 +4,7 @@ use alef_codegen::builder::{ImplBuilder, RustFileBuilder, StructBuilder};
 use alef_codegen::generators;
 use alef_codegen::shared::{self, constructor_parts, function_params};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use std::fmt::Write;
@@ -225,6 +225,15 @@ impl Backend for MagnusBackend {
             content,
             generated_header: false,
         }])
+    }
+
+    fn build_config(&self) -> Option<BuildConfig> {
+        Some(BuildConfig {
+            tool: "cargo",
+            crate_suffix: "-rb",
+            depends_on_ffi: false,
+            post_build: vec![],
+        })
     }
 }
 

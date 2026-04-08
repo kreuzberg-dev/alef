@@ -1,7 +1,7 @@
 use crate::type_map::{c_param_type, c_return_type, is_void_return};
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
-use alef_core::backend::{Backend, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -66,6 +66,15 @@ impl Backend for FfiBackend {
         ];
 
         Ok(files)
+    }
+
+    fn build_config(&self) -> Option<BuildConfig> {
+        Some(BuildConfig {
+            tool: "cargo",
+            crate_suffix: "-ffi",
+            depends_on_ffi: false,
+            post_build: vec![],
+        })
     }
 }
 

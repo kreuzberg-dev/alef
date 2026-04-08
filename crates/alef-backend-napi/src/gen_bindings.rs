@@ -5,7 +5,7 @@ use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::naming::to_node_name;
 use alef_codegen::shared::{can_auto_delegate, function_params, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
 use std::path::PathBuf;
@@ -223,10 +223,11 @@ impl Backend for NapiBackend {
             type_exports.push(format!("Js{}", typ.name));
         }
 
-        // Collect all enums as type exports (const enums can't be value-exported
-        // with verbatimModuleSyntax — consumers use string literals like 'Atx')
+        // Collect all enums as value exports (runtime objects).
+        // NAPI generates const enum in .d.ts, but we post-process it to regular enum
+        // so they can be re-exported as values with verbatimModuleSyntax.
         for enum_def in &api.enums {
-            type_exports.push(format!("Js{}", enum_def.name));
+            function_exports.push(format!("Js{}", enum_def.name));
         }
 
         // NAPI errors are thrown as native JS Error objects, not exported as TS types.
@@ -250,7 +251,7 @@ impl Backend for NapiBackend {
             "".to_string(),
         ];
 
-        // Single export block: value exports + inline type exports
+        // Single export block: value exports (functions + enums) + inline type exports (structs)
         let mut all_exports: Vec<String> = Vec::new();
         for name in &function_exports {
             all_exports.push(format!("  {name},"));
@@ -280,6 +281,19 @@ impl Backend for NapiBackend {
             content,
             generated_header: false,
         }])
+    }
+
+    fn build_config(&self) -> Option<BuildConfig> {
+        Some(BuildConfig {
+            tool: "napi",
+            crate_suffix: "-node",
+            depends_on_ffi: false,
+            post_build: vec![PostBuildStep::PatchFile {
+                path: "index.d.ts",
+                find: "export declare const enum",
+                replace: "export declare enum",
+            }],
+        })
     }
 }
 

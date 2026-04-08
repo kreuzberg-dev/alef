@@ -82,6 +82,15 @@ enum Commands {
         #[arg(long)]
         exit_code: bool,
     },
+    /// Build language bindings using native tools (napi, maturin, wasm-pack, etc.).
+    Build {
+        /// Comma-separated list of languages (default: all from config).
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+        /// Build with release optimizations.
+        #[arg(long, short)]
+        release: bool,
+    },
     /// Run all: generate + stubs + scaffold + readme + sync.
     All {
         /// Ignore cache.
@@ -188,6 +197,15 @@ fn main() -> Result<()> {
             eprintln!("Syncing versions from Cargo.toml");
             pipeline::sync_versions(&config)?;
             println!("Version sync complete");
+            Ok(())
+        }
+        Commands::Build { lang, release } => {
+            let config = load_config(config_path)?;
+            let languages = resolve_languages(&config, lang.as_deref())?;
+            let profile = if release { "release" } else { "dev" };
+            eprintln!("Building bindings ({profile}) for: {}", format_languages(&languages));
+            pipeline::build(&config, &languages, release)?;
+            println!("Build complete");
             Ok(())
         }
         Commands::Lint { lang } => {

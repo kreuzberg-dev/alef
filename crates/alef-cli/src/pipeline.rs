@@ -467,6 +467,162 @@ pub fn format_rust_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Pa
     }
 }
 
+/// Build language bindings using native build tools.
+///
+/// Resolves build order (FFI-dependent languages build after FFI), then invokes
+/// each language's build tool with the appropriate flags.
+pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyhow::Result<()> {
+    let crate_name = &config.crate_config.name;
+    let base_dir = std::env::current_dir()?;
+
+    // Split into FFI-independent and FFI-dependent languages
+    let mut independent = Vec::new();
+    let mut ffi_dependent = Vec::new();
+    let mut need_ffi = false;
+
+    for &lang in languages {
+        let backend = registry::get_backend(lang);
+        if let Some(bc) = backend.build_config() {
+            if bc.depends_on_ffi {
+                ffi_dependent.push((lang, bc));
+                need_ffi = true;
+            } else {
+                independent.push((lang, bc));
+            }
+        } else {
+            info!("No build config for {lang}, skipping");
+        }
+    }
+
+    // Build FFI first if needed by dependent languages
+    if need_ffi
+        && !independent
+            .iter()
+            .any(|(_, bc)| bc.tool == "cargo" && bc.crate_suffix == "-ffi")
+    {
+        let ffi_crate = format!("{crate_name}-ffi");
+        info!("Building FFI crate: {ffi_crate}");
+        let mut cmd = format!("cargo build -p {ffi_crate}");
+        if release {
+            cmd.push_str(" --release");
+        }
+        run_command(&cmd)?;
+    }
+
+    // Build independent languages
+    for (lang, bc) in &independent {
+        info!("Building {lang} ({})...", bc.tool);
+        let build_cmd = build_command_for(bc, crate_name, config, release);
+        run_command(&build_cmd)?;
+
+        // Run post-build steps
+        run_post_build(bc, crate_name, &base_dir)?;
+    }
+
+    // Build FFI-dependent languages
+    for (lang, bc) in &ffi_dependent {
+        info!("Building {lang} ({})...", bc.tool);
+        let build_cmd = build_command_for(bc, crate_name, config, release);
+        run_command(&build_cmd)?;
+
+        run_post_build(bc, crate_name, &base_dir)?;
+    }
+
+    Ok(())
+}
+
+/// Generate the shell command to build a specific language.
+fn build_command_for(
+    bc: &alef_core::backend::BuildConfig,
+    crate_name: &str,
+    config: &AlefConfig,
+    release: bool,
+) -> String {
+    let binding_crate = format!("{crate_name}{}", bc.crate_suffix);
+    let release_flag = if release { " --release" } else { "" };
+
+    match bc.tool {
+        "maturin" => {
+            format!("maturin develop --manifest-path crates/{binding_crate}/Cargo.toml{release_flag}")
+        }
+        "napi" => {
+            let output_dir = config
+                .output
+                .node
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .unwrap_or("packages/typescript");
+            format!(
+                "napi build --platform --manifest-path crates/{binding_crate}/Cargo.toml -o {output_dir}{release_flag}"
+            )
+        }
+        "wasm-pack" => {
+            let profile = if release { "--release" } else { "--dev" };
+            format!("wasm-pack build crates/{binding_crate} {profile} --target bundler")
+        }
+        "cargo" => {
+            format!("cargo build -p {binding_crate}{release_flag}")
+        }
+        "mix" => "mix compile".to_string(),
+        "mvn" => {
+            let dir = config
+                .output
+                .java
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .unwrap_or("packages/java");
+            format!("cd {dir} && mvn package -DskipTests -q")
+        }
+        "dotnet" => {
+            let dir = config
+                .output
+                .csharp
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .unwrap_or("packages/csharp");
+            let dotnet_config = if release { "Release" } else { "Debug" };
+            format!("cd {dir} && dotnet build --configuration {dotnet_config} -q")
+        }
+        "go" => {
+            let dir = config
+                .output
+                .go
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .unwrap_or("packages/go");
+            format!("cd {dir} && go build ./...")
+        }
+        other => format!("echo 'Unknown build tool: {other}'"),
+    }
+}
+
+/// Run post-build processing steps (e.g., patching .d.ts files).
+fn run_post_build(bc: &alef_core::backend::BuildConfig, crate_name: &str, base_dir: &Path) -> anyhow::Result<()> {
+    use alef_core::backend::PostBuildStep;
+
+    let binding_crate = format!("{crate_name}{}", bc.crate_suffix);
+
+    for step in &bc.post_build {
+        match step {
+            PostBuildStep::PatchFile { path, find, replace } => {
+                let file_path = base_dir.join("crates").join(&binding_crate).join(path);
+                if file_path.exists() {
+                    let content = std::fs::read_to_string(&file_path)?;
+                    let patched = content.replace(find, replace);
+                    if patched != content {
+                        std::fs::write(&file_path, &patched)?;
+                        info!("Patched {}: replaced '{}' → '{}'", file_path.display(), find, replace);
+                    }
+                } else {
+                    debug!("Post-build patch target not found: {}", file_path.display());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn run_command(cmd: &str) -> anyhow::Result<()> {
     info!("Running: {cmd}");
     let status = std::process::Command::new("sh").args(["-c", cmd]).status()?;

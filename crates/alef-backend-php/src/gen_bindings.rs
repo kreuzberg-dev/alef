@@ -5,7 +5,7 @@ use alef_codegen::conversions::ConversionConfig;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::shared::{self, constructor_parts, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, detect_serde_available, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToPascalCase;
@@ -321,6 +321,15 @@ impl Backend for PhpBackend {
             content,
             generated_header: false,
         }])
+    }
+
+    fn build_config(&self) -> Option<BuildConfig> {
+        Some(BuildConfig {
+            tool: "cargo",
+            crate_suffix: "-php",
+            depends_on_ffi: false,
+            post_build: vec![],
+        })
     }
 }
 

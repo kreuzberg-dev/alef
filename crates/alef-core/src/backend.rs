@@ -2,6 +2,33 @@ use crate::config::{AlefConfig, Language};
 use crate::ir::ApiSurface;
 use std::path::PathBuf;
 
+/// Build configuration for a language backend.
+#[derive(Debug, Clone)]
+pub struct BuildConfig {
+    /// Build tool name (e.g., "napi", "maturin", "wasm-pack", "cargo", "mvn", "dotnet", "mix").
+    pub tool: &'static str,
+    /// Crate suffix for Rust binding crate (e.g., "-node", "-py", "-wasm", "-ffi").
+    pub crate_suffix: &'static str,
+    /// Whether this language depends on the FFI crate being built first (Go, Java, C#).
+    pub depends_on_ffi: bool,
+    /// Post-processing steps to run after build.
+    pub post_build: Vec<PostBuildStep>,
+}
+
+/// A post-build processing step.
+#[derive(Debug, Clone)]
+pub enum PostBuildStep {
+    /// Replace all occurrences of `find` with `replace` in `path` (relative to crate dir).
+    PatchFile {
+        /// File path relative to the binding crate directory.
+        path: &'static str,
+        /// Text to find.
+        find: &'static str,
+        /// Text to replace with.
+        replace: &'static str,
+    },
+}
+
 /// A generated file to write to disk.
 #[derive(Debug, Clone)]
 pub struct GeneratedFile {
@@ -52,5 +79,10 @@ pub trait Backend: Send + Sync {
     /// Generate language-native public API wrappers. Optional — default returns empty.
     fn generate_public_api(&self, _api: &ApiSurface, _config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         Ok(vec![])
+    }
+
+    /// Build configuration for this backend. Returns `None` if build is not supported.
+    fn build_config(&self) -> Option<BuildConfig> {
+        None
     }
 }
