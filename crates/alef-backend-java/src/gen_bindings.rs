@@ -3,6 +3,7 @@ use alef_codegen::naming::{to_class_name, to_java_name};
 use alef_core::backend::{Backend, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, PrimitiveType, TypeDef, TypeRef};
+use heck::ToSnakeCase;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -229,6 +230,45 @@ fn gen_native_lib(api: &ApiSurface, _config: &AlefConfig, package: &str, prefix:
         writeln!(body, "    );").ok();
     }
 
+    // Accessor handles for Named return types (struct pointer → field accessor + free)
+    for func in &api.functions {
+        if let TypeRef::Named(name) = &func.return_type {
+            let type_snake = name.to_snake_case();
+            let type_upper = type_snake.to_uppercase();
+
+            // _content accessor: (struct_ptr) -> char*
+            let content_handle = format!("{}_{}_CONTENT", prefix.to_uppercase(), type_upper);
+            let content_ffi = format!("{}_{}_content", prefix, type_snake);
+            writeln!(body).ok();
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LINKER.downcallHandle(",
+                content_handle
+            )
+            .ok();
+            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", content_ffi).ok();
+            writeln!(
+                body,
+                "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+            )
+            .ok();
+            writeln!(body, "    );").ok();
+
+            // _free: (struct_ptr) -> void
+            let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
+            let free_ffi = format!("{}_{}_free", prefix, type_snake);
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LINKER.downcallHandle(",
+                free_handle
+            )
+            .ok();
+            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
+            writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
+            writeln!(body, "    );").ok();
+        }
+    }
+
     writeln!(body, "}}").ok();
 
     // Now assemble the file with only the imports that are actually used in the body.
@@ -423,12 +463,18 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
         .ok();
         writeln!(out, "        }}").ok();
     } else if matches!(func.return_type, TypeRef::Named(_)) {
-        // Named types return a JSON string pointer that needs deserialization
+        // Named return types: FFI returns a struct pointer, use accessor functions.
         let return_type_name = match &func.return_type {
             TypeRef::Named(name) => name,
             _ => unreachable!(),
         };
-        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
+        let type_snake = return_type_name.to_snake_case();
+        let free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
+        let content_handle = format!(
+            "NativeLib.{}_{}_CONTENT",
+            prefix.to_uppercase(),
+            type_snake.to_uppercase()
+        );
         writeln!(
             out,
             "            var resultPtr = (MemorySegment) {}.invoke({});",
@@ -439,19 +485,17 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
         writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
         writeln!(out, "                return null;").ok();
         writeln!(out, "            }}").ok();
+        // Use accessor to get content, then free the struct
         writeln!(
             out,
-            "            String json = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+            "            var contentPtr = (MemorySegment) {}.invoke(resultPtr);",
+            content_handle
         )
         .ok();
+        writeln!(out, "            String content = contentPtr.equals(MemorySegment.NULL) ? null : contentPtr.reinterpret(Long.MAX_VALUE).getString(0);").ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        writeln!(out, "            var objectMapper = new ObjectMapper();").ok();
-        writeln!(
-            out,
-            "            return objectMapper.readValue(json, {}.class);",
-            return_type_name
-        )
-        .ok();
+        // Construct result — content from accessor, other fields defaulted for now
+        writeln!(out, "            return new {}(java.util.Optional.ofNullable(content), java.util.Optional.empty(), java.util.List.of(), java.util.List.of());", return_type_name).ok();
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
