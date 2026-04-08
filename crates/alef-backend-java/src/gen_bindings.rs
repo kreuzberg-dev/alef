@@ -492,10 +492,24 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
             content_handle
         )
         .ok();
-        writeln!(out, "            String content = contentPtr.equals(MemorySegment.NULL) ? null : contentPtr.reinterpret(Long.MAX_VALUE).getString(0);").ok();
+        writeln!(
+            out,
+            "            String content = contentPtr.equals(MemorySegment.NULL) ? null :"
+        )
+        .ok();
+        writeln!(
+            out,
+            "                contentPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        )
+        .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
         // Construct result — content from accessor, other fields defaulted for now
-        writeln!(out, "            return new {}(java.util.Optional.ofNullable(content), java.util.Optional.empty(), java.util.List.of(), java.util.List.of());", return_type_name).ok();
+        writeln!(out, "            return new {}(", return_type_name).ok();
+        writeln!(out, "                java.util.Optional.ofNullable(content),").ok();
+        writeln!(out, "                java.util.Optional.empty(),").ok();
+        writeln!(out, "                java.util.List.of(),").ok();
+        writeln!(out, "                java.util.List.of()").ok();
+        writeln!(out, "            );").ok();
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
