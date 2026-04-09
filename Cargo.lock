@@ -217,6 +217,7 @@ version = "0.1.0"
 dependencies = [
  "alef-core",
  "anyhow",
+ "heck",
  "serde",
  "serde_json",
  "tracing",

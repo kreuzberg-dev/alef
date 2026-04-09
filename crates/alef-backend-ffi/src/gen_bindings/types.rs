@@ -198,7 +198,7 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
         writeln!(out, "    if !out_len.is_null() {{").ok();
         writeln!(out, "        unsafe {{ *out_len = data.len(); }}").ok();
         writeln!(out, "    }}").ok();
-        writeln!(out, "    data.as_ptr() as *mut u8").ok();
+        writeln!(out, "    data.as_ptr() as *mut std::ffi::c_char").ok();
     } else {
         // When is_boxed: obj.field_name is Box<T>, deref to get T before cloning
         let access_expr = if field.is_boxed {

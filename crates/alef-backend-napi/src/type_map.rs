@@ -35,6 +35,12 @@ impl TypeMapper for NapiMapper {
         Cow::Borrowed("i64")
     }
 
+    /// NAPI doesn't implement FromNapiValue/ToNapiValue for serde_json::Value,
+    /// so JSON is passed as a String and parsed on the JS side.
+    fn json(&self) -> Cow<'static, str> {
+        Cow::Borrowed("String")
+    }
+
     fn error_wrapper(&self) -> &str {
         "Result"
     }

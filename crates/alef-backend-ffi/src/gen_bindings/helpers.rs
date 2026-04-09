@@ -55,7 +55,7 @@ pub(super) fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
         }
         TypeRef::Bytes => {
             // Return pointer; caller must also get length. Cast to *mut u8 to match FFI signature.
-            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").ok();
+            writeln!(out, "{indent}{expr}.as_ptr() as *mut std::ffi::c_char").ok();
         }
         TypeRef::Duration => {
             writeln!(out, "{indent}{expr}.as_secs()").ok();
@@ -115,6 +115,7 @@ pub(super) fn null_return_value(ty: &TypeRef) -> &'static str {
                 PrimitiveType::F32 | PrimitiveType::F64 => "0.0",
                 _ => "0",
             },
+            TypeRef::Duration => "0",
             _ => "std::ptr::null_mut()",
         },
         TypeRef::Unit => "()",
@@ -186,7 +187,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> St
         }
         TypeRef::Bytes => {
             // Return pointer; assume out-param for length. Cast to *mut u8 to match FFI signature.
-            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").ok();
+            writeln!(out, "{indent}{expr}.as_ptr() as *mut std::ffi::c_char").ok();
         }
         TypeRef::Optional(inner) => {
             writeln!(out, "{indent}match {expr} {{").ok();

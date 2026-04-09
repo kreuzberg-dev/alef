@@ -1,5 +1,10 @@
 //! E2e test code generation trait and language dispatch.
 
+pub mod go;
+pub mod python;
+pub mod rust;
+pub mod typescript;
+
 use crate::config::E2eConfig;
 use crate::fixture::FixtureGroup;
 use alef_core::backend::GeneratedFile;
@@ -22,8 +27,12 @@ pub trait E2eCodegen: Send + Sync {
 
 /// Get all available e2e code generators.
 pub fn all_generators() -> Vec<Box<dyn E2eCodegen>> {
-    // Will be populated as generators are implemented
-    vec![]
+    vec![
+        Box::new(rust::RustE2eCodegen),
+        Box::new(python::PythonE2eCodegen),
+        Box::new(typescript::TypeScriptCodegen),
+        Box::new(go::GoCodegen),
+    ]
 }
 
 /// Get e2e code generators for specific language names.

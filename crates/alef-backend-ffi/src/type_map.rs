@@ -45,6 +45,7 @@ pub fn c_return_type(ty: &TypeRef, core_import: &str) -> Cow<'static, str> {
                     Cow::Borrowed("*mut std::ffi::c_char")
                 }
                 TypeRef::Named(name) => Cow::Owned(format!("*mut {core_import}::{name}")),
+                TypeRef::Duration => Cow::Borrowed("u64"), // 0 = None sentinel
                 _ => Cow::Borrowed("*mut std::ffi::c_char"),
             }
         }
