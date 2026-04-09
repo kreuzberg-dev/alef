@@ -62,8 +62,10 @@ pub(crate) fn gen_php_function_params(
         .map(|p| {
             let base_ty = mapper.map_type(&p.ty);
             let ty = match &p.ty {
-                TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
-                    // Non-opaque php_class type: use &T for ext-php-rs compatibility
+                TypeRef::Named(_name) => {
+                    // All php_class types (opaque and non-opaque) must use &T for
+                    // ext-php-rs compatibility: owned php_class types don't implement
+                    // FromZvalMut, only &T and &mut T do.
                     if p.optional {
                         format!("Option<&{base_ty}>")
                     } else {

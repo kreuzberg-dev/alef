@@ -258,13 +258,28 @@ fn get_module_info(_api: &ApiSurface, config: &AlefConfig) -> (String, String) {
 }
 
 /// Generate an opaque Rustler resource struct with inner Arc.
+///
+/// Also generates `RefUnwindSafe` impl so the resource can be used across
+/// the `catch_unwind` boundary that `#[rustler::nif]` inserts. This is safe
+/// because the inner value is behind `Arc` (shared ownership, no mutation
+/// through the Arc itself) and Rustler's ResourceArc already guarantees
+/// thread-safe access.
 fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_types: &AHashSet<String>) -> String {
-    let mut out = String::with_capacity(256);
+    let mut out = String::with_capacity(512);
     out.push_str("#[derive(Clone)]\n");
     out.push_str(&format!("pub struct {} {{\n", typ.name));
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
     out.push_str(&format!("    inner: Arc<{}>,\n", core_path));
     out.push_str("}\n\n");
+    // SAFETY: The inner value is behind Arc (immutable shared reference) and
+    // Rustler's ResourceArc ensures thread-safe access. Interior mutability in
+    // the inner type (e.g. Arc<dyn Trait>) does not affect unwind safety here
+    // because we never hold mutable references across catch_unwind boundaries.
+    out.push_str(&format!(
+        "// SAFETY: See gen_opaque_resource in alef-backend-rustler for rationale.\n\
+         impl std::panic::RefUnwindSafe for {} {{}}\n\n",
+        typ.name
+    ));
     out.push_str(&format!("impl rustler::Resource for {} {{}}", typ.name));
     out
 }
@@ -427,6 +442,9 @@ fn gen_nif_function(
                 if opaque_types.contains(n) {
                     return format!("{}: ResourceArc<{}>", p.name, n);
                 }
+                if p.optional {
+                    return format!("{}: Option<{}>", p.name, n);
+                }
             }
             format!("{}: {}", p.name, mapper.map_type(&p.ty))
         })
@@ -471,6 +489,9 @@ fn gen_nif_async_function(
             if let TypeRef::Named(n) = &p.ty {
                 if opaque_types.contains(n) {
                     return format!("{}: ResourceArc<{}>", p.name, n);
+                }
+                if p.optional {
+                    return format!("{}: Option<{}>", p.name, n);
                 }
             }
             format!("{}: {}", p.name, mapper.map_type(&p.ty))
@@ -556,10 +577,16 @@ fn gen_nif_method(
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
         let core_call = if is_opaque {
             format!("resource.inner.{}({})", method.name, call_args)
-        } else {
-            // Non-opaque: convert binding struct to core type, then call
+        } else if method.receiver.is_some() {
+            // Instance method on non-opaque: convert binding struct to core type, then call
             format!(
                 "{core_import}::{}::from(obj).{}({})",
+                struct_name, method.name, call_args
+            )
+        } else {
+            // Static method on non-opaque: call directly on core type
+            format!(
+                "{core_import}::{}::{}({})",
                 struct_name, method.name, call_args
             )
         };
@@ -634,9 +661,15 @@ fn gen_nif_async_method(
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
         let core_call = if is_opaque {
             format!("resource.inner.{}({})", method.name, call_args)
-        } else {
+        } else if method.receiver.is_some() {
             format!(
                 "{core_import}::{}::from(obj).{}({})",
+                struct_name, method.name, call_args
+            )
+        } else {
+            // Static method on non-opaque: call directly on core type
+            format!(
+                "{core_import}::{}::{}({})",
                 struct_name, method.name, call_args
             )
         };

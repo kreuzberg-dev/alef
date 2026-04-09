@@ -47,13 +47,16 @@ pub(crate) fn gen_opaque_struct_methods(
     impl_builder.build()
 }
 
-/// Generate a PHP struct, adding `serde::Deserialize` when serde is available.
+/// Generate a PHP struct, adding `serde::Serialize` and `serde::Deserialize` when serde is available.
 /// All structs need Deserialize (not just those with Named params) because
 /// structs with from_json may reference other structs that also need Deserialize.
+/// Serialize is needed for the serde bridge `From<BindingType> for CoreType` used
+/// by enum-tainted types (types with enum-Named fields that PHP maps to String).
 pub(crate) fn gen_php_struct(typ: &TypeDef, mapper: &PhpMapper, cfg: &RustBindingConfig<'_>) -> String {
     if cfg.has_serde {
-        // Build a modified config that also derives Deserialize so from_json can work.
+        // Build a modified config that also derives Serialize + Deserialize.
         let mut extra_derives: Vec<&str> = cfg.struct_derives.to_vec();
+        extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
         let modified_cfg = RustBindingConfig {
             struct_attrs: cfg.struct_attrs,

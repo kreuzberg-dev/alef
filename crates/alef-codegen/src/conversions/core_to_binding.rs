@@ -319,6 +319,20 @@ pub fn field_conversion_from_core_cfg(
                 format!("{name}: format!(\"{{:?}}\", val.{name})")
             }
         }
+        // Vec<Enum-to-String> Named types (PHP pattern): element-wise format!("{:?}")
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if is_enum_string(n)) => {
+            if optional {
+                format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|x| format!(\"{{:?}}\", x)).collect())")
+            } else {
+                format!("{name}: val.{name}.iter().map(|v| format!(\"{{:?}}\", v)).collect()")
+            }
+        }
+        // Optional(Vec<Enum-to-String>) Named types (PHP pattern)
+        TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(n) if is_enum_string(n))) =>
+        {
+            format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|x| format!(\"{{:?}}\", x)).collect())")
+        }
         // Vec<f32> needs element-wise cast to f64 when f32→f64 mapping is active
         TypeRef::Vec(inner)
             if config.cast_f32_to_f64 && matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::F32)) =>

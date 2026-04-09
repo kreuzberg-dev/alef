@@ -67,14 +67,11 @@ impl super::E2eCodegen for RustE2eCodegen {
 // Config resolution helpers
 // ---------------------------------------------------------------------------
 
-fn resolve_crate_name(e2e_config: &E2eConfig, alef_config: &AlefConfig) -> String {
-    e2e_config
-        .call
-        .overrides
-        .get("rust")
-        .and_then(|o| o.crate_name.clone())
-        .or_else(|| e2e_config.packages.get("rust").and_then(|p| p.name.clone()))
-        .unwrap_or_else(|| alef_config.crate_config.name.clone())
+fn resolve_crate_name(_e2e_config: &E2eConfig, alef_config: &AlefConfig) -> String {
+    // Always use the Cargo package name (with hyphens) from alef.toml [crate].
+    // The `crate_name` override in [e2e.call.overrides.rust] is for the Rust
+    // import identifier, not the Cargo package name.
+    alef_config.crate_config.name.clone()
 }
 
 fn resolve_crate_path(e2e_config: &E2eConfig, crate_name: &str) -> String {
