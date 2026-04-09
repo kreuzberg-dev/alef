@@ -191,7 +191,7 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
                 "    static final MethodHandle {} = LINKER.downcallHandle(",
                 handle_name
             )
-            .unwrap();
+            .ok();
             writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", ffi_name).ok();
             writeln!(body, "        {}", layout_str).ok();
             writeln!(body, "    );").ok();
@@ -208,7 +208,7 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
             "    static final MethodHandle {} = LINKER.downcallHandle(",
             handle_name
         )
-        .unwrap();
+        .ok();
         writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_name).ok();
         writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
         writeln!(body, "    );").ok();

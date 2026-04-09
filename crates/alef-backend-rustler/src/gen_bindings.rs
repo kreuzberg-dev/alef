@@ -274,9 +274,9 @@ fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_types: &AHashSe
 fn gen_struct(typ: &TypeDef, mapper: &RustlerMapper, module_prefix: &str) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
-    writeln!(out, "#[derive(Debug, Clone, rustler::NifStruct)]").unwrap();
-    writeln!(out, "#[module = \"{}.{}\"]", module_prefix, typ.name).unwrap();
-    writeln!(out, "pub struct {} {{", typ.name).unwrap();
+    writeln!(out, "#[derive(Debug, Clone, rustler::NifStruct)]").ok();
+    writeln!(out, "#[module = \"{}.{}\"]", module_prefix, typ.name).ok();
+    writeln!(out, "pub struct {} {{", typ.name).ok();
 
     for field in &typ.fields {
         let field_type = if field.optional {
@@ -284,10 +284,10 @@ fn gen_struct(typ: &TypeDef, mapper: &RustlerMapper, module_prefix: &str) -> Str
         } else {
             mapper.map_type(&field.ty)
         };
-        writeln!(out, "    pub {}: {},", field.name, field_type).unwrap();
+        writeln!(out, "    pub {}: {},", field.name, field_type).ok();
     }
 
-    write!(out, "}}").unwrap();
+    write!(out, "}}").ok();
     out
 }
 
@@ -296,14 +296,14 @@ fn gen_rustler_config_impl(typ: &TypeDef, mapper: &RustlerMapper) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
 
-    writeln!(out, "impl {} {{", typ.name).unwrap();
+    writeln!(out, "impl {} {{", typ.name).ok();
 
     // Generate kwargs constructor using config_gen helper
     let map_fn = |ty: &TypeRef| mapper.map_type(ty);
     let config_method = alef_codegen::config_gen::gen_rustler_kwargs_constructor(typ, &map_fn);
-    write!(out, "    {}", config_method).unwrap();
+    write!(out, "    {}", config_method).ok();
 
-    writeln!(out, "}}").unwrap();
+    writeln!(out, "}}").ok();
     out
 }
 

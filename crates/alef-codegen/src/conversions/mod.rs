@@ -1,0 +1,171 @@
+mod binding_to_core;
+mod core_to_binding;
+mod enums;
+mod helpers;
+
+use ahash::AHashSet;
+
+/// Backend-specific configuration for From/field conversion generation.
+/// Enables shared code to handle all backend differences via parameters.
+#[derive(Default, Clone)]
+pub struct ConversionConfig<'a> {
+    /// Prefix for binding type names ("Js" for NAPI/WASM, "" for others).
+    pub type_name_prefix: &'a str,
+    /// U64/Usize/Isize need `as i64` casts (NAPI, PHP — JS/PHP lack native u64).
+    pub cast_large_ints_to_i64: bool,
+    /// Enum names mapped to String in the binding layer (PHP only).
+    /// Named fields referencing these use `format!("{:?}")` in core→binding.
+    pub enum_string_names: Option<&'a AHashSet<String>>,
+    /// Map types use JsValue in the binding layer (WASM only).
+    /// When true, Map fields use `serde_wasm_bindgen` for conversion instead of
+    /// iterator-based collect patterns (JsValue is not iterable).
+    pub map_uses_jsvalue: bool,
+    /// When true, f32 is mapped to f64 (NAPI only — JS has no f32).
+    pub cast_f32_to_f64: bool,
+    /// When true, non-optional fields on defaultable types are wrapped in Option<T>
+    /// in the binding struct and need `.unwrap_or_default()` in binding→core From.
+    /// Used by NAPI to make JS-facing structs fully optional.
+    pub optionalize_defaults: bool,
+    /// When true, Json (serde_json::Value) fields are mapped to String in the binding layer.
+    /// Core→binding uses `.to_string()`, binding→core uses `Default::default()` (lossy).
+    /// Used by PHP where serde_json::Value can't cross the extension boundary.
+    pub json_to_string: bool,
+    /// When true, add synthetic metadata field conversion for ConversionResult.
+    /// Only NAPI backend sets this (it adds metadata field to the struct).
+    pub include_cfg_metadata: bool,
+}
+
+// Re-export all public items so callers continue to use `conversions::foo`.
+pub use binding_to_core::{
+    field_conversion_to_core, field_conversion_to_core_cfg, gen_from_binding_to_core, gen_from_binding_to_core_cfg,
+};
+pub use core_to_binding::{
+    field_conversion_from_core, field_conversion_from_core_cfg, gen_from_core_to_binding, gen_from_core_to_binding_cfg,
+};
+pub use enums::{
+    gen_enum_from_binding_to_core, gen_enum_from_binding_to_core_cfg, gen_enum_from_core_to_binding,
+    gen_enum_from_core_to_binding_cfg,
+};
+pub use helpers::{
+    binding_to_core_match_arm, can_generate_conversion, can_generate_enum_conversion,
+    can_generate_enum_conversion_from_core, convertible_types, core_enum_path, core_to_binding_convertible_types,
+    core_to_binding_match_arm, core_type_path, has_sanitized_fields, is_tuple_variant,
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::*;
+
+    fn simple_type() -> TypeDef {
+        TypeDef {
+            name: "Config".to_string(),
+            rust_path: "my_crate::Config".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "name".into(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                },
+                FieldDef {
+                    name: "timeout".into(),
+                    ty: TypeRef::Primitive(PrimitiveType::U64),
+                    optional: true,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                },
+                FieldDef {
+                    name: "backend".into(),
+                    ty: TypeRef::Named("Backend".into()),
+                    optional: true,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            doc: String::new(),
+            cfg: None,
+        }
+    }
+
+    fn simple_enum() -> EnumDef {
+        EnumDef {
+            name: "Backend".to_string(),
+            rust_path: "my_crate::Backend".to_string(),
+            variants: vec![
+                EnumVariant {
+                    name: "Cpu".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                },
+                EnumVariant {
+                    name: "Gpu".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+        }
+    }
+
+    #[test]
+    fn test_from_binding_to_core() {
+        let typ = simple_type();
+        let result = gen_from_binding_to_core(&typ, "my_crate");
+        assert!(result.contains("impl From<Config> for my_crate::Config"));
+        assert!(result.contains("name: val.name"));
+        assert!(result.contains("timeout: val.timeout"));
+        assert!(result.contains("backend: val.backend.map(Into::into)"));
+    }
+
+    #[test]
+    fn test_from_core_to_binding() {
+        let typ = simple_type();
+        let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
+        assert!(result.contains("impl From<my_crate::Config> for Config"));
+    }
+
+    #[test]
+    fn test_enum_from_binding_to_core() {
+        let enum_def = simple_enum();
+        let result = gen_enum_from_binding_to_core(&enum_def, "my_crate");
+        assert!(result.contains("impl From<Backend> for my_crate::Backend"));
+        assert!(result.contains("Backend::Cpu => Self::Cpu"));
+        assert!(result.contains("Backend::Gpu => Self::Gpu"));
+    }
+
+    #[test]
+    fn test_enum_from_core_to_binding() {
+        let enum_def = simple_enum();
+        let result = gen_enum_from_core_to_binding(&enum_def, "my_crate");
+        assert!(result.contains("impl From<my_crate::Backend> for Backend"));
+        assert!(result.contains("my_crate::Backend::Cpu => Self::Cpu"));
+        assert!(result.contains("my_crate::Backend::Gpu => Self::Gpu"));
+    }
+}

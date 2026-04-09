@@ -64,7 +64,7 @@ impl RustFileBuilder {
 
         if !self.imports.is_empty() {
             for import in &self.imports {
-                writeln!(out, "use {import};").unwrap();
+                writeln!(out, "use {import};").ok();
             }
             out.push('\n');
         }
@@ -140,28 +140,28 @@ impl StructBuilder {
         let mut out = String::with_capacity(capacity);
 
         if !self.derives.is_empty() {
-            writeln!(out, "#[derive({})]", self.derives.join(", ")).unwrap();
+            writeln!(out, "#[derive({})]", self.derives.join(", ")).ok();
         }
 
         for attr in &self.attrs {
-            writeln!(out, "#[{attr}]").unwrap();
+            writeln!(out, "#[{attr}]").ok();
         }
 
-        writeln!(out, "{} struct {} {{", self.visibility, self.name).unwrap();
+        writeln!(out, "{} struct {} {{", self.visibility, self.name).ok();
 
         for (name, ty, attrs, doc) in &self.fields {
             if !doc.is_empty() {
                 for line in doc.lines() {
-                    writeln!(out, "    /// {line}").unwrap();
+                    writeln!(out, "    /// {line}").ok();
                 }
             }
             for attr in attrs {
-                writeln!(out, "    #[{attr}]").unwrap();
+                writeln!(out, "    #[{attr}]").ok();
             }
-            writeln!(out, "    pub {name}: {ty},").unwrap();
+            writeln!(out, "    pub {name}: {ty},").ok();
         }
 
-        write!(out, "}}").unwrap();
+        write!(out, "}}").ok();
         out
     }
 }
@@ -201,10 +201,10 @@ impl ImplBuilder {
         let mut out = String::with_capacity(capacity);
 
         for attr in &self.attrs {
-            writeln!(out, "#[{attr}]").unwrap();
+            writeln!(out, "#[{attr}]").ok();
         }
 
-        writeln!(out, "impl {} {{", self.target).unwrap();
+        writeln!(out, "impl {} {{", self.target).ok();
 
         for (i, method) in self.methods.iter().enumerate() {
             // Indent each line of the method
@@ -212,7 +212,7 @@ impl ImplBuilder {
                 if line.is_empty() {
                     out.push('\n');
                 } else {
-                    writeln!(out, "    {line}").unwrap();
+                    writeln!(out, "    {line}").ok();
                 }
             }
             if i < self.methods.len() - 1 {
@@ -220,7 +220,7 @@ impl ImplBuilder {
             }
         }
 
-        write!(out, "}}").unwrap();
+        write!(out, "}}").ok();
         out
     }
 }

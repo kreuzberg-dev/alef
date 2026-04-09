@@ -293,48 +293,48 @@ fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str) -> String 
         out,
         "/// Create a `{type_name}` from a JSON string. Returns null on failure."
     )
-    .unwrap();
-    writeln!(out, "/// # Safety").unwrap();
-    writeln!(out, "/// JSON string must be valid UTF-8 and null-terminated.").unwrap();
+    .ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "/// JSON string must be valid UTF-8 and null-terminated.").ok();
     writeln!(
         out,
         "/// Returned handle must be freed with `{prefix}_{type_snake}_free`."
     )
-    .unwrap();
-    writeln!(out, "#[unsafe(no_mangle)]").unwrap();
+    .ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
     writeln!(
         out,
         "pub unsafe extern \"C\" fn {prefix}_{type_snake}_from_json(json: *const c_char) -> *mut {qualified} {{"
     )
-    .unwrap();
-    writeln!(out, "    clear_last_error();").unwrap();
-    writeln!(out, "    if json.is_null() {{").unwrap();
+    .ok();
+    writeln!(out, "    clear_last_error();").ok();
+    writeln!(out, "    if json.is_null() {{").ok();
     writeln!(
         out,
         "        set_last_error(1, \"Null pointer passed for JSON string\");"
     )
-    .unwrap();
-    writeln!(out, "        return std::ptr::null_mut();").unwrap();
-    writeln!(out, "    }}").unwrap();
+    .ok();
+    writeln!(out, "        return std::ptr::null_mut();").ok();
+    writeln!(out, "    }}").ok();
     writeln!(
         out,
         "    let c_str = match unsafe {{ CStr::from_ptr(json) }}.to_str() {{"
     )
-    .unwrap();
-    writeln!(out, "        Ok(s) => s,").unwrap();
-    writeln!(out, "        Err(_) => {{").unwrap();
-    writeln!(out, "            set_last_error(1, \"Invalid UTF-8 in JSON string\");").unwrap();
-    writeln!(out, "            return std::ptr::null_mut();").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }};").unwrap();
-    writeln!(out, "    match serde_json::from_str::<{qualified}>(c_str) {{").unwrap();
-    writeln!(out, "        Ok(val) => Box::into_raw(Box::new(val)),").unwrap();
-    writeln!(out, "        Err(e) => {{").unwrap();
-    writeln!(out, "            set_last_error(2, &e.to_string());").unwrap();
-    writeln!(out, "            std::ptr::null_mut()").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    .ok();
+    writeln!(out, "        Ok(s) => s,").ok();
+    writeln!(out, "        Err(_) => {{").ok();
+    writeln!(out, "            set_last_error(1, \"Invalid UTF-8 in JSON string\");").ok();
+    writeln!(out, "            return std::ptr::null_mut();").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }};").ok();
+    writeln!(out, "    match serde_json::from_str::<{qualified}>(c_str) {{").ok();
+    writeln!(out, "        Ok(val) => Box::into_raw(Box::new(val)),").ok();
+    writeln!(out, "        Err(e) => {{").ok();
+    writeln!(out, "            set_last_error(2, &e.to_string());").ok();
+    writeln!(out, "            std::ptr::null_mut()").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
 
     out
 }
@@ -345,19 +345,19 @@ fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
     let qualified = format!("{core_import}::{type_name}");
     let mut out = String::with_capacity(2048);
 
-    writeln!(out, "/// Free a `{type_name}` handle.").unwrap();
-    writeln!(out, "/// # Safety").unwrap();
-    writeln!(out, "/// Pointer must have been returned by this library, or be null.").unwrap();
-    writeln!(out, "#[unsafe(no_mangle)]").unwrap();
+    writeln!(out, "/// Free a `{type_name}` handle.").ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "/// Pointer must have been returned by this library, or be null.").ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
     writeln!(
         out,
         "pub unsafe extern \"C\" fn {prefix}_{type_snake}_free(ptr: *mut {qualified}) {{"
     )
-    .unwrap();
-    writeln!(out, "    if !ptr.is_null() {{").unwrap();
-    writeln!(out, "        unsafe {{ drop(Box::from_raw(ptr)); }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    .ok();
+    writeln!(out, "    if !ptr.is_null() {{").ok();
+    writeln!(out, "        unsafe {{ drop(Box::from_raw(ptr)); }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
 
     out
 }
@@ -401,10 +401,10 @@ fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, core_import
     }
     let mut out = String::with_capacity(2048);
 
-    writeln!(out, "/// Get the `{field_name}` field from a `{type_name}`.").unwrap();
-    writeln!(out, "/// # Safety").unwrap();
-    writeln!(out, "/// Pointer must be a valid handle returned by this library.").unwrap();
-    writeln!(out, "#[unsafe(no_mangle)]").unwrap();
+    writeln!(out, "/// Get the `{field_name}` field from a `{type_name}`.").ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "/// Pointer must be a valid handle returned by this library.").ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
 
     // Determine if we need an extra out-param for byte-length
     let needs_len_out = matches!(field.ty, TypeRef::Bytes) && !field.optional;
@@ -418,25 +418,25 @@ fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, core_import
             out,
             "pub unsafe extern \"C\" fn {prefix}_{type_snake}_{field_name}(ptr: *const {qualified}, out_len: *mut usize) -> {ret_type} {{"
         )
-        .unwrap();
+        .ok();
     } else {
         writeln!(
             out,
             "pub {const_kw}unsafe extern \"C\" fn {prefix}_{type_snake}_{field_name}(ptr: *const {qualified}) -> {ret_type} {{"
         )
-        .unwrap();
+        .ok();
     }
 
     // Null-check on ptr
-    writeln!(out, "    if ptr.is_null() {{").unwrap();
-    writeln!(out, "        return {};", null_return_value(&effective_ty)).unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    let obj = unsafe {{ &*ptr }};").unwrap();
+    writeln!(out, "    if ptr.is_null() {{").ok();
+    writeln!(out, "        return {};", null_return_value(&effective_ty)).ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "    let obj = unsafe {{ &*ptr }};").ok();
 
     // Generate the accessor body based on field type
-    write!(out, "{}", gen_field_access_body(field, needs_len_out)).unwrap();
+    write!(out, "{}", gen_field_access_body(field, needs_len_out)).ok();
 
-    write!(out, "}}").unwrap();
+    write!(out, "}}").ok();
     out
 }
 
@@ -455,24 +455,24 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
         } else {
             "val"
         };
-        writeln!(out, "    match &obj.{field_name} {{").unwrap();
-        writeln!(out, "        Some(val) => {{").unwrap();
-        write!(out, "{}", gen_value_to_c(val_expr, &field.ty, "            ")).unwrap();
-        writeln!(out, "        }}").unwrap();
+        writeln!(out, "    match &obj.{field_name} {{").ok();
+        writeln!(out, "        Some(val) => {{").ok();
+        write!(out, "{}", gen_value_to_c(val_expr, &field.ty, "            ")).ok();
+        writeln!(out, "        }}").ok();
         writeln!(
             out,
             "        None => {},",
             null_return_value(&TypeRef::Optional(Box::new(field.ty.clone())))
         )
-        .unwrap();
-        writeln!(out, "    }}").unwrap();
+        .ok();
+        writeln!(out, "    }}").ok();
     } else if needs_len_out {
         // Bytes with length out-param
-        writeln!(out, "    let data = &obj.{field_name};").unwrap();
-        writeln!(out, "    if !out_len.is_null() {{").unwrap();
-        writeln!(out, "        unsafe {{ *out_len = data.len(); }}").unwrap();
-        writeln!(out, "    }}").unwrap();
-        writeln!(out, "    data.as_ptr() as *mut u8").unwrap();
+        writeln!(out, "    let data = &obj.{field_name};").ok();
+        writeln!(out, "    if !out_len.is_null() {{").ok();
+        writeln!(out, "        unsafe {{ *out_len = data.len(); }}").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "    data.as_ptr() as *mut u8").ok();
     } else {
         // When is_boxed: obj.field_name is Box<T>, deref to get T before cloning
         let access_expr = if field.is_boxed {
@@ -480,7 +480,7 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
         } else {
             format!("obj.{field_name}")
         };
-        write!(out, "{}", gen_value_to_c(&access_expr, &field.ty, "    ")).unwrap();
+        write!(out, "{}", gen_value_to_c(&access_expr, &field.ty, "    ")).ok();
     }
 
     out
@@ -494,71 +494,71 @@ fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
         TypeRef::Primitive(p) => {
             // Bool needs cast to i32 for C ABI; other primitives may need deref if from Option
             if matches!(p, alef_core::ir::PrimitiveType::Bool) {
-                writeln!(out, "{indent}{expr} as i32").unwrap();
+                writeln!(out, "{indent}{expr} as i32").ok();
             } else {
-                writeln!(out, "{indent}{expr}").unwrap();
+                writeln!(out, "{indent}{expr}").ok();
             }
         }
         TypeRef::String | TypeRef::Char => {
-            writeln!(out, "{indent}match CString::new({expr}.to_string()) {{").unwrap();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").unwrap();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            writeln!(out, "{indent}match CString::new({expr}.to_string()) {{").ok();
+            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Path => {
             writeln!(
                 out,
                 "{indent}match CString::new({expr}.to_string_lossy().to_string()) {{"
             )
-            .unwrap();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").unwrap();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            .ok();
+            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Json => {
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").unwrap();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").unwrap();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").unwrap();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}    }},").unwrap();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
+            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
+            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
+            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}    }},").ok();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Named(_) => {
-            writeln!(out, "{indent}Box::into_raw(Box::new({expr}.clone()))").unwrap();
+            writeln!(out, "{indent}Box::into_raw(Box::new({expr}.clone()))").ok();
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             // Serialize as JSON
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").unwrap();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").unwrap();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").unwrap();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}    }},").unwrap();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
+            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
+            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
+            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}    }},").ok();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Bytes => {
             // Return pointer; caller must also get length. Cast to *mut u8 to match FFI signature.
-            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").unwrap();
+            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").ok();
         }
         TypeRef::Duration => {
-            writeln!(out, "{indent}{expr}.as_secs()").unwrap();
+            writeln!(out, "{indent}{expr}.as_secs()").ok();
         }
         TypeRef::Unit => {
             // nothing to return
         }
         TypeRef::Optional(inner) => {
-            writeln!(out, "{indent}match &{expr} {{").unwrap();
-            writeln!(out, "{indent}    Some(val) => {{").unwrap();
-            write!(out, "{}", gen_value_to_c("val", inner, &format!("{indent}        "))).unwrap();
-            writeln!(out, "{indent}    }}").unwrap();
+            writeln!(out, "{indent}match &{expr} {{").ok();
+            writeln!(out, "{indent}    Some(val) => {{").ok();
+            write!(out, "{}", gen_value_to_c("val", inner, &format!("{indent}        "))).ok();
+            writeln!(out, "{indent}    }}").ok();
             writeln!(
                 out,
                 "{indent}    None => {},",
                 null_return_value(&TypeRef::Optional(inner.clone()))
             )
-            .unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            .ok();
+            writeln!(out, "{indent}}}").ok();
         }
     }
     out
@@ -625,24 +625,24 @@ fn gen_method_wrapper(
 
     if !method.doc.is_empty() {
         for line in method.doc.lines() {
-            writeln!(out, "/// {}", line).unwrap();
+            writeln!(out, "/// {}", line).ok();
         }
     }
-    writeln!(out, "/// # Safety").unwrap();
-    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").unwrap();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").ok();
     writeln!(
         out,
         "/// Returned pointers must be freed with the appropriate free function."
     )
-    .unwrap();
+    .ok();
     // Count total FFI params: this + params + extra _len for Bytes params
     let ffi_param_count = (if method.is_static { 0 } else { 1 })
         + method.params.len()
         + method.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
     if ffi_param_count > 7 {
-        writeln!(out, "#[allow(clippy::too_many_arguments)]").unwrap();
+        writeln!(out, "#[allow(clippy::too_many_arguments)]").ok();
     }
-    writeln!(out, "#[unsafe(no_mangle)]").unwrap();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
 
     let qualified = format!("{core_import}::{type_name}");
 
@@ -702,16 +702,16 @@ fn gen_method_wrapper(
     }
 
     if is_void_return(&method.return_type) && !has_error {
-        writeln!(out, "pub unsafe extern \"C\" fn {fn_name}(").unwrap();
-        writeln!(out, "{}", params.join(",\n")).unwrap();
-        writeln!(out, ") {{").unwrap();
+        writeln!(out, "pub unsafe extern \"C\" fn {fn_name}(").ok();
+        writeln!(out, "{}", params.join(",\n")).ok();
+        writeln!(out, ") {{").ok();
     } else {
-        writeln!(out, "pub unsafe extern \"C\" fn {fn_name}(").unwrap();
-        writeln!(out, "{}", params.join(",\n")).unwrap();
-        writeln!(out, ") -> {ret_type} {{").unwrap();
+        writeln!(out, "pub unsafe extern \"C\" fn {fn_name}(").ok();
+        writeln!(out, "{}", params.join(",\n")).ok();
+        writeln!(out, ") -> {ret_type} {{").ok();
     }
 
-    writeln!(out, "    clear_last_error();").unwrap();
+    writeln!(out, "    clear_last_error();").ok();
 
     // If method signature was sanitized, generate unimplemented body
     if will_be_unimplemented {
@@ -720,15 +720,15 @@ fn gen_method_wrapper(
             "{}",
             gen_ffi_unimplemented_body(&method.return_type, &format!("{type_name}::{method_name}"), has_error)
         )
-        .unwrap();
-        write!(out, "}}").unwrap();
+        .ok();
+        write!(out, "}}").ok();
         return out;
     }
 
     // Null-check self
     if !method.is_static {
-        writeln!(out, "    if this.is_null() {{").unwrap();
-        writeln!(out, "        set_last_error(1, \"Null pointer passed for self\");").unwrap();
+        writeln!(out, "    if this.is_null() {{").ok();
+        writeln!(out, "        set_last_error(1, \"Null pointer passed for self\");").ok();
         let fail_ret = if has_error && is_void_return(&method.return_type) {
             "return -1;".to_string()
         } else if is_void_return(&method.return_type) {
@@ -736,15 +736,15 @@ fn gen_method_wrapper(
         } else {
             format!("return {};", null_return_value(&method.return_type))
         };
-        writeln!(out, "        {fail_ret}").unwrap();
-        writeln!(out, "    }}").unwrap();
+        writeln!(out, "        {fail_ret}").ok();
+        writeln!(out, "    }}").ok();
 
         let deref = match method.receiver.as_ref().unwrap_or(&ReceiverKind::Ref) {
             ReceiverKind::Ref => "let obj = unsafe { &*this };".to_string(),
             ReceiverKind::RefMut => "let obj = unsafe { &mut *this };".to_string(),
             ReceiverKind::Owned => "let obj = unsafe { *Box::from_raw(this) };".to_string(),
         };
-        writeln!(out, "    {deref}").unwrap();
+        writeln!(out, "    {deref}").ok();
     }
 
     // Null-check and convert each parameter
@@ -754,7 +754,7 @@ fn gen_method_wrapper(
             "{}",
             gen_param_conversion(p, has_error, &method.return_type, core_import)
         )
-        .unwrap();
+        .ok();
     }
 
     // Build the call expression — pass &ref for String/Bytes/Named params, owned for Path
@@ -783,37 +783,37 @@ fn gen_method_wrapper(
             out,
             "    let result = {core_import}::{type_name}::{method_name}({call_args});"
         )
-        .unwrap();
+        .ok();
     } else {
-        writeln!(out, "    let result = obj.{method_name}({call_args});").unwrap();
+        writeln!(out, "    let result = obj.{method_name}({call_args});").ok();
     }
 
     // Handle return
     if has_error {
-        writeln!(out, "    match result {{").unwrap();
+        writeln!(out, "    match result {{").ok();
         if is_void_return(&method.return_type) {
-            writeln!(out, "        Ok(()) => 0,").unwrap();
+            writeln!(out, "        Ok(()) => 0,").ok();
         } else {
-            writeln!(out, "        Ok(val) => {{").unwrap();
-            write!(out, "{}", gen_value_to_c("val", &method.return_type, "            ")).unwrap();
-            writeln!(out, "        }}").unwrap();
+            writeln!(out, "        Ok(val) => {{").ok();
+            write!(out, "{}", gen_value_to_c("val", &method.return_type, "            ")).ok();
+            writeln!(out, "        }}").ok();
         }
-        writeln!(out, "        Err(e) => {{").unwrap();
-        writeln!(out, "            set_last_error(2, &e.to_string());").unwrap();
+        writeln!(out, "        Err(e) => {{").ok();
+        writeln!(out, "            set_last_error(2, &e.to_string());").ok();
         if is_void_return(&method.return_type) {
-            writeln!(out, "            -1").unwrap();
+            writeln!(out, "            -1").ok();
         } else {
-            writeln!(out, "            {}", null_return_value(&method.return_type)).unwrap();
+            writeln!(out, "            {}", null_return_value(&method.return_type)).ok();
         }
-        writeln!(out, "        }}").unwrap();
-        writeln!(out, "    }}").unwrap();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
     } else if is_void_return(&method.return_type) {
         // void, no error — result is already ()
     } else {
-        write!(out, "{}", gen_owned_value_to_c("result", &method.return_type, "    ")).unwrap();
+        write!(out, "{}", gen_owned_value_to_c("result", &method.return_type, "    ")).ok();
     }
 
-    write!(out, "}}").unwrap();
+    write!(out, "}}").ok();
     out
 }
 
@@ -835,22 +835,22 @@ fn gen_free_function(
 
     if !func.doc.is_empty() {
         for line in func.doc.lines() {
-            writeln!(out, "/// {}", line).unwrap();
+            writeln!(out, "/// {}", line).ok();
         }
     }
-    writeln!(out, "/// # Safety").unwrap();
-    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").unwrap();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").ok();
     writeln!(
         out,
         "/// Returned pointers must be freed with the appropriate free function."
     )
-    .unwrap();
+    .ok();
     // Count total FFI params: params + extra _len for Bytes params
     let ffi_param_count = func.params.len() + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
     if ffi_param_count > 7 {
-        writeln!(out, "#[allow(clippy::too_many_arguments)]").unwrap();
+        writeln!(out, "#[allow(clippy::too_many_arguments)]").ok();
     }
-    writeln!(out, "#[unsafe(no_mangle)]").unwrap();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
 
     let has_error = func.error_type.is_some();
     let ret_type = if has_error && is_void_return(&func.return_type) {
@@ -888,16 +888,16 @@ fn gen_free_function(
     }
 
     if is_void_return(&func.return_type) && !has_error {
-        writeln!(out, "pub unsafe extern \"C\" fn {ffi_name}(").unwrap();
-        writeln!(out, "{}", params.join(",\n")).unwrap();
-        writeln!(out, ") {{").unwrap();
+        writeln!(out, "pub unsafe extern \"C\" fn {ffi_name}(").ok();
+        writeln!(out, "{}", params.join(",\n")).ok();
+        writeln!(out, ") {{").ok();
     } else {
-        writeln!(out, "pub unsafe extern \"C\" fn {ffi_name}(").unwrap();
-        writeln!(out, "{}", params.join(",\n")).unwrap();
-        writeln!(out, ") -> {ret_type} {{").unwrap();
+        writeln!(out, "pub unsafe extern \"C\" fn {ffi_name}(").ok();
+        writeln!(out, "{}", params.join(",\n")).ok();
+        writeln!(out, ") -> {ret_type} {{").ok();
     }
 
-    writeln!(out, "    clear_last_error();").unwrap();
+    writeln!(out, "    clear_last_error();").ok();
 
     // If function signature was sanitized or involves opaque types, generate unimplemented body
     if will_be_unimplemented {
@@ -906,8 +906,8 @@ fn gen_free_function(
             "{}",
             gen_ffi_unimplemented_body(&func.return_type, func_name, has_error)
         )
-        .unwrap();
-        write!(out, "}}").unwrap();
+        .ok();
+        write!(out, "}}").ok();
         return out;
     }
 
@@ -918,7 +918,7 @@ fn gen_free_function(
             "{}",
             gen_param_conversion(p, has_error, &func.return_type, core_import)
         )
-        .unwrap();
+        .ok();
     }
 
     // Call — pass &ref for String/Bytes/Named params, owned for Path
@@ -942,34 +942,34 @@ fn gen_free_function(
         .collect();
     let call_args = arg_names.join(", ");
 
-    writeln!(out, "    let result = {core_import}::{func_name}({call_args});").unwrap();
+    writeln!(out, "    let result = {core_import}::{func_name}({call_args});").ok();
 
     // Handle return
     if has_error {
-        writeln!(out, "    match result {{").unwrap();
+        writeln!(out, "    match result {{").ok();
         if is_void_return(&func.return_type) {
-            writeln!(out, "        Ok(()) => 0,").unwrap();
+            writeln!(out, "        Ok(()) => 0,").ok();
         } else {
-            writeln!(out, "        Ok(val) => {{").unwrap();
-            write!(out, "{}", gen_value_to_c("val", &func.return_type, "            ")).unwrap();
-            writeln!(out, "        }}").unwrap();
+            writeln!(out, "        Ok(val) => {{").ok();
+            write!(out, "{}", gen_value_to_c("val", &func.return_type, "            ")).ok();
+            writeln!(out, "        }}").ok();
         }
-        writeln!(out, "        Err(e) => {{").unwrap();
-        writeln!(out, "            set_last_error(2, &e.to_string());").unwrap();
+        writeln!(out, "        Err(e) => {{").ok();
+        writeln!(out, "            set_last_error(2, &e.to_string());").ok();
         if is_void_return(&func.return_type) {
-            writeln!(out, "            -1").unwrap();
+            writeln!(out, "            -1").ok();
         } else {
-            writeln!(out, "            {}", null_return_value(&func.return_type)).unwrap();
+            writeln!(out, "            {}", null_return_value(&func.return_type)).ok();
         }
-        writeln!(out, "        }}").unwrap();
-        writeln!(out, "    }}").unwrap();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
     } else if is_void_return(&func.return_type) {
         // nothing
     } else {
-        write!(out, "{}", gen_owned_value_to_c("result", &func.return_type, "    ")).unwrap();
+        write!(out, "{}", gen_owned_value_to_c("result", &func.return_type, "    ")).ok();
     }
 
-    write!(out, "}}").unwrap();
+    write!(out, "}}").ok();
     out
 }
 
@@ -1006,206 +1006,206 @@ fn gen_param_conversion(param: &ParamDef, has_error: bool, return_type: &TypeRef
         // Optional parameter — null means None
         match &param.ty {
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").unwrap();
-                writeln!(out, "        None").unwrap();
-                writeln!(out, "    }} else {{").unwrap();
-                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").unwrap();
-                writeln!(out, "            Ok(s) => Some(s.to_string()),").unwrap();
-                writeln!(out, "            Err(_) => {{").unwrap();
+                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
+                writeln!(out, "        None").ok();
+                writeln!(out, "    }} else {{").ok();
+                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
+                writeln!(out, "            Ok(s) => Some(s.to_string()),").ok();
+                writeln!(out, "            Err(_) => {{").ok();
                 writeln!(
                     out,
                     "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "                {fail_ret}").unwrap();
-                writeln!(out, "            }}").unwrap();
-                writeln!(out, "        }}").unwrap();
-                writeln!(out, "    }};").unwrap();
+                .ok();
+                writeln!(out, "                {fail_ret}").ok();
+                writeln!(out, "            }}").ok();
+                writeln!(out, "        }}").ok();
+                writeln!(out, "    }};").ok();
             }
             TypeRef::Named(type_name) => {
                 let qualified = format!("{core_import}::{type_name}");
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").unwrap();
-                writeln!(out, "        None").unwrap();
-                writeln!(out, "    }} else {{").unwrap();
+                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
+                writeln!(out, "        None").ok();
+                writeln!(out, "    }} else {{").ok();
                 writeln!(
                     out,
                     "        Some(unsafe {{ &*({name} as *const {qualified}) }}.clone())"
                 )
-                .unwrap();
-                writeln!(out, "    }};").unwrap();
+                .ok();
+                writeln!(out, "    }};").ok();
             }
             _ => {
                 // Fallback: treat as nullable JSON string
-                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").unwrap();
-                writeln!(out, "        None").unwrap();
-                writeln!(out, "    }} else {{").unwrap();
-                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").unwrap();
-                writeln!(out, "            Ok(s) => Some(s.to_string()),").unwrap();
-                writeln!(out, "            Err(_) => {{").unwrap();
+                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
+                writeln!(out, "        None").ok();
+                writeln!(out, "    }} else {{").ok();
+                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
+                writeln!(out, "            Ok(s) => Some(s.to_string()),").ok();
+                writeln!(out, "            Err(_) => {{").ok();
                 writeln!(
                     out,
                     "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "                {fail_ret}").unwrap();
-                writeln!(out, "            }}").unwrap();
-                writeln!(out, "        }}").unwrap();
-                writeln!(out, "    }};").unwrap();
+                .ok();
+                writeln!(out, "                {fail_ret}").ok();
+                writeln!(out, "            }}").ok();
+                writeln!(out, "        }}").ok();
+                writeln!(out, "    }};").ok();
             }
         }
     } else {
         match &param.ty {
             TypeRef::String | TypeRef::Char => {
-                writeln!(out, "    if {name}.is_null() {{").unwrap();
+                writeln!(out, "    if {name}.is_null() {{").ok();
                 writeln!(
                     out,
                     "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "        {fail_ret}").unwrap();
-                writeln!(out, "    }}").unwrap();
+                .ok();
+                writeln!(out, "        {fail_ret}").ok();
+                writeln!(out, "    }}").ok();
                 writeln!(
                     out,
                     "    let {rs_name} = match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{"
                 )
-                .unwrap();
-                writeln!(out, "        Ok(s) => s.to_string(),").unwrap();
-                writeln!(out, "        Err(_) => {{").unwrap();
+                .ok();
+                writeln!(out, "        Ok(s) => s.to_string(),").ok();
+                writeln!(out, "        Err(_) => {{").ok();
                 writeln!(
                     out,
                     "            set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "            {fail_ret}").unwrap();
-                writeln!(out, "        }}").unwrap();
-                writeln!(out, "    }};").unwrap();
+                .ok();
+                writeln!(out, "            {fail_ret}").ok();
+                writeln!(out, "        }}").ok();
+                writeln!(out, "    }};").ok();
             }
             TypeRef::Path => {
-                writeln!(out, "    if {name}.is_null() {{").unwrap();
+                writeln!(out, "    if {name}.is_null() {{").ok();
                 writeln!(
                     out,
                     "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "        {fail_ret}").unwrap();
-                writeln!(out, "    }}").unwrap();
+                .ok();
+                writeln!(out, "        {fail_ret}").ok();
+                writeln!(out, "    }}").ok();
                 writeln!(
                     out,
                     "    let {rs_name} = match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{"
                 )
-                .unwrap();
-                writeln!(out, "        Ok(s) => std::path::PathBuf::from(s),").unwrap();
-                writeln!(out, "        Err(_) => {{").unwrap();
+                .ok();
+                writeln!(out, "        Ok(s) => std::path::PathBuf::from(s),").ok();
+                writeln!(out, "        Err(_) => {{").ok();
                 writeln!(
                     out,
                     "            set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "            {fail_ret}").unwrap();
-                writeln!(out, "        }}").unwrap();
-                writeln!(out, "    }};").unwrap();
+                .ok();
+                writeln!(out, "            {fail_ret}").ok();
+                writeln!(out, "        }}").ok();
+                writeln!(out, "    }};").ok();
             }
             TypeRef::Json => {
-                writeln!(out, "    if {name}.is_null() {{").unwrap();
+                writeln!(out, "    if {name}.is_null() {{").ok();
                 writeln!(
                     out,
                     "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "        {fail_ret}").unwrap();
-                writeln!(out, "    }}").unwrap();
+                .ok();
+                writeln!(out, "        {fail_ret}").ok();
+                writeln!(out, "    }}").ok();
                 writeln!(
                     out,
                     "    let {rs_name} = match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{"
                 )
-                .unwrap();
-                writeln!(out, "        Ok(s) => s.to_string(),").unwrap();
-                writeln!(out, "        Err(_) => {{").unwrap();
+                .ok();
+                writeln!(out, "        Ok(s) => s.to_string(),").ok();
+                writeln!(out, "        Err(_) => {{").ok();
                 writeln!(
                     out,
                     "            set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "            {fail_ret}").unwrap();
-                writeln!(out, "        }}").unwrap();
-                writeln!(out, "    }};").unwrap();
+                .ok();
+                writeln!(out, "            {fail_ret}").ok();
+                writeln!(out, "        }}").ok();
+                writeln!(out, "    }};").ok();
             }
             TypeRef::Primitive(prim) => match prim {
                 alef_core::ir::PrimitiveType::Bool => {
-                    writeln!(out, "    let {rs_name} = {name} != 0;").unwrap();
+                    writeln!(out, "    let {rs_name} = {name} != 0;").ok();
                 }
                 _ => {
-                    writeln!(out, "    let {rs_name} = {name};").unwrap();
+                    writeln!(out, "    let {rs_name} = {name};").ok();
                 }
             },
             TypeRef::Named(_type_name) => {
-                writeln!(out, "    if {name}.is_null() {{").unwrap();
+                writeln!(out, "    if {name}.is_null() {{").ok();
                 writeln!(
                     out,
                     "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "        {fail_ret}").unwrap();
-                writeln!(out, "    }}").unwrap();
-                writeln!(out, "    let {rs_name} = unsafe {{ &*{name} }}.clone();").unwrap();
+                .ok();
+                writeln!(out, "        {fail_ret}").ok();
+                writeln!(out, "    }}").ok();
+                writeln!(out, "    let {rs_name} = unsafe {{ &*{name} }}.clone();").ok();
             }
             TypeRef::Bytes => {
                 // Bytes come as (*const u8, len: usize) — the len param is a separate
                 // parameter named {name}_len by convention.
-                writeln!(out, "    if {name}.is_null() {{").unwrap();
+                writeln!(out, "    if {name}.is_null() {{").ok();
                 writeln!(
                     out,
                     "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "        {fail_ret}").unwrap();
-                writeln!(out, "    }}").unwrap();
+                .ok();
+                writeln!(out, "        {fail_ret}").ok();
+                writeln!(out, "    }}").ok();
                 writeln!(
                     out,
                     "    let {rs_name} = unsafe {{ std::slice::from_raw_parts({name}, {name}_len) }}.to_vec();"
                 )
-                .unwrap();
+                .ok();
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 // Passed as JSON string
-                writeln!(out, "    if {name}.is_null() {{").unwrap();
+                writeln!(out, "    if {name}.is_null() {{").ok();
                 writeln!(
                     out,
                     "        set_last_error(1, \"Null pointer passed for parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "        {fail_ret}").unwrap();
-                writeln!(out, "    }}").unwrap();
+                .ok();
+                writeln!(out, "        {fail_ret}").ok();
+                writeln!(out, "    }}").ok();
                 writeln!(
                     out,
                     "    let {rs_name}_str = match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{"
                 )
-                .unwrap();
-                writeln!(out, "        Ok(s) => s,").unwrap();
-                writeln!(out, "        Err(_) => {{").unwrap();
+                .ok();
+                writeln!(out, "        Ok(s) => s,").ok();
+                writeln!(out, "        Err(_) => {{").ok();
                 writeln!(
                     out,
                     "            set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
                 )
-                .unwrap();
-                writeln!(out, "            {fail_ret}").unwrap();
-                writeln!(out, "        }}").unwrap();
-                writeln!(out, "    }};").unwrap();
-                writeln!(out, "    let {rs_name} = match serde_json::from_str({rs_name}_str) {{").unwrap();
-                writeln!(out, "        Ok(v) => v,").unwrap();
-                writeln!(out, "        Err(e) => {{").unwrap();
-                writeln!(out, "            set_last_error(2, &e.to_string());").unwrap();
-                writeln!(out, "            {fail_ret}").unwrap();
-                writeln!(out, "        }}").unwrap();
-                writeln!(out, "    }};").unwrap();
+                .ok();
+                writeln!(out, "            {fail_ret}").ok();
+                writeln!(out, "        }}").ok();
+                writeln!(out, "    }};").ok();
+                writeln!(out, "    let {rs_name} = match serde_json::from_str({rs_name}_str) {{").ok();
+                writeln!(out, "        Ok(v) => v,").ok();
+                writeln!(out, "        Err(e) => {{").ok();
+                writeln!(out, "            set_last_error(2, &e.to_string());").ok();
+                writeln!(out, "            {fail_ret}").ok();
+                writeln!(out, "        }}").ok();
+                writeln!(out, "    }};").ok();
             }
             TypeRef::Optional(_) => {
                 // Should not happen for non-optional param, but handle gracefully
-                writeln!(out, "    let {rs_name} = {name};").unwrap();
+                writeln!(out, "    let {rs_name} = {name};").ok();
             }
             TypeRef::Duration => {
                 // Duration passed as u64 seconds
-                writeln!(out, "    let {rs_name} = std::time::Duration::from_secs({name});").unwrap();
+                writeln!(out, "    let {rs_name} = std::time::Duration::from_secs({name});").ok();
             }
             TypeRef::Unit => {
                 // No parameter to convert
@@ -1236,73 +1236,73 @@ fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
     match ty {
         TypeRef::Primitive(prim) => match prim {
             alef_core::ir::PrimitiveType::Bool => {
-                writeln!(out, "{indent}if {expr} {{ 1 }} else {{ 0 }}").unwrap();
+                writeln!(out, "{indent}if {expr} {{ 1 }} else {{ 0 }}").ok();
             }
             _ => {
-                writeln!(out, "{indent}{expr}").unwrap();
+                writeln!(out, "{indent}{expr}").ok();
             }
         },
         TypeRef::String | TypeRef::Char => {
-            writeln!(out, "{indent}match CString::new({expr}) {{").unwrap();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").unwrap();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            writeln!(out, "{indent}match CString::new({expr}) {{").ok();
+            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Json => {
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").unwrap();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").unwrap();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").unwrap();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}    }},").unwrap();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
+            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
+            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
+            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}    }},").ok();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Path => {
             writeln!(
                 out,
                 "{indent}match CString::new({expr}.to_string_lossy().to_string()) {{"
             )
-            .unwrap();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").unwrap();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            .ok();
+            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Named(_) => {
-            writeln!(out, "{indent}Box::into_raw(Box::new({expr}))").unwrap();
+            writeln!(out, "{indent}Box::into_raw(Box::new({expr}))").ok();
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").unwrap();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").unwrap();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").unwrap();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}    }},").unwrap();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
+            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
+            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
+            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}    }},").ok();
+            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
+            writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Bytes => {
             // Return pointer; assume out-param for length. Cast to *mut u8 to match FFI signature.
-            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").unwrap();
+            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").ok();
         }
         TypeRef::Optional(inner) => {
-            writeln!(out, "{indent}match {expr} {{").unwrap();
-            writeln!(out, "{indent}    Some(val) => {{").unwrap();
+            writeln!(out, "{indent}match {expr} {{").ok();
+            writeln!(out, "{indent}    Some(val) => {{").ok();
             write!(
                 out,
                 "{}",
                 gen_owned_value_to_c("val", inner, &format!("{indent}        "))
             )
-            .unwrap();
-            writeln!(out, "{indent}    }}").unwrap();
+            .ok();
+            writeln!(out, "{indent}    }}").ok();
             writeln!(
                 out,
                 "{indent}    None => {},",
                 null_return_value(&TypeRef::Optional(inner.clone()))
             )
-            .unwrap();
-            writeln!(out, "{indent}}}").unwrap();
+            .ok();
+            writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Duration => {
-            writeln!(out, "{indent}{expr}.as_secs()").unwrap();
+            writeln!(out, "{indent}{expr}.as_secs()").ok();
         }
         TypeRef::Unit => {}
     }
@@ -1322,30 +1322,30 @@ fn gen_enum_from_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> St
         out,
         "/// Convert an integer to a `{enum_name}` variant. Returns -1 on invalid input."
     )
-    .unwrap();
-    writeln!(out, "/// # Safety").unwrap();
-    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").unwrap();
+    .ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "/// Caller must ensure all pointer arguments are valid or null.").ok();
     writeln!(
         out,
         "/// Returned pointers must be freed with the appropriate free function."
     )
-    .unwrap();
-    writeln!(out, "#[unsafe(no_mangle)]").unwrap();
+    .ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
     writeln!(
         out,
         "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_from_i32(value: i32) -> i32 {{"
     )
-    .unwrap();
-    writeln!(out, "    match value {{").unwrap();
+    .ok();
+    writeln!(out, "    match value {{").ok();
     for (idx, variant) in enum_def.variants.iter().enumerate() {
-        writeln!(out, "        {idx} => {idx}, // {}", variant.name).unwrap();
+        writeln!(out, "        {idx} => {idx}, // {}", variant.name).ok();
     }
-    writeln!(out, "        _ => {{").unwrap();
-    writeln!(out, "            set_last_error(1, \"Invalid {enum_name} variant\");").unwrap();
-    writeln!(out, "            -1").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        _ => {{").ok();
+    writeln!(out, "            set_last_error(1, \"Invalid {enum_name} variant\");").ok();
+    writeln!(out, "            -1").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 
@@ -1358,40 +1358,40 @@ fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> Stri
         out,
         "/// Convert a `{enum_name}` variant name (C string) to its integer value. Returns -1 on invalid input."
     )
-    .unwrap();
-    writeln!(out, "/// # Safety").unwrap();
+    .ok();
+    writeln!(out, "/// # Safety").ok();
     writeln!(
         out,
         "/// Caller must ensure `ptr` is a valid pointer to a `c_char` or null."
     )
-    .unwrap();
-    writeln!(out, "#[unsafe(no_mangle)]").unwrap();
+    .ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
     writeln!(
         out,
         "pub unsafe extern \"C\" fn {prefix}_{enum_snake}_from_str(name: *const c_char) -> i32 {{"
     )
-    .unwrap();
-    writeln!(out, "    if name.is_null() {{").unwrap();
-    writeln!(out, "        set_last_error(1, \"Null pointer passed for enum name\");").unwrap();
-    writeln!(out, "        return -1;").unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    let s = match unsafe {{ CStr::from_ptr(name) }}.to_str() {{").unwrap();
-    writeln!(out, "        Ok(s) => s,").unwrap();
-    writeln!(out, "        Err(_) => {{").unwrap();
-    writeln!(out, "            set_last_error(1, \"Invalid UTF-8 in enum name\");").unwrap();
-    writeln!(out, "            return -1;").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }};").unwrap();
-    writeln!(out, "    match s {{").unwrap();
+    .ok();
+    writeln!(out, "    if name.is_null() {{").ok();
+    writeln!(out, "        set_last_error(1, \"Null pointer passed for enum name\");").ok();
+    writeln!(out, "        return -1;").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "    let s = match unsafe {{ CStr::from_ptr(name) }}.to_str() {{").ok();
+    writeln!(out, "        Ok(s) => s,").ok();
+    writeln!(out, "        Err(_) => {{").ok();
+    writeln!(out, "            set_last_error(1, \"Invalid UTF-8 in enum name\");").ok();
+    writeln!(out, "            return -1;").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }};").ok();
+    writeln!(out, "    match s {{").ok();
     for (idx, variant) in enum_def.variants.iter().enumerate() {
-        writeln!(out, "        \"{}\" => {idx},", variant.name).unwrap();
+        writeln!(out, "        \"{}\" => {idx},", variant.name).ok();
     }
-    writeln!(out, "        _ => {{").unwrap();
-    writeln!(out, "            set_last_error(1, \"Unknown {enum_name} variant\");").unwrap();
-    writeln!(out, "            -1").unwrap();
-    writeln!(out, "        }}").unwrap();
-    writeln!(out, "    }}").unwrap();
-    write!(out, "}}").unwrap();
+    writeln!(out, "        _ => {{").ok();
+    writeln!(out, "            set_last_error(1, \"Unknown {enum_name} variant\");").ok();
+    writeln!(out, "            -1").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
     out
 }
 
