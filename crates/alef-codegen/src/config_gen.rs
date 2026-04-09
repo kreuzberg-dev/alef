@@ -1,6 +1,13 @@
 use alef_core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToPascalCase, ToShoutySnakeCase};
 
+/// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
+/// These fields have no meaningful name and must be skipped in languages requiring named fields.
+fn is_tuple_field(field: &FieldDef) -> bool {
+    (field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit()))
+        || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
+}
+
 /// Generate a PyO3 `#[new]` constructor with kwargs for a type with `has_default`.
 /// All fields become keyword args with their defaults in `#[pyo3(signature = (...))]`.
 pub fn gen_pyo3_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
@@ -70,6 +77,9 @@ pub fn gen_go_functional_options(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -
     lines.push(format!("// {} is a configuration type.", typ.name));
     lines.push(format!("type {} struct {{", typ.name));
     for field in &typ.fields {
+        if is_tuple_field(field) {
+            continue;
+        }
         let go_type = type_mapper(&field.ty);
         lines.push(format!("    {} {}", field.name.to_pascal_case(), go_type));
     }
@@ -86,6 +96,9 @@ pub fn gen_go_functional_options(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -
 
     // WithField functions
     for field in &typ.fields {
+        if is_tuple_field(field) {
+            continue;
+        }
         let option_name = format!("With{}", field.name.to_pascal_case());
         let go_type = type_mapper(&field.ty);
         lines.push(format!("// {} sets the {}.", option_name, field.name));
@@ -108,6 +121,9 @@ pub fn gen_go_functional_options(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -
     ));
     lines.push(format!("    c := &{} {{", typ.name));
     for field in &typ.fields {
+        if is_tuple_field(field) {
+            continue;
+        }
         let default_str = default_value_for_field(field, "go");
         lines.push(format!("        {}: {},", field.name.to_pascal_case(), default_str));
     }
@@ -544,7 +560,7 @@ pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) 
             writeln!(out, "        {},", field.name).ok();
         } else {
             // Struct field is T, param is Option<T> — unwrap with default
-            let default_str = default_value_for_field(field, "php");
+            let default_str = default_value_for_field(field, "rust");
             writeln!(
                 out,
                 "        {}: {}.unwrap_or({}),",

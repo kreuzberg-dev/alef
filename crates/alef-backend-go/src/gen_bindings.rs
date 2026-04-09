@@ -7,6 +7,13 @@ use heck::{ToPascalCase, ToSnakeCase};
 use std::fmt::Write;
 use std::path::PathBuf;
 
+/// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
+/// Go structs require named fields, so these must be skipped.
+fn is_tuple_field(field: &FieldDef) -> bool {
+    (field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit()))
+        || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
+}
+
 pub struct GoBackend;
 
 impl GoBackend {
@@ -247,10 +254,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
 
     for variant in &enum_def.variants {
         for field in &variant.fields {
-            // Skip unnamed tuple fields (name is "_0", "_1", "0", "1", etc.) — Go structs require named fields
-            if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
-                || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
-            {
+            if is_tuple_field(field) {
                 continue;
             }
             if let Some(entry) = seen_fields.iter_mut().find(|(name, _, _)| *name == field.name) {
@@ -303,10 +307,7 @@ fn gen_struct_type(typ: &TypeDef) -> String {
     writeln!(out, "type {} struct {{", typ.name).ok();
 
     for field in &typ.fields {
-        // Skip unnamed tuple fields (name is "_0", "_1", "0", "1", etc.) — Go structs require named fields
-        if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
-            || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
-        {
+        if is_tuple_field(field) {
             continue;
         }
 
@@ -734,10 +735,7 @@ fn gen_config_options(typ: &TypeDef) -> String {
 
     // Generate WithFieldName constructors for each field
     for field in &typ.fields {
-        // Skip unnamed tuple fields (name is "_0", "_1", "0", "1", etc.) — Go structs require named fields
-        if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
-            || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
-        {
+        if is_tuple_field(field) {
             continue;
         }
 
@@ -769,10 +767,7 @@ fn gen_config_options(typ: &TypeDef) -> String {
 
     // Set default values for fields
     for field in &typ.fields {
-        // Skip unnamed tuple fields (name is "_0", "_1", "0", "1", etc.) — Go structs require named fields
-        if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
-            || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
-        {
+        if is_tuple_field(field) {
             continue;
         }
 

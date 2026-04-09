@@ -510,3 +510,222 @@ fn test_type_mapping() {
         "Vec<String> should map to List<string>"
     );
 }
+
+#[test]
+fn test_tuple_struct_fields_skipped() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "TupleStruct".to_string(),
+            rust_path: "test::TupleStruct".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                },
+                FieldDef {
+                    name: "_1".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::U32),
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = AlefConfig {
+        crate_config: CrateConfig {
+            name: "test".to_string(),
+            sources: vec![],
+            version_from: "Cargo.toml".to_string(),
+            core_import: None,
+            workspace_root: None,
+            skip_core_import: false,
+            path_mappings: std::collections::HashMap::new(),
+        },
+        languages: vec![],
+        exclude: Default::default(),
+        include: Default::default(),
+        output: Default::default(),
+        python: None,
+        node: None,
+        ruby: None,
+        php: None,
+        elixir: None,
+        wasm: None,
+        ffi: None,
+        go: None,
+        java: None,
+        csharp: None,
+        r: None,
+        scaffold: None,
+        readme: None,
+        lint: None,
+        custom_files: None,
+        adapters: vec![],
+        custom_modules: alef_core::config::CustomModulesConfig::default(),
+        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
+        opaque_types: std::collections::HashMap::new(),
+        generate: alef_core::config::GenerateConfig::default(),
+        generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
+        sync: None,
+        test: None,
+    };
+
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok());
+
+    let files = result.unwrap();
+    let tuple_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("TupleStruct.cs"));
+
+    // Types with only tuple fields should not generate a record file at all
+    assert!(
+        tuple_file.is_none(),
+        "Tuple struct with only positional fields should not generate a .cs file"
+    );
+}
+
+#[test]
+fn test_mixed_struct_skips_tuple_fields_only() {
+    let backend = CsharpBackend;
+
+    // A struct with both named and tuple fields — only named fields should appear as properties
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "MixedStruct".to_string(),
+            rust_path: "test::MixedStruct".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                },
+                FieldDef {
+                    name: "label".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = AlefConfig {
+        crate_config: CrateConfig {
+            name: "test".to_string(),
+            sources: vec![],
+            version_from: "Cargo.toml".to_string(),
+            core_import: None,
+            workspace_root: None,
+            skip_core_import: false,
+            path_mappings: std::collections::HashMap::new(),
+        },
+        languages: vec![],
+        exclude: Default::default(),
+        include: Default::default(),
+        output: Default::default(),
+        python: None,
+        node: None,
+        ruby: None,
+        php: None,
+        elixir: None,
+        wasm: None,
+        ffi: None,
+        go: None,
+        java: None,
+        csharp: None,
+        r: None,
+        scaffold: None,
+        readme: None,
+        lint: None,
+        custom_files: None,
+        adapters: vec![],
+        custom_modules: alef_core::config::CustomModulesConfig::default(),
+        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
+        opaque_types: std::collections::HashMap::new(),
+        generate: alef_core::config::GenerateConfig::default(),
+        generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
+        sync: None,
+        test: None,
+    };
+
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok());
+
+    let files = result.unwrap();
+    let mixed_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("MixedStruct.cs"))
+        .expect("MixedStruct.cs should be generated since it has named fields");
+
+    // The named field "label" should appear as a property
+    assert!(
+        mixed_file.content.contains("Label"),
+        "Named field 'label' should generate a property"
+    );
+    // The tuple field "_0" should NOT appear
+    assert!(
+        !mixed_file.content.contains("\"_0\""),
+        "Tuple field '_0' should not appear in JSON property names"
+    );
+}

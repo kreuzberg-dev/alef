@@ -2,7 +2,7 @@ use crate::type_map::csharp_type;
 use alef_codegen::naming::to_csharp_name;
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -106,6 +106,13 @@ impl Backend for CsharpBackend {
         // 4. Generate record types (structs)
         for typ in &api.types {
             if !typ.is_opaque {
+                // Skip types where all fields are unnamed tuple positions — they have no
+                // meaningful properties to expose in C#.
+                let has_named_fields = typ.fields.iter().any(|f| !is_tuple_field(f));
+                if !typ.fields.is_empty() && !has_named_fields {
+                    continue;
+                }
+
                 let type_filename = typ.name.to_pascal_case();
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.cs", type_filename)),
@@ -148,6 +155,12 @@ impl Backend for CsharpBackend {
             post_build: vec![],
         })
     }
+}
+
+/// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
+fn is_tuple_field(field: &FieldDef) -> bool {
+    (field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit()))
+        || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
 }
 
 /// Strip trailing whitespace from every line and ensure the file ends with a single newline.
@@ -620,10 +633,8 @@ fn gen_record_type(typ: &TypeDef, namespace: &str) -> String {
     out.push_str("{\n");
 
     for field in &typ.fields {
-        // Skip tuple struct internals (e.g., _0, _1, etc.)
-        if field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit())
-            || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
-        {
+        // Skip unnamed tuple struct fields (e.g., _0, _1, 0, 1, etc.)
+        if is_tuple_field(field) {
             continue;
         }
 
