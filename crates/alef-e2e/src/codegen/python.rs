@@ -109,8 +109,7 @@ fn resolve_options_via(e2e_config: &E2eConfig) -> &str {
 
 /// Resolve enum field mappings from the Python override config.
 fn resolve_enum_fields(e2e_config: &E2eConfig) -> &HashMap<String, String> {
-    static EMPTY: std::sync::LazyLock<HashMap<String, String>> =
-        std::sync::LazyLock::new(HashMap::new);
+    static EMPTY: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
     e2e_config
         .call
         .overrides
@@ -160,9 +159,11 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     // "json" mode needs `import json`.
     let needs_json_import = options_via == "json"
         && fixtures.iter().any(|f| {
-            e2e_config.call.args.iter().any(|arg| {
-                arg.arg_type == "json_object" && !resolve_field(&f.input, &arg.field).is_null()
-            })
+            e2e_config
+                .call
+                .args
+                .iter()
+                .any(|arg| arg.arg_type == "json_object" && !resolve_field(&f.input, &arg.field).is_null())
         });
 
     if needs_json_import {
@@ -173,14 +174,15 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     let needs_options_type = options_via == "kwargs"
         && options_type.is_some()
         && fixtures.iter().any(|f| {
-            e2e_config.call.args.iter().any(|arg| {
-                arg.arg_type == "json_object" && !resolve_field(&f.input, &arg.field).is_null()
-            })
+            e2e_config
+                .call
+                .args
+                .iter()
+                .any(|arg| arg.arg_type == "json_object" && !resolve_field(&f.input, &arg.field).is_null())
         });
 
     // Collect enum types actually used across all fixtures in this file.
-    let mut used_enum_types: std::collections::BTreeSet<String> =
-        std::collections::BTreeSet::new();
+    let mut used_enum_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     if needs_options_type && !enum_fields.is_empty() {
         for fixture in fixtures.iter() {
             for arg in &e2e_config.call.args {
@@ -199,11 +201,22 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     }
 
     if let (true, Some(opts_type)) = (needs_options_type, &options_type) {
-        let mut imports = vec![function_name.clone(), opts_type.clone()];
-        for enum_type in &used_enum_types {
-            imports.push(enum_type.clone());
+        let _ = writeln!(out, "from {module} import {function_name}, {opts_type}");
+        // Import enum types from enum_module (if specified) or main module.
+        if !used_enum_types.is_empty() {
+            let enum_mod = e2e_config
+                .call
+                .overrides
+                .get("python")
+                .and_then(|o| o.enum_module.as_deref())
+                .unwrap_or(&module);
+            let enum_names: Vec<&String> = used_enum_types.iter().collect();
+            let _ = writeln!(
+                out,
+                "from {enum_mod} import {}",
+                enum_names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            );
         }
-        let _ = writeln!(out, "from {module} import {}", imports.join(", "));
     } else {
         let _ = writeln!(out, "from {module} import {function_name}");
     }

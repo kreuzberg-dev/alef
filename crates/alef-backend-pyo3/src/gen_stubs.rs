@@ -69,12 +69,7 @@ pub fn gen_stubs(api: &ApiSurface) -> String {
 fn gen_opaque_type_stub(typ: &TypeDef) -> String {
     let mut lines = vec![];
 
-    if !typ.doc.is_empty() {
-        lines.push(format!("class {}:", typ.name));
-        lines.push(format!(r#"    """{}""""#, typ.doc));
-    } else {
-        lines.push(format!("class {}:", typ.name));
-    }
+    lines.push(format!("class {}:", typ.name));
 
     // Instance methods
     for method in &typ.methods {
@@ -102,13 +97,7 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
 fn gen_type_stub(typ: &TypeDef, api: &ApiSurface) -> String {
     let mut lines = vec![];
 
-    // Add docstring if present
-    if !typ.doc.is_empty() {
-        lines.push(format!("class {}:", typ.name));
-        lines.push(format!(r#"    """{}""""#, typ.doc));
-    } else {
-        lines.push(format!("class {}:", typ.name));
-    }
+    lines.push(format!("class {}:", typ.name));
 
     // Add field type annotations
     for field in &typ.fields {
@@ -232,12 +221,7 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
 fn gen_enum_stub(enum_def: &EnumDef) -> String {
     let mut lines = vec![];
 
-    if !enum_def.doc.is_empty() {
-        lines.push(format!("class {}:", enum_def.name));
-        lines.push(format!(r#"    """{}""""#, enum_def.doc));
-    } else {
-        lines.push(format!("class {}:", enum_def.name));
-    }
+    lines.push(format!("class {}:", enum_def.name));
 
     for (idx, variant) in enum_def.variants.iter().enumerate() {
         lines.push(format!("    {}: int = {}", variant.name, idx));
@@ -273,15 +257,5 @@ fn gen_function_stub(func: &FunctionDef) -> String {
     let return_type = python_type(&func.return_type);
     let safe_name = python_safe_name(&func.name);
 
-    if !func.doc.is_empty() {
-        format!(
-            "def {}({}) -> {}:\n    \"\"\"{}\"\"\"\n    ...",
-            safe_name,
-            params.join(", "),
-            return_type,
-            func.doc
-        )
-    } else {
-        format!("def {}({}) -> {}: ...", safe_name, params.join(", "), return_type)
-    }
+    format!("def {}({}) -> {}: ...", safe_name, params.join(", "), return_type)
 }

@@ -179,9 +179,8 @@ fn render_test_file(
     // Check if any fixture uses a json_object arg that needs the options type import.
     let needs_options_import = options_type.is_some()
         && fixtures.iter().any(|f| {
-            args.iter().any(|arg| {
-                arg.arg_type == "json_object" && f.input.get(&arg.field).is_some_and(|v| !v.is_null())
-            })
+            args.iter()
+                .any(|arg| arg.arg_type == "json_object" && f.input.get(&arg.field).is_some_and(|v| !v.is_null()))
         });
 
     if let (true, Some(opts_type)) = (needs_options_import, options_type) {
@@ -196,7 +195,15 @@ fn render_test_file(
     let _ = writeln!(out, "describe('{category}', () => {{");
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_case(&mut out, fixture, function_name, result_var, is_async, args, options_type);
+        render_test_case(
+            &mut out,
+            fixture,
+            function_name,
+            result_var,
+            is_async,
+            args,
+            options_type,
+        );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }

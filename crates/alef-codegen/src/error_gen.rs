@@ -1,18 +1,83 @@
 use alef_core::ir::{ErrorDef, ErrorVariant};
 
+/// Python builtin exception names that must not be shadowed (A004 compliance).
+const PYTHON_BUILTIN_EXCEPTIONS: &[&str] = &[
+    "ConnectionError",
+    "TimeoutError",
+    "PermissionError",
+    "FileNotFoundError",
+    "ValueError",
+    "TypeError",
+    "RuntimeError",
+    "OSError",
+    "IOError",
+    "KeyError",
+    "IndexError",
+    "AttributeError",
+    "ImportError",
+    "MemoryError",
+    "OverflowError",
+    "StopIteration",
+    "RecursionError",
+    "SystemError",
+    "ReferenceError",
+    "BufferError",
+    "EOFError",
+    "LookupError",
+    "ArithmeticError",
+    "AssertionError",
+    "BlockingIOError",
+    "BrokenPipeError",
+    "ChildProcessError",
+    "FileExistsError",
+    "InterruptedError",
+    "IsADirectoryError",
+    "NotADirectoryError",
+    "ProcessLookupError",
+    "UnicodeError",
+];
+
+/// Compute a prefix from the error type name by stripping a trailing "Error" suffix.
+/// E.g. `"CrawlError"` -> `"Crawl"`, `"MyException"` -> `"MyException"`.
+fn error_base_prefix(error_name: &str) -> &str {
+    error_name.strip_suffix("Error").unwrap_or(error_name)
+}
+
+/// Return the Python exception name for a variant, avoiding shadowing of Python builtins.
+///
+/// 1. Appends `"Error"` suffix if not already present (N818 compliance).
+/// 2. If the resulting name shadows a Python builtin, prefixes it with the error type's base
+///    name. E.g. for `CrawlError::Connection` -> `ConnectionError` (shadowed) -> `CrawlConnectionError`.
+pub fn python_exception_name(variant_name: &str, error_name: &str) -> String {
+    let candidate = if variant_name.ends_with("Error") {
+        variant_name.to_string()
+    } else {
+        format!("{}Error", variant_name)
+    };
+
+    if PYTHON_BUILTIN_EXCEPTIONS.contains(&candidate.as_str()) {
+        let prefix = error_base_prefix(error_name);
+        // Avoid double-prefixing if the candidate already starts with the prefix
+        if candidate.starts_with(prefix) {
+            candidate
+        } else {
+            format!("{}{}", prefix, candidate)
+        }
+    } else {
+        candidate
+    }
+}
+
 /// Generate `pyo3::create_exception!` macros for each error variant plus the base error type.
 /// Appends "Error" suffix to variant names that don't already have it (N818 compliance).
+/// Prefixes names that would shadow Python builtins (A004 compliance).
 pub fn gen_pyo3_error_types(error: &ErrorDef, module_name: &str) -> String {
     let mut lines = Vec::with_capacity(error.variants.len() + 2);
     lines.push("// Error types".to_string());
 
-    // One exception per variant (with Error suffix if needed)
+    // One exception per variant (with Error suffix if needed, prefixed if shadowing builtins)
     for variant in &error.variants {
-        let variant_name = if variant.name.ends_with("Error") {
-            variant.name.clone()
-        } else {
-            format!("{}Error", variant.name)
-        };
+        let variant_name = python_exception_name(&variant.name, &error.name);
         lines.push(format!(
             "pyo3::create_exception!({module_name}, {}, pyo3::exceptions::PyException);",
             variant_name
@@ -52,11 +117,7 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
         } else {
             format!("{rust_path}::{}(..)", variant.name)
         };
-        let variant_exc_name = if variant.name.ends_with("Error") {
-            variant.name.clone()
-        } else {
-            format!("{}Error", variant.name)
-        };
+        let variant_exc_name = python_exception_name(&variant.name, &error.name);
         lines.push(format!("        {pattern} => {}::new_err(msg),", variant_exc_name));
     }
 
@@ -69,15 +130,12 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
 
 /// Generate `m.add(...)` registration calls for each exception type.
 /// Uses Error-suffixed names for variant exceptions (N818 compliance).
+/// Prefixes names that would shadow Python builtins (A004 compliance).
 pub fn gen_pyo3_error_registration(error: &ErrorDef) -> Vec<String> {
     let mut registrations = Vec::with_capacity(error.variants.len() + 1);
 
     for variant in &error.variants {
-        let variant_exc_name = if variant.name.ends_with("Error") {
-            variant.name.clone()
-        } else {
-            format!("{}Error", variant.name)
-        };
+        let variant_exc_name = python_exception_name(&variant.name, &error.name);
         registrations.push(format!(
             "    m.add(\"{}\", m.py().get_type::<{}>())?;",
             variant_exc_name, variant_exc_name
@@ -842,5 +900,42 @@ mod tests {
         );
         assert_eq!(files[2].0, "IoErrorException");
         assert_eq!(files[3].0, "OtherException");
+    }
+
+    // -----------------------------------------------------------------------
+    // python_exception_name tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_python_exception_name_no_conflict() {
+        // "ParseError" already ends with "Error" and is not a builtin
+        assert_eq!(python_exception_name("ParseError", "ConversionError"), "ParseError");
+        // "Other" gets "Error" suffix, "OtherError" is not a builtin
+        assert_eq!(python_exception_name("Other", "ConversionError"), "OtherError");
+    }
+
+    #[test]
+    fn test_python_exception_name_shadows_builtin() {
+        // "Connection" -> "ConnectionError" shadows builtin -> prefix with "Crawl"
+        assert_eq!(
+            python_exception_name("Connection", "CrawlError"),
+            "CrawlConnectionError"
+        );
+        // "Timeout" -> "TimeoutError" shadows builtin -> prefix with "Crawl"
+        assert_eq!(python_exception_name("Timeout", "CrawlError"), "CrawlTimeoutError");
+        // "ConnectionError" already ends with "Error", still shadows -> prefix
+        assert_eq!(
+            python_exception_name("ConnectionError", "CrawlError"),
+            "CrawlConnectionError"
+        );
+    }
+
+    #[test]
+    fn test_python_exception_name_no_double_prefix() {
+        // If variant is already prefixed with the error base, don't double-prefix
+        assert_eq!(
+            python_exception_name("CrawlConnectionError", "CrawlError"),
+            "CrawlConnectionError"
+        );
     }
 }

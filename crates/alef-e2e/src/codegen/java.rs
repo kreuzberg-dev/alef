@@ -199,9 +199,8 @@ fn render_test_file(
     // Check if any fixture uses a json_object arg with options_type (needs ObjectMapper).
     let needs_object_mapper = options_type.is_some()
         && fixtures.iter().any(|f| {
-            args.iter().any(|arg| {
-                arg.arg_type == "json_object" && f.input.get(&arg.field).is_some_and(|v| !v.is_null())
-            })
+            args.iter()
+                .any(|arg| arg.arg_type == "json_object" && f.input.get(&arg.field).is_some_and(|v| !v.is_null()))
         });
 
     let _ = writeln!(out, "import org.junit.jupiter.api.Test;");
@@ -226,7 +225,15 @@ fn render_test_file(
     }
 
     for fixture in fixtures {
-        render_test_method(&mut out, fixture, class_name, function_name, result_var, args, options_type);
+        render_test_method(
+            &mut out,
+            fixture,
+            class_name,
+            function_name,
+            result_var,
+            args,
+            options_type,
+        );
         let _ = writeln!(out);
     }
 
@@ -249,10 +256,9 @@ fn render_test_method(
 
     // Check if this test needs ObjectMapper deserialization for json_object args.
     let needs_deser = options_type.is_some()
-        && args.iter().any(|arg| {
-            arg.arg_type == "json_object"
-                && fixture.input.get(&arg.field).is_some_and(|v| !v.is_null())
-        });
+        && args
+            .iter()
+            .any(|arg| arg.arg_type == "json_object" && fixture.input.get(&arg.field).is_some_and(|v| !v.is_null()));
 
     let throws_clause = if needs_deser { " throws Exception" } else { "" };
 

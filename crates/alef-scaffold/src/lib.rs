@@ -385,11 +385,80 @@ end
         keywords = keywords_ruby,
     );
 
-    Ok(vec![GeneratedFile {
-        path: PathBuf::from(format!("packages/ruby/{}.gemspec", gem_name)),
-        content,
-        generated_header: true,
-    }])
+    let rubocop_content = r#"plugins:
+  - rubocop-performance
+  - rubocop-rspec
+
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+    - 'lib/**/*.bundle'
+    - 'ext/**/*'
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
+  EnforcedStyle: always
+
+Style/StringLiterals:
+  Enabled: true
+  EnforcedStyle: single_quotes
+
+Style/StringLiteralsInInterpolation:
+  Enabled: true
+  EnforcedStyle: single_quotes
+
+Style/Documentation:
+  Enabled: false
+
+Layout/LineLength:
+  Max: 120
+  AllowedPatterns:
+    - '\A\s*#'
+  Exclude:
+    - 'spec/**/*'
+
+Metrics/MethodLength:
+  Max: 20
+  Exclude:
+    - 'spec/**/*'
+
+Metrics/BlockLength:
+  Enabled: true
+  Max: 350
+  CountComments: false
+
+Metrics/AbcSize:
+  Max: 20
+  Exclude:
+    - 'spec/**/*'
+
+RSpec/ExampleLength:
+  Max: 50
+
+RSpec/MultipleExpectations:
+  Max: 25
+
+RSpec/NestedGroups:
+  Max: 6
+"#
+    .to_string();
+
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from(format!("packages/ruby/{}.gemspec", gem_name)),
+            content,
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/ruby/.rubocop.yml"),
+            content: rubocop_content,
+            generated_header: true,
+        },
+    ])
 }
 
 fn scaffold_php_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {

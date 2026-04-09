@@ -887,6 +887,7 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
 
 /// Generate exceptions.py — exception hierarchy from IR error definitions.
 /// Appends "Error" suffix to variant names that don't already have it (N818 compliance).
+/// Prefixes names that would shadow Python builtins (A004 compliance).
 fn gen_exceptions_py(api: &ApiSurface) -> String {
     let mut out = String::with_capacity(1024);
     out.push_str("\"\"\"Exception hierarchy.\"\"\"\n\n");
@@ -908,12 +909,7 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
 
         // Per-variant exception subclasses
         for variant in &error.variants {
-            // Append "Error" suffix if not already present (N818 compliance)
-            let variant_name = if variant.name.ends_with("Error") {
-                variant.name.clone()
-            } else {
-                format!("{}Error", variant.name)
-            };
+            let variant_name = alef_codegen::error_gen::python_exception_name(&variant.name, &error.name);
             out.push_str(&format!("class {}({}):\n", variant_name, error.name));
             if !variant.doc.is_empty() {
                 let doc = variant.doc.lines().next().unwrap_or("").trim();
@@ -976,17 +972,13 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
     opt_imports.sort();
     imports_from_options.extend(opt_imports);
 
-    // Import exceptions (append "Error" suffix to variant names if not present)
+    // Import exceptions (append "Error" suffix to variant names if not present,
+    // prefix if shadowing Python builtins — A004 compliance)
     let mut exc_names = Vec::new();
     for error in &api.errors {
         exc_names.push(error.name.clone());
         for variant in &error.variants {
-            // Append "Error" suffix if not already present (N818 compliance)
-            let variant_name = if variant.name.ends_with("Error") {
-                variant.name.clone()
-            } else {
-                format!("{}Error", variant.name)
-            };
+            let variant_name = alef_codegen::error_gen::python_exception_name(&variant.name, &error.name);
             exc_names.push(variant_name);
         }
     }

@@ -120,6 +120,10 @@ pub struct CallOverride {
     /// The generator imports these types and maps string values to enum constants.
     #[serde(default)]
     pub enum_fields: HashMap<String, String>,
+    /// Module to import enum types from (if different from the main module).
+    /// E.g., "html_to_markdown._html_to_markdown" for PyO3 native enums.
+    #[serde(default)]
+    pub enum_module: Option<String>,
 }
 
 /// Per-language package reference configuration.
