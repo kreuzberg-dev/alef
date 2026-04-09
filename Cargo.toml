@@ -30,10 +30,10 @@ repository = "https://github.com/kreuzberg-dev/alef"
 
 [workspace.dependencies]
 ahash = "0.8"
-alef-adapters = { path = "crates/alef-adapters" }
-alef-codegen = { path = "crates/alef-codegen" }
-alef-core = { path = "crates/alef-core" }
-alef-extract = { path = "crates/alef-extract" }
+alef-adapters = { version = "0.1.0", path = "crates/alef-adapters" }
+alef-codegen = { version = "0.1.0", path = "crates/alef-codegen" }
+alef-core = { version = "0.1.0", path = "crates/alef-core" }
+alef-extract = { version = "0.1.0", path = "crates/alef-extract" }
 anyhow = "1"
 blake3 = "1"
 heck = "0.5"
