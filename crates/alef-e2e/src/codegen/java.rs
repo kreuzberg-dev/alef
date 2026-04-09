@@ -70,6 +70,9 @@ impl E2eCodegen for JavaCodegen {
             .join("kreuzberg")
             .join("e2e");
 
+        // Resolve options_type from override.
+        let options_type = overrides.and_then(|o| o.options_type.clone());
+
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
@@ -90,6 +93,7 @@ impl E2eCodegen for JavaCodegen {
                 &function_name,
                 result_var,
                 &e2e_config.call.args,
+                options_type.as_deref(),
             );
             files.push(GeneratedFile {
                 path: test_base.join(class_file_name),
@@ -175,6 +179,7 @@ fn render_pom_xml(pkg_name: &str) -> String {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
@@ -183,6 +188,7 @@ fn render_test_file(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
 ) -> String {
     let mut out = String::new();
     let test_class_name = format!("{}Test", sanitize_filename(category).to_upper_camel_case());
@@ -190,27 +196,37 @@ fn render_test_file(
     let _ = writeln!(out, "package dev.kreuzberg.e2e;");
     let _ = writeln!(out);
 
-    // Determine imports.
-    let has_error_test = fixtures
-        .iter()
-        .any(|f| f.assertions.iter().any(|a| a.assertion_type == "error"));
+    // Check if any fixture uses a json_object arg with options_type (needs ObjectMapper).
+    let needs_object_mapper = options_type.is_some()
+        && fixtures.iter().any(|f| {
+            args.iter().any(|arg| {
+                arg.arg_type == "json_object" && f.input.get(&arg.field).is_some_and(|v| !v.is_null())
+            })
+        });
 
     let _ = writeln!(out, "import org.junit.jupiter.api.Test;");
     let _ = writeln!(out, "import static org.junit.jupiter.api.Assertions.*;");
     if !import_class.is_empty() {
         let _ = writeln!(out, "import {import_class};");
     }
-    let _ = writeln!(out);
-
-    if has_error_test {
-        // assertThrows is already in static import above.
+    if needs_object_mapper {
+        let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;");
     }
+    let _ = writeln!(out);
 
     let _ = writeln!(out, "/** E2e tests for category: {category}. */");
     let _ = writeln!(out, "class {test_class_name} {{");
 
+    if needs_object_mapper {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    private static final ObjectMapper MAPPER = new ObjectMapper();"
+        );
+    }
+
     for fixture in fixtures {
-        render_test_method(&mut out, fixture, class_name, function_name, result_var, args);
+        render_test_method(&mut out, fixture, class_name, function_name, result_var, args, options_type);
         let _ = writeln!(out);
     }
 
@@ -225,16 +241,45 @@ fn render_test_method(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let args_str = build_args_string(&fixture.input, args);
+    // Check if this test needs ObjectMapper deserialization for json_object args.
+    let needs_deser = options_type.is_some()
+        && args.iter().any(|arg| {
+            arg.arg_type == "json_object"
+                && fixture.input.get(&arg.field).is_some_and(|v| !v.is_null())
+        });
+
+    let throws_clause = if needs_deser { " throws Exception" } else { "" };
 
     let _ = writeln!(out, "    @Test");
-    let _ = writeln!(out, "    void test{method_name}() {{");
+    let _ = writeln!(out, "    void test{method_name}(){throws_clause} {{");
     let _ = writeln!(out, "        // {description}");
+
+    // Emit ObjectMapper deserialization bindings for json_object args.
+    if let (true, Some(opts_type)) = (needs_deser, options_type) {
+        for arg in args {
+            if arg.arg_type == "json_object" {
+                if let Some(val) = fixture.input.get(&arg.field) {
+                    if !val.is_null() {
+                        let json_str = serde_json::to_string(val).unwrap_or_default();
+                        let var_name = &arg.name;
+                        let _ = writeln!(
+                            out,
+                            "        var {var_name} = MAPPER.readValue(\"{}\", {opts_type}.class);",
+                            escape_java(&json_str)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let args_str = build_args_string(&fixture.input, args, options_type);
 
     if expects_error {
         let _ = writeln!(
@@ -257,7 +302,11 @@ fn render_test_method(
     let _ = writeln!(out, "    }}");
 }
 
-fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+fn build_args_string(
+    input: &serde_json::Value,
+    args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
+) -> String {
     if args.is_empty() {
         return json_to_java(input);
     }
@@ -268,6 +317,10 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
             let val = input.get(&arg.field)?;
             if val.is_null() && arg.optional {
                 return None;
+            }
+            // For json_object args with options_type, use the pre-deserialized variable.
+            if arg.arg_type == "json_object" && options_type.is_some() {
+                return Some(arg.name.clone());
             }
             Some(json_to_java(val))
         })

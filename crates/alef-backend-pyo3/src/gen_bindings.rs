@@ -654,6 +654,22 @@ fn python_zero_value(ty: &alef_core::ir::TypeRef, enum_names: &std::collections:
     }
 }
 
+/// Recursively collect all Named type references from a TypeRef.
+fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut std::collections::BTreeSet<String>) {
+    use alef_core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(n) => {
+            out.insert(n.clone());
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named_types(inner, out),
+        TypeRef::Map(k, v) => {
+            collect_named_types(k, out);
+            collect_named_types(v, out);
+        }
+        _ => {}
+    }
+}
+
 /// Generate api.py — wrapper functions that convert Python types to Rust binding types.
 ///
 /// For each function parameter whose type is a `has_default` struct (e.g. `ConversionOptions`),
@@ -729,17 +745,31 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
         }
     }
 
+    // Collect all type names referenced in function signatures (params + returns)
+    // that aren't converters — these need to be imported too.
+    let mut all_type_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for type_name in &needed_converters {
+        all_type_imports.insert(type_name.clone());
+    }
+    for func in &api.functions {
+        // Collect return type references
+        collect_named_types(&func.return_type, &mut all_type_imports);
+        // Collect param type references (non-converter types like opaque handles)
+        for param in &func.params {
+            collect_named_types(&param.ty, &mut all_type_imports);
+        }
+    }
+
     let mut out = String::with_capacity(4096);
     out.push_str("\"\"\"Public API for conversion.\"\"\"\n\n");
     out.push_str("from __future__ import annotations\n\n");
-    out.push_str("from typing import TYPE_CHECKING, Any\n\n");
+    out.push_str("from typing import TYPE_CHECKING\n\n");
     out.push_str(&format!("import {package_name}.{module_name} as _rust\n"));
 
-    // Import needed option types from .options in TYPE_CHECKING block
-    if !needed_converters.is_empty() {
+    // Import all referenced types from .options in TYPE_CHECKING block
+    if !all_type_imports.is_empty() {
         out.push_str("\nif TYPE_CHECKING:\n");
-        let mut imports: Vec<&str> = needed_converters.iter().map(|s| s.as_str()).collect();
-        imports.sort(); // Sort alphabetically for ruff compliance
+        let imports: Vec<&str> = all_type_imports.iter().map(|s| s.as_str()).collect();
         out.push_str(&format!("    from .options import {}\n", imports.join(", ")));
     }
     out.push_str("\n\n");
@@ -801,7 +831,8 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
             sig_parts.push(format!("{}: {}", param.name, py_type));
         }
 
-        out.push_str(&format!("def {}({}) -> Any:\n", func.name, sig_parts.join(", ")));
+        let return_type_str = crate::type_map::python_type(&func.return_type);
+        out.push_str(&format!("def {}({}) -> {}:\n", func.name, sig_parts.join(", "), return_type_str));
         if !func.doc.is_empty() {
             let doc_first_line = func.doc.lines().next().unwrap_or("");
             let doc_with_period = if doc_first_line.trim().ends_with('.') {

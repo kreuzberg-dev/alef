@@ -9,6 +9,7 @@ use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
+use heck::ToSnakeCase;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -87,6 +88,14 @@ fn resolve_module(e2e_config: &E2eConfig) -> String {
         .unwrap_or_else(|| e2e_config.call.module.replace('-', "_"))
 }
 
+fn resolve_options_type(e2e_config: &E2eConfig) -> Option<String> {
+    e2e_config
+        .call
+        .overrides
+        .get("python")
+        .and_then(|o| o.options_type.clone())
+}
+
 fn is_skipped(fixture: &Fixture, language: &str) -> bool {
     fixture.skip.as_ref().is_some_and(|s| s.should_skip(language))
 }
@@ -113,6 +122,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
 
     let module = resolve_module(e2e_config);
     let function_name = resolve_function_name(e2e_config);
+    let options_type = resolve_options_type(e2e_config);
 
     let has_error_test = fixtures
         .iter()
@@ -122,18 +132,35 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
         let _ = writeln!(out, "import pytest");
     }
 
-    let _ = writeln!(out, "from {module} import {function_name}");
+    // Check if any fixture in this category uses a json_object arg that needs the options type.
+    let needs_options_type = options_type.is_some()
+        && fixtures.iter().any(|f| {
+            e2e_config.call.args.iter().any(|arg| {
+                arg.arg_type == "json_object" && !resolve_field(&f.input, &arg.field).is_null()
+            })
+        });
+
+    if let (true, Some(opts_type)) = (needs_options_type, &options_type) {
+        let _ = writeln!(out, "from {module} import {function_name}, {opts_type}");
+    } else {
+        let _ = writeln!(out, "from {module} import {function_name}");
+    }
     let _ = writeln!(out);
 
     for fixture in fixtures {
-        render_test_function(&mut out, fixture, e2e_config);
+        render_test_function(&mut out, fixture, e2e_config, options_type.as_deref());
         let _ = writeln!(out);
     }
 
     out
 }
 
-fn render_test_function(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig) {
+fn render_test_function(
+    out: &mut String,
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    options_type: Option<&str>,
+) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
     let function_name = resolve_function_name(e2e_config);
@@ -160,6 +187,24 @@ fn render_test_function(out: &mut String, fixture: &Fixture, e2e_config: &E2eCon
 
         if value.is_null() && arg.optional {
             continue;
+        }
+
+        // For json_object args with options_type, construct a typed object.
+        if arg.arg_type == "json_object" {
+            if let (Some(opts_type), Some(obj)) = (options_type, value.as_object()) {
+                let kwargs: Vec<String> = obj
+                    .iter()
+                    .map(|(k, v)| {
+                        let snake_key = k.to_snake_case();
+                        let py_val = json_to_python_literal(v);
+                        format!("{snake_key}={py_val}")
+                    })
+                    .collect();
+                let constructor = format!("{opts_type}({})", kwargs.join(", "));
+                arg_bindings.push(format!("    {var_name} = {constructor}"));
+                kwarg_exprs.push(format!("{var_name}={var_name}"));
+                continue;
+            }
         }
 
         let literal = json_to_python_literal(value);

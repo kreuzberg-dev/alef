@@ -103,6 +103,11 @@ pub struct CallOverride {
     /// FFI symbol prefix (C only).
     #[serde(default)]
     pub prefix: Option<String>,
+    /// For json_object args: the constructor to use instead of raw dict/object.
+    /// E.g., "ConversionOptions" — generates `ConversionOptions(**options)` in Python,
+    /// `new ConversionOptions(options)` in TypeScript.
+    #[serde(default)]
+    pub options_type: Option<String>,
 }
 
 /// Per-language package reference configuration.

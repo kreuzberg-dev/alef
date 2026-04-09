@@ -73,6 +73,9 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: true,
         });
 
+        // Resolve options_type from override.
+        let options_type = overrides.and_then(|o| o.options_type.clone());
+
         // Generate test files per category.
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -94,6 +97,7 @@ impl E2eCodegen for TypeScriptCodegen {
                 result_var,
                 is_async,
                 &e2e_config.call.args,
+                options_type.as_deref(),
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -158,6 +162,7 @@ export default defineConfig({
     .to_string()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
@@ -166,15 +171,32 @@ fn render_test_file(
     result_var: &str,
     is_async: bool,
     args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "import {{ describe, it, expect }} from 'vitest';");
-    let _ = writeln!(out, "import {{ {function_name} }} from '{module_path}';");
+
+    // Check if any fixture uses a json_object arg that needs the options type import.
+    let needs_options_import = options_type.is_some()
+        && fixtures.iter().any(|f| {
+            args.iter().any(|arg| {
+                arg.arg_type == "json_object" && f.input.get(&arg.field).is_some_and(|v| !v.is_null())
+            })
+        });
+
+    if let (true, Some(opts_type)) = (needs_options_import, options_type) {
+        let _ = writeln!(
+            out,
+            "import {{ {function_name}, type {opts_type} }} from '{module_path}';"
+        );
+    } else {
+        let _ = writeln!(out, "import {{ {function_name} }} from '{module_path}';");
+    }
     let _ = writeln!(out);
     let _ = writeln!(out, "describe('{category}', () => {{");
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_case(&mut out, fixture, function_name, result_var, is_async, args);
+        render_test_case(&mut out, fixture, function_name, result_var, is_async, args, options_type);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -191,6 +213,7 @@ fn render_test_case(
     result_var: &str,
     is_async: bool,
     args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -202,7 +225,7 @@ fn render_test_case(
 
     if expects_error {
         let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
-        let args_str = build_args_string(&fixture.input, args);
+        let args_str = build_args_string(&fixture.input, args, options_type);
         if is_async {
             let _ = writeln!(
                 out,
@@ -218,7 +241,7 @@ fn render_test_case(
     let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
 
     // Build function call arguments from input fields.
-    let args_str = build_args_string(&fixture.input, args);
+    let args_str = build_args_string(&fixture.input, args, options_type);
 
     // Emit variable declarations for input args (for readability in complex cases).
     let _ = writeln!(out, "    const {result_var} = {await_kw}{function_name}({args_str});");
@@ -231,7 +254,11 @@ fn render_test_case(
     let _ = writeln!(out, "  }});");
 }
 
-fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+fn build_args_string(
+    input: &serde_json::Value,
+    args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
+) -> String {
     if args.is_empty() {
         // If no args mapping, pass the whole input as a single argument.
         return json_to_js(input);
@@ -243,6 +270,12 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
             let val = input.get(&arg.field)?;
             if val.is_null() && arg.optional {
                 return None;
+            }
+            // For json_object args with options_type, cast the object literal.
+            if arg.arg_type == "json_object" {
+                if let Some(opts_type) = options_type {
+                    return Some(format!("{} as {opts_type}", json_to_js(val)));
+                }
             }
             Some(json_to_js(val))
         })
