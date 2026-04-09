@@ -1,9 +1,17 @@
 //! E2e test code generation trait and language dispatch.
 
+pub mod c;
+pub mod csharp;
+pub mod elixir;
 pub mod go;
+pub mod java;
+pub mod php;
 pub mod python;
+pub mod r;
+pub mod ruby;
 pub mod rust;
 pub mod typescript;
+pub mod wasm;
 
 use crate::config::E2eConfig;
 use crate::fixture::FixtureGroup;
@@ -32,6 +40,14 @@ pub fn all_generators() -> Vec<Box<dyn E2eCodegen>> {
         Box::new(python::PythonE2eCodegen),
         Box::new(typescript::TypeScriptCodegen),
         Box::new(go::GoCodegen),
+        Box::new(java::JavaCodegen),
+        Box::new(csharp::CSharpCodegen),
+        Box::new(php::PhpCodegen),
+        Box::new(ruby::RubyCodegen),
+        Box::new(elixir::ElixirCodegen),
+        Box::new(r::RCodegen),
+        Box::new(wasm::WasmCodegen),
+        Box::new(c::CCodegen),
     ]
 }
 

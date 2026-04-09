@@ -1,0 +1,303 @@
+//! R e2e test generator using testthat.
+
+use crate::config::E2eConfig;
+use crate::escape::{escape_r, sanitize_filename, sanitize_ident};
+use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use alef_core::backend::GeneratedFile;
+use alef_core::config::AlefConfig;
+use anyhow::Result;
+use std::fmt::Write as FmtWrite;
+use std::path::PathBuf;
+
+use super::E2eCodegen;
+
+/// R e2e code generator.
+pub struct RCodegen;
+
+impl E2eCodegen for RCodegen {
+    fn generate(
+        &self,
+        groups: &[FixtureGroup],
+        e2e_config: &E2eConfig,
+        _alef_config: &AlefConfig,
+    ) -> Result<Vec<GeneratedFile>> {
+        let lang = self.language_name();
+        let output_base = PathBuf::from(&e2e_config.output).join(lang);
+
+        let mut files = Vec::new();
+
+        // Resolve call config with overrides.
+        let call = &e2e_config.call;
+        let overrides = call.overrides.get(lang);
+        let module_path = overrides
+            .and_then(|o| o.module.as_ref())
+            .cloned()
+            .unwrap_or_else(|| call.module.clone());
+        let function_name = overrides
+            .and_then(|o| o.function.as_ref())
+            .cloned()
+            .unwrap_or_else(|| call.function.clone());
+        let result_var = &call.result_var;
+
+        // Resolve package config.
+        let r_pkg = e2e_config.packages.get("r");
+        let pkg_name = r_pkg
+            .and_then(|p| p.name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| module_path.clone());
+
+        // Generate DESCRIPTION file.
+        files.push(GeneratedFile {
+            path: output_base.join("DESCRIPTION"),
+            content: render_description(&pkg_name),
+            generated_header: false,
+        });
+
+        // Generate test runner script.
+        files.push(GeneratedFile {
+            path: output_base.join("run_tests.R"),
+            content: render_test_runner(&pkg_name),
+            generated_header: true,
+        });
+
+        // Generate test files per category.
+        for group in groups {
+            let active: Vec<&Fixture> = group
+                .fixtures
+                .iter()
+                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
+                .collect();
+
+            if active.is_empty() {
+                continue;
+            }
+
+            let filename = format!("test_{}.R", sanitize_filename(&group.category));
+            let content = render_test_file(
+                &group.category,
+                &active,
+                &function_name,
+                result_var,
+                &e2e_config.call.args,
+            );
+            files.push(GeneratedFile {
+                path: output_base.join("tests").join(filename),
+                content,
+                generated_header: true,
+            });
+        }
+
+        Ok(files)
+    }
+
+    fn language_name(&self) -> &'static str {
+        "r"
+    }
+}
+
+fn render_description(pkg_name: &str) -> String {
+    format!(
+        r#"Package: e2e.r
+Title: E2E Tests for {pkg_name}
+Version: 0.1.0
+Description: End-to-end test suite.
+Suggests: testthat (>= 3.0.0)
+Config/testthat/edition: 3
+"#
+    )
+}
+
+fn render_test_runner(pkg_name: &str) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "library(testthat)");
+    let _ = writeln!(out, "library({pkg_name})");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "test_dir(\"tests\")");
+    out
+}
+
+fn render_test_file(
+    category: &str,
+    fixtures: &[&Fixture],
+    function_name: &str,
+    result_var: &str,
+    args: &[crate::config::ArgMapping],
+) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "# E2e tests for category: {category}");
+    let _ = writeln!(out);
+
+    for (i, fixture) in fixtures.iter().enumerate() {
+        render_test_case(&mut out, fixture, function_name, result_var, args);
+        if i + 1 < fixtures.len() {
+            let _ = writeln!(out);
+        }
+    }
+
+    // Clean up trailing newlines.
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+fn render_test_case(
+    out: &mut String,
+    fixture: &Fixture,
+    function_name: &str,
+    result_var: &str,
+    args: &[crate::config::ArgMapping],
+) {
+    let test_name = sanitize_ident(&fixture.id);
+    let description = fixture.description.replace('"', "\\\"");
+
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+
+    let args_str = build_args_string(&fixture.input, args);
+
+    if expects_error {
+        let _ = writeln!(
+            out,
+            "test_that(\"{test_name}: {description}\", {{"
+        );
+        let _ = writeln!(out, "  expect_error({function_name}({args_str}))");
+        let _ = writeln!(out, "}})");
+        return;
+    }
+
+    let _ = writeln!(
+        out,
+        "test_that(\"{test_name}: {description}\", {{"
+    );
+    let _ = writeln!(out, "  {result_var} <- {function_name}({args_str})");
+
+    for assertion in &fixture.assertions {
+        render_assertion(out, assertion, result_var);
+    }
+
+    let _ = writeln!(out, "}})");
+}
+
+fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+    if args.is_empty() {
+        return json_to_r(input);
+    }
+
+    let parts: Vec<String> = args
+        .iter()
+        .filter_map(|arg| {
+            let val = input.get(&arg.field)?;
+            if val.is_null() && arg.optional {
+                return None;
+            }
+            Some(format!("{} = {}", arg.name, json_to_r(val)))
+        })
+        .collect();
+
+    parts.join(", ")
+}
+
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+    let field_expr = match &assertion.field {
+        Some(f) if !f.is_empty() => format!("{result_var}${f}"),
+        _ => result_var.to_string(),
+    };
+
+    match assertion.assertion_type.as_str() {
+        "equals" => {
+            if let Some(expected) = &assertion.value {
+                let r_val = json_to_r(expected);
+                let _ = writeln!(out, "  expect_equal(trimws({field_expr}), {r_val})");
+            }
+        }
+        "contains" => {
+            if let Some(expected) = &assertion.value {
+                let r_val = json_to_r(expected);
+                let _ = writeln!(out, "  expect_true(grepl({r_val}, {field_expr}, fixed = TRUE))");
+            }
+        }
+        "contains_all" => {
+            if let Some(values) = &assertion.values {
+                for val in values {
+                    let r_val = json_to_r(val);
+                    let _ = writeln!(out, "  expect_true(grepl({r_val}, {field_expr}, fixed = TRUE))");
+                }
+            }
+        }
+        "not_contains" => {
+            if let Some(expected) = &assertion.value {
+                let r_val = json_to_r(expected);
+                let _ = writeln!(
+                    out,
+                    "  expect_false(grepl({r_val}, {field_expr}, fixed = TRUE))"
+                );
+            }
+        }
+        "not_empty" => {
+            let _ = writeln!(out, "  expect_true(nchar({field_expr}) > 0)");
+        }
+        "is_empty" => {
+            let _ = writeln!(out, "  expect_equal({field_expr}, \"\")");
+        }
+        "starts_with" => {
+            if let Some(expected) = &assertion.value {
+                let r_val = json_to_r(expected);
+                let _ = writeln!(out, "  expect_true(startsWith({field_expr}, {r_val}))");
+            }
+        }
+        "ends_with" => {
+            if let Some(expected) = &assertion.value {
+                let r_val = json_to_r(expected);
+                let _ = writeln!(out, "  expect_true(endsWith({field_expr}, {r_val}))");
+            }
+        }
+        "min_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "  expect_true(nchar({field_expr}) >= {n})");
+                }
+            }
+        }
+        "max_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "  expect_true(nchar({field_expr}) <= {n})");
+                }
+            }
+        }
+        "not_error" => {
+            // Already handled — the call would stop on error.
+        }
+        "error" => {
+            // Handled at the test level.
+        }
+        other => {
+            let _ = writeln!(out, "  # TODO: unsupported assertion type: {other}");
+        }
+    }
+}
+
+/// Convert a `serde_json::Value` to an R literal string.
+fn json_to_r(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => format!("\"{}\"", escape_r(s)),
+        serde_json::Value::Bool(true) => "TRUE".to_string(),
+        serde_json::Value::Bool(false) => "FALSE".to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Null => "NULL".to_string(),
+        serde_json::Value::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(json_to_r).collect();
+            format!("c({})", items.join(", "))
+        }
+        serde_json::Value::Object(map) => {
+            let entries: Vec<String> = map
+                .iter()
+                .map(|(k, v)| format!("\"{}\" = {}", escape_r(k), json_to_r(v)))
+                .collect();
+            format!("list({})", entries.join(", "))
+        }
+    }
+}
