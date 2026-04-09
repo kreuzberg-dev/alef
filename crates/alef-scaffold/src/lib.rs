@@ -629,6 +629,17 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                 <configuration>
                     <source>21</source>
                     <target>21</target>
+                    <compilerArgs>
+                        <arg>--enable-preview</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <argLine>--enable-preview --enable-native-access=ALL-UNNAMED -Djava.library.path=${{project.basedir}}/../../target/release</argLine>
                 </configuration>
             </plugin>
         </plugins>
@@ -1039,6 +1050,10 @@ mod tests {
         assert!(content.contains("<dependencies>"));
         assert!(content.contains("<build>"));
         assert!(content.contains("maven-compiler-plugin"));
+        assert!(content.contains("--enable-preview"));
+        assert!(content.contains("maven-surefire-plugin"));
+        assert!(content.contains("--enable-native-access=ALL-UNNAMED"));
+        assert!(content.contains("-Djava.library.path=${project.basedir}/../../target/release"));
     }
 
     #[test]
