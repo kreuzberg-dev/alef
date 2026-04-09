@@ -1,4 +1,5 @@
 use alef_core::config::{AlefConfig, Language};
+use anyhow::Context as _;
 use std::path::Path;
 use tracing::{debug, info};
 
@@ -101,26 +102,28 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
         if release {
             cmd.push_str(" --release");
         }
-        run_command(&cmd)?;
+        run_command(&cmd).context("failed to build FFI crate")?;
     }
 
     // Build independent languages
     for (lang, bc) in &independent {
         info!("Building {lang} ({})...", bc.tool);
         let build_cmd = build_command_for(*lang, bc, config, release);
-        run_command(&build_cmd)?;
+        run_command(&build_cmd).with_context(|| format!("failed to build language bindings for {lang}"))?;
 
         // Run post-build steps
-        run_post_build(*lang, bc, config, &base_dir)?;
+        run_post_build(*lang, bc, config, &base_dir)
+            .with_context(|| format!("failed to run post-build steps for {lang}"))?;
     }
 
     // Build FFI-dependent languages
     for (lang, bc) in &ffi_dependent {
         info!("Building {lang} ({})...", bc.tool);
         let build_cmd = build_command_for(*lang, bc, config, release);
-        run_command(&build_cmd)?;
+        run_command(&build_cmd).with_context(|| format!("failed to build language bindings for {lang}"))?;
 
-        run_post_build(*lang, bc, config, &base_dir)?;
+        run_post_build(*lang, bc, config, &base_dir)
+            .with_context(|| format!("failed to run post-build steps for {lang}"))?;
     }
 
     Ok(())
@@ -241,10 +244,12 @@ fn run_post_build(
             PostBuildStep::PatchFile { path, find, replace } => {
                 let file_path = base_dir.join(crate_dir).join(path);
                 if file_path.exists() {
-                    let content = std::fs::read_to_string(&file_path)?;
+                    let content = std::fs::read_to_string(&file_path)
+                        .with_context(|| format!("failed to read post-build patch target {}", file_path.display()))?;
                     let patched = content.replace(find, replace);
                     if patched != content {
-                        std::fs::write(&file_path, &patched)?;
+                        std::fs::write(&file_path, &patched)
+                            .with_context(|| format!("failed to write patched file {}", file_path.display()))?;
                         info!("Patched {}: replaced '{}' → '{}'", file_path.display(), find, replace);
                     }
                 } else {

@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use tracing::info;
 
 /// Run a shell command, logging and failing on non-zero exit.
@@ -22,15 +23,16 @@ pub fn init(config_path: &std::path::Path, languages: Option<Vec<String>>) -> an
     let config_content = generate_init_config(&crate_name, &crate_version, &langs);
 
     // Write to alef.toml
-    std::fs::write(config_path, config_content)?;
+    std::fs::write(config_path, config_content)
+        .with_context(|| format!("failed to write config to {}", config_path.display()))?;
     info!("Created {}", config_path.display());
 
     Ok(())
 }
 
 fn read_crate_metadata() -> anyhow::Result<(String, String)> {
-    let content = std::fs::read_to_string("Cargo.toml")?;
-    let value: toml::Value = toml::from_str(&content)?;
+    let content = std::fs::read_to_string("Cargo.toml").context("failed to read Cargo.toml")?;
+    let value: toml::Value = toml::from_str(&content).context("failed to parse Cargo.toml")?;
 
     // Try workspace.package first
     if let Some(name) = value

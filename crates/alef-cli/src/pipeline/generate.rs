@@ -1,6 +1,7 @@
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use anyhow::Context as _;
 use std::path::Path;
 use tracing::{debug, info};
 
@@ -41,8 +42,11 @@ pub fn generate(
         let backend = registry::get_backend(lang);
         info!("  {}: generating...", lang_str);
 
-        let files = backend.generate_bindings(api, config)?;
-        cache::write_lang_hash(&lang_str, &lang_hash)?;
+        let files = backend
+            .generate_bindings(api, config)
+            .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
+        cache::write_lang_hash(&lang_str, &lang_hash)
+            .with_context(|| format!("failed to write language hash for {lang_str}"))?;
         results.push((lang, files));
     }
 
@@ -90,9 +94,11 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
         for file in lang_files {
             let full_path = base_dir.join(&file.path);
             if let Some(parent) = full_path.parent() {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create directory {}", parent.display()))?;
             }
-            std::fs::write(&full_path, &file.content)?;
+            std::fs::write(&full_path, &file.content)
+                .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
             count += 1;
             debug!("  wrote: {}", full_path.display());
         }
@@ -131,9 +137,11 @@ pub fn write_scaffold_files(files: &[GeneratedFile], base_dir: &Path) -> anyhow:
     for file in files {
         let full_path = base_dir.join(&file.path);
         if let Some(parent) = full_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory {}", parent.display()))?;
         }
-        std::fs::write(&full_path, &file.content)?;
+        std::fs::write(&full_path, &file.content)
+            .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         count += 1;
         debug!("  wrote: {}", full_path.display());
     }

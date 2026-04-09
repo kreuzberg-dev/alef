@@ -1,6 +1,7 @@
 use ahash::{AHashMap, AHashSet};
 use alef_core::config::AlefConfig;
 use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
+use anyhow::Context as _;
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, info};
@@ -70,11 +71,12 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
         ensure_gitignore(parent, config);
     }
 
-    let source_hash = cache::compute_source_hash(&config.crate_config.sources, config_path)?;
+    let source_hash = cache::compute_source_hash(&config.crate_config.sources, config_path)
+        .context("failed to compute source hash")?;
 
     if !clean && cache::is_ir_cached(&source_hash) {
         info!("Using cached IR");
-        return cache::read_cached_ir();
+        return cache::read_cached_ir().context("failed to read cached IR");
     }
 
     info!("Extracting API surface from Rust source...");
@@ -84,7 +86,8 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
     let version = read_version(&config.crate_config.version_from)?;
 
     let workspace_root = config.crate_config.workspace_root.as_deref();
-    let api = alef_extract::extractor::extract(&sources, &config.crate_config.name, &version, workspace_root)?;
+    let api = alef_extract::extractor::extract(&sources, &config.crate_config.name, &version, workspace_root)
+        .context("failed to extract API surface")?;
 
     // Apply global filters (includes and excludes)
     let mut api = apply_filters(api, config);
@@ -105,7 +108,7 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
     // Apply path mappings to rewrite rust_path fields
     apply_path_mappings(&mut api, config);
 
-    cache::write_ir_cache(&api, &source_hash)?;
+    cache::write_ir_cache(&api, &source_hash).context("failed to write IR cache")?;
     info!(
         "Extracted {} types, {} functions, {} enums",
         api.types.len(),

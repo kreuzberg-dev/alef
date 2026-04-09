@@ -6,8 +6,10 @@ use super::helpers::run_command;
 
 /// Read the version from a Cargo.toml file (workspace or regular package).
 pub(crate) fn read_version(version_from: &str) -> anyhow::Result<String> {
-    let content = std::fs::read_to_string(version_from)?;
-    let value: toml::Value = toml::from_str(&content)?;
+    let content =
+        std::fs::read_to_string(version_from).with_context(|| format!("failed to read version file {version_from}"))?;
+    let value: toml::Value =
+        toml::from_str(&content).with_context(|| format!("failed to parse TOML in {version_from}"))?;
     if let Some(v) = value
         .get("workspace")
         .and_then(|w| w.get("package"))
@@ -67,7 +69,8 @@ fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &str) -> anyh
         std::fs::read_to_string(cargo_toml_path).with_context(|| format!("Failed to read {cargo_toml_path}"))?;
 
     // Match `version = "..."` as a standalone line (covers both [package] and [workspace.package])
-    let re = regex::Regex::new(r#"(?m)^(version\s*=\s*)"[^"]*""#)?;
+    let re =
+        regex::Regex::new(r#"(?m)^(version\s*=\s*)"[^"]*""#).context("failed to compile version replacement regex")?;
     let new_content = re
         .replace(&content, format!(r#"version = "{new_version}""#).as_str())
         .to_string();
@@ -89,7 +92,7 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
         let current = read_version(&config.crate_config.version_from)?;
         let bumped = bump_version(&current, component)?;
         info!("Bumping version {current} -> {bumped} ({component})");
-        write_version_to_cargo_toml(&config.crate_config.version_from, &bumped)?;
+        write_version_to_cargo_toml(&config.crate_config.version_from, &bumped).context("failed to sync versions")?;
         info!(
             "Updated {} with bumped version {bumped}",
             config.crate_config.version_from
@@ -104,7 +107,8 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
     // Python: pyproject.toml
     if let Ok(content) = std::fs::read_to_string("packages/python/pyproject.toml") {
         if let Some(new_content) = replace_version_pattern(&content, r#"version = "[^"]*""#, &version) {
-            std::fs::write("packages/python/pyproject.toml", &new_content)?;
+            std::fs::write("packages/python/pyproject.toml", &new_content)
+                .context("failed to write packages/python/pyproject.toml")?;
             updated.push("packages/python/pyproject.toml".to_string());
         }
     }
@@ -112,7 +116,8 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
     // Node: package.json
     if let Ok(content) = std::fs::read_to_string("packages/typescript/package.json") {
         if let Some(new_content) = replace_version_pattern(&content, r#""version": "[^"]*""#, &version) {
-            std::fs::write("packages/typescript/package.json", &new_content)?;
+            std::fs::write("packages/typescript/package.json", &new_content)
+                .context("failed to write packages/typescript/package.json")?;
             updated.push("packages/typescript/package.json".to_string());
         }
     }
