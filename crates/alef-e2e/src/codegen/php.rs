@@ -1,0 +1,384 @@
+//! PHP e2e test generator using PHPUnit.
+//!
+//! Generates `e2e/php/composer.json`, `e2e/php/phpunit.xml`, and
+//! `tests/{Category}Test.php` files from JSON fixtures, driven entirely by
+//! `E2eConfig` and `CallConfig`.
+
+use crate::config::E2eConfig;
+use crate::escape::{escape_php, sanitize_filename};
+use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use alef_core::backend::GeneratedFile;
+use alef_core::config::AlefConfig;
+use anyhow::Result;
+use heck::ToUpperCamelCase;
+use std::fmt::Write as FmtWrite;
+use std::path::PathBuf;
+
+use super::E2eCodegen;
+
+/// PHP e2e code generator.
+pub struct PhpCodegen;
+
+impl E2eCodegen for PhpCodegen {
+    fn generate(
+        &self,
+        groups: &[FixtureGroup],
+        e2e_config: &E2eConfig,
+        alef_config: &AlefConfig,
+    ) -> Result<Vec<GeneratedFile>> {
+        let lang = self.language_name();
+        let output_base = PathBuf::from(&e2e_config.output).join(lang);
+
+        let mut files = Vec::new();
+
+        // Resolve call config with overrides.
+        let call = &e2e_config.call;
+        let overrides = call.overrides.get(lang);
+        let function_name = overrides
+            .and_then(|o| o.function.as_ref())
+            .cloned()
+            .unwrap_or_else(|| call.function.clone());
+        let class_name = overrides
+            .and_then(|o| o.class.as_ref())
+            .cloned()
+            .unwrap_or_else(|| alef_config.crate_config.name.to_upper_camel_case());
+        let namespace = overrides
+            .and_then(|o| o.module.as_ref())
+            .cloned()
+            .unwrap_or_else(|| {
+                if call.module.is_empty() {
+                    "Kreuzberg".to_string()
+                } else {
+                    call.module.to_upper_camel_case()
+                }
+            });
+        let result_var = &call.result_var;
+
+        // Resolve package config.
+        let php_pkg = e2e_config.packages.get("php");
+        let pkg_name = php_pkg
+            .and_then(|p| p.name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| format!("kreuzberg/{}", alef_config.crate_config.name));
+        let pkg_path = php_pkg
+            .and_then(|p| p.path.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "../../packages/php".to_string());
+
+        // Generate composer.json.
+        files.push(GeneratedFile {
+            path: output_base.join("composer.json"),
+            content: render_composer_json(&pkg_name, &pkg_path),
+            generated_header: false,
+        });
+
+        // Generate phpunit.xml.
+        files.push(GeneratedFile {
+            path: output_base.join("phpunit.xml"),
+            content: render_phpunit_xml(),
+            generated_header: false,
+        });
+
+        // Generate test files per category.
+        let tests_base = output_base.join("tests");
+
+        for group in groups {
+            let active: Vec<&Fixture> = group
+                .fixtures
+                .iter()
+                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
+                .collect();
+
+            if active.is_empty() {
+                continue;
+            }
+
+            let test_class = format!("{}Test", sanitize_filename(&group.category).to_upper_camel_case());
+            let filename = format!("{test_class}.php");
+            let content = render_test_file(
+                &group.category,
+                &active,
+                &namespace,
+                &class_name,
+                &function_name,
+                result_var,
+                &test_class,
+                &e2e_config.call.args,
+            );
+            files.push(GeneratedFile {
+                path: tests_base.join(filename),
+                content,
+                generated_header: true,
+            });
+        }
+
+        Ok(files)
+    }
+
+    fn language_name(&self) -> &'static str {
+        "php"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+fn render_composer_json(pkg_name: &str, pkg_path: &str) -> String {
+    format!(
+        r#"{{
+  "name": "kreuzberg/e2e-php",
+  "description": "E2e tests for PHP bindings",
+  "type": "project",
+  "require-dev": {{
+    "phpunit/phpunit": "^11.0",
+    "{pkg_name}": "*"
+  }},
+  "repositories": [
+    {{
+      "type": "path",
+      "url": "{pkg_path}"
+    }}
+  ],
+  "autoload-dev": {{
+    "psr-4": {{
+      "Kreuzberg\\E2e\\": "tests/"
+    }}
+  }}
+}}
+"#
+    )
+}
+
+fn render_phpunit_xml() -> String {
+    r#"<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.0/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         failOnRisky="true"
+         failOnWarning="true">
+    <testsuites>
+        <testsuite name="e2e">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
+"#
+    .to_string()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_test_file(
+    category: &str,
+    fixtures: &[&Fixture],
+    namespace: &str,
+    class_name: &str,
+    function_name: &str,
+    result_var: &str,
+    test_class: &str,
+    args: &[crate::config::ArgMapping],
+) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "<?php");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "declare(strict_types=1);");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "namespace Kreuzberg\\E2e;");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "use PHPUnit\\Framework\\TestCase;");
+    let _ = writeln!(out, "use {namespace}\\{class_name};");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "/** E2e tests for category: {category}. */");
+    let _ = writeln!(out, "final class {test_class} extends TestCase");
+    let _ = writeln!(out, "{{");
+
+    for (i, fixture) in fixtures.iter().enumerate() {
+        render_test_method(&mut out, fixture, class_name, function_name, result_var, args);
+        if i + 1 < fixtures.len() {
+            let _ = writeln!(out);
+        }
+    }
+
+    let _ = writeln!(out, "}}");
+    out
+}
+
+fn render_test_method(
+    out: &mut String,
+    fixture: &Fixture,
+    class_name: &str,
+    function_name: &str,
+    result_var: &str,
+    args: &[crate::config::ArgMapping],
+) {
+    let method_name = sanitize_filename(&fixture.id);
+    let description = &fixture.description;
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+
+    let args_str = build_args_string(&fixture.input, args);
+
+    let _ = writeln!(out, "    /** {description} */");
+    let _ = writeln!(out, "    public function test_{method_name}(): void");
+    let _ = writeln!(out, "    {{");
+
+    if expects_error {
+        let _ = writeln!(out, "        $this->expectException(\\Exception::class);");
+        let _ = writeln!(out, "        {class_name}::{function_name}({args_str});");
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
+    let _ = writeln!(
+        out,
+        "        ${result_var} = {class_name}::{function_name}({args_str});"
+    );
+
+    for assertion in &fixture.assertions {
+        render_assertion(out, assertion, result_var);
+    }
+
+    let _ = writeln!(out, "    }}");
+}
+
+fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+    if args.is_empty() {
+        return json_to_php(input);
+    }
+
+    let parts: Vec<String> = args
+        .iter()
+        .filter_map(|arg| {
+            let val = input.get(&arg.field)?;
+            if val.is_null() && arg.optional {
+                return None;
+            }
+            Some(json_to_php(val))
+        })
+        .collect();
+
+    parts.join(", ")
+}
+
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+    let field_expr = match &assertion.field {
+        Some(f) if !f.is_empty() => format!("${result_var}->{f}"),
+        _ => format!("${result_var}"),
+    };
+
+    match assertion.assertion_type.as_str() {
+        "equals" => {
+            if let Some(expected) = &assertion.value {
+                let php_val = json_to_php(expected);
+                let _ = writeln!(
+                    out,
+                    "        $this->assertEquals({php_val}, trim({field_expr}));"
+                );
+            }
+        }
+        "contains" => {
+            if let Some(expected) = &assertion.value {
+                let php_val = json_to_php(expected);
+                let _ = writeln!(
+                    out,
+                    "        $this->assertStringContainsString({php_val}, {field_expr});"
+                );
+            }
+        }
+        "contains_all" => {
+            if let Some(values) = &assertion.values {
+                for val in values {
+                    let php_val = json_to_php(val);
+                    let _ = writeln!(
+                        out,
+                        "        $this->assertStringContainsString({php_val}, {field_expr});"
+                    );
+                }
+            }
+        }
+        "not_contains" => {
+            if let Some(expected) = &assertion.value {
+                let php_val = json_to_php(expected);
+                let _ = writeln!(
+                    out,
+                    "        $this->assertStringNotContainsString({php_val}, {field_expr});"
+                );
+            }
+        }
+        "not_empty" => {
+            let _ = writeln!(out, "        $this->assertNotEmpty({field_expr});");
+        }
+        "is_empty" => {
+            let _ = writeln!(out, "        $this->assertEmpty({field_expr});");
+        }
+        "starts_with" => {
+            if let Some(expected) = &assertion.value {
+                let php_val = json_to_php(expected);
+                let _ = writeln!(
+                    out,
+                    "        $this->assertStringStartsWith({php_val}, {field_expr});"
+                );
+            }
+        }
+        "ends_with" => {
+            if let Some(expected) = &assertion.value {
+                let php_val = json_to_php(expected);
+                let _ = writeln!(
+                    out,
+                    "        $this->assertStringEndsWith({php_val}, {field_expr});"
+                );
+            }
+        }
+        "min_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(
+                        out,
+                        "        $this->assertGreaterThanOrEqual({n}, strlen({field_expr}));"
+                    );
+                }
+            }
+        }
+        "max_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(
+                        out,
+                        "        $this->assertLessThanOrEqual({n}, strlen({field_expr}));"
+                    );
+                }
+            }
+        }
+        "not_error" => {
+            // Already handled by the call succeeding without exception.
+        }
+        "error" => {
+            // Handled at the test method level.
+        }
+        other => {
+            let _ = writeln!(out, "        // TODO: unsupported assertion type: {other}");
+        }
+    }
+}
+
+/// Convert a `serde_json::Value` to a PHP literal string.
+fn json_to_php(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => format!("\"{}\"", escape_php(s)),
+        serde_json::Value::Bool(true) => "true".to_string(),
+        serde_json::Value::Bool(false) => "false".to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(json_to_php).collect();
+            format!("[{}]", items.join(", "))
+        }
+        serde_json::Value::Object(map) => {
+            let items: Vec<String> = map
+                .iter()
+                .map(|(k, v)| format!("\"{}\" => {}", escape_php(k), json_to_php(v)))
+                .collect();
+            format!("[{}]", items.join(", "))
+        }
+    }
+}
