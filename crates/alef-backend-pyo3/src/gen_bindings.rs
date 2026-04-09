@@ -832,7 +832,12 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
         }
 
         let return_type_str = crate::type_map::python_type(&func.return_type);
-        out.push_str(&format!("def {}({}) -> {}:\n", func.name, sig_parts.join(", "), return_type_str));
+        out.push_str(&format!(
+            "def {}({}) -> {}:\n",
+            func.name,
+            sig_parts.join(", "),
+            return_type_str
+        ));
         if !func.doc.is_empty() {
             let doc_first_line = func.doc.lines().next().unwrap_or("");
             let doc_with_period = if doc_first_line.trim().ends_with('.') {
