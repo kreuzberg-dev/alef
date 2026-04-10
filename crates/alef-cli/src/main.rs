@@ -138,6 +138,8 @@ enum E2eAction {
     },
     /// List all fixtures with counts per category.
     List,
+    /// Validate fixture files against the JSON schema.
+    Validate,
 }
 
 #[derive(Subcommand)]
@@ -396,6 +398,28 @@ fn main() -> Result<()> {
                         println!("  {}: {} fixture(s)", group.category, group.fixtures.len());
                     }
                     Ok(())
+                }
+                E2eAction::Validate => {
+                    let fixtures_dir = std::path::Path::new(&e2e_config.fixtures);
+                    eprintln!("Validating fixtures in {}...", fixtures_dir.display());
+                    let errors = alef_e2e::validate::validate_fixtures(fixtures_dir)
+                        .with_context(|| {
+                            format!(
+                                "failed to validate fixtures from {}",
+                                fixtures_dir.display()
+                            )
+                        })?;
+
+                    if errors.is_empty() {
+                        println!("All fixtures are valid.");
+                        Ok(())
+                    } else {
+                        println!("Found {} validation error(s):", errors.len());
+                        for err in &errors {
+                            println!("  {err}");
+                        }
+                        process::exit(1);
+                    }
                 }
             }
         }

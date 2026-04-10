@@ -7,8 +7,10 @@
 pub mod codegen;
 pub mod config;
 pub mod escape;
+pub mod field_access;
 pub mod fixture;
 pub mod format;
+pub mod validate;
 
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
