@@ -39,6 +39,11 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     for d in cfg.struct_derives {
         sb.add_derive(d);
     }
+    // Types with has_default get #[derive(Default)] — all fields use Default::default()
+    // so the manual impl is unnecessary and triggers clippy::derivable_impls.
+    if typ.has_default {
+        sb.add_derive("Default");
+    }
     if cfg.has_serde {
         sb.add_derive("serde::Serialize");
     }

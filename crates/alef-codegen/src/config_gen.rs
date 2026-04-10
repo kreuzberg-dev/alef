@@ -8,6 +8,18 @@ fn is_tuple_field(field: &FieldDef) -> bool {
         || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
 }
 
+/// Returns true if the Rust default value for a field is its type's inherent default,
+/// meaning `.unwrap_or_default()` can be used instead of `.unwrap_or(value)`.
+/// This avoids clippy::unwrap_or_default warnings.
+fn use_unwrap_or_default(field: &FieldDef) -> bool {
+    if let Some(typed_default) = &field.typed_default {
+        return matches!(typed_default, DefaultValue::Empty | DefaultValue::None);
+    }
+    // No typed_default — the fallback default_value_for_field generates type-based zero values
+    // which are the same as Default::default() for the type.
+    field.default.is_none()
+}
+
 /// Generate a PyO3 `#[new]` constructor with kwargs for a type with `has_default`.
 /// All fields become keyword args with their defaults in `#[pyo3(signature = (...))]`.
 pub fn gen_pyo3_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
@@ -558,8 +570,11 @@ pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) 
         if is_optional_field {
             // Struct field is Option<T>, param is Option<T> — pass through directly
             writeln!(out, "        {},", field.name).ok();
+        } else if use_unwrap_or_default(field) {
+            // Struct field is T, param is Option<T> — unwrap with type's default
+            writeln!(out, "        {}: {}.unwrap_or_default(),", field.name, field.name).ok();
         } else {
-            // Struct field is T, param is Option<T> — unwrap with default
+            // Struct field is T, param is Option<T> — unwrap with explicit default
             let default_str = default_value_for_field(field, "rust");
             writeln!(
                 out,
@@ -600,6 +615,13 @@ pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&Type
             writeln!(
                 out,
                 "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()),",
+                field.name, field.name
+            )
+            .ok();
+        } else if use_unwrap_or_default(field) {
+            writeln!(
+                out,
+                "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
                 field.name, field.name
             )
             .ok();

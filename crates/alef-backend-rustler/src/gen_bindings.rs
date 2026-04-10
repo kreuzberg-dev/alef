@@ -80,10 +80,9 @@ impl Backend for RustlerBackend {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_resource(typ, &core_import, &opaque_types));
             } else {
+                // gen_struct adds Default to derives when typ.has_default is true,
+                // so no separate Default impl is needed.
                 builder.add_item(&gen_struct(typ, &mapper, &module_prefix));
-                if typ.has_default {
-                    builder.add_item(&alef_codegen::generators::gen_struct_default_impl(typ, ""));
-                }
                 // Generate config constructor if type has Default
                 if typ.has_default && !typ.fields.is_empty() {
                     let config_impl = gen_rustler_config_impl(typ, &mapper);
@@ -289,7 +288,11 @@ fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_types: &AHashSe
 fn gen_struct(typ: &TypeDef, mapper: &RustlerMapper, module_prefix: &str) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
-    writeln!(out, "#[derive(Debug, Clone, rustler::NifStruct)]").ok();
+    if typ.has_default {
+        writeln!(out, "#[derive(Debug, Clone, Default, rustler::NifStruct)]").ok();
+    } else {
+        writeln!(out, "#[derive(Debug, Clone, rustler::NifStruct)]").ok();
+    }
     writeln!(out, "#[module = \"{}.{}\"]", module_prefix, typ.name).ok();
     writeln!(out, "pub struct {} {{", typ.name).ok();
 
@@ -338,6 +341,7 @@ fn gen_enum(enum_def: &EnumDef) -> String {
     // Default impl for config constructor unwrap_or_default()
     if let Some(first) = enum_def.variants.first() {
         lines.push(String::new());
+        lines.push("#[allow(clippy::derivable_impls)]".to_string());
         lines.push(format!("impl Default for {} {{", enum_def.name));
         lines.push(format!("    fn default() -> Self {{ Self::{} }}", first.name));
         lines.push("}".to_string());

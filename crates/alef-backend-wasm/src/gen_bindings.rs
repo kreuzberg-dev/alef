@@ -12,13 +12,15 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 /// Check if a TypeRef is a Copy type that shouldn't be cloned.
-fn is_copy_type(ty: &TypeRef) -> bool {
+/// `enum_names` contains the set of enum type names that derive Copy.
+fn is_copy_type(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
     match ty {
         TypeRef::Primitive(_) => true, // All primitives are Copy
         TypeRef::Duration => true,     // Duration maps to u64 (secs), which is Copy
         TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path | TypeRef::Json => false,
-        TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => false,
-        TypeRef::Named(_) => false, // Custom types are not Copy
+        TypeRef::Optional(inner) => is_copy_type(inner, enum_names), // Option<Copy> is Copy
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => false,
+        TypeRef::Named(n) => enum_names.contains(n), // WASM enums derive Copy
         TypeRef::Unit => true,
     }
 }
@@ -102,18 +104,16 @@ impl Backend for WasmBackend {
                 builder.add_item(&gen_opaque_struct(typ, &core_import));
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types, &core_import));
             } else {
+                // gen_struct adds #[derive(Default)] when typ.has_default is true,
+                // so no separate Default impl is needed.
                 builder.add_item(&gen_struct(typ, &mapper));
-                // Generate Default impl for has_default types so they can be used
-                // with unwrap_or_default() in config constructors
-                if typ.has_default {
-                    builder.add_item(&gen_struct_default(typ, &mapper));
-                }
                 builder.add_item(&gen_struct_methods(
                     typ,
                     &mapper,
                     &exclude_types,
                     &core_import,
                     &opaque_types,
+                    &api.enums,
                 ));
             }
         }
@@ -529,7 +529,11 @@ fn gen_opaque_static_method(
 fn gen_struct(typ: &TypeDef, mapper: &WasmMapper) -> String {
     let js_name = format!("Js{}", typ.name);
     let mut out = String::with_capacity(512);
-    writeln!(out, "#[derive(Clone)]").ok();
+    if typ.has_default {
+        writeln!(out, "#[derive(Clone, Default)]").ok();
+    } else {
+        writeln!(out, "#[derive(Clone)]").ok();
+    }
     writeln!(out, "#[wasm_bindgen]").ok();
     writeln!(out, "pub struct {} {{", js_name).ok();
 
@@ -551,27 +555,6 @@ fn gen_struct(typ: &TypeDef, mapper: &WasmMapper) -> String {
     out
 }
 
-/// Generate a Default impl for a struct with `has_default`.
-/// All fields use their type's Default impl.
-fn gen_struct_default(typ: &TypeDef, _mapper: &WasmMapper) -> String {
-    use std::fmt::Write;
-    let js_name = format!("Js{}", typ.name);
-    let mut out = String::with_capacity(256);
-    writeln!(out, "impl Default for {} {{", js_name).ok();
-    writeln!(out, "    fn default() -> Self {{").ok();
-    writeln!(out, "        Self {{").ok();
-    for field in &typ.fields {
-        if field.cfg.is_some() {
-            continue;
-        }
-        writeln!(out, "            {}: Default::default(),", field.name).ok();
-    }
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    out
-}
-
 /// Generate wasm-bindgen methods for a struct.
 fn gen_struct_methods(
     typ: &TypeDef,
@@ -579,6 +562,7 @@ fn gen_struct_methods(
     exclude_types: &[String],
     core_import: &str,
     opaque_types: &AHashSet<String>,
+    api_enums: &[EnumDef],
 ) -> String {
     let js_name = format!("Js{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
@@ -588,8 +572,12 @@ fn gen_struct_methods(
         impl_builder.add_method(&gen_new_method(typ, mapper));
     }
 
+    // Collect enum names for Copy detection in getters.
+    // Use unprefixed names since TypeRef::Named stores the original name without Js prefix.
+    let enum_names: AHashSet<String> = api_enums.iter().map(|e| e.name.clone()).collect();
+
     for field in &typ.fields {
-        impl_builder.add_method(&gen_getter(field, mapper));
+        impl_builder.add_method(&gen_getter(field, mapper, &enum_names));
         impl_builder.add_method(&gen_setter(field, mapper));
     }
 
@@ -613,14 +601,22 @@ fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper) -> String {
         constructor_parts(&typ.fields, &map_fn)
     };
 
+    // Suppress too_many_arguments when the constructor has >7 params
+    let field_count = typ.fields.iter().filter(|f| f.cfg.is_none()).count();
+    let allow_attr = if field_count > 7 {
+        "#[allow(clippy::too_many_arguments)]\n"
+    } else {
+        ""
+    };
+
     format!(
-        "#[wasm_bindgen(constructor)]\npub fn new({param_list}) -> Js{} {{\n    Js{} {{ {assignments} }}\n}}",
+        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list}) -> Js{} {{\n    Js{} {{ {assignments} }}\n}}",
         typ.name, typ.name
     )
 }
 
 /// Generate a getter method for a field.
-fn gen_getter(field: &FieldDef, mapper: &WasmMapper) -> String {
+fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<String>) -> String {
     let field_type = if field.optional {
         mapper.optional(&mapper.map_type(&field.ty))
     } else {
@@ -634,8 +630,15 @@ fn gen_getter(field: &FieldDef, mapper: &WasmMapper) -> String {
         String::new()
     };
 
-    // Only clone non-Copy types; Copy types are returned directly
-    let return_expr = if is_copy_type(&field.ty) {
+    // Only clone non-Copy types; Copy types are returned directly.
+    // For Optional fields, check the inner type — Option<Copy> is Copy.
+    let effective_ty = if field.optional {
+        // The field type in the struct is Option<mapped_ty>; check if the mapped type is Copy
+        &field.ty
+    } else {
+        &field.ty
+    };
+    let return_expr = if is_copy_type(effective_ty, enum_names) {
         format!("self.{}", field.name)
     } else {
         format!("self.{}.clone()", field.name)
@@ -839,6 +842,7 @@ fn gen_enum(enum_def: &EnumDef) -> String {
     // Default impl (first variant) for use in config constructor unwrap_or_default()
     if let Some(first) = enum_def.variants.first() {
         lines.push(String::new());
+        lines.push("#[allow(clippy::derivable_impls)]".to_string());
         lines.push(format!("impl Default for {} {{", js_name));
         lines.push(format!("    fn default() -> Self {{ Self::{} }}", first.name));
         lines.push("}".to_string());
@@ -899,7 +903,7 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaq
                 }
                 TypeRef::Named(_) => {
                     let inner_mapped = mapper.map_type(inner);
-                    format!("result.into_iter().map(|v| {inner_mapped}::from(v)).collect::<Vec<_>>()")
+                    format!("result.into_iter().map({inner_mapped}::from).collect::<Vec<_>>()")
                 }
                 _ => "result".to_string(),
             },

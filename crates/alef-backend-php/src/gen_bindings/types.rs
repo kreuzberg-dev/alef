@@ -111,14 +111,14 @@ pub(crate) fn gen_struct_methods(
             if has_serde {
                 let constructor = "pub fn from_json(json: String) -> PhpResult<Self> {\n    \
                      serde_json::from_str(&json)\n        \
-                     .map_err(|e| PhpException::default(e.to_string()).into())\n\
+                     .map_err(|e| PhpException::default(e.to_string()))\n\
                      }"
                 .to_string();
                 impl_builder.add_method(&constructor);
             } else {
                 let constructor = format!(
                     "pub fn __construct() -> PhpResult<Self> {{\n    \
-                     Err(PhpException::default(\"Not implemented: constructor for {} requires complex params\".to_string()).into())\n\
+                     Err(PhpException::default(\"Not implemented: constructor for {} requires complex params\".to_string()))\n\
                      }}",
                     typ.name
                 );

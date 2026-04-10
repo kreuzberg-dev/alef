@@ -85,9 +85,9 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
         }
     }
 
-    // If no methods at all, add pass
+    // If no methods at all, use `...` (PYI009: empty body should use `...` not `pass`)
     if typ.methods.is_empty() {
-        lines.push("    pass".to_string());
+        lines.push("    ...".to_string());
     }
 
     lines.join("\n")
@@ -155,7 +155,19 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
         format!("{}: {} = None", f.name, param_type)
     }));
 
-    format!("    def __init__(self, {}) -> None: ...", params.join(", "))
+    let single_line = format!("    def __init__(self, {}) -> None: ...", params.join(", "));
+    if single_line.len() <= 120 {
+        single_line
+    } else {
+        // Wrap parameters across multiple lines to stay within 120 chars
+        let mut wrapped = String::from("    def __init__(\n");
+        wrapped.push_str("        self,\n");
+        for param in &params {
+            wrapped.push_str(&format!("        {},\n", param));
+        }
+        wrapped.push_str("    ) -> None: ...");
+        wrapped
+    }
 }
 
 /// Generate a method stub.
@@ -193,26 +205,55 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
                 indent, indent, safe_name, return_type
             )
         } else {
-            format!(
+            let single_line = format!(
                 "{}@staticmethod\n{}def {}({}) -> {}: ...",
                 indent,
                 indent,
                 safe_name,
                 params.join(", "),
                 return_type
-            )
+            );
+            // Check the def line (second line) for length
+            let def_line = format!(
+                "{}def {}({}) -> {}: ...",
+                indent,
+                safe_name,
+                params.join(", "),
+                return_type
+            );
+            if def_line.len() <= 120 {
+                single_line
+            } else {
+                let mut wrapped = format!("{}@staticmethod\n{}def {}(\n", indent, indent, safe_name);
+                for param in &params {
+                    wrapped.push_str(&format!("{}    {},\n", indent, param));
+                }
+                wrapped.push_str(&format!("{}) -> {}: ...", indent, return_type));
+                wrapped
+            }
         }
     } else {
         if params.is_empty() {
             format!("{}def {}(self) -> {}: ...", indent, safe_name, return_type)
         } else {
-            format!(
+            let single_line = format!(
                 "{}def {}(self, {}) -> {}: ...",
                 indent,
                 safe_name,
                 params.join(", "),
                 return_type
-            )
+            );
+            if single_line.len() <= 120 {
+                single_line
+            } else {
+                let mut wrapped = format!("{}def {}(\n", indent, safe_name);
+                wrapped.push_str(&format!("{}    self,\n", indent));
+                for param in &params {
+                    wrapped.push_str(&format!("{}    {},\n", indent, param));
+                }
+                wrapped.push_str(&format!("{}) -> {}: ...", indent, return_type));
+                wrapped
+            }
         }
     }
 }
@@ -257,5 +298,15 @@ fn gen_function_stub(func: &FunctionDef) -> String {
     let return_type = python_type(&func.return_type);
     let safe_name = python_safe_name(&func.name);
 
-    format!("def {}({}) -> {}: ...", safe_name, params.join(", "), return_type)
+    let single_line = format!("def {}({}) -> {}: ...", safe_name, params.join(", "), return_type);
+    if single_line.len() <= 120 {
+        single_line
+    } else {
+        let mut wrapped = format!("def {}(\n", safe_name);
+        for param in &params {
+            wrapped.push_str(&format!("    {},\n", param));
+        }
+        wrapped.push_str(&format!(") -> {}: ...", return_type));
+        wrapped
+    }
 }

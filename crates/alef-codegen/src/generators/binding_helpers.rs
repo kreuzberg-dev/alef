@@ -84,7 +84,7 @@ pub fn wrap_return(
                 }
             }
             TypeRef::Duration => format!("{expr}.map(|d| d.as_secs())"),
-            TypeRef::Json => format!("{expr}.map(|v| v.to_string())"),
+            TypeRef::Json => format!("{expr}.map(ToString::to_string)"),
             _ => expr.to_string(),
         },
         // Vec: map each element through the appropriate conversion

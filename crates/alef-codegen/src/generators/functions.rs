@@ -131,7 +131,7 @@ pub fn gen_function(
                 }
                 TypeRef::Named(_) => {
                     let inner_mapped = mapper.map_type(inner);
-                    format!("result.into_iter().map(|v| {inner_mapped}::from(v)).collect::<Vec<_>>()")
+                    format!("result.into_iter().map({inner_mapped}::from).collect::<Vec<_>>()")
                 }
                 _ => "result".to_string(),
             },

@@ -282,7 +282,18 @@ pub fn config_constructor_parts(
                     }
                     _ => {
                         let default_val = format_default_value(typed_default);
-                        format!("{}: {}.unwrap_or_else(|| {})", f.name, f.name, default_val)
+                        // Use unwrap_or() for Copy literals (bool, int, float) to avoid
+                        // clippy::unnecessary_lazy_evaluations; use unwrap_or_else for heap types.
+                        match typed_default {
+                            DefaultValue::BoolLiteral(_)
+                            | DefaultValue::IntLiteral(_)
+                            | DefaultValue::FloatLiteral(_) => {
+                                format!("{}: {}.unwrap_or({})", f.name, f.name, default_val)
+                            }
+                            _ => {
+                                format!("{}: {}.unwrap_or_else(|| {})", f.name, f.name, default_val)
+                            }
+                        }
                     }
                 }
             } else {

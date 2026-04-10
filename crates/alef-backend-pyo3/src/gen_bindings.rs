@@ -172,10 +172,9 @@ impl Backend for Pyo3Backend {
                     builder.add_item(&impl_block);
                 }
             } else {
+                // gen_struct adds #[derive(Default)] when typ.has_default is true,
+                // so no separate Default impl is needed.
                 builder.add_item(&generators::gen_struct(typ, &mapper, &cfg));
-                if typ.has_default {
-                    builder.add_item(&generators::gen_struct_default_impl(typ, ""));
-                }
                 let impl_block = generators::gen_impl_block(typ, &mapper, &cfg, &adapter_bodies, &opaque_types);
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
@@ -689,6 +688,9 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
         .map(|t| (t.name.clone(), t))
         .collect();
 
+    // Collect enum names for conversion detection
+    let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+
     // Determine which has_default types are referenced by function parameters (directly or nested)
     let mut needed_converters: Vec<String> = Vec::new();
     let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -766,11 +768,36 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
     out.push_str("from typing import TYPE_CHECKING\n\n");
     out.push_str(&format!("import {package_name}.{module_name} as _rust\n"));
 
-    // Import all referenced types from .options in TYPE_CHECKING block
-    if !all_type_imports.is_empty() {
+    // Split type imports: opaque/error types come from the native module, others from .options
+    let opaque_names: std::collections::BTreeSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque)
+        .map(|t| t.name.clone())
+        .collect();
+    let error_names: std::collections::BTreeSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
+
+    let mut options_imports: Vec<&str> = Vec::new();
+    let mut native_imports: Vec<&str> = Vec::new();
+    for name in &all_type_imports {
+        if opaque_names.contains(name) || error_names.contains(name) {
+            native_imports.push(name.as_str());
+        } else {
+            options_imports.push(name.as_str());
+        }
+    }
+
+    if !options_imports.is_empty() || !native_imports.is_empty() {
         out.push_str("\nif TYPE_CHECKING:\n");
-        let imports: Vec<&str> = all_type_imports.iter().map(|s| s.as_str()).collect();
-        out.push_str(&format!("    from .options import {}\n", imports.join(", ")));
+        if !options_imports.is_empty() {
+            out.push_str(&format!("    from .options import {}\n", options_imports.join(", ")));
+        }
+        if !native_imports.is_empty() {
+            out.push_str(&format!(
+                "    from .{module_name} import {}\n",
+                native_imports.join(", ")
+            ));
+        }
     }
     out.push_str("\n\n");
 
@@ -779,7 +806,7 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
         let typ = default_types[type_name];
         let snake = type_name.to_snake_case();
 
-        out.push_str(&format!("def _to_rust_{snake}(value: {type_name} | None) -> Any:\n"));
+        out.push_str(&format!("def _to_rust_{snake}(value: {type_name} | None) -> object:\n"));
         out.push_str(&format!(
             "    \"\"\"Convert Python {type_name} to Rust binding type.\"\"\"\n"
         ));
@@ -809,6 +836,37 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
                         field.name, field.name
                     ));
                     continue;
+                }
+                // Single enum field: convert str -> Rust enum
+                if enum_names.contains(nested_name) {
+                    if matches!(&field.ty, TypeRef::Optional(_)) {
+                        out.push_str(&format!(
+                            "        {name}=_rust.{enum_name}(value.{name}) if value.{name} is not None else None,\n",
+                            name = field.name,
+                            enum_name = nested_name,
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "        {name}=_rust.{enum_name}(value.{name}),\n",
+                            name = field.name,
+                            enum_name = nested_name,
+                        ));
+                    }
+                    continue;
+                }
+            }
+
+            // Vec<Enum> field: convert list[str] -> list[RustEnum]
+            if let TypeRef::Vec(inner) = &field.ty {
+                if let TypeRef::Named(enum_name) = inner.as_ref() {
+                    if enum_names.contains(enum_name) {
+                        out.push_str(&format!(
+                            "        {name}=[_rust.{enum_name}(v) for v in value.{name}],\n",
+                            name = field.name,
+                            enum_name = enum_name,
+                        ));
+                        continue;
+                    }
                 }
             }
 

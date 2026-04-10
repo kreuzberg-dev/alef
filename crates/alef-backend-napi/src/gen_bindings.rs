@@ -115,10 +115,8 @@ impl Backend for NapiBackend {
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
+                // gen_struct adds Default to derives when typ.has_default is true.
                 builder.add_item(&gen_struct(typ, &mapper));
-                if typ.has_default {
-                    builder.add_item(&alef_codegen::generators::gen_struct_default_impl(typ, "Js"));
-                }
             }
         }
 
@@ -303,6 +301,10 @@ fn gen_struct(typ: &TypeDef, mapper: &NapiMapper) -> String {
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
     struct_builder.add_attr("napi(object)");
     struct_builder.add_derive("Clone");
+    // Types with has_default get #[derive(Default)] instead of a manual impl.
+    if typ.has_default {
+        struct_builder.add_derive("Default");
+    }
 
     for field in &typ.fields {
         let mapped_type = mapper.map_type(&field.ty);
@@ -624,6 +626,7 @@ fn gen_enum(enum_def: &EnumDef) -> String {
     // Default impl for config constructor unwrap_or_default()
     if let Some(first) = enum_def.variants.first() {
         lines.push(String::new());
+        lines.push("#[allow(clippy::derivable_impls)]".to_string());
         lines.push(format!("impl Default for Js{} {{", enum_def.name));
         lines.push(format!("    fn default() -> Self {{ Self::{} }}", first.name));
         lines.push("}".to_string());

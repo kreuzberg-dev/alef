@@ -136,10 +136,9 @@ impl Backend for PhpBackend {
                 builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types, &core_import));
             } else {
+                // gen_struct adds #[derive(Default)] when typ.has_default is true,
+                // so no separate Default impl is needed.
                 builder.add_item(&gen_php_struct(typ, &mapper, &cfg));
-                if typ.has_default {
-                    builder.add_item(&generators::gen_struct_default_impl(typ, ""));
-                }
                 builder.add_item(&gen_struct_methods(
                     typ,
                     &mapper,

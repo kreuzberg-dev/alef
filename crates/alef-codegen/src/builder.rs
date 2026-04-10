@@ -35,7 +35,14 @@ impl RustFileBuilder {
     }
 
     /// Add a use import line.
+    /// Single-component imports (e.g. `use serde_json;`) are skipped since they are
+    /// redundant in Rust 2018+ where extern crates are automatically in scope.
     pub fn add_import(&mut self, import: &str) {
+        // Skip single-component path imports — they trigger clippy::single_component_path_imports
+        // and are redundant in edition 2018+. A single component has no `::`, `*`, or `{`.
+        if !import.contains("::") && !import.contains('*') && !import.contains('{') {
+            return;
+        }
         if !self.imports.iter().any(|i| i == import) {
             self.imports.push(import.to_string());
         }

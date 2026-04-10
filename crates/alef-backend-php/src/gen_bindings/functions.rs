@@ -465,7 +465,7 @@ pub(crate) fn gen_php_unimplemented_body(
     use alef_core::ir::TypeRef;
     let err_msg = format!("Not implemented: {fn_name}");
     if has_error {
-        format!("Err(ext_php_rs::exception::PhpException::default(\"{err_msg}\".to_string()).into())")
+        format!("Err(ext_php_rs::exception::PhpException::default(\"{err_msg}\".to_string()))")
     } else {
         match return_type {
             TypeRef::Unit => "()".to_string(),

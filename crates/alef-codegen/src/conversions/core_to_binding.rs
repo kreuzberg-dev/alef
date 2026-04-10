@@ -108,7 +108,7 @@ pub fn field_conversion_from_core(
                 if optional {
                     return format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.to_string()).collect())");
                 }
-                return format!("{name}: val.{name}.iter().map(|v| v.to_string()).collect()");
+                return format!("{name}: val.{name}.iter().map(ToString::to_string).collect()");
             }
         }
         // Optional<Vec<String>>: sanitized from Optional<Vec<Box<str>>> etc.
@@ -122,7 +122,7 @@ pub fn field_conversion_from_core(
         // String: sanitized from Box<str>, Cow<str>, etc. — use .to_string()
         if matches!(ty, TypeRef::String) {
             if optional {
-                return format!("{name}: val.{name}.as_ref().map(|v| v.to_string())");
+                return format!("{name}: val.{name}.as_ref().map(ToString::to_string)");
             }
             return format!("{name}: val.{name}.to_string()");
         }
@@ -178,19 +178,19 @@ pub fn field_conversion_from_core(
         // Json: core uses serde_json::Value, binding uses String — use .to_string()
         TypeRef::Json => {
             if optional {
-                format!("{name}: val.{name}.as_ref().map(|v| v.to_string())")
+                format!("{name}: val.{name}.as_ref().map(ToString::to_string)")
             } else {
                 format!("{name}: val.{name}.to_string()")
             }
         }
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json) => {
-            format!("{name}: val.{name}.as_ref().map(|v| v.to_string())")
+            format!("{name}: val.{name}.as_ref().map(ToString::to_string)")
         }
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Json) => {
             if optional {
                 format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.to_string()).collect())")
             } else {
-                format!("{name}: val.{name}.iter().map(|v| v.to_string()).collect()")
+                format!("{name}: val.{name}.iter().map(ToString::to_string).collect()")
             }
         }
         // Everything else is symmetric
@@ -374,7 +374,7 @@ pub fn field_conversion_from_core_cfg(
         // Json→String: core uses serde_json::Value, binding uses String (PHP)
         TypeRef::Json if config.json_to_string => {
             if optional {
-                format!("{name}: val.{name}.as_ref().map(|v| v.to_string())")
+                format!("{name}: val.{name}.as_ref().map(ToString::to_string)")
             } else {
                 format!("{name}: val.{name}.to_string()")
             }

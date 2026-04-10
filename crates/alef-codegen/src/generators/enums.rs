@@ -28,6 +28,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // in config constructors for types with has_default.
     if let Some(first) = enum_def.variants.first() {
         writeln!(out).ok();
+        writeln!(out, "#[allow(clippy::derivable_impls)]").ok();
         writeln!(out, "impl Default for {} {{", enum_def.name).ok();
         writeln!(out, "    fn default() -> Self {{ Self::{} }}", first.name).ok();
         writeln!(out, "}}").ok();

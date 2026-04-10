@@ -15,6 +15,11 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     let core_path = core_type_path(typ, core_import);
     let binding_name = format!("{}{}", config.type_name_prefix, typ.name);
     let mut out = String::with_capacity(256);
+    // When cfg-gated fields exist, ..Default::default() fills them when the feature is enabled.
+    // When disabled, all fields are already specified and the update has no effect — suppress lint.
+    if typ.has_stripped_cfg_fields {
+        writeln!(out, "#[allow(clippy::needless_update)]").ok();
+    }
     writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
     writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
     writeln!(out, "        Self {{").ok();
@@ -183,17 +188,27 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
             }
             _ => format!("{name}: val.{name}"),
         },
-        // Map -- always collect to handle HashMap↔BTreeMap conversion;
+        // Map -- collect to handle HashMap↔BTreeMap conversion;
         // additionally convert Named keys/values via Into.
+        // Skip .map() when neither key nor value needs conversion (avoids clippy::map_identity).
         TypeRef::Map(k, v) => {
             let has_named_key = matches!(k.as_ref(), TypeRef::Named(_));
             let has_named_val = matches!(v.as_ref(), TypeRef::Named(_));
-            let k_expr = if has_named_key { "k.into()" } else { "k" };
-            let v_expr = if has_named_val { "v.into()" } else { "v" };
-            if optional {
-                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({k_expr}, {v_expr})).collect())")
+            if has_named_key || has_named_val {
+                let k_expr = if has_named_key { "k.into()" } else { "k" };
+                let v_expr = if has_named_val { "v.into()" } else { "v" };
+                if optional {
+                    format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({k_expr}, {v_expr})).collect())")
+                } else {
+                    format!("{name}: val.{name}.into_iter().map(|(k, v)| ({k_expr}, {v_expr})).collect()")
+                }
             } else {
-                format!("{name}: val.{name}.into_iter().map(|(k, v)| ({k_expr}, {v_expr})).collect()")
+                // No conversion needed — just collect for potential HashMap↔BTreeMap type change
+                if optional {
+                    format!("{name}: val.{name}.map(|m| m.into_iter().collect())")
+                } else {
+                    format!("{name}: val.{name}.into_iter().collect()")
+                }
             }
         }
     }
