@@ -119,12 +119,13 @@ pub fn field_conversion_from_core(
                 }
             }
         }
-        // String: sanitized from Box<str>, Cow<str>, etc. — use .to_string()
+        // String: sanitized from Box<str>, Cow<str>, tuple, etc.
+        // Use format!("{:?}") for safety since the source type may not impl Display.
         if matches!(ty, TypeRef::String) {
             if optional {
-                return format!("{name}: val.{name}.as_ref().map(ToString::to_string)");
+                return format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))");
             }
-            return format!("{name}: val.{name}.to_string()");
+            return format!("{name}: format!(\"{{:?}}\", val.{name})");
         }
         // Fallback for truly unknown sanitized types
         if optional {

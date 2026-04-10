@@ -117,7 +117,9 @@ impl StructBuilder {
     }
 
     pub fn add_derive(&mut self, derive: &str) -> &mut Self {
-        self.derives.push(derive.to_string());
+        if !self.derives.iter().any(|d| d == derive) {
+            self.derives.push(derive.to_string());
+        }
         self
     }
 
