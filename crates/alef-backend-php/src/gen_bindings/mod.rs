@@ -434,11 +434,7 @@ impl Backend for PhpBackend {
                 .iter()
                 .map(|f| {
                     let ptype = php_type(&f.ty);
-                    let nullable = if f.optional {
-                        format!("?{}", ptype)
-                    } else {
-                        ptype
-                    };
+                    let nullable = if f.optional { format!("?{}", ptype) } else { ptype };
                     let default = if f.optional { " = null" } else { "" };
                     format!("        {} ${}{}", nullable, f.name, default)
                 })
@@ -469,10 +465,7 @@ impl Backend for PhpBackend {
         for enum_def in &api.enums {
             content.push_str(&format!("enum {}: string\n{{\n", enum_def.name));
             for variant in &enum_def.variants {
-                content.push_str(&format!(
-                    "    case {} = '{}';\n",
-                    variant.name, variant.name
-                ));
+                content.push_str(&format!("    case {} = '{}';\n", variant.name, variant.name));
             }
             content.push_str("}\n\n");
         }

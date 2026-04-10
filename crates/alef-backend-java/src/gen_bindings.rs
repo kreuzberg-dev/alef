@@ -1,9 +1,9 @@
 use crate::type_map::{java_boxed_type, java_ffi_type, java_type};
+use ahash::AHashSet;
 use alef_codegen::naming::{to_class_name, to_java_name};
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, PrimitiveType, TypeDef, TypeRef};
-use ahash::AHashSet;
 use heck::ToSnakeCase;
 use std::fmt::Write;
 use std::path::PathBuf;
@@ -454,7 +454,13 @@ fn gen_main_class(api: &ApiSurface, _config: &AlefConfig, package: &str, class_n
     out
 }
 
-fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, class_name: &str, opaque_types: &AHashSet<String>) {
+fn gen_sync_function_method(
+    out: &mut String,
+    func: &FunctionDef,
+    prefix: &str,
+    class_name: &str,
+    opaque_types: &AHashSet<String>,
+) {
     let params: Vec<String> = func
         .params
         .iter()
@@ -619,7 +625,7 @@ fn gen_sync_function_method(out: &mut String, func: &FunctionDef, prefix: &str, 
         };
         writeln!(
             out,
-            "            return new ObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{}});",
+            "            return new ObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }});",
             element_type
         )
         .ok();
