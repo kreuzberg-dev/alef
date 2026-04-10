@@ -13,22 +13,22 @@ path = "src/main.rs"
 
 [dependencies]
 ahash = { workspace = true }
-alef-backend-csharp = { version = "0.1.0", path = "../alef-backend-csharp" }
-alef-backend-extendr = { version = "0.1.0", path = "../alef-backend-extendr" }
-alef-backend-ffi = { version = "0.1.0", path = "../alef-backend-ffi" }
-alef-backend-go = { version = "0.1.0", path = "../alef-backend-go" }
-alef-backend-java = { version = "0.1.0", path = "../alef-backend-java" }
-alef-backend-magnus = { version = "0.1.0", path = "../alef-backend-magnus" }
-alef-backend-napi = { version = "0.1.0", path = "../alef-backend-napi" }
-alef-backend-php = { version = "0.1.0", path = "../alef-backend-php" }
-alef-backend-pyo3 = { version = "0.1.0", path = "../alef-backend-pyo3" }
-alef-backend-rustler = { version = "0.1.0", path = "../alef-backend-rustler" }
-alef-backend-wasm = { version = "0.1.0", path = "../alef-backend-wasm" }
+alef-backend-csharp = { version = "0.2.0", path = "../alef-backend-csharp" }
+alef-backend-extendr = { version = "0.2.0", path = "../alef-backend-extendr" }
+alef-backend-ffi = { version = "0.2.0", path = "../alef-backend-ffi" }
+alef-backend-go = { version = "0.2.0", path = "../alef-backend-go" }
+alef-backend-java = { version = "0.2.0", path = "../alef-backend-java" }
+alef-backend-magnus = { version = "0.2.0", path = "../alef-backend-magnus" }
+alef-backend-napi = { version = "0.2.0", path = "../alef-backend-napi" }
+alef-backend-php = { version = "0.2.0", path = "../alef-backend-php" }
+alef-backend-pyo3 = { version = "0.2.0", path = "../alef-backend-pyo3" }
+alef-backend-rustler = { version = "0.2.0", path = "../alef-backend-rustler" }
+alef-backend-wasm = { version = "0.2.0", path = "../alef-backend-wasm" }
 alef-core = { workspace = true }
-alef-e2e = { version = "0.1.0", path = "../alef-e2e" }
-alef-extract = { version = "0.1.0", path = "../alef-extract" }
-alef-readme = { version = "0.1.0", path = "../alef-readme" }
-alef-scaffold = { version = "0.1.0", path = "../alef-scaffold" }
+alef-e2e = { version = "0.2.0", path = "../alef-e2e" }
+alef-extract = { version = "0.2.0", path = "../alef-extract" }
+alef-readme = { version = "0.2.0", path = "../alef-readme" }
+alef-scaffold = { version = "0.2.0", path = "../alef-scaffold" }
 anyhow = { workspace = true }
 blake3 = { workspace = true }
 clap = { version = "4", features = ["derive"] }

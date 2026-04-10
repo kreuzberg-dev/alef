@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 alef-adapters = { workspace = true }
-alef-codegen = { version = "0.1.0", path = "../alef-codegen" }
+alef-codegen = { version = "0.2.0", path = "../alef-codegen" }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }

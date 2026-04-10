@@ -23,7 +23,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -31,11 +31,11 @@ repository = "https://github.com/kreuzberg-dev/alef"
 
 [workspace.dependencies]
 ahash = "0.8"
-alef-adapters = { version = "0.1.0", path = "crates/alef-adapters" }
-alef-codegen = { version = "0.1.0", path = "crates/alef-codegen" }
-alef-core = { version = "0.1.0", path = "crates/alef-core" }
-alef-e2e = { version = "0.1.0", path = "crates/alef-e2e" }
-alef-extract = { version = "0.1.0", path = "crates/alef-extract" }
+alef-adapters = { version = "0.2.0", path = "crates/alef-adapters" }
+alef-codegen = { version = "0.2.0", path = "crates/alef-codegen" }
+alef-core = { version = "0.2.0", path = "crates/alef-core" }
+alef-e2e = { version = "0.2.0", path = "crates/alef-e2e" }
+alef-extract = { version = "0.2.0", path = "crates/alef-extract" }
 anyhow = "1"
 blake3 = "1"
 heck = "0.5"
