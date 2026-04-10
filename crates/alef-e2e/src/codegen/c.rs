@@ -5,6 +5,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_c, sanitize_filename, sanitize_ident};
+use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -96,6 +97,8 @@ impl E2eCodegen for CCodegen {
             generated_header: true,
         });
 
+        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+
         // Generate per-category test files.
         for (group, active) in &active_groups {
             let filename = format!("test_{}.c", sanitize_filename(&group.category));
@@ -107,6 +110,7 @@ impl E2eCodegen for CCodegen {
                 &function_name,
                 result_var,
                 &e2e_config.call.args,
+                &field_resolver,
             );
             files.push(GeneratedFile {
                 path: output_base.join(filename),
@@ -209,6 +213,7 @@ fn render_test_file(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "/* E2e tests for category: {category} */");
@@ -221,7 +226,7 @@ fn render_test_file(
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_function(&mut out, fixture, prefix, function_name, result_var, args);
+        render_test_function(&mut out, fixture, prefix, function_name, result_var, args, field_resolver);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -237,6 +242,7 @@ fn render_test_function(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
@@ -265,7 +271,7 @@ fn render_test_function(
     let _ = writeln!(out, "    assert({result_var} != NULL && \"expected call to succeed\");");
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var);
+        render_assertion(out, assertion, result_var, field_resolver);
     }
 
     let _ = writeln!(out, "}}");
@@ -290,9 +296,9 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
     parts.join(", ")
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
     let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => format!("{result_var}->{f}"),
+        Some(f) if !f.is_empty() => field_resolver.accessor(f, "c", result_var),
         _ => result_var.to_string(),
     };
 

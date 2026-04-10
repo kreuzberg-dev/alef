@@ -2,6 +2,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{go_string_literal, sanitize_filename};
+use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -51,11 +52,16 @@ impl E2eCodegen for GoCodegen {
             .cloned()
             .unwrap_or_else(|| module_path.clone());
         let replace_path = go_pkg.and_then(|p| p.path.as_ref()).cloned();
+        let go_version = go_pkg
+            .and_then(|p| p.version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "v0.0.0".to_string());
+        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
 
         // Generate go.mod.
         files.push(GeneratedFile {
             path: output_base.join("go.mod"),
-            content: render_go_mod(&go_module_path, replace_path.as_deref()),
+            content: render_go_mod(&go_module_path, replace_path.as_deref(), &go_version),
             generated_header: false,
         });
 
@@ -80,6 +86,7 @@ impl E2eCodegen for GoCodegen {
                 &function_name,
                 result_var,
                 &e2e_config.call.args,
+                &field_resolver,
             );
             files.push(GeneratedFile {
                 path: output_base.join(filename),
@@ -96,13 +103,13 @@ impl E2eCodegen for GoCodegen {
     }
 }
 
-fn render_go_mod(go_module_path: &str, replace_path: Option<&str>) -> String {
+fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "module e2e_go");
     let _ = writeln!(out);
     let _ = writeln!(out, "go 1.23");
     let _ = writeln!(out);
-    let _ = writeln!(out, "require {go_module_path} v0.0.0");
+    let _ = writeln!(out, "require {go_module_path} {version}");
 
     if let Some(path) = replace_path {
         let _ = writeln!(out);
@@ -120,6 +127,7 @@ fn render_test_file(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
 ) -> String {
     let mut out = String::new();
 
@@ -147,7 +155,7 @@ fn render_test_file(
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_function(&mut out, fixture, import_alias, function_name, result_var, args);
+        render_test_function(&mut out, fixture, import_alias, function_name, result_var, args, field_resolver);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -170,6 +178,7 @@ fn render_test_function(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
 ) {
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -198,7 +207,7 @@ fn render_test_function(
 
     // Emit assertions.
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var);
+        render_assertion(out, assertion, result_var, field_resolver);
     }
 
     let _ = writeln!(out, "}}");
@@ -223,9 +232,9 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
     parts.join(", ")
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
     let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => format!("{result_var}.{}", to_go_field(f)),
+        Some(f) if !f.is_empty() => field_resolver.accessor(f, "go", result_var),
         _ => result_var.to_string(),
     };
 
@@ -296,11 +305,6 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
             let _ = writeln!(out, "\t// TODO: unsupported assertion type: {other}");
         }
     }
-}
-
-/// Convert a fixture field name to a Go exported field name (PascalCase).
-fn to_go_field(field: &str) -> String {
-    field.to_upper_camel_case()
 }
 
 /// Convert a `serde_json::Value` to a Go literal string.

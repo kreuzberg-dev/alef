@@ -2,6 +2,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_js, sanitize_filename, sanitize_ident};
+use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -74,6 +75,7 @@ impl E2eCodegen for TypeScriptCodegen {
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
+        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
 
         // Generate test files per category.
         for group in groups {
@@ -97,6 +99,7 @@ impl E2eCodegen for TypeScriptCodegen {
                 is_async,
                 &e2e_config.call.args,
                 options_type.as_deref(),
+                &field_resolver,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -171,6 +174,7 @@ fn render_test_file(
     is_async: bool,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
+    field_resolver: &FieldResolver,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "import {{ describe, it, expect }} from 'vitest';");
@@ -202,6 +206,7 @@ fn render_test_file(
             is_async,
             args,
             options_type,
+            field_resolver,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -220,6 +225,7 @@ fn render_test_case(
     is_async: bool,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
+    field_resolver: &FieldResolver,
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -254,7 +260,7 @@ fn render_test_case(
 
     // Emit assertions.
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var);
+        render_assertion(out, assertion, result_var, field_resolver);
     }
 
     let _ = writeln!(out, "  }});");
@@ -290,9 +296,9 @@ fn build_args_string(
     parts.join(", ")
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
     let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => format!("{result_var}.{f}"),
+        Some(f) if !f.is_empty() => field_resolver.accessor(f, "typescript", result_var),
         _ => result_var.to_string(),
     };
 

@@ -6,6 +6,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_php, sanitize_filename};
+use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -78,6 +79,7 @@ impl E2eCodegen for PhpCodegen {
 
         // Generate test files per category.
         let tests_base = output_base.join("tests");
+        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
 
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -101,6 +103,7 @@ impl E2eCodegen for PhpCodegen {
                 result_var,
                 &test_class,
                 &e2e_config.call.args,
+                &field_resolver,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -175,6 +178,7 @@ fn render_test_file(
     result_var: &str,
     test_class: &str,
     args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "<?php");
@@ -191,7 +195,7 @@ fn render_test_file(
     let _ = writeln!(out, "{{");
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_method(&mut out, fixture, class_name, function_name, result_var, args);
+        render_test_method(&mut out, fixture, class_name, function_name, result_var, args, field_resolver);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -208,6 +212,7 @@ fn render_test_method(
     function_name: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
 ) {
     let method_name = sanitize_filename(&fixture.id);
     let description = &fixture.description;
@@ -232,7 +237,7 @@ fn render_test_method(
     );
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var);
+        render_assertion(out, assertion, result_var, field_resolver);
     }
 
     let _ = writeln!(out, "    }}");
@@ -257,9 +262,9 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
     parts.join(", ")
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
     let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => format!("${result_var}->{f}"),
+        Some(f) if !f.is_empty() => field_resolver.accessor(f, "php", &format!("${result_var}")),
         _ => format!("${result_var}"),
     };
 

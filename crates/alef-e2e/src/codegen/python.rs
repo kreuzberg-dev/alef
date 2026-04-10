@@ -5,6 +5,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_python, sanitize_filename, sanitize_ident};
+use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -147,6 +148,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     let options_type = resolve_options_type(e2e_config);
     let options_via = resolve_options_via(e2e_config);
     let enum_fields = resolve_enum_fields(e2e_config);
+    let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
 
     let has_error_test = fixtures
         .iter()
@@ -230,6 +232,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
             options_type.as_deref(),
             options_via,
             enum_fields,
+            &field_resolver,
         );
         let _ = writeln!(out);
     }
@@ -244,6 +247,7 @@ fn render_test_function(
     options_type: Option<&str>,
     options_via: &str,
     enum_fields: &HashMap<String, String>,
+    field_resolver: &FieldResolver,
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
@@ -356,7 +360,7 @@ fn render_test_function(
         // Render any non-error assertions (unlikely but handle gracefully).
         for assertion in &fixture.assertions {
             if assertion.assertion_type != "error" {
-                render_assertion(out, assertion, result_var);
+                render_assertion(out, assertion, result_var, field_resolver);
             }
         }
         return;
@@ -370,7 +374,7 @@ fn render_test_function(
             // The call already raises on error in Python.
             continue;
         }
-        render_assertion(out, assertion, result_var);
+        render_assertion(out, assertion, result_var, field_resolver);
     }
 }
 
@@ -411,9 +415,9 @@ fn json_to_python_literal(value: &serde_json::Value) -> String {
 // Assertion rendering
 // ---------------------------------------------------------------------------
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
     let field_access = match &assertion.field {
-        Some(f) if !f.is_empty() => format!("{result_var}.{f}"),
+        Some(f) if !f.is_empty() => field_resolver.accessor(f, "python", result_var),
         _ => result_var.to_string(),
     };
 

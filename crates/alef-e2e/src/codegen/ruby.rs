@@ -5,6 +5,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_ruby, sanitize_filename, sanitize_ident};
+use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -76,6 +77,7 @@ impl E2eCodegen for RubyCodegen {
             }
 
             let filename = format!("{}_spec.rb", sanitize_filename(&group.category));
+            let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
             let content = render_spec_file(
                 &group.category,
                 &active,
@@ -85,6 +87,7 @@ impl E2eCodegen for RubyCodegen {
                 result_var,
                 &gem_name,
                 &e2e_config.call.args,
+                &field_resolver,
             );
             files.push(GeneratedFile {
                 path: spec_base.join(filename),
@@ -127,6 +130,7 @@ fn render_spec_file(
     result_var: &str,
     gem_name: &str,
     args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# frozen_string_literal: true");
@@ -140,7 +144,7 @@ fn render_spec_file(
     let _ = writeln!(out, "RSpec.describe \"{category}\" do");
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_example(&mut out, fixture, function_name, class_name, result_var, args);
+        render_example(&mut out, fixture, function_name, class_name, result_var, args, field_resolver);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -157,6 +161,7 @@ fn render_example(
     class_name: Option<&str>,
     result_var: &str,
     args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('"', "\\\"");
@@ -180,7 +185,7 @@ fn render_example(
     let _ = writeln!(out, "    {result_var} = {call_expr}");
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var);
+        render_assertion(out, assertion, result_var, field_resolver);
     }
 
     let _ = writeln!(out, "  end");
@@ -205,9 +210,9 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
     parts.join(", ")
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
     let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => format!("{result_var}.{f}"),
+        Some(f) if !f.is_empty() => field_resolver.accessor(f, "ruby", result_var),
         _ => result_var.to_string(),
     };
 

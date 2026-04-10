@@ -1,7 +1,7 @@
 //! E2E test generation configuration types.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Root e2e configuration from `[e2e]` section of alef.toml.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -23,6 +23,15 @@ pub struct E2eConfig {
     /// Per-language formatter commands.
     #[serde(default)]
     pub format: HashMap<String, String>,
+    /// Field path aliases: maps fixture field paths to actual API struct paths.
+    /// E.g., "metadata.title" -> "metadata.document.title"
+    /// Supports struct access (foo.bar), map access (foo[key]), direct fields.
+    #[serde(default)]
+    pub fields: HashMap<String, String>,
+    /// Fields that are Optional/nullable in the return type.
+    /// Rust generators use .as_deref().unwrap_or("") for strings, .is_some() for structs.
+    #[serde(default)]
+    pub fields_optional: HashSet<String>,
 }
 
 fn default_fixtures_dir() -> String {
@@ -138,4 +147,7 @@ pub struct PackageRef {
     /// Go module path.
     #[serde(default)]
     pub module: Option<String>,
+    /// Package version (e.g., for go.mod require directives).
+    #[serde(default)]
+    pub version: Option<String>,
 }

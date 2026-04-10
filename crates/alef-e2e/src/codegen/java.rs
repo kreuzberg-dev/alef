@@ -5,6 +5,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_java, sanitize_filename};
+use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -72,6 +73,7 @@ impl E2eCodegen for JavaCodegen {
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
+        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
 
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -94,6 +96,7 @@ impl E2eCodegen for JavaCodegen {
                 result_var,
                 &e2e_config.call.args,
                 options_type.as_deref(),
+                &field_resolver,
             );
             files.push(GeneratedFile {
                 path: test_base.join(class_file_name),
@@ -189,6 +192,7 @@ fn render_test_file(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
+    field_resolver: &FieldResolver,
 ) -> String {
     let mut out = String::new();
     let test_class_name = format!("{}Test", sanitize_filename(category).to_upper_camel_case());
@@ -233,6 +237,7 @@ fn render_test_file(
             result_var,
             args,
             options_type,
+            field_resolver,
         );
         let _ = writeln!(out);
     }
@@ -249,6 +254,7 @@ fn render_test_method(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
+    field_resolver: &FieldResolver,
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -302,7 +308,7 @@ fn render_test_method(
     );
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var);
+        render_assertion(out, assertion, result_var, field_resolver);
     }
 
     let _ = writeln!(out, "    }}");
@@ -335,9 +341,9 @@ fn build_args_string(
     parts.join(", ")
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
+fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
     let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => format!("{result_var}.{f}()"),
+        Some(f) if !f.is_empty() => field_resolver.accessor(f, "java", result_var),
         _ => result_var.to_string(),
     };
 

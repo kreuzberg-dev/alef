@@ -5,6 +5,7 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_rust, rust_raw_string, sanitize_filename, sanitize_ident};
+use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -142,12 +143,13 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
 
     let module = resolve_module(e2e_config, dep_name);
     let function_name = resolve_function_name(e2e_config);
+    let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
 
     let _ = writeln!(out, "use {module}::{function_name};");
     let _ = writeln!(out);
 
     for fixture in fixtures {
-        render_test_function(&mut out, fixture, e2e_config, dep_name);
+        render_test_function(&mut out, fixture, e2e_config, dep_name, &field_resolver);
         let _ = writeln!(out);
     }
 
@@ -157,7 +159,13 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     out
 }
 
-fn render_test_function(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig, dep_name: &str) {
+fn render_test_function(
+    out: &mut String,
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    dep_name: &str,
+    field_resolver: &FieldResolver,
+) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
     let function_name = resolve_function_name(e2e_config);
@@ -189,7 +197,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, e2e_config: &E2eCon
         let _ = writeln!(out, "    let {result_var} = {function_name}({args_str});");
         // Render error assertions.
         for assertion in &fixture.assertions {
-            render_assertion(out, assertion, result_var, dep_name, true, &[]);
+            render_assertion(out, assertion, result_var, dep_name, true, &[], field_resolver);
         }
         let _ = writeln!(out, "}}");
         return;
@@ -208,8 +216,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, e2e_config: &E2eCon
     }
 
     // Emit Option field unwrap bindings for any fields accessed in assertions.
-    // This handles `Option<String>` fields by unwrapping them to `&str` locals.
-    // Collect fields that need string unwrapping (used in string-based assertions).
+    // Use FieldResolver to handle optional fields, including nested/aliased paths.
     let string_assertion_types = [
         "equals",
         "contains",
@@ -222,23 +229,19 @@ fn render_test_function(out: &mut String, fixture: &Fixture, e2e_config: &E2eCon
         "max_length",
         "matches_regex",
     ];
-    let mut unwrapped_fields: Vec<String> = Vec::new();
+    let mut unwrapped_fields: Vec<(String, String)> = Vec::new(); // (fixture_field, local_var)
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
             if !f.is_empty()
-                && !f.contains('.')
                 && string_assertion_types.contains(&assertion.assertion_type.as_str())
-                && !unwrapped_fields.contains(f)
+                && !unwrapped_fields.iter().any(|(ff, _)| ff == f)
             {
-                unwrapped_fields.push(f.clone());
+                if let Some((binding, local_var)) = field_resolver.rust_unwrap_binding(f, result_var) {
+                    let _ = writeln!(out, "    {binding}");
+                    unwrapped_fields.push((f.clone(), local_var));
+                }
             }
         }
-    }
-    for field in &unwrapped_fields {
-        let _ = writeln!(
-            out,
-            "    let {field} = {result_var}.{field}.as_deref().unwrap_or(\"\");"
-        );
     }
 
     // Render assertions.
@@ -247,17 +250,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, e2e_config: &E2eCon
             // Already handled by .expect() above.
             continue;
         }
-        // Skip assertions with dotted field paths — these require API-specific
-        // nested struct navigation that the generic generator can't produce.
-        if assertion.field.as_ref().is_some_and(|f| f.contains('.')) {
-            let _ = writeln!(
-                out,
-                "    // TODO: unsupported nested field path: {}",
-                assertion.field.as_deref().unwrap_or("")
-            );
-            continue;
-        }
-        render_assertion(out, assertion, result_var, dep_name, false, &unwrapped_fields);
+        render_assertion(out, assertion, result_var, dep_name, false, &unwrapped_fields, field_resolver);
     }
 
     let _ = writeln!(out, "}}");
@@ -380,15 +373,28 @@ fn render_assertion(
     result_var: &str,
     _dep_name: &str,
     is_error_context: bool,
-    unwrapped_fields: &[String],
+    unwrapped_fields: &[(String, String)], // (fixture_field, local_var)
+    field_resolver: &FieldResolver,
 ) {
-    // When a field is present, use the bare field name since we emit
-    // `let {field} = result.{field}.as_deref().unwrap_or("");` bindings
-    // before assertions (handles Option<String> fields).
+    // Determine field access expression:
+    // 1. If the field was unwrapped to a local var, use that local var name.
+    // 2. Otherwise, use the field resolver to generate the accessor.
     let field_access = match &assertion.field {
-        Some(f) if !f.is_empty() => f.clone(),
+        Some(f) if !f.is_empty() => {
+            if let Some((_, local_var)) = unwrapped_fields.iter().find(|(ff, _)| ff == f) {
+                local_var.clone()
+            } else {
+                field_resolver.accessor(f, "rust", result_var)
+            }
+        }
         _ => result_var.to_string(),
     };
+
+    // Check if this field was unwrapped (i.e., it is optional and was bound to a local).
+    let is_unwrapped = assertion
+        .field
+        .as_ref()
+        .is_some_and(|f| unwrapped_fields.iter().any(|(ff, _)| ff == f));
 
     match assertion.assertion_type.as_str() {
         "error" => {
@@ -447,11 +453,13 @@ fn render_assertion(
         }
         "not_empty" => {
             if let Some(f) = &assertion.field {
-                if !unwrapped_fields.contains(f) {
-                    // Non-string field (e.g., Option<Struct>): use is_some()
+                let resolved = field_resolver.resolve(f);
+                if !is_unwrapped && field_resolver.is_optional(resolved) {
+                    // Non-string optional field (e.g., Option<Struct>): use is_some()
+                    let accessor = field_resolver.accessor(f, "rust", result_var);
                     let _ = writeln!(
                         out,
-                        "    assert!({result_var}.{f}.is_some(), \"expected {f} to be present\");"
+                        "    assert!({accessor}.is_some(), \"expected {f} to be present\");"
                     );
                 } else {
                     let _ = writeln!(
@@ -468,10 +476,12 @@ fn render_assertion(
         }
         "is_empty" => {
             if let Some(f) = &assertion.field {
-                if !unwrapped_fields.contains(f) {
+                let resolved = field_resolver.resolve(f);
+                if !is_unwrapped && field_resolver.is_optional(resolved) {
+                    let accessor = field_resolver.accessor(f, "rust", result_var);
                     let _ = writeln!(
                         out,
-                        "    assert!({result_var}.{f}.is_none(), \"expected {f} to be absent\");"
+                        "    assert!({accessor}.is_none(), \"expected {f} to be absent\");"
                     );
                 } else {
                     let _ = writeln!(out, "    assert!({field_access}.is_empty(), \"expected empty value\");");
