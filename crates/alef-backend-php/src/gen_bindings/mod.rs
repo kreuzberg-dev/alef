@@ -11,7 +11,8 @@ use alef_codegen::generators::{self, AsyncPattern};
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, detect_serde_available, resolve_output_dir};
 use alef_core::ir::ApiSurface;
-use heck::ToPascalCase;
+use alef_core::ir::{PrimitiveType, TypeRef};
+use heck::{ToLowerCamelCase, ToPascalCase};
 use std::path::PathBuf;
 
 use functions::{gen_async_function, gen_function};
@@ -282,25 +283,50 @@ impl Backend for PhpBackend {
 
         // Generate wrapper methods for functions
         for func in &api.functions {
-            content.push_str("    /**\n");
-            content.push_str(&format!("     * {}\n", func.doc.lines().next().unwrap_or("Function")));
-            content.push_str("     */\n");
-            content.push_str(&format!("    public static function {}(", func.name));
+            let method_name = func.name.to_lower_camel_case();
+            let return_php_type = php_type(&func.return_type);
 
-            // Parameters
+            // PHPDoc block
+            content.push_str("    /**\n");
+            for line in func.doc.lines() {
+                if line.is_empty() {
+                    content.push_str("     *\n");
+                } else {
+                    content.push_str(&format!("     * {}\n", line));
+                }
+            }
+            if func.doc.is_empty() {
+                content.push_str(&format!("     * {}.\n", method_name));
+            }
+            content.push_str("     *\n");
+            for p in &func.params {
+                let ptype = php_type(&p.ty);
+                let nullable_prefix = if p.optional { "?" } else { "" };
+                content.push_str(&format!("     * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
+            }
+            content.push_str(&format!("     * @return {}\n", return_php_type));
+            if func.error_type.is_some() {
+                content.push_str(&format!("     * @throws \\{}\\{}Exception\n", namespace, class_name));
+            }
+            content.push_str("     */\n");
+
+            // Method signature with type hints
+            content.push_str(&format!("    public static function {}(", method_name));
+
             let params: Vec<String> = func
                 .params
                 .iter()
                 .map(|p| {
+                    let ptype = php_type(&p.ty);
                     if p.optional {
-                        format!("?${} = null", p.name)
+                        format!("?{} ${} = null", ptype, p.name)
                     } else {
-                        format!("${}", p.name)
+                        format!("{} ${}", ptype, p.name)
                     }
                 })
                 .collect();
             content.push_str(&params.join(", "));
-            content.push_str(")\n");
+            content.push_str(&format!("): {}\n", return_php_type));
             content.push_str("    {\n");
             content.push_str(&format!(
                 "        return \\{}({}); // delegate to extension function\n",
@@ -316,11 +342,15 @@ impl Backend for PhpBackend {
 
         content.push_str("}\n");
 
-        let output_dir = resolve_output_dir(
-            config.output.php.as_ref(),
-            &config.crate_config.name,
-            "packages/php/src/",
-        );
+        // Use PHP stubs output path if configured, otherwise fall back to packages/php/src/.
+        // This is intentionally separate from config.output.php, which controls the Rust binding
+        // crate output directory (e.g., crates/kreuzcrawl-php/src/).
+        let output_dir = config
+            .php
+            .as_ref()
+            .and_then(|p| p.stubs.as_ref())
+            .map(|s| s.output.to_string_lossy().to_string())
+            .unwrap_or_else(|| "packages/php/src/".to_string());
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join(format!("{}.php", class_name)),
@@ -336,5 +366,34 @@ impl Backend for PhpBackend {
             depends_on_ffi: false,
             post_build: vec![],
         })
+    }
+}
+
+/// Map an IR [`TypeRef`] to a PHP type-hint string.
+fn php_type(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::String | TypeRef::Char | TypeRef::Json | TypeRef::Bytes | TypeRef::Path => "string".to_string(),
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::F32 | PrimitiveType::F64 => "float".to_string(),
+            PrimitiveType::U8
+            | PrimitiveType::U16
+            | PrimitiveType::U32
+            | PrimitiveType::U64
+            | PrimitiveType::I8
+            | PrimitiveType::I16
+            | PrimitiveType::I32
+            | PrimitiveType::I64
+            | PrimitiveType::Usize
+            | PrimitiveType::Isize => "int".to_string(),
+        },
+        TypeRef::Optional(inner) => {
+            let inner_type = php_type(inner);
+            format!("?{}", inner_type)
+        }
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => "array".to_string(),
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Unit => "void".to_string(),
+        TypeRef::Duration => "float".to_string(),
     }
 }

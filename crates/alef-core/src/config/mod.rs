@@ -330,6 +330,26 @@ impl AlefConfig {
             .unwrap_or_else(|| self.crate_config.name.clone())
     }
 
+    /// Attempt to read the resolved version string from the configured `version_from` file.
+    /// Returns `None` if the file cannot be read or the version cannot be found.
+    pub fn resolved_version(&self) -> Option<String> {
+        let content = std::fs::read_to_string(&self.crate_config.version_from).ok()?;
+        let value: toml::Value = toml::from_str(&content).ok()?;
+        if let Some(v) = value
+            .get("workspace")
+            .and_then(|w| w.get("package"))
+            .and_then(|p| p.get("version"))
+            .and_then(|v| v.as_str())
+        {
+            return Some(v.to_string());
+        }
+        value
+            .get("package")
+            .and_then(|p| p.get("version"))
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_string())
+    }
+
     /// Rewrite a rust_path using path_mappings.
     /// Matches the longest prefix first.
     pub fn rewrite_path(&self, rust_path: &str) -> String {

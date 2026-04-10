@@ -267,14 +267,20 @@ fn render_test_function(
     let _ = writeln!(out, "    /* {description} */");
 
     if expects_error {
-        let _ = writeln!(out, "    HTMConversionResult* {result_var} = {prefixed_fn}({args_str});");
+        let _ = writeln!(
+            out,
+            "    HTMConversionResult* {result_var} = {prefixed_fn}({args_str});"
+        );
         let _ = writeln!(out, "    assert({result_var} == NULL && \"expected call to fail\");");
         let _ = writeln!(out, "}}");
         return;
     }
 
     // The FFI returns an opaque handle; extract the content string from it.
-    let _ = writeln!(out, "    HTMConversionResult* {result_var} = {prefixed_fn}({args_str});");
+    let _ = writeln!(
+        out,
+        "    HTMConversionResult* {result_var} = {prefixed_fn}({args_str});"
+    );
     let _ = writeln!(out, "    assert({result_var} != NULL && \"expected call to succeed\");");
 
     // Collect fields accessed by assertions so we can emit accessor calls.

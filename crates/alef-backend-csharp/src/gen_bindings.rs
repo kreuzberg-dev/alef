@@ -448,10 +448,32 @@ fn gen_wrapper_class(
 fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str) -> String {
     let mut out = String::with_capacity(1024);
 
+    // XML doc comment
+    if !func.doc.is_empty() {
+        out.push_str("    /// <summary>\n");
+        for line in func.doc.lines() {
+            out.push_str(&format!("    /// {}\n", line));
+        }
+        out.push_str("    /// </summary>\n");
+        for param in &func.params {
+            out.push_str(&format!(
+                "    /// <param name=\"{}\">{}</param>\n",
+                param.name.to_lower_camel_case(),
+                if param.optional { "Optional." } else { "" }
+            ));
+        }
+    }
+
     out.push_str("    public static ");
 
-    // Return type
-    if func.return_type == TypeRef::Unit {
+    // Return type — use async Task<T> for async methods
+    if func.is_async {
+        if func.return_type == TypeRef::Unit {
+            out.push_str("async Task");
+        } else {
+            out.push_str(&format!("async Task<{}>", csharp_type(&func.return_type)));
+        }
+    } else if func.return_type == TypeRef::Unit {
         out.push_str("void");
     } else {
         out.push_str(&csharp_type(&func.return_type));
@@ -477,33 +499,72 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
 
     out.push_str(")\n    {\n");
 
+    // Null checks for required string/object parameters
+    for param in &func.params {
+        if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
+            let param_name = param.name.to_lower_camel_case();
+            out.push_str(&format!("        ArgumentNullException.ThrowIfNull({param_name});\n"));
+        }
+    }
+
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
 
-    if func.return_type != TypeRef::Unit {
-        out.push_str("        var result = ");
-    } else {
-        out.push_str("        ");
-    }
+    if func.is_async {
+        // Async: wrap in Task.Run for non-blocking execution
+        out.push_str("        return await Task.Run(() =>\n        {\n");
 
-    out.push_str(&format!("NativeMethods.{}(", cs_native_name));
-
-    if func.params.is_empty() {
-        out.push_str(");\n");
-    } else {
-        out.push('\n');
-        for (i, param) in func.params.iter().enumerate() {
-            let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("            {}", param_name));
-            if i < func.params.len() - 1 {
-                out.push(',');
-            }
-            out.push('\n');
+        if func.return_type != TypeRef::Unit {
+            out.push_str("            var result = ");
+        } else {
+            out.push_str("            ");
         }
-        out.push_str("        );\n");
-    }
 
-    emit_return_marshalling(&mut out, &func.return_type);
+        out.push_str(&format!("NativeMethods.{}(", cs_native_name));
+
+        if func.params.is_empty() {
+            out.push_str(");\n");
+        } else {
+            out.push('\n');
+            for (i, param) in func.params.iter().enumerate() {
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&format!("                {}", param_name));
+                if i < func.params.len() - 1 {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str("            );\n");
+        }
+
+        emit_return_marshalling_indented(&mut out, &func.return_type, "            ");
+        out.push_str("        });\n");
+    } else {
+        if func.return_type != TypeRef::Unit {
+            out.push_str("        var result = ");
+        } else {
+            out.push_str("        ");
+        }
+
+        out.push_str(&format!("NativeMethods.{}(", cs_native_name));
+
+        if func.params.is_empty() {
+            out.push_str(");\n");
+        } else {
+            out.push('\n');
+            for (i, param) in func.params.iter().enumerate() {
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&format!("            {}", param_name));
+                if i < func.params.len() - 1 {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str("        );\n");
+        }
+
+        emit_return_marshalling(&mut out, &func.return_type);
+    }
 
     out.push_str("    }\n\n");
 
@@ -513,11 +574,33 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
 fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str, type_name: &str) -> String {
     let mut out = String::with_capacity(1024);
 
+    // XML doc comment
+    if !method.doc.is_empty() {
+        out.push_str("    /// <summary>\n");
+        for line in method.doc.lines() {
+            out.push_str(&format!("    /// {}\n", line));
+        }
+        out.push_str("    /// </summary>\n");
+        for param in &method.params {
+            out.push_str(&format!(
+                "    /// <param name=\"{}\">{}</param>\n",
+                param.name.to_lower_camel_case(),
+                if param.optional { "Optional." } else { "" }
+            ));
+        }
+    }
+
     // The wrapper class is always `static class`, so all methods must be static.
     out.push_str("    public static ");
 
-    // Return type
-    if method.return_type == TypeRef::Unit {
+    // Return type — use async Task<T> for async methods
+    if method.is_async {
+        if method.return_type == TypeRef::Unit {
+            out.push_str("async Task");
+        } else {
+            out.push_str(&format!("async Task<{}>", csharp_type(&method.return_type)));
+        }
+    } else if method.return_type == TypeRef::Unit {
         out.push_str("void");
     } else {
         out.push_str(&csharp_type(&method.return_type));
@@ -545,33 +628,72 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str, 
 
     out.push_str(")\n    {\n");
 
+    // Null checks for required string/object parameters
+    for param in &method.params {
+        if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
+            let param_name = param.name.to_lower_camel_case();
+            out.push_str(&format!("        ArgumentNullException.ThrowIfNull({param_name});\n"));
+        }
+    }
+
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&method.name);
 
-    if method.return_type != TypeRef::Unit {
-        out.push_str("        var result = ");
-    } else {
-        out.push_str("        ");
-    }
+    if method.is_async {
+        // Async: wrap in Task.Run for non-blocking execution
+        out.push_str("        return await Task.Run(() =>\n        {\n");
 
-    out.push_str(&format!("NativeMethods.{}(", cs_native_name));
-
-    if method.params.is_empty() {
-        out.push_str(");\n");
-    } else {
-        out.push('\n');
-        for (i, param) in method.params.iter().enumerate() {
-            let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("            {}", param_name));
-            if i < method.params.len() - 1 {
-                out.push(',');
-            }
-            out.push('\n');
+        if method.return_type != TypeRef::Unit {
+            out.push_str("            var result = ");
+        } else {
+            out.push_str("            ");
         }
-        out.push_str("        );\n");
-    }
 
-    emit_return_marshalling(&mut out, &method.return_type);
+        out.push_str(&format!("NativeMethods.{}(", cs_native_name));
+
+        if method.params.is_empty() {
+            out.push_str(");\n");
+        } else {
+            out.push('\n');
+            for (i, param) in method.params.iter().enumerate() {
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&format!("                {}", param_name));
+                if i < method.params.len() - 1 {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str("            );\n");
+        }
+
+        emit_return_marshalling_indented(&mut out, &method.return_type, "            ");
+        out.push_str("        });\n");
+    } else {
+        if method.return_type != TypeRef::Unit {
+            out.push_str("        var result = ");
+        } else {
+            out.push_str("        ");
+        }
+
+        out.push_str(&format!("NativeMethods.{}(", cs_native_name));
+
+        if method.params.is_empty() {
+            out.push_str(");\n");
+        } else {
+            out.push('\n');
+            for (i, param) in method.params.iter().enumerate() {
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&format!("            {}", param_name));
+                if i < method.params.len() - 1 {
+                    out.push(',');
+                }
+                out.push('\n');
+            }
+            out.push_str("        );\n");
+        }
+
+        emit_return_marshalling(&mut out, &method.return_type);
+    }
 
     out.push_str("    }\n\n");
 
@@ -607,6 +729,33 @@ fn emit_return_marshalling(out: &mut String, return_type: &TypeRef) {
     } else {
         // Numeric primitives — direct return.
         out.push_str("        return result;\n");
+    }
+}
+
+/// Emit the return-value marshalling code with configurable indentation.
+///
+/// Used inside `Task.Run` lambdas where extra indentation is needed.
+fn emit_return_marshalling_indented(out: &mut String, return_type: &TypeRef, indent: &str) {
+    if *return_type == TypeRef::Unit {
+        return;
+    }
+
+    if returns_string(return_type) {
+        out.push_str(&format!("{indent}var str = Marshal.PtrToStringUTF8(result);\n"));
+        out.push_str(&format!("{indent}NativeMethods.FreeString(result);\n"));
+        out.push_str(&format!("{indent}return str ?? string.Empty;\n"));
+    } else if returns_bool_via_int(return_type) {
+        out.push_str(&format!("{indent}return result != 0;\n"));
+    } else if returns_json_object(return_type) {
+        let cs_ty = csharp_type(return_type);
+        out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(result);\n"));
+        out.push_str(&format!("{indent}NativeMethods.FreeString(result);\n"));
+        out.push_str(&format!(
+            "{indent}return JsonSerializer.Deserialize<{}>(json ?? \"null\")!;\n",
+            cs_ty
+        ));
+    } else {
+        out.push_str(&format!("{indent}return result;\n"));
     }
 }
 

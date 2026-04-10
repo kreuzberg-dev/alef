@@ -36,9 +36,18 @@ fn safe_java_field_name(name: &str) -> String {
 pub struct JavaBackend;
 
 impl JavaBackend {
-    /// Convert crate name to main class name (PascalCase).
+    /// Convert crate name to main class name (PascalCase + "Rs" suffix).
+    ///
+    /// The "Rs" suffix ensures the raw FFI wrapper class has a distinct name from
+    /// the public facade class (which strips the "Rs" suffix). Without this, the
+    /// facade would delegate to itself, causing infinite recursion.
     fn resolve_main_class(api: &ApiSurface) -> String {
-        to_class_name(&api.crate_name.replace('-', "_"))
+        let base = to_class_name(&api.crate_name.replace('-', "_"));
+        if base.ends_with("Rs") {
+            base
+        } else {
+            format!("{}Rs", base)
+        }
     }
 }
 
@@ -874,8 +883,9 @@ fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str) -> String
     writeln!(out, "            try {{").ok();
     writeln!(
         out,
-        "                NativeLib.{}.invoke(handle);",
-        format!("{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase())
+        "                NativeLib.{}_{}_FREE.invoke(handle);",
+        prefix.to_uppercase(),
+        type_snake.to_uppercase()
     )
     .ok();
     writeln!(out, "            }} catch (Throwable e) {{").ok();

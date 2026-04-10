@@ -194,6 +194,28 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
             func.sanitized = true;
         }
     }
+    // Sanitize enum variant fields — tuples and other unknown types in data enum
+    // variants must be replaced with String, otherwise backends emit invalid code
+    // (e.g., Go emitting `[](String, String)` for Vec<(String, String)>).
+    for enum_def in &mut api.enums {
+        for variant in &mut enum_def.variants {
+            for field in &mut variant.fields {
+                if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
+                    field.sanitized = true;
+                }
+            }
+        }
+    }
+    // Sanitize error variant fields as well.
+    for error_def in &mut api.errors {
+        for variant in &mut error_def.variants {
+            for field in &mut variant.fields {
+                if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
+                    field.sanitized = true;
+                }
+            }
+        }
+    }
 }
 
 /// Returns true if the type was sanitized (changed from original).

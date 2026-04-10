@@ -96,10 +96,16 @@ fn gen_type_stub(typ: &TypeDef) -> String {
         lines.push("".to_string());
     }
 
-    // Add field attr_reader declarations
+    // Add field attr declarations — use attr_accessor for config types (has_default),
+    // attr_reader for immutable result types.
+    let accessor = if typ.has_default {
+        "attr_accessor"
+    } else {
+        "attr_reader"
+    };
     for f in &typ.fields {
         let field_type = rbs_type(&f.ty);
-        lines.push(format!(r#"    attr_reader {}: {}"#, f.name, field_type));
+        lines.push(format!(r#"    {accessor} {}: {field_type}"#, f.name));
     }
 
     if !typ.fields.is_empty() {

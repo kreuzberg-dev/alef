@@ -34,6 +34,9 @@ pub struct PhpConfig {
     /// All generated code is wrapped in `#[cfg(feature = "...")]`.
     #[serde(default)]
     pub feature_gate: Option<String>,
+    /// Output directory for generated PHP facade / stubs (e.g., `packages/php/src/`).
+    #[serde(default)]
+    pub stubs: Option<StubsConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
