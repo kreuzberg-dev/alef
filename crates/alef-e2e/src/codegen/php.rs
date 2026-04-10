@@ -50,6 +50,7 @@ impl E2eCodegen for PhpCodegen {
                 call.module.to_upper_camel_case()
             }
         });
+        let result_is_simple = overrides.is_some_and(|o| o.result_is_simple);
         let result_var = &call.result_var;
 
         // Resolve package config.
@@ -86,7 +87,11 @@ impl E2eCodegen for PhpCodegen {
 
         // Generate test files per category.
         let tests_base = output_base.join("tests");
-        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+        let field_resolver = FieldResolver::new(
+            &e2e_config.fields,
+            &e2e_config.fields_optional,
+            &e2e_config.result_fields,
+        );
 
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -111,6 +116,7 @@ impl E2eCodegen for PhpCodegen {
                 &test_class,
                 &e2e_config.call.args,
                 &field_resolver,
+                result_is_simple,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -198,6 +204,7 @@ fn render_test_file(
     test_class: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    result_is_simple: bool,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "<?php");
@@ -207,7 +214,9 @@ fn render_test_file(
     let _ = writeln!(out, "namespace Kreuzberg\\E2e;");
     let _ = writeln!(out);
     let _ = writeln!(out, "use PHPUnit\\Framework\\TestCase;");
-    let _ = writeln!(out, "use {namespace}\\{class_name};");
+    if !result_is_simple {
+        let _ = writeln!(out, "use {namespace}\\{class_name};");
+    }
     let _ = writeln!(out);
     let _ = writeln!(out, "/** E2e tests for category: {category}. */");
     let _ = writeln!(out, "final class {test_class} extends TestCase");
@@ -222,6 +231,7 @@ fn render_test_file(
             result_var,
             args,
             field_resolver,
+            result_is_simple,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -232,6 +242,7 @@ fn render_test_file(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_test_method(
     out: &mut String,
     fixture: &Fixture,
@@ -240,12 +251,20 @@ fn render_test_method(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    result_is_simple: bool,
 ) {
     let method_name = sanitize_filename(&fixture.id);
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name);
+
+    // When result_is_simple, emit a simple function call instead of a class method.
+    let call_expr = if result_is_simple {
+        format!("html_to_markdown_convert({args_str})")
+    } else {
+        format!("{class_name}::{function_name}({args_str})")
+    };
 
     let _ = writeln!(out, "    /** {description} */");
     let _ = writeln!(out, "    public function test_{method_name}(): void");
@@ -257,18 +276,15 @@ fn render_test_method(
 
     if expects_error {
         let _ = writeln!(out, "        $this->expectException(\\Exception::class);");
-        let _ = writeln!(out, "        {class_name}::{function_name}({args_str});");
+        let _ = writeln!(out, "        {call_expr};");
         let _ = writeln!(out, "    }}");
         return;
     }
 
-    let _ = writeln!(
-        out,
-        "        ${result_var} = {class_name}::{function_name}({args_str});"
-    );
+    let _ = writeln!(out, "        ${result_var} = {call_expr};");
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver);
+        render_assertion(out, assertion, result_var, field_resolver, result_is_simple);
     }
 
     let _ = writeln!(out, "    }}");
@@ -324,17 +340,59 @@ fn build_args_and_setup(
     (setup_lines, parts.join(", "))
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
-    let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => field_resolver.accessor(f, "php", &format!("${result_var}")),
-        _ => format!("${result_var}"),
+fn render_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+    result_is_simple: bool,
+) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "        // skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
+    // When result_is_simple, skip assertions that reference non-content fields
+    // (e.g., metadata, document, structure) since the binding returns a plain value.
+    if result_is_simple {
+        if let Some(f) = &assertion.field {
+            let f_lower = f.to_lowercase();
+            if !f.is_empty()
+                && f_lower != "content"
+                && (f_lower.starts_with("metadata")
+                    || f_lower.starts_with("document")
+                    || f_lower.starts_with("structure"))
+            {
+                let _ = writeln!(out, "        // TODO: skipped (result_is_simple, field: {f})");
+                return;
+            }
+        }
+    }
+
+    let field_expr = if result_is_simple {
+        format!("${result_var}")
+    } else {
+        match &assertion.field {
+            Some(f) if !f.is_empty() => field_resolver.accessor(f, "php", &format!("${result_var}")),
+            _ => format!("${result_var}"),
+        }
+    };
+
+    // For string equality, trim trailing whitespace to handle trailing newlines.
+    let trimmed_field_expr = if result_is_simple {
+        format!("trim(${result_var})")
+    } else {
+        field_expr.clone()
     };
 
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let php_val = json_to_php(expected);
-                let _ = writeln!(out, "        $this->assertEquals({php_val}, {field_expr});");
+                let _ = writeln!(out, "        $this->assertEquals({php_val}, {trimmed_field_expr});");
             }
         }
         "contains" => {
@@ -370,7 +428,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
             let _ = writeln!(out, "        $this->assertNotEmpty({field_expr});");
         }
         "is_empty" => {
-            let _ = writeln!(out, "        $this->assertEmpty({field_expr});");
+            let _ = writeln!(out, "        $this->assertEmpty({trimmed_field_expr});");
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {

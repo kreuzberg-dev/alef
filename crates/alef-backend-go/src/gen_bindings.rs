@@ -228,11 +228,8 @@ fn gen_go_file(
     }
 
     // Generate free function wrappers.
-    // Skip async functions — Go FFI wraps the C FFI layer, which cannot express async.
+    // Async functions are included — the underlying FFI uses block_on() for synchronous C calls.
     for func in &api.functions {
-        if func.is_async {
-            continue;
-        }
         writeln!(out, "{}\n", gen_function_wrapper(func, ffi_prefix)).ok();
     }
 

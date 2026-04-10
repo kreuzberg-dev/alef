@@ -78,7 +78,11 @@ impl E2eCodegen for JavaCodegen {
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
-        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+        let field_resolver = FieldResolver::new(
+            &e2e_config.fields,
+            &e2e_config.fields_optional,
+            &e2e_config.result_fields,
+        );
 
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -136,8 +140,8 @@ fn render_pom_xml(pkg_name: &str, java_group_id: &str, pkg_version: &str) -> Str
     <version>0.1.0</version>
 
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.11.4</junit.version>
     </properties>
@@ -423,6 +427,14 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
 ) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "        // skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
     let field_expr = if result_is_simple {
         result_var.to_string()
     } else {

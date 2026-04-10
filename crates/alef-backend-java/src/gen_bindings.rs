@@ -128,9 +128,18 @@ impl Backend for JavaBackend {
             }
         }
 
-        // 4b. Opaque handle types
+        // Collect builder class names generated from record types with defaults,
+        // so we can skip opaque types that would collide with them.
+        let builder_class_names: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_opaque && !t.fields.is_empty() && t.has_default)
+            .map(|t| format!("{}Builder", t.name))
+            .collect();
+
+        // 4b. Opaque handle types (skip if a pure-Java builder already covers this name)
         for typ in &api.types {
-            if typ.is_opaque {
+            if typ.is_opaque && !builder_class_names.contains(&typ.name) {
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
                     content: gen_opaque_handle_class(&package, typ, &prefix),
@@ -316,6 +325,35 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
             // _free: (struct_ptr) -> void
             let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
             let free_ffi = format!("{}_{}_free", prefix, type_snake);
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LINKER.downcallHandle(",
+                free_handle
+            )
+            .ok();
+            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
+            writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
+            writeln!(body, "    );").ok();
+        }
+    }
+
+    // Collect builder class names from record types with defaults, so we skip
+    // opaque types that are superseded by a pure-Java builder class.
+    let builder_class_names: AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_opaque && !t.fields.is_empty() && t.has_default)
+        .map(|t| format!("{}Builder", t.name))
+        .collect();
+
+    // Free handles for opaque types (handle pointer → void)
+    for typ in &api.types {
+        if typ.is_opaque && !builder_class_names.contains(&typ.name) {
+            let type_snake = typ.name.to_snake_case();
+            let type_upper = type_snake.to_uppercase();
+            let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
+            let free_ffi = format!("{}_{}_free", prefix, type_snake);
+            writeln!(body).ok();
             writeln!(
                 body,
                 "    static final MethodHandle {} = LINKER.downcallHandle(",

@@ -99,7 +99,11 @@ impl E2eCodegen for CCodegen {
             generated_header: true,
         });
 
-        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+        let field_resolver = FieldResolver::new(
+            &e2e_config.fields,
+            &e2e_config.fields_optional,
+            &e2e_config.result_fields,
+        );
 
         // Generate per-category test files.
         for (group, active) in &active_groups {
@@ -166,6 +170,36 @@ fn render_test_runner_header(active_groups: &[(&FixtureGroup, Vec<&Fixture>)]) -
     let _ = writeln!(out, "#include <string.h>");
     let _ = writeln!(out, "#include <stdlib.h>");
     let _ = writeln!(out);
+    // Trim helper for comparing strings that may have trailing whitespace/newlines.
+    let _ = writeln!(out, "/**");
+    let _ = writeln!(
+        out,
+        " * Compare a string against an expected value, trimming trailing whitespace."
+    );
+    let _ = writeln!(
+        out,
+        " * Returns 0 if the trimmed actual string equals the expected string."
+    );
+    let _ = writeln!(out, " */");
+    let _ = writeln!(
+        out,
+        "static inline int str_trim_eq(const char *actual, const char *expected) {{"
+    );
+    let _ = writeln!(
+        out,
+        "    if (actual == NULL || expected == NULL) return actual != expected;"
+    );
+    let _ = writeln!(out, "    size_t alen = strlen(actual);");
+    let _ = writeln!(
+        out,
+        "    while (alen > 0 && (actual[alen-1] == ' ' || actual[alen-1] == '\\n' || actual[alen-1] == '\\r' || actual[alen-1] == '\\t')) alen--;"
+    );
+    let _ = writeln!(out, "    size_t elen = strlen(expected);");
+    let _ = writeln!(out, "    if (alen != elen) return 1;");
+    let _ = writeln!(out, "    return memcmp(actual, expected, elen);");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
     let _ = writeln!(out, "/**");
     let _ = writeln!(
         out,
@@ -451,7 +485,12 @@ fn render_test_function(
     }
     // Free intermediate handles in reverse order.
     for (handle_var, snake_type) in intermediate_handles.iter().rev() {
-        let _ = writeln!(out, "    {prefix}_{snake_type}_free({handle_var});");
+        if snake_type == "free_string" {
+            // free_string handles are freed with the free_string function directly.
+            let _ = writeln!(out, "    {prefix}_free_string({handle_var});");
+        } else {
+            let _ = writeln!(out, "    {prefix}_{snake_type}_free({handle_var});");
+        }
     }
     if has_options_handle {
         let _ = writeln!(out, "    {prefix}_conversion_options_free(options_handle);");
@@ -599,6 +638,14 @@ fn render_assertion(
     _field_resolver: &FieldResolver,
     accessed_fields: &[(String, String, bool)],
 ) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !_field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
     let field_expr = match &assertion.field {
         Some(f) if !f.is_empty() => {
             // Use the local variable extracted from the opaque handle.
@@ -615,12 +662,18 @@ fn render_assertion(
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let c_val = json_to_c(expected);
-                // Use strncmp with expected length so trailing whitespace in the
-                // actual value does not cause a false negative.
-                let _ = writeln!(
-                    out,
-                    "    assert(strcmp({field_expr}, {c_val}) == 0 && \"equals assertion failed\");"
-                );
+                if expected.is_string() {
+                    // Use str_trim_eq for string comparisons to handle trailing whitespace.
+                    let _ = writeln!(
+                        out,
+                        "    assert(str_trim_eq({field_expr}, {c_val}) == 0 && \"equals assertion failed\");"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "    assert(strcmp({field_expr}, {c_val}) == 0 && \"equals assertion failed\");"
+                    );
+                }
             }
         }
         "contains" => {

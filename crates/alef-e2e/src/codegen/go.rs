@@ -56,7 +56,11 @@ impl E2eCodegen for GoCodegen {
             .and_then(|p| p.version.as_ref())
             .cloned()
             .unwrap_or_else(|| "v0.0.0".to_string());
-        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+        let field_resolver = FieldResolver::new(
+            &e2e_config.fields,
+            &e2e_config.fields_optional,
+            &e2e_config.result_fields,
+        );
 
         // Generate go.mod.
         files.push(GeneratedFile {
@@ -302,8 +306,12 @@ fn build_args_and_setup(
     for arg in args {
         if arg.arg_type == "handle" {
             // Generate a CreateEngine (or equivalent) call and pass the variable.
+            // Call with no args — optional params are variadic in Go.
             let constructor_name = format!("Create{}", arg.name.to_upper_camel_case());
-            setup_lines.push(format!("{}, _ := {import_alias}.{constructor_name}(nil)", arg.name));
+            setup_lines.push(format!(
+                "{name}, createErr := {import_alias}.{constructor_name}()\n\tif createErr != nil {{\n\t\tt.Fatalf(\"create handle failed: %v\", createErr)\n\t}}",
+                name = arg.name,
+            ));
             parts.push(arg.name.clone());
             continue;
         }
@@ -332,8 +340,7 @@ fn build_args_and_setup(
                         let with_calls: Vec<String> = obj
                             .iter()
                             .map(|(k, vv)| {
-                                let func_name =
-                                    format!("With{}{}", options_type.unwrap(), k.to_upper_camel_case());
+                                let func_name = format!("With{}{}", options_type.unwrap(), k.to_upper_camel_case());
                                 let go_val = json_to_go(vv);
                                 format!("htmd.{func_name}({go_val})")
                             })
@@ -358,6 +365,14 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     optional_locals: &std::collections::HashMap<String, String>,
 ) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "\t// skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
     let field_expr = match &assertion.field {
         Some(f) if !f.is_empty() => {
             // Use the local variable if the field was dereferenced above.

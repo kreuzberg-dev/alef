@@ -154,7 +154,11 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     let options_type = resolve_options_type(e2e_config);
     let options_via = resolve_options_via(e2e_config);
     let enum_fields = resolve_enum_fields(e2e_config);
-    let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+    let field_resolver = FieldResolver::new(
+        &e2e_config.fields,
+        &e2e_config.fields_optional,
+        &e2e_config.result_fields,
+    );
 
     let has_error_test = fixtures
         .iter()
@@ -498,6 +502,14 @@ fn json_to_python_literal(value: &serde_json::Value) -> String {
 // ---------------------------------------------------------------------------
 
 fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "    # skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
     let field_access = match &assertion.field {
         Some(f) if !f.is_empty() => field_resolver.accessor(f, "python", result_var),
         _ => result_var.to_string(),

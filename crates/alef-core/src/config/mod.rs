@@ -309,6 +309,19 @@ impl AlefConfig {
             .unwrap_or_else(|| "dev.kreuzberg".to_string())
     }
 
+    /// Get the Java Maven groupId.
+    ///
+    /// Derives from the Java package by dropping the last dot-separated segment.
+    /// E.g., `"dev.kreuzberg.kreuzcrawl"` -> `"dev.kreuzberg"`.
+    /// Falls back to the full package name if there is only one segment.
+    pub fn java_group_id(&self) -> String {
+        let pkg = self.java_package();
+        match pkg.rsplit_once('.') {
+            Some((prefix, _)) => prefix.to_string(),
+            None => pkg,
+        }
+    }
+
     /// Get the C# namespace.
     pub fn csharp_namespace(&self) -> String {
         self.csharp

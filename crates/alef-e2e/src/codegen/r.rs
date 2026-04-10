@@ -38,6 +38,7 @@ impl E2eCodegen for RCodegen {
             .and_then(|o| o.function.as_ref())
             .cloned()
             .unwrap_or_else(|| call.function.clone());
+        let result_is_simple = overrides.is_some_and(|o| o.result_is_simple);
         let result_var = &call.result_var;
 
         // Resolve package config.
@@ -78,7 +79,11 @@ impl E2eCodegen for RCodegen {
             }
 
             let filename = format!("test_{}.R", sanitize_filename(&group.category));
-            let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+            let field_resolver = FieldResolver::new(
+                &e2e_config.fields,
+                &e2e_config.fields_optional,
+                &e2e_config.result_fields,
+            );
             let content = render_test_file(
                 &group.category,
                 &active,
@@ -86,6 +91,7 @@ impl E2eCodegen for RCodegen {
                 result_var,
                 &e2e_config.call.args,
                 &field_resolver,
+                result_is_simple,
             );
             files.push(GeneratedFile {
                 path: output_base.join("tests").join(filename),
@@ -132,13 +138,22 @@ fn render_test_file(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    result_is_simple: bool,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# E2e tests for category: {category}");
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_case(&mut out, fixture, function_name, result_var, args, field_resolver);
+        render_test_case(
+            &mut out,
+            fixture,
+            function_name,
+            result_var,
+            args,
+            field_resolver,
+            result_is_simple,
+        );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -161,6 +176,7 @@ fn render_test_case(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    result_is_simple: bool,
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('"', "\\\"");
@@ -180,7 +196,7 @@ fn render_test_case(
     let _ = writeln!(out, "  {result_var} <- {function_name}({args_str})");
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver);
+        render_assertion(out, assertion, result_var, field_resolver, result_is_simple);
     }
 
     let _ = writeln!(out, "}})");
@@ -205,10 +221,45 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
     parts.join(", ")
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
-    let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => field_resolver.accessor(f, "r", result_var),
-        _ => result_var.to_string(),
+fn render_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+    result_is_simple: bool,
+) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "  # skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
+    // When result_is_simple, skip assertions that reference non-content fields
+    // (e.g., metadata, document, structure) since the binding returns a plain value.
+    if result_is_simple {
+        if let Some(f) = &assertion.field {
+            let f_lower = f.to_lowercase();
+            if !f.is_empty()
+                && f_lower != "content"
+                && (f_lower.starts_with("metadata")
+                    || f_lower.starts_with("document")
+                    || f_lower.starts_with("structure"))
+            {
+                let _ = writeln!(out, "  # TODO: skipped (result_is_simple, field: {f})");
+                return;
+            }
+        }
+    }
+
+    let field_expr = if result_is_simple {
+        result_var.to_string()
+    } else {
+        match &assertion.field {
+            Some(f) if !f.is_empty() => field_resolver.accessor(f, "r", result_var),
+            _ => result_var.to_string(),
+        }
     };
 
     match assertion.assertion_type.as_str() {

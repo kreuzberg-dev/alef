@@ -32,6 +32,15 @@ pub struct E2eConfig {
     /// Rust generators use .as_deref().unwrap_or("") for strings, .is_some() for structs.
     #[serde(default)]
     pub fields_optional: HashSet<String>,
+    /// Known top-level fields on the result type.
+    ///
+    /// When non-empty, assertions whose resolved field path starts with a
+    /// segment that is NOT in this set are emitted as comments (skipped)
+    /// instead of executable assertions.  This prevents broken assertions
+    /// when fixtures reference fields from a different operation (e.g.,
+    /// `batch.completed_count` on a `ScrapeResult`).
+    #[serde(default)]
+    pub result_fields: HashSet<String>,
     /// C FFI accessor type chain: maps `"{parent_snake_type}.{field}"` to the
     /// PascalCase return type name (without prefix).
     ///

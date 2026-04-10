@@ -75,7 +75,11 @@ impl E2eCodegen for CSharpCodegen {
 
         // Generate test files per category.
         let tests_base = output_base.join("tests");
-        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+        let field_resolver = FieldResolver::new(
+            &e2e_config.fields,
+            &e2e_config.fields_optional,
+            &e2e_config.result_fields,
+        );
 
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -126,7 +130,7 @@ fn render_csproj(_pkg_name: &str, pkg_path: &str) -> String {
     format!(
         r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
@@ -277,7 +281,9 @@ fn build_args_and_setup(
         let val = input.get(&arg.field);
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // Optional arg with no fixture value: skip entirely.
+                // Optional arg with no fixture value: pass null explicitly since
+                // C# nullable parameters still require an argument at the call site.
+                parts.push("null".to_string());
                 continue;
             }
             None | Some(serde_json::Value::Null) => {
@@ -307,6 +313,14 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
 ) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "        // skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
     let field_expr = if result_is_simple {
         result_var.to_string()
     } else {

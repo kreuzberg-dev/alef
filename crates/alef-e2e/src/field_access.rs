@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 pub struct FieldResolver {
     aliases: HashMap<String, String>,
     optional_fields: HashSet<String>,
+    result_fields: HashSet<String>,
 }
 
 /// A parsed segment of a field path.
@@ -25,12 +26,13 @@ enum PathSegment {
 }
 
 impl FieldResolver {
-    /// Create a new resolver from the e2e config's `fields` aliases and
-    /// `fields_optional` set.
-    pub fn new(fields: &HashMap<String, String>, optional: &HashSet<String>) -> Self {
+    /// Create a new resolver from the e2e config's `fields` aliases,
+    /// `fields_optional` set, and `result_fields` set.
+    pub fn new(fields: &HashMap<String, String>, optional: &HashSet<String>, result_fields: &HashSet<String>) -> Self {
         Self {
             aliases: fields.clone(),
             optional_fields: optional.clone(),
+            result_fields: result_fields.clone(),
         }
     }
 
@@ -53,6 +55,23 @@ impl FieldResolver {
         self.aliases.contains_key(fixture_field)
     }
 
+    /// Check whether a fixture field path is valid for the configured result type.
+    ///
+    /// When `result_fields` is non-empty, this returns `true` only if the
+    /// first segment of the *resolved* field path appears in that set.
+    /// When `result_fields` is empty (not configured), all fields are
+    /// considered valid (backwards-compatible).
+    pub fn is_valid_for_result(&self, fixture_field: &str) -> bool {
+        if self.result_fields.is_empty() {
+            return true;
+        }
+        let resolved = self.resolve(fixture_field);
+        let first_segment = resolved.split('.').next().unwrap_or(resolved);
+        // Strip any map-access bracket suffix (e.g., "foo[key]" -> "foo").
+        let first_segment = first_segment.split('[').next().unwrap_or(first_segment);
+        self.result_fields.contains(first_segment)
+    }
+
     /// Check if a resolved field path ends with a map access (e.g., `foo[key]`).
     /// This is needed because Go map access returns a value type (not a pointer),
     /// so nil checks and pointer dereferences don't apply.
@@ -67,6 +86,9 @@ impl FieldResolver {
     pub fn accessor(&self, fixture_field: &str, language: &str, result_var: &str) -> String {
         let resolved = self.resolve(fixture_field);
         let segments = parse_path(resolved);
+        if language == "java" {
+            return render_java_with_optionals(&segments, result_var, &self.optional_fields);
+        }
         render_accessor(&segments, language, result_var)
     }
 
@@ -166,7 +188,12 @@ fn render_dot_access(segments: &[PathSegment], result_var: &str, language: &str)
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(field);
-                out.push_str(&format!(".get(\"{key}\")"));
+                // Elixir maps use bracket access (map["key"]), not method calls.
+                if language == "elixir" {
+                    out.push_str(&format!("[\"{key}\"]"));
+                } else {
+                    out.push_str(&format!(".get(\"{key}\")"));
+                }
             }
             PathSegment::Length => match language {
                 "ruby" => out.push_str(".length"),
@@ -243,6 +270,50 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
                 out.push_str("()");
             }
             PathSegment::MapAccess { field, key } => {
+                out.push('.');
+                out.push_str(&field.to_lower_camel_case());
+                out.push_str(&format!("().get(\"{key}\")"));
+            }
+            PathSegment::Length => {
+                out.push_str(".size()");
+            }
+        }
+    }
+    out
+}
+
+/// Java accessor with Optional unwrapping for intermediate fields.
+///
+/// When an intermediate field is in the `optional_fields` set, `.orElseThrow()`
+/// is appended after the accessor call to unwrap the `Optional<T>`.
+fn render_java_with_optionals(
+    segments: &[PathSegment],
+    result_var: &str,
+    optional_fields: &HashSet<String>,
+) -> String {
+    let mut out = result_var.to_string();
+    let mut path_so_far = String::new();
+    for (i, seg) in segments.iter().enumerate() {
+        let is_leaf = i == segments.len() - 1;
+        match seg {
+            PathSegment::Field(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+                out.push_str("()");
+                // Unwrap intermediate Optional fields so downstream accessors work.
+                if !is_leaf && optional_fields.contains(&path_so_far) {
+                    out.push_str(".orElseThrow()");
+                }
+            }
+            PathSegment::MapAccess { field, key } => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(field);
                 out.push('.');
                 out.push_str(&field.to_lower_camel_case());
                 out.push_str(&format!("().get(\"{key}\")"));
@@ -363,7 +434,7 @@ mod tests {
         let mut optional = HashSet::new();
         optional.insert("metadata.document.title".to_string());
 
-        FieldResolver::new(&fields, &optional)
+        FieldResolver::new(&fields, &optional, &HashSet::new())
     }
 
     #[test]

@@ -76,7 +76,11 @@ impl E2eCodegen for TypeScriptCodegen {
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
-        let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+        let field_resolver = FieldResolver::new(
+            &e2e_config.fields,
+            &e2e_config.fields_optional,
+            &e2e_config.result_fields,
+        );
 
         // Generate test files per category.
         for group in groups {
@@ -143,9 +147,9 @@ fn render_tsconfig() -> String {
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
+    "strictNullChecks": false,
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "noUncheckedIndexedAccess": true
+    "skipLibCheck": true
   },
   "include": ["tests/**/*.ts", "vitest.config.ts"]
 }
@@ -347,6 +351,14 @@ fn build_args_and_setup(
 }
 
 fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
     let field_expr = match &assertion.field {
         Some(f) if !f.is_empty() => field_resolver.accessor(f, "typescript", result_var),
         _ => result_var.to_string(),

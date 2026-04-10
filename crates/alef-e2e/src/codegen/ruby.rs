@@ -83,7 +83,11 @@ impl E2eCodegen for RubyCodegen {
             }
 
             let filename = format!("{}_spec.rb", sanitize_filename(&group.category));
-            let field_resolver = FieldResolver::new(&e2e_config.fields, &e2e_config.fields_optional);
+            let field_resolver = FieldResolver::new(
+                &e2e_config.fields,
+                &e2e_config.fields_optional,
+                &e2e_config.result_fields,
+            );
             let content = render_spec_file(
                 &group.category,
                 &active,
@@ -201,8 +205,14 @@ fn render_example(
     let description = fixture.description.replace('"', "\\\"");
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, call_receiver, options_type, enum_fields, result_is_simple);
+    let (setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        call_receiver,
+        options_type,
+        enum_fields,
+        result_is_simple,
+    );
 
     let call_expr = format!("{call_receiver}.{function_name}({args_str})");
 
@@ -316,6 +326,14 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
 ) {
+    // Skip assertions on fields that don't exist on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(out, "      # skipped: field '{f}' not available on result type");
+            return;
+        }
+    }
+
     // When result_is_simple, skip assertions that reference non-content fields
     // (e.g., metadata, document, structure) since the binding returns a plain value.
     if result_is_simple {
