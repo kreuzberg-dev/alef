@@ -4,7 +4,7 @@
 //! actual API struct paths (e.g., "metadata.document.title") and generates
 //! language-specific accessor expressions.
 
-use heck::{ToPascalCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
 /// Resolves fixture field paths to language-specific accessor expressions.
@@ -157,17 +157,18 @@ fn render_dot_access(segments: &[PathSegment], result_var: &str, _pascal: bool) 
 }
 
 /// TypeScript/Node: `result.foo.bar.baz` or `result.foo.bar["key"]`
+/// NAPI-RS generates camelCase field names, so snake_case segments are converted.
 fn render_typescript(segments: &[PathSegment], result_var: &str) -> String {
     let mut out = result_var.to_string();
     for seg in segments {
         match seg {
             PathSegment::Field(f) => {
                 out.push('.');
-                out.push_str(f);
+                out.push_str(&f.to_lower_camel_case());
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
-                out.push_str(field);
+                out.push_str(&field.to_lower_camel_case());
                 out.push_str(&format!("[\"{key}\"]"));
             }
         }
@@ -295,6 +296,10 @@ mod tests {
         let mut fields = HashMap::new();
         fields.insert("title".to_string(), "metadata.document.title".to_string());
         fields.insert("tags".to_string(), "metadata.tags[name]".to_string());
+        fields.insert("og".to_string(), "metadata.document.open_graph".to_string());
+        fields.insert("twitter".to_string(), "metadata.document.twitter_card".to_string());
+        fields.insert("canonical".to_string(), "metadata.document.canonical_url".to_string());
+        fields.insert("og_tag".to_string(), "metadata.open_graph_tags[og_title]".to_string());
 
         let mut optional = HashSet::new();
         optional.insert("metadata.document.title".to_string());
@@ -357,6 +362,41 @@ mod tests {
         assert_eq!(
             r.accessor("title", "typescript", "result"),
             "result.metadata.document.title"
+        );
+    }
+
+    #[test]
+    fn test_accessor_typescript_snake_to_camel() {
+        let r = make_resolver();
+        assert_eq!(
+            r.accessor("og", "typescript", "result"),
+            "result.metadata.document.openGraph"
+        );
+        assert_eq!(
+            r.accessor("twitter", "typescript", "result"),
+            "result.metadata.document.twitterCard"
+        );
+        assert_eq!(
+            r.accessor("canonical", "typescript", "result"),
+            "result.metadata.document.canonicalUrl"
+        );
+    }
+
+    #[test]
+    fn test_accessor_typescript_map_snake_to_camel() {
+        let r = make_resolver();
+        assert_eq!(
+            r.accessor("og_tag", "typescript", "result"),
+            "result.metadata.openGraphTags[\"og_title\"]"
+        );
+    }
+
+    #[test]
+    fn test_accessor_node_alias() {
+        let r = make_resolver();
+        assert_eq!(
+            r.accessor("og", "node", "result"),
+            "result.metadata.document.openGraph"
         );
     }
 
