@@ -87,6 +87,7 @@ impl E2eCodegen for GoCodegen {
                 result_var,
                 &e2e_config.call.args,
                 &field_resolver,
+                e2e_config,
             );
             files.push(GeneratedFile {
                 path: output_base.join(filename),
@@ -128,6 +129,7 @@ fn render_test_file(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    e2e_config: &crate::config::E2eConfig,
 ) -> String {
     let mut out = String::new();
 
@@ -163,6 +165,7 @@ fn render_test_file(
             result_var,
             args,
             field_resolver,
+            e2e_config,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -187,13 +190,14 @@ fn render_test_function(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    e2e_config: &crate::config::E2eConfig,
 ) {
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let args_str = build_args_string(&fixture.input, args);
+    let args_str = build_args_string(&fixture.input, args, e2e_config);
 
     let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
     let _ = writeln!(out, "\t// {description}");
@@ -241,10 +245,19 @@ fn render_test_function(
     let _ = writeln!(out, "}}");
 }
 
-fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+fn build_args_string(
+    input: &serde_json::Value,
+    args: &[crate::config::ArgMapping],
+    e2e_config: &crate::config::E2eConfig,
+) -> String {
+    use heck::ToUpperCamelCase;
+
     if args.is_empty() {
         return json_to_go(input);
     }
+
+    let overrides = e2e_config.call.overrides.get("go");
+    let options_type = overrides.and_then(|o| o.options_type.as_deref());
 
     let parts: Vec<String> = args
         .iter()
@@ -252,6 +265,21 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
             let val = input.get(&arg.field)?;
             if val.is_null() && arg.optional {
                 return None;
+            }
+            // For json_object args with options_type: construct using functional options
+            if arg.arg_type == "json_object" && options_type.is_some() {
+                if let Some(obj) = val.as_object() {
+                    let with_calls: Vec<String> = obj
+                        .iter()
+                        .map(|(k, v)| {
+                            let func_name = format!("With{}", k.to_upper_camel_case());
+                            let go_val = json_to_go(v);
+                            format!("htmd.{func_name}({go_val})")
+                        })
+                        .collect();
+                    let new_fn = format!("New{}", options_type.unwrap());
+                    return Some(format!("htmd.{new_fn}({})", with_calls.join(", ")));
+                }
             }
             Some(json_to_go(val))
         })
