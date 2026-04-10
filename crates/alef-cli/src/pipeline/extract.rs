@@ -95,9 +95,10 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
     // Inject declared opaque types from config (external crate types alef can't extract)
     inject_declared_opaque_types(&mut api, config);
 
-    // Remove cfg-gated fields — binding crates may have different features
-    // enabled than the core crate, so cfg-gated fields can't be safely included.
-    strip_cfg_fields(&mut api);
+    // Remove cfg-gated fields unless their feature is in [crate].features.
+    // Binding crates may have different features enabled than the core crate,
+    // so cfg-gated fields are only included when explicitly listed.
+    strip_cfg_fields(&mut api, &config.crate_config.features);
 
     // Replace references to types not in the API surface with String
     sanitize_unknown_types(&mut api);
@@ -223,11 +224,24 @@ fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enu
 ///
 /// Binding crates may have different feature sets than the core crate,
 /// so including cfg-gated fields causes compilation errors.
-fn strip_cfg_fields(api: &mut ApiSurface) {
+fn strip_cfg_fields(api: &mut ApiSurface, enabled_features: &[String]) {
     for typ in &mut api.types {
-        let had_cfg = typ.fields.iter().any(|f| f.cfg.is_some());
-        typ.fields.retain(|f| f.cfg.is_none());
-        if had_cfg {
+        let original_count = typ.fields.len();
+        let cfg_count = typ.fields.iter().filter(|f| f.cfg.is_some()).count();
+        // Retain non-cfg fields and cfg fields whose feature is enabled.
+        typ.fields.retain(|f| match &f.cfg {
+            None => true,
+            Some(cfg_str) => cfg_str
+                .strip_prefix("feature = \"")
+                .and_then(|s| s.strip_suffix('"'))
+                .is_some_and(|feature| enabled_features.iter().any(|ef| ef == feature)),
+        });
+        // Clear cfg on retained fields so codegen treats them as unconditional.
+        for field in &mut typ.fields {
+            field.cfg = None;
+        }
+        // Mark if any cfg fields were actually stripped (not enabled).
+        if cfg_count > 0 && typ.fields.len() < original_count {
             typ.has_stripped_cfg_fields = true;
         }
     }

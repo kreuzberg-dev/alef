@@ -109,6 +109,11 @@ pub struct CrateConfig {
     /// When true, skip adding `use {core_import};` to generated bindings.
     #[serde(default)]
     pub skip_core_import: bool,
+    /// Cargo features that are enabled in binding crates.
+    /// Fields gated by `#[cfg(feature = "...")]` matching these features
+    /// are treated as always-present (cfg stripped from the IR).
+    #[serde(default)]
+    pub features: Vec<String>,
     /// Maps extracted rust_path prefixes to actual import paths in binding crates.
     /// Example: { "spikard" = "spikard_http" } rewrites "spikard::ServerConfig" to "spikard_http::ServerConfig"
     #[serde(default)]
