@@ -797,7 +797,10 @@ fn gen_config_options(typ: &TypeDef) -> String {
             field_go_name, param_type, typ.name
         )
         .ok();
-        writeln!(out, "    return func(c *{}) {{ c.{} = v }}", typ.name, field_go_name).ok();
+        // Optional fields use pointer types in the struct (e.g., *string), so we need
+        // to take the address of v when assigning to produce the correct pointer value.
+        let assign_val = if field.optional { "&v" } else { "v" };
+        writeln!(out, "    return func(c *{}) {{ c.{} = {} }}", typ.name, field_go_name, assign_val).ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
     }
