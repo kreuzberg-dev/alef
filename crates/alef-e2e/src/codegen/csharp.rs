@@ -51,6 +51,7 @@ impl E2eCodegen for CSharpCodegen {
         });
         let result_is_simple = overrides.is_some_and(|o| o.result_is_simple);
         let result_var = &call.result_var;
+        let is_async = call.r#async;
 
         // Resolve package config.
         let cs_pkg = e2e_config.packages.get("csharp");
@@ -100,6 +101,7 @@ impl E2eCodegen for CSharpCodegen {
                 &e2e_config.call.args,
                 &field_resolver,
                 result_is_simple,
+                is_async,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
