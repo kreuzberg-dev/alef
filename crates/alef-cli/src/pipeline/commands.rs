@@ -185,12 +185,21 @@ fn build_command_for(
             format!("wasm-pack build {crate_dir} {profile} --target bundler")
         }
         "cargo" => {
-            // Extract crate name from directory name for -p flag
-            let crate_name = Path::new(crate_dir)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(crate_dir);
-            format!("cargo build -p {crate_name}{release_flag}")
+            // Check for a standalone crate directory (e.g., Ruby's native/ subdir)
+            // that is excluded from the workspace and must be built via --manifest-path.
+            let native_dir = Path::new(crate_dir).join("native");
+            let native_manifest = native_dir.join("Cargo.toml");
+            if native_manifest.exists() {
+                let dir = native_dir.display();
+                format!("cd {dir} && cargo build{release_flag}")
+            } else {
+                // Extract crate name from directory name for -p flag
+                let crate_name = Path::new(crate_dir)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(crate_dir);
+                format!("cargo build -p {crate_name}{release_flag}")
+            }
         }
         "mix" => "mix compile".to_string(),
         "mvn" => {

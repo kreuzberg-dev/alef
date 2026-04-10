@@ -10,6 +10,8 @@ use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
+use heck::ToSnakeCase;
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -42,6 +44,9 @@ impl E2eCodegen for RubyCodegen {
             .cloned()
             .unwrap_or_else(|| call.function.clone());
         let class_name = overrides.and_then(|o| o.class.as_ref()).cloned();
+        let options_type = overrides.and_then(|o| o.options_type.clone());
+        let empty_enum_fields = HashMap::new();
+        let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields);
         let result_var = &call.result_var;
 
         // Resolve package config.
@@ -88,6 +93,8 @@ impl E2eCodegen for RubyCodegen {
                 &gem_name,
                 &e2e_config.call.args,
                 &field_resolver,
+                options_type.as_deref(),
+                enum_fields,
             );
             files.push(GeneratedFile {
                 path: spec_base.join(filename),
@@ -131,6 +138,8 @@ fn render_spec_file(
     gem_name: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    options_type: Option<&str>,
+    enum_fields: &HashMap<String, String>,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# frozen_string_literal: true");
@@ -159,6 +168,8 @@ fn render_spec_file(
             result_var,
             args,
             field_resolver,
+            options_type,
+            enum_fields,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -169,6 +180,7 @@ fn render_spec_file(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_example(
     out: &mut String,
     fixture: &Fixture,
@@ -177,12 +189,14 @@ fn render_example(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    options_type: Option<&str>,
+    enum_fields: &HashMap<String, String>,
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('"', "\\\"");
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let args_str = build_args_string(&fixture.input, args);
+    let args_str = build_args_string(&fixture.input, args, options_type, enum_fields);
 
     let call_expr = format!("{call_receiver}.{function_name}({args_str})");
 
@@ -203,7 +217,12 @@ fn render_example(
     let _ = writeln!(out, "  end");
 }
 
-fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+fn build_args_string(
+    input: &serde_json::Value,
+    args: &[crate::config::ArgMapping],
+    options_type: Option<&str>,
+    enum_fields: &HashMap<String, String>,
+) -> String {
     if args.is_empty() {
         return json_to_ruby(input);
     }
@@ -214,6 +233,29 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
             let val = input.get(&arg.field)?;
             if val.is_null() && arg.optional {
                 return None;
+            }
+            // For json_object args with options_type, construct a typed options object.
+            if arg.arg_type == "json_object" && !val.is_null() {
+                if let (Some(opts_type), Some(obj)) = (options_type, val.as_object()) {
+                    let kwargs: Vec<String> = obj
+                        .iter()
+                        .map(|(k, v)| {
+                            let snake_key = k.to_snake_case();
+                            let rb_val = if enum_fields.contains_key(k) {
+                                // Enum fields: pass the string value as-is for Ruby.
+                                if let Some(s) = v.as_str() {
+                                    format!("\"{s}\"")
+                                } else {
+                                    json_to_ruby(v)
+                                }
+                            } else {
+                                json_to_ruby(v)
+                            };
+                            format!("{snake_key}: {rb_val}")
+                        })
+                        .collect();
+                    return Some(format!("{opts_type}.new({})", kwargs.join(", ")));
+                }
             }
             Some(json_to_ruby(val))
         })

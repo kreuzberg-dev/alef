@@ -360,6 +360,13 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
                         "rust" => "String::new()".to_string(),
                         _ => "\"\"".to_string(),
                     },
+                    TypeRef::Duration => "0".to_string(),
+                    TypeRef::Bytes => match language {
+                        "python" => "b\"\"".to_string(),
+                        "go" => "[]byte{}".to_string(),
+                        "rust" => "vec![]".to_string(),
+                        _ => "\"\"".to_string(),
+                    },
                     _ => match language {
                         "python" => "None".to_string(),
                         "ruby" => "nil".to_string(),

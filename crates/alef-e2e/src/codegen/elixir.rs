@@ -7,6 +7,8 @@ use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
+use heck::ToSnakeCase;
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -46,6 +48,10 @@ impl E2eCodegen for ElixirCodegen {
             .and_then(|o| o.function.as_ref())
             .cloned()
             .unwrap_or_else(|| call.function.clone());
+        let options_type = overrides.and_then(|o| o.options_type.clone());
+        let options_default_fn = overrides.and_then(|o| o.options_via.clone());
+        let empty_enum_fields = HashMap::new();
+        let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields);
         let result_var = &call.result_var;
 
         // Resolve package config.
@@ -95,6 +101,9 @@ impl E2eCodegen for ElixirCodegen {
                 result_var,
                 &e2e_config.call.args,
                 &field_resolver,
+                options_type.as_deref(),
+                options_default_fn.as_deref(),
+                enum_fields,
             );
             files.push(GeneratedFile {
                 path: output_base.join("test").join(filename),
@@ -135,6 +144,7 @@ fn render_mix_exs(pkg_name: &str, pkg_path: &str) -> String {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
@@ -143,6 +153,9 @@ fn render_test_file(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    options_type: Option<&str>,
+    options_default_fn: Option<&str>,
+    enum_fields: &HashMap<String, String>,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# E2e tests for category: {category}");
@@ -159,6 +172,9 @@ fn render_test_file(
             result_var,
             args,
             field_resolver,
+            options_type,
+            options_default_fn,
+            enum_fields,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -169,6 +185,7 @@ fn render_test_file(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_test_case(
     out: &mut String,
     fixture: &Fixture,
@@ -177,13 +194,23 @@ fn render_test_case(
     result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    options_type: Option<&str>,
+    options_default_fn: Option<&str>,
+    enum_fields: &HashMap<String, String>,
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('"', "\\\"");
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let args_str = build_args_string(&fixture.input, args);
+    let args_str = build_args_string(
+        &fixture.input,
+        args,
+        module_path,
+        options_type,
+        options_default_fn,
+        enum_fields,
+    );
 
     if expects_error {
         let _ = writeln!(out, "  describe \"{test_name}\" do");
@@ -208,7 +235,14 @@ fn render_test_case(
     let _ = writeln!(out, "  end");
 }
 
-fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+fn build_args_string(
+    input: &serde_json::Value,
+    args: &[crate::config::ArgMapping],
+    module_path: &str,
+    options_type: Option<&str>,
+    options_default_fn: Option<&str>,
+    enum_fields: &HashMap<String, String>,
+) -> String {
     if args.is_empty() {
         return json_to_elixir(input);
     }
@@ -219,6 +253,31 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
             let val = input.get(&arg.field)?;
             if val.is_null() && arg.optional {
                 return None;
+            }
+            // For json_object args with options_type, use struct update on default.
+            if arg.arg_type == "json_object" && !val.is_null() {
+                if let (Some(_opts_type), Some(obj)) = (options_type, val.as_object()) {
+                    let default_fn = options_default_fn.unwrap_or("conversionoptions_default");
+                    let fields: Vec<String> = obj
+                        .iter()
+                        .map(|(k, v)| {
+                            let snake_key = k.to_snake_case();
+                            let elixir_val = if let Some(_enum_type) = enum_fields.get(k) {
+                                // Map string value to Elixir atom.
+                                if let Some(s) = v.as_str() {
+                                    let snake_val = s.to_snake_case();
+                                    format!(":{snake_val}")
+                                } else {
+                                    json_to_elixir(v)
+                                }
+                            } else {
+                                json_to_elixir(v)
+                            };
+                            format!("{snake_key}: {elixir_val}")
+                        })
+                        .collect();
+                    return Some(format!("%{{{module_path}.{default_fn}() | {}}}", fields.join(", ")));
+                }
             }
             Some(json_to_elixir(val))
         })

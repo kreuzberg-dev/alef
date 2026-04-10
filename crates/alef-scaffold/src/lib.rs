@@ -357,10 +357,7 @@ fn scaffold_ruby(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         String::new()
     } else {
         let entries: Vec<String> = meta.keywords.iter().map(|k| format!("\"{}\"", k)).collect();
-        format!(
-            "  spec.metadata[\"keywords\"] = [{}].join(\",\")\n",
-            entries.join(", ")
-        )
+        format!("  spec.metadata[\"keywords\"] = [{}].join(\",\")\n", entries.join(", "))
     };
 
     let content = format!(

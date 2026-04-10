@@ -10,6 +10,8 @@ use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
+use heck::ToLowerCamelCase;
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -42,6 +44,9 @@ impl E2eCodegen for WasmCodegen {
             .and_then(|o| o.function.as_ref())
             .cloned()
             .unwrap_or_else(|| call.function.clone());
+        let options_type = overrides.and_then(|o| o.options_type.clone());
+        let empty_enum_fields = HashMap::new();
+        let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields);
         let result_var = &call.result_var;
         let is_async = call.r#async;
 
@@ -93,6 +98,8 @@ impl E2eCodegen for WasmCodegen {
                 is_async,
                 &e2e_config.call.args,
                 &field_resolver,
+                options_type.as_deref(),
+                enum_fields,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -140,6 +147,7 @@ export default defineConfig({
     .to_string()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
@@ -149,10 +157,24 @@ fn render_test_file(
     is_async: bool,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    options_type: Option<&str>,
+    enum_fields: &HashMap<String, String>,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "import {{ describe, it, expect }} from 'vitest';");
-    let _ = writeln!(out, "import {{ {function_name} }} from '{pkg_name}';");
+
+    // Check if any fixture uses a json_object arg that needs the options type import.
+    let needs_options_import = options_type.is_some()
+        && fixtures.iter().any(|f| {
+            args.iter()
+                .any(|arg| arg.arg_type == "json_object" && f.input.get(&arg.field).is_some_and(|v| !v.is_null()))
+        });
+
+    if let (true, Some(opts_type)) = (needs_options_import, options_type) {
+        let _ = writeln!(out, "import {{ {function_name}, {opts_type} }} from '{pkg_name}';");
+    } else {
+        let _ = writeln!(out, "import {{ {function_name} }} from '{pkg_name}';");
+    }
     let _ = writeln!(out);
     let _ = writeln!(out, "describe('{category}', () => {{");
 
@@ -165,6 +187,8 @@ fn render_test_file(
             is_async,
             args,
             field_resolver,
+            options_type,
+            enum_fields,
         );
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
@@ -175,6 +199,7 @@ fn render_test_file(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_test_case(
     out: &mut String,
     fixture: &Fixture,
@@ -183,6 +208,8 @@ fn render_test_case(
     is_async: bool,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    options_type: Option<&str>,
+    enum_fields: &HashMap<String, String>,
 ) {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -193,7 +220,7 @@ fn render_test_case(
 
     if expects_error {
         let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
-        let args_str = build_args_string(&fixture.input, args);
+        let args_str = build_args_string(&fixture.input, args, options_type, enum_fields);
         if is_async {
             let _ = writeln!(
                 out,
@@ -208,8 +235,56 @@ fn render_test_case(
 
     let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
 
-    let args_str = build_args_string(&fixture.input, args);
-    let _ = writeln!(out, "    const {result_var} = {await_kw}{function_name}({args_str});");
+    // Check if we need to emit options setup code.
+    let has_options_setup = options_type.is_some()
+        && args
+            .iter()
+            .any(|arg| arg.arg_type == "json_object" && fixture.input.get(&arg.field).is_some_and(|v| !v.is_null()));
+
+    if has_options_setup {
+        // Emit options construction via default + setter pattern.
+        if let Some(opts_type) = options_type {
+            for arg in args {
+                if arg.arg_type == "json_object" {
+                    if let Some(val) = fixture.input.get(&arg.field) {
+                        if !val.is_null() {
+                            if let Some(obj) = val.as_object() {
+                                let _ = writeln!(out, "    const options = {opts_type}.default();");
+                                for (k, v) in obj {
+                                    let camel_key = k.to_lower_camel_case();
+                                    let js_val = if enum_fields.contains_key(k) {
+                                        json_to_js(v)
+                                    } else {
+                                        json_to_js(v)
+                                    };
+                                    let _ = writeln!(out, "    options.{camel_key} = {js_val};");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Build call args, replacing the json_object arg with the `options` variable.
+        let call_args: Vec<String> = args
+            .iter()
+            .filter_map(|arg| {
+                let val = fixture.input.get(&arg.field)?;
+                if val.is_null() && arg.optional {
+                    return None;
+                }
+                if arg.arg_type == "json_object" && !val.is_null() && options_type.is_some() {
+                    return Some("options".to_string());
+                }
+                Some(json_to_js(val))
+            })
+            .collect();
+        let args_str = call_args.join(", ");
+        let _ = writeln!(out, "    const {result_var} = {await_kw}{function_name}({args_str});");
+    } else {
+        let args_str = build_args_string(&fixture.input, args, options_type, enum_fields);
+        let _ = writeln!(out, "    const {result_var} = {await_kw}{function_name}({args_str});");
+    }
 
     for assertion in &fixture.assertions {
         render_assertion(out, assertion, result_var, field_resolver);
@@ -218,7 +293,12 @@ fn render_test_case(
     let _ = writeln!(out, "  }});");
 }
 
-fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+fn build_args_string(
+    input: &serde_json::Value,
+    args: &[crate::config::ArgMapping],
+    _options_type: Option<&str>,
+    _enum_fields: &HashMap<String, String>,
+) -> String {
     if args.is_empty() {
         return json_to_js(input);
     }

@@ -122,17 +122,6 @@ pub(super) fn null_return_value(ty: &TypeRef) -> &'static str {
     }
 }
 
-/// Check if a return type involves opaque types in positions that need serde
-/// (Vec/Map of opaque types can't be serialized to JSON).
-pub(super) fn has_opaque_type_in_return(ty: &TypeRef, opaque_types: &std::collections::HashSet<String>) -> bool {
-    match ty {
-        TypeRef::Vec(inner) | TypeRef::Optional(inner) => has_opaque_type_in_return(inner, opaque_types),
-        TypeRef::Map(k, v) => has_opaque_type_in_return(k, opaque_types) || has_opaque_type_in_return(v, opaque_types),
-        TypeRef::Named(n) => opaque_types.contains(n),
-        _ => false,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Convert owned Rust value to C return (non-Result path)
 // ---------------------------------------------------------------------------
@@ -374,4 +363,17 @@ pub unsafe extern "C" fn {prefix}_version() -> *const c_char {{
 }}"#,
         prefix = prefix
     )
+}
+
+/// Generate a lazily-initialized tokio runtime helper for blocking on async
+/// functions from synchronous FFI entry points.
+pub(super) fn gen_ffi_tokio_runtime() -> String {
+    r#"fn get_ffi_runtime() -> &'static tokio::runtime::Runtime {
+    use std::sync::OnceLock;
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
+    })
+}"#
+    .to_string()
 }

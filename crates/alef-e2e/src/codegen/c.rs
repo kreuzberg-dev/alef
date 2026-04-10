@@ -286,16 +286,38 @@ fn render_test_function(
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let args_str = build_args_string(&fixture.input, args);
-
     let _ = writeln!(out, "void test_{fn_name}(void) {{");
     let _ = writeln!(out, "    /* {description} */");
+
+    // For json_object args, emit a from_json call to construct the options handle.
+    let mut has_options_handle = false;
+    for arg in args {
+        if arg.arg_type == "json_object" {
+            if let Some(val) = fixture.input.get(&arg.field) {
+                if !val.is_null() {
+                    let json_str = serde_json::to_string(val).unwrap_or_default();
+                    let escaped = escape_c(&json_str);
+                    let upper = prefix.to_uppercase();
+                    let _ = writeln!(
+                        out,
+                        "    {upper}ConversionOptions* options_handle = {prefix}_conversion_options_from_json(\"{escaped}\");"
+                    );
+                    has_options_handle = true;
+                }
+            }
+        }
+    }
+
+    let args_str = build_args_string_c(&fixture.input, args, has_options_handle);
 
     if expects_error {
         let _ = writeln!(
             out,
             "    HTMConversionResult* {result_var} = {prefixed_fn}({args_str});"
         );
+        if has_options_handle {
+            let _ = writeln!(out, "    {prefix}_conversion_options_free(options_handle);");
+        }
         let _ = writeln!(out, "    assert({result_var} == NULL && \"expected call to fail\");");
         let _ = writeln!(out, "}}");
         return;
@@ -353,6 +375,9 @@ fn render_test_function(
     // Free intermediate handles in reverse order.
     for (handle_var, snake_type) in intermediate_handles.iter().rev() {
         let _ = writeln!(out, "    {prefix}_{snake_type}_free({handle_var});");
+    }
+    if has_options_handle {
+        let _ = writeln!(out, "    {prefix}_conversion_options_free(options_handle);");
     }
     let _ = writeln!(out, "    {prefix}_conversion_result_free({result_var});");
     let _ = writeln!(out, "}}");
@@ -426,7 +451,14 @@ fn emit_nested_accessor(
     }
 }
 
-fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMapping]) -> String {
+/// Build the C argument string for the function call.
+/// When `has_options_handle` is true, json_object args are replaced with
+/// the `options_handle` pointer (which was constructed via `from_json`).
+fn build_args_string_c(
+    input: &serde_json::Value,
+    args: &[crate::config::ArgMapping],
+    has_options_handle: bool,
+) -> String {
     if args.is_empty() {
         return json_to_c(input);
     }
@@ -442,7 +474,15 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
                 None => None,
                 // Explicit null on optional arg → pass NULL.
                 Some(v) if v.is_null() && arg.optional => Some("NULL".to_string()),
-                Some(v) => Some(json_to_c(v)),
+                Some(v) => {
+                    // For json_object args, use the options_handle pointer
+                    // instead of the raw JSON string.
+                    if arg.arg_type == "json_object" && has_options_handle && !v.is_null() {
+                        Some("options_handle".to_string())
+                    } else {
+                        Some(json_to_c(v))
+                    }
+                }
             }
         })
         .collect();

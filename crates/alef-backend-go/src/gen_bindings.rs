@@ -157,16 +157,36 @@ fn gen_go_file(
     writeln!(out, "#include \"{}\"", ffi_header).ok();
     writeln!(out, "*/\nimport \"C\"").ok();
     writeln!(out).ok();
-    // Determine imports — add "errors" if we have error types
-    if api.errors.is_empty() {
-        writeln!(out, "import (\n    \"encoding/json\"\n    \"fmt\"\n    \"unsafe\"\n)\n").ok();
-    } else {
-        writeln!(
-            out,
-            "import (\n    \"encoding/json\"\n    \"errors\"\n    \"fmt\"\n    \"unsafe\"\n)\n"
-        )
-        .ok();
+    // Determine which imports are needed based on generated code.
+    let has_sync_functions = api
+        .functions
+        .iter()
+        .any(|f| !f.is_async && !matches!(f.return_type, TypeRef::Named(_)));
+    let has_non_static_methods = api.types.iter().any(|t| {
+        t.methods
+            .iter()
+            .any(|m| !(m.is_static && matches!(m.return_type, TypeRef::Named(_))))
+    });
+    let needs_json_and_unsafe = has_sync_functions || has_non_static_methods;
+
+    let mut imports = vec!["\"fmt\""];
+    if needs_json_and_unsafe {
+        imports.insert(0, "\"encoding/json\"");
+        imports.push("\"unsafe\"");
     }
+    if !api.errors.is_empty() {
+        imports.insert(1.min(imports.len()), "\"errors\"");
+    }
+    writeln!(
+        out,
+        "import (\n{}\n)\n",
+        imports
+            .iter()
+            .map(|i| format!("    {}", i))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+    .ok();
 
     // Error helper functions
     writeln!(out, "{}\n", gen_last_error_helper(ffi_prefix)).ok();
@@ -177,6 +197,7 @@ fn gen_go_file(
     }
 
     // Generate enum types and constants
+    let enum_names: std::collections::HashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
     for enum_def in &api.enums {
         writeln!(out, "{}\n", gen_enum_type(enum_def)).ok();
     }
@@ -189,22 +210,33 @@ fn gen_go_file(
         // structs that share field names with the primary config type, producing duplicate
         // With* function declarations.
         if typ.has_default && !typ.name.ends_with("Update") {
-            writeln!(out, "{}\n", gen_config_options(typ)).ok();
+            writeln!(out, "{}\n", gen_config_options(typ, &enum_names)).ok();
         }
     }
 
-    // Generate free function wrappers (skip async — Go FFI wraps the C FFI layer,
-    // which cannot express async functions; async functions have no C counterpart)
+    // Generate free function wrappers.
+    // Skip async functions — Go FFI wraps the C FFI layer, which cannot express async.
+    // Skip functions returning Named types — the C FFI returns opaque handles that
+    // require a full C-to-Go type conversion pipeline (not yet implemented).
     for func in &api.functions {
         if func.is_async {
+            continue;
+        }
+        if matches!(func.return_type, TypeRef::Named(_)) {
             continue;
         }
         writeln!(out, "{}\n", gen_function_wrapper(func, ffi_prefix)).ok();
     }
 
-    // Generate struct methods
+    // Generate struct methods.
+    // Skip static methods that return Named types (e.g., Default() constructors) —
+    // these are redundant with the generated New*() functional options constructors,
+    // and the opaque handle conversion pipeline is not yet implemented.
     for typ in &api.types {
         for method in &typ.methods {
+            if method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
+                continue;
+            }
             writeln!(out, "{}\n", gen_method_wrapper(typ, method, ffi_prefix)).ok();
         }
     }
@@ -439,10 +471,9 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
     }
 
     // Convert parameters
-    let returns_value_and_error =
-        func.error_type.is_some() && !matches!(func.return_type, TypeRef::Unit);
+    let returns_value_and_error = func.error_type.is_some() && !matches!(func.return_type, TypeRef::Unit);
     for param in &func.params {
-        write!(out, "{}", gen_param_to_c(param, returns_value_and_error)).ok();
+        write!(out, "{}", gen_param_to_c(param, returns_value_and_error, ffi_prefix)).ok();
     }
 
     // Build the C call with converted parameters
@@ -529,8 +560,12 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
     let receiver_name = "r";
     let receiver_type = &typ.name;
 
-    // Determine receiver (pointer)
-    write!(out, "func ({} *{}) {}(", receiver_name, receiver_type, method_go_name).ok();
+    // Static methods become package-level functions (no receiver in Go)
+    if method.is_static {
+        write!(out, "func {}{}(", receiver_type, method_go_name).ok();
+    } else {
+        write!(out, "func ({} *{}) {}(", receiver_name, receiver_type, method_go_name).ok();
+    }
 
     let params: Vec<String> = method
         .params
@@ -602,10 +637,9 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
         writeln!(out, "    return resultCh, errCh").ok();
     } else {
         // Synchronous method - just convert params and call FFI
-        let returns_value_and_error =
-            method.error_type.is_some() && !matches!(method.return_type, TypeRef::Unit);
+        let returns_value_and_error = method.error_type.is_some() && !matches!(method.return_type, TypeRef::Unit);
         for param in &method.params {
-            write!(out, "{}", gen_param_to_c(param, returns_value_and_error)).ok();
+            write!(out, "{}", gen_param_to_c(param, returns_value_and_error, ffi_prefix)).ok();
         }
 
         let c_params: Vec<String> = method
@@ -616,14 +650,34 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
 
         let type_snake = typ.name.to_snake_case();
         let method_snake = method.name.to_snake_case();
-        let c_call = format!(
-            "C.{}_{}_{} (unsafe.Pointer({}), {})",
-            ffi_prefix,
-            type_snake,
-            method_snake,
-            receiver_name,
-            c_params.join(", ")
-        );
+        let c_call = if method.is_static {
+            // Static methods don't pass a receiver
+            if c_params.is_empty() {
+                format!("C.{}_{}_{}()", ffi_prefix, type_snake, method_snake)
+            } else {
+                format!(
+                    "C.{}_{}_{} ({})",
+                    ffi_prefix,
+                    type_snake,
+                    method_snake,
+                    c_params.join(", ")
+                )
+            }
+        } else if c_params.is_empty() {
+            format!(
+                "C.{}_{}_{} (unsafe.Pointer({}))",
+                ffi_prefix, type_snake, method_snake, receiver_name
+            )
+        } else {
+            format!(
+                "C.{}_{}_{} (unsafe.Pointer({}), {})",
+                ffi_prefix,
+                type_snake,
+                method_snake,
+                receiver_name,
+                c_params.join(", ")
+            )
+        };
 
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
@@ -674,7 +728,7 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
 /// Generate parameter conversion code from Go to C.
 /// `returns_value_and_error` should be true when the enclosing function returns `(*T, error)`,
 /// so that error paths emit `return nil, fmt.Errorf(...)` instead of `return fmt.Errorf(...)`.
-fn gen_param_to_c(param: &alef_core::ir::ParamDef, returns_value_and_error: bool) -> String {
+fn gen_param_to_c(param: &alef_core::ir::ParamDef, returns_value_and_error: bool, ffi_prefix: &str) -> String {
     let mut out = String::with_capacity(512);
     let c_name = format!("c{}", param.name.to_pascal_case());
     let err_return_prefix = if returns_value_and_error { "nil, " } else { "" };
@@ -699,13 +753,25 @@ fn gen_param_to_c(param: &alef_core::ir::ParamDef, returns_value_and_error: bool
         TypeRef::Bytes => {
             writeln!(out, "    {} := (*C.uchar)(unsafe.Pointer(&{}[0]))", c_name, param.name).ok();
         }
-        TypeRef::Named(_) => {
+        TypeRef::Named(name) => {
+            // Named types are opaque handles in the FFI layer. Marshal to JSON,
+            // create an opaque handle via _from_json, and pass that to the C function.
+            let type_snake = name.to_snake_case();
             writeln!(
                 out,
-                "    jsonBytes, err := json.Marshal({})\n    if err != nil {{\n        \
-                 return {}fmt.Errorf(\"failed to marshal: %w\", err)\n    \
-                 }}\n    {} := C.CString(string(jsonBytes))\n    defer C.free(unsafe.Pointer({}))",
-                param.name, err_return_prefix, c_name, c_name
+                "    jsonBytes{c_name}, err := json.Marshal({param})\n    \
+                 if err != nil {{\n        \
+                 return {err_prefix}fmt.Errorf(\"failed to marshal: %w\", err)\n    \
+                 }}\n    \
+                 tmpStr{c_name} := C.CString(string(jsonBytes{c_name}))\n    \
+                 {c_name} := C.{ffi_prefix}_{type_snake}_from_json(tmpStr{c_name})\n    \
+                 C.free(unsafe.Pointer(tmpStr{c_name}))\n    \
+                 defer C.{ffi_prefix}_{type_snake}_free({c_name})",
+                c_name = c_name,
+                param = param.name,
+                err_prefix = err_return_prefix,
+                ffi_prefix = ffi_prefix,
+                type_snake = type_snake,
             )
             .ok();
         }
@@ -783,7 +849,7 @@ fn type_name(ty: &TypeRef) -> String {
 
 /// Generate functional options pattern for Go config types with defaults.
 /// Produces ConfigOption type and WithFieldName constructors.
-fn gen_config_options(typ: &TypeDef) -> String {
+fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
     let mut out = String::with_capacity(2048);
 
     // ConfigOption type definition
@@ -801,7 +867,12 @@ fn gen_config_options(typ: &TypeDef) -> String {
         // For the function parameter, always accept the direct type (not wrapped in optional)
         let param_type = go_type(&field.ty);
 
-        writeln!(out, "// With{}{} sets the {} field.", typ.name, field_go_name, field.name).ok();
+        writeln!(
+            out,
+            "// With{}{} sets the {} field.",
+            typ.name, field_go_name, field.name
+        )
+        .ok();
         writeln!(
             out,
             "func With{}{}(v {}) {}Option {{",
@@ -811,7 +882,12 @@ fn gen_config_options(typ: &TypeDef) -> String {
         // Optional fields use pointer types in the struct (e.g., *string), so we need
         // to take the address of v when assigning to produce the correct pointer value.
         let assign_val = if field.optional { "&v" } else { "v" };
-        writeln!(out, "    return func(c *{}) {{ c.{} = {} }}", typ.name, field_go_name, assign_val).ok();
+        writeln!(
+            out,
+            "    return func(c *{}) {{ c.{} = {} }}",
+            typ.name, field_go_name, assign_val
+        )
+        .ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
     }
@@ -834,27 +910,25 @@ fn gen_config_options(typ: &TypeDef) -> String {
 
         let field_go_name = to_go_name(&field.name);
         let default_val = if field.optional {
-            // Optional fields always default to nil in Go (they are pointer types)
+            // Optional fields in Go are pointer types — always default to nil
             "nil".to_string()
-        } else if let Some(default) = &field.default {
-            default.clone()
         } else {
-            // Use type-appropriate zero value for non-optional fields
-            match &field.ty {
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
-                TypeRef::Bytes => "[]byte{}".to_string(),
-                TypeRef::Primitive(p) => match p {
-                    alef_core::ir::PrimitiveType::Bool => "false".to_string(),
-                    alef_core::ir::PrimitiveType::F32 | alef_core::ir::PrimitiveType::F64 => "0.0".to_string(),
-                    _ => "0".to_string(),
-                },
-                TypeRef::Vec(_) => "nil".to_string(),
-                TypeRef::Map(_, _) => "nil".to_string(),
-                TypeRef::Optional(_) => "nil".to_string(),
-                TypeRef::Named(_) => "nil".to_string(),
-                TypeRef::Unit => "".to_string(),
-                TypeRef::Duration => "0".to_string(),
+            let mut val = alef_codegen::config_gen::default_value_for_field(field, "go");
+            // config_gen returns "nil" for Named types with Empty default, but in Go
+            // non-optional Named types are value types. Fix up based on whether the
+            // Named type is a string-based enum or a struct.
+            if val == "nil" {
+                if let TypeRef::Named(name) = &field.ty {
+                    if enum_names.contains(name.as_str()) {
+                        // String-typed enum — zero value is empty string
+                        val = "\"\"".to_string();
+                    } else {
+                        // Struct — zero value is TypeName{}
+                        val = format!("{}{{}}", name);
+                    }
+                }
             }
+            val
         };
         writeln!(out, "        {}: {},", field_go_name, default_val).ok();
     }

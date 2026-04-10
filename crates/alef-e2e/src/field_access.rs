@@ -394,10 +394,7 @@ mod tests {
     #[test]
     fn test_accessor_node_alias() {
         let r = make_resolver();
-        assert_eq!(
-            r.accessor("og", "node", "result"),
-            "result.metadata.document.openGraph"
-        );
+        assert_eq!(r.accessor("og", "node", "result"), "result.metadata.document.openGraph");
     }
 
     #[test]

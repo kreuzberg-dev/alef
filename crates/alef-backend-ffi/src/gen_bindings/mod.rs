@@ -7,11 +7,10 @@ use alef_codegen::generators;
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 use functions::{gen_free_function, gen_method_wrapper};
-use helpers::{gen_build_rs, gen_cbindgen_toml, gen_free_string, gen_last_error, gen_version};
+use helpers::{gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_string, gen_last_error, gen_version};
 use types::{gen_enum_from_i32, gen_enum_to_i32, gen_field_accessor, gen_type_free, gen_type_from_json};
 
 pub struct FfiBackend;
@@ -101,14 +100,6 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         builder.add_import(&trait_path);
     }
 
-    // Collect opaque type names for skipping serde/clone operations
-    let opaque_types: HashSet<String> = api
-        .types
-        .iter()
-        .filter(|t| t.is_opaque)
-        .map(|t| t.name.clone())
-        .collect();
-
     // Only import serde_json when types need from_json deserialization or
     // when Json/Vec/Map fields/returns require serialization
     let has_from_json_types = api
@@ -169,7 +160,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
 
         // Method wrappers
         for method in &typ.methods {
-            builder.add_item(&gen_method_wrapper(typ, method, prefix, &core_import, &opaque_types));
+            builder.add_item(&gen_method_wrapper(typ, method, prefix, &core_import));
         }
     }
 
@@ -181,12 +172,16 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         }
     }
 
-    // Free functions (skip async — FFI can't express async; use sync wrappers instead)
+    // Emit tokio runtime helper if any function or method is async
+    let has_async_functions =
+        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    if has_async_functions {
+        builder.add_item(&gen_ffi_tokio_runtime());
+    }
+
+    // Free functions (async functions are wrapped with block_on via the runtime helper)
     for func in &api.functions {
-        if func.is_async {
-            continue;
-        }
-        builder.add_item(&gen_free_function(func, prefix, &core_import, &opaque_types));
+        builder.add_item(&gen_free_function(func, prefix, &core_import));
     }
 
     // Build adapter body map (consumed by generators via body substitution)

@@ -3,21 +3,13 @@ use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, Typ
 use heck::ToSnakeCase;
 use std::fmt::Write;
 
-use super::helpers::{
-    gen_ffi_unimplemented_body, gen_owned_value_to_c, gen_value_to_c, has_opaque_type_in_return, null_return_value,
-};
+use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, gen_value_to_c, null_return_value};
 
 // ---------------------------------------------------------------------------
 // Method wrappers
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_method_wrapper(
-    typ: &TypeDef,
-    method: &MethodDef,
-    prefix: &str,
-    core_import: &str,
-    opaque_types: &std::collections::HashSet<String>,
-) -> String {
+pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_import: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
     let method_name = &method.name;
@@ -68,12 +60,7 @@ pub(super) fn gen_method_wrapper(
     }
 
     // Check if this method will be unimplemented before building params
-    let has_opaque_param = method
-        .params
-        .iter()
-        .any(|p| matches!(&p.ty, TypeRef::Named(n) if opaque_types.contains(n)));
-    let has_opaque_return = has_opaque_type_in_return(&method.return_type, opaque_types);
-    let will_be_unimplemented = method.sanitized || has_opaque_param || has_opaque_return;
+    let will_be_unimplemented = method.sanitized;
 
     // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();
@@ -180,7 +167,21 @@ pub(super) fn gen_method_wrapper(
         .collect();
     let call_args = arg_names.join(", ");
 
-    if method.is_static {
+    if method.is_async {
+        if method.is_static {
+            writeln!(
+                out,
+                "    let result = get_ffi_runtime().block_on(async {{ {core_import}::{type_name}::{method_name}({call_args}).await }});"
+            )
+            .ok();
+        } else {
+            writeln!(
+                out,
+                "    let result = get_ffi_runtime().block_on(async {{ obj.{method_name}({call_args}).await }});"
+            )
+            .ok();
+        }
+    } else if method.is_static {
         writeln!(
             out,
             "    let result = {core_import}::{type_name}::{method_name}({call_args});"
@@ -223,12 +224,7 @@ pub(super) fn gen_method_wrapper(
 // Free functions
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_free_function(
-    func: &FunctionDef,
-    prefix: &str,
-    core_import: &str,
-    opaque_types: &std::collections::HashSet<String>,
-) -> String {
+pub(super) fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> String {
     let fn_name_snake = func.name.to_snake_case();
     let ffi_name = format!("{prefix}_{fn_name_snake}");
     let func_name = &func.name;
@@ -262,12 +258,7 @@ pub(super) fn gen_free_function(
     };
 
     // Check if this function will be unimplemented before building params
-    let has_opaque_param = func
-        .params
-        .iter()
-        .any(|p| matches!(&p.ty, TypeRef::Named(n) if opaque_types.contains(n)));
-    let has_opaque_return = has_opaque_type_in_return(&func.return_type, opaque_types);
-    let will_be_unimplemented = func.sanitized || has_opaque_param || has_opaque_return;
+    let will_be_unimplemented = func.sanitized;
 
     // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();
@@ -344,7 +335,15 @@ pub(super) fn gen_free_function(
         .collect();
     let call_args = arg_names.join(", ");
 
-    writeln!(out, "    let result = {core_import}::{func_name}({call_args});").ok();
+    if func.is_async {
+        writeln!(
+            out,
+            "    let result = get_ffi_runtime().block_on(async {{ {core_import}::{func_name}({call_args}).await }});"
+        )
+        .ok();
+    } else {
+        writeln!(out, "    let result = {core_import}::{func_name}({call_args});").ok();
+    }
 
     // Handle return
     if has_error {
