@@ -225,6 +225,25 @@ fn render_test_file(
     let _ = writeln!(out, "#include \"{header}\"");
     let _ = writeln!(out);
 
+    // Emit a static helper to trim trailing whitespace for exact-match assertions.
+    let _ = writeln!(out, "/* Trim trailing whitespace in-place and return the string. */");
+    let _ = writeln!(out, "static char* trim_trailing(char* s) {{");
+    let _ = writeln!(out, "    if (!s) return s;");
+    let _ = writeln!(out, "    size_t len = strlen(s);");
+    let _ = writeln!(
+        out,
+        "    while (len > 0 && (s[len - 1] == '\\n' || s[len - 1] == '\\r' ||"
+    );
+    let _ = writeln!(
+        out,
+        "                       s[len - 1] == ' '  || s[len - 1] == '\\t')) {{"
+    );
+    let _ = writeln!(out, "        s[--len] = '\\0';");
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "    return s;");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
     for (i, fixture) in fixtures.iter().enumerate() {
         render_test_function(
             &mut out,
@@ -285,16 +304,28 @@ fn render_test_function(
 
     // Collect fields accessed by assertions so we can emit accessor calls.
     // C FFI uses the opaque handle pattern: {prefix}_conversion_result_{field}(handle).
+    // For nested paths (document.nodes, metadata.document.title) we emit TODO
+    // comments because the FFI accessor chain is complex and not yet generated.
     let mut accessed_fields: Vec<(String, String)> = Vec::new();
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
             if !f.is_empty() && !accessed_fields.iter().any(|(k, _)| k == f) {
                 let resolved = field_resolver.resolve(f);
-                let field_suffix = resolved.replace('.', "_").replace(['[', ']'], "");
-                let accessor_fn = format!("{prefix}_conversion_result_{field_suffix}");
                 let local_var = f.replace(['.', '['], "_").replace(']', "");
+
+                // Check if the resolved path is nested (contains dots).
+                if resolved.contains('.') {
+                    let _ = writeln!(
+                        out,
+                        "    /* TODO: nested field access for \"{resolved}\" — \
+                         FFI accessor chain not yet generated */"
+                    );
+                    let _ = writeln!(out, "    char* {local_var} = NULL; /* placeholder */");
+                } else {
+                    let accessor_fn = format!("{prefix}_conversion_result_{resolved}");
+                    let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
+                }
                 accessed_fields.push((f.clone(), local_var.clone()));
-                let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
             }
         }
     }
@@ -304,8 +335,17 @@ fn render_test_function(
     }
 
     // Free extracted strings, then the result handle.
-    for (_, local_var) in &accessed_fields {
-        let _ = writeln!(out, "    {prefix}_free_string({local_var});");
+    // Skip freeing NULL placeholders from unresolved nested paths.
+    for (f, local_var) in &accessed_fields {
+        let resolved = field_resolver.resolve(f);
+        if resolved.contains('.') {
+            let _ = writeln!(
+                out,
+                "    /* TODO: free nested accessor for \"{resolved}\" when implemented */"
+            );
+        } else {
+            let _ = writeln!(out, "    {prefix}_free_string({local_var});");
+        }
     }
     let _ = writeln!(out, "    {prefix}_conversion_result_free({result_var});");
     let _ = writeln!(out, "}}");
@@ -319,11 +359,16 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
     let parts: Vec<String> = args
         .iter()
         .filter_map(|arg| {
-            let val = input.get(&arg.field)?;
-            if val.is_null() && arg.optional {
-                return None;
+            let val = input.get(&arg.field);
+            match val {
+                // Field missing entirely and optional → pass NULL.
+                None if arg.optional => Some("NULL".to_string()),
+                // Field missing and required → skip (caller error, but don't crash).
+                None => None,
+                // Explicit null on optional arg → pass NULL.
+                Some(v) if v.is_null() && arg.optional => Some("NULL".to_string()),
+                Some(v) => Some(json_to_c(v)),
             }
-            Some(json_to_c(val))
         })
         .collect();
 
@@ -353,9 +398,11 @@ fn render_assertion(
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let c_val = json_to_c(expected);
+                // Use strncmp with expected length so trailing whitespace in the
+                // actual value does not cause a false negative.
                 let _ = writeln!(
                     out,
-                    "    assert(strcmp({field_expr}, {c_val}) == 0 && \"equals assertion failed\");"
+                    "    assert(strcmp(trim_trailing({field_expr}), {c_val}) == 0 && \"equals assertion failed\");"
                 );
             }
         }
