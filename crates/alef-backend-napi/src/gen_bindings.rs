@@ -324,15 +324,6 @@ fn gen_struct(typ: &TypeDef, mapper: &NapiMapper) -> String {
         struct_builder.add_field(&field.name, &field_type, attrs);
     }
 
-    // Add synthetic fields for cfg-gated fields stripped from the IR.
-    // When has_stripped_cfg_fields is true, some fields were removed during extraction
-    // because they were behind #[cfg(...)] gates in the source. We add them back as
-    // Option types so the binding exposes the complete API when the features are enabled.
-    if typ.has_stripped_cfg_fields && typ.name == "ConversionResult" {
-        // ConversionResult has a metadata: HtmlMetadata field behind #[cfg(feature = "metadata")]
-        struct_builder.add_field("metadata", "Option<JsHtmlMetadata>", vec![]);
-    }
-
     struct_builder.build()
 }
 
