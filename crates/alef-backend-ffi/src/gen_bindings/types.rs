@@ -65,6 +65,62 @@ pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str)
     out
 }
 
+pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
+    let type_snake = typ.name.to_snake_case();
+    let type_name = &typ.name;
+    let qualified = format!("{core_import}::{type_name}");
+    let mut out = String::with_capacity(2048);
+
+    writeln!(
+        out,
+        "/// Serialize a `{type_name}` to a JSON string. Returns null on failure."
+    )
+    .ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(
+        out,
+        "/// `ptr` must be a valid, non-null pointer returned by a `{prefix}` function."
+    )
+    .ok();
+    writeln!(
+        out,
+        "/// The returned string must be freed with `{prefix}_free_string`."
+    )
+    .ok();
+    writeln!(out, "#[unsafe(no_mangle)]").ok();
+    writeln!(
+        out,
+        "pub unsafe extern \"C\" fn {prefix}_{type_snake}_to_json(ptr: *const {qualified}) -> *mut c_char {{"
+    )
+    .ok();
+    writeln!(out, "    clear_last_error();").ok();
+    writeln!(out, "    if ptr.is_null() {{").ok();
+    writeln!(
+        out,
+        "        set_last_error(1, \"Null pointer passed to to_json\");"
+    )
+    .ok();
+    writeln!(out, "        return std::ptr::null_mut();").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "    let val = unsafe {{ &*ptr }};").ok();
+    writeln!(out, "    match serde_json::to_string(val) {{").ok();
+    writeln!(out, "        Ok(s) => match CString::new(s) {{").ok();
+    writeln!(out, "            Ok(cs) => cs.into_raw(),").ok();
+    writeln!(out, "            Err(e) => {{").ok();
+    writeln!(out, "                set_last_error(2, &e.to_string());").ok();
+    writeln!(out, "                std::ptr::null_mut()").ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out, "        }},").ok();
+    writeln!(out, "        Err(e) => {{").ok();
+    writeln!(out, "            set_last_error(2, &e.to_string());").ok();
+    writeln!(out, "            std::ptr::null_mut()").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
+
+    out
+}
+
 pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;

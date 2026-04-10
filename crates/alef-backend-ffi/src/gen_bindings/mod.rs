@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use functions::{gen_free_function, gen_method_wrapper};
 use helpers::{gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_string, gen_last_error, gen_version};
-use types::{gen_enum_from_i32, gen_enum_to_i32, gen_field_accessor, gen_type_free, gen_type_from_json};
+use types::{gen_enum_from_i32, gen_enum_to_i32, gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_to_json};
 
 pub struct FfiBackend;
 
@@ -148,6 +148,12 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         let has_sanitized = typ.fields.iter().any(|f| f.sanitized);
         if !typ.is_opaque && !has_sanitized {
             builder.add_item(&gen_type_from_json(typ, prefix, &core_import));
+            // Generate to_json for types that support serialization.
+            // Update types (partial update structs) typically only implement Deserialize,
+            // not Serialize, so skip them.
+            if !typ.name.ends_with("Update") {
+                builder.add_item(&gen_type_to_json(typ, prefix, &core_import));
+            }
         }
         builder.add_item(&gen_type_free(typ, prefix, &core_import));
 

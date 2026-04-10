@@ -216,13 +216,8 @@ fn gen_go_file(
 
     // Generate free function wrappers.
     // Skip async functions — Go FFI wraps the C FFI layer, which cannot express async.
-    // Skip functions returning Named types — the C FFI returns opaque handles that
-    // require a full C-to-Go type conversion pipeline (not yet implemented).
     for func in &api.functions {
         if func.is_async {
-            continue;
-        }
-        if matches!(func.return_type, TypeRef::Named(_)) {
             continue;
         }
         writeln!(out, "{}\n", gen_function_wrapper(func, ffi_prefix)).ok();
@@ -450,19 +445,32 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
 
     write!(out, "func {}(", func_go_name).ok();
 
-    let params: Vec<String> = func
-        .params
-        .iter()
-        .map(|p| {
+    // Split params into required and trailing optional groups.
+    // Trailing optional params become variadic in Go for ergonomic calling.
+    let trailing_optional_count = func.params.iter().rev().take_while(|p| p.optional).count();
+    let required_count = func.params.len() - trailing_optional_count;
+
+    let mut param_strs: Vec<String> = Vec::new();
+    for (i, p) in func.params.iter().enumerate() {
+        if i >= required_count {
+            // Trailing optional: use variadic syntax for the first one only.
+            // Additional trailing optionals get extracted from the variadic slice.
+            if i == required_count {
+                let param_type = go_optional_type(&p.ty);
+                param_strs.push(format!("{} ...{}", p.name, param_type));
+            }
+            // Extra trailing optionals are not in the Go signature; they're
+            // extracted from the variadic slice in the body.
+        } else {
             let param_type = if p.optional {
                 go_optional_type(&p.ty)
             } else {
                 go_type(&p.ty)
             };
-            format!("{} {}", p.name, param_type)
-        })
-        .collect();
-    write!(out, "{}", params.join(", ")).ok();
+            param_strs.push(format!("{} {}", p.name, param_type));
+        }
+    };
+    write!(out, "{}", param_strs.join(", ")).ok();
 
     if return_type.is_empty() {
         writeln!(out, ") {{").ok();
@@ -470,17 +478,46 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
         writeln!(out, ") {} {{", return_type).ok();
     }
 
+    // For trailing optional params that became variadic, extract from slice
+    if trailing_optional_count > 0 {
+        let first_opt = &func.params[required_count];
+        let first_opt_type = go_optional_type(&first_opt.ty);
+        // The first variadic param uses its own name as the variadic slice
+        writeln!(
+            out,
+            "    var {name}Val {ty}\n    if len({name}) > 0 {{\n        {name}Val = {name}[0]\n    }}",
+            name = first_opt.name,
+            ty = first_opt_type,
+        ).ok();
+        // For param conversion, use the extracted value
+    }
+
     // Convert parameters
-    let returns_value_and_error = func.error_type.is_some() && !matches!(func.return_type, TypeRef::Unit);
-    for param in &func.params {
-        write!(out, "{}", gen_param_to_c(param, returns_value_and_error, ffi_prefix)).ok();
+    let can_return_error = func.error_type.is_some();
+    let returns_value_and_error = can_return_error && !matches!(func.return_type, TypeRef::Unit);
+    for (i, param) in func.params.iter().enumerate() {
+        if i >= required_count && trailing_optional_count > 0 {
+            // For variadic optional params, create a modified param that uses the extracted value
+            let mut mod_param = param.clone();
+            mod_param.name = format!("{}Val", param.name);
+            write!(out, "{}", gen_param_to_c(&mod_param, returns_value_and_error, can_return_error, ffi_prefix)).ok();
+        } else {
+            write!(out, "{}", gen_param_to_c(param, returns_value_and_error, can_return_error, ffi_prefix)).ok();
+        }
     }
 
     // Build the C call with converted parameters
     let c_params: Vec<String> = func
         .params
         .iter()
-        .map(|p| format!("c{}", p.name.to_pascal_case()))
+        .enumerate()
+        .map(|(i, p)| {
+            if i >= required_count && trailing_optional_count > 0 {
+                format!("c{}Val", p.name.to_pascal_case())
+            } else {
+                format!("c{}", p.name.to_pascal_case())
+            }
+        })
         .collect();
 
     let c_call = format!("{}({})", ffi_name, c_params.join(", "));
@@ -502,6 +539,12 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
                 writeln!(out, "            C.{}_free_string(ptr)", ffi_prefix).ok();
                 writeln!(out, "        }}").ok();
             }
+            if let TypeRef::Named(name) = &func.return_type {
+                let type_snake = name.to_snake_case();
+                writeln!(out, "        if ptr != nil {{").ok();
+                writeln!(out, "            C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                writeln!(out, "        }}").ok();
+            }
             writeln!(out, "        return nil, err").ok();
             writeln!(out, "    }}").ok();
             // Free the FFI-allocated string after unmarshaling
@@ -511,7 +554,12 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
             ) {
                 writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
-            writeln!(out, "    return unmarshal{}(ptr), nil", type_name(&func.return_type)).ok();
+            // Free the opaque handle after extracting data via to_json
+            if let TypeRef::Named(name) = &func.return_type {
+                let type_snake = name.to_snake_case();
+                writeln!(out, "    defer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+            }
+            writeln!(out, "    return {}, nil", go_return_expr(&func.return_type, "ptr", ffi_prefix)).ok();
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
         writeln!(out, "    {}", c_call).ok();
@@ -524,7 +572,12 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str) -> String {
         ) {
             writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
         }
-        writeln!(out, "    return unmarshal{}(ptr)", type_name(&func.return_type)).ok();
+        // Free the opaque handle after extracting data via to_json
+        if let TypeRef::Named(name) = &func.return_type {
+            let type_snake = name.to_snake_case();
+            writeln!(out, "    defer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+        }
+        writeln!(out, "    return {}", go_return_expr(&func.return_type, "ptr", ffi_prefix)).ok();
     }
 
     writeln!(out, "}}").ok();
@@ -637,9 +690,10 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
         writeln!(out, "    return resultCh, errCh").ok();
     } else {
         // Synchronous method - just convert params and call FFI
-        let returns_value_and_error = method.error_type.is_some() && !matches!(method.return_type, TypeRef::Unit);
+        let can_return_error = method.error_type.is_some();
+        let returns_value_and_error = can_return_error && !matches!(method.return_type, TypeRef::Unit);
         for param in &method.params {
-            write!(out, "{}", gen_param_to_c(param, returns_value_and_error, ffi_prefix)).ok();
+            write!(out, "{}", gen_param_to_c(param, returns_value_and_error, can_return_error, ffi_prefix)).ok();
         }
 
         let c_params: Vec<String> = method
@@ -664,17 +718,29 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
                 )
             }
         } else if c_params.is_empty() {
+            let c_receiver = format!(
+                "(*C.{}{})(unsafe.Pointer({}))",
+                ffi_prefix.to_uppercase(),
+                typ.name.to_pascal_case(),
+                receiver_name
+            );
             format!(
-                "C.{}_{}_{} (unsafe.Pointer({}))",
-                ffi_prefix, type_snake, method_snake, receiver_name
+                "C.{}_{}_{} ({})",
+                ffi_prefix, type_snake, method_snake, c_receiver
             )
         } else {
+            let c_receiver = format!(
+                "(*C.{}{})(unsafe.Pointer({}))",
+                ffi_prefix.to_uppercase(),
+                typ.name.to_pascal_case(),
+                receiver_name
+            );
             format!(
-                "C.{}_{}_{} (unsafe.Pointer({}), {})",
+                "C.{}_{}_{} ({}, {})",
                 ffi_prefix,
                 type_snake,
                 method_snake,
-                receiver_name,
+                c_receiver,
                 c_params.join(", ")
             )
         };
@@ -704,7 +770,7 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
                 ) {
                     writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
                 }
-                writeln!(out, "    return unmarshal{}(ptr), nil", type_name(&method.return_type)).ok();
+                writeln!(out, "    return {}, nil", go_return_expr_builder(&method.return_type, "ptr", ffi_prefix)).ok();
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
             writeln!(out, "    {}", c_call).ok();
@@ -717,7 +783,7 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
             ) {
                 writeln!(out, "    defer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
-            writeln!(out, "    return unmarshal{}(ptr)", type_name(&method.return_type)).ok();
+            writeln!(out, "    return {}", go_return_expr_builder(&method.return_type, "ptr", ffi_prefix)).ok();
         }
     }
 
@@ -728,7 +794,14 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str) -> St
 /// Generate parameter conversion code from Go to C.
 /// `returns_value_and_error` should be true when the enclosing function returns `(*T, error)`,
 /// so that error paths emit `return nil, fmt.Errorf(...)` instead of `return fmt.Errorf(...)`.
-fn gen_param_to_c(param: &alef_core::ir::ParamDef, returns_value_and_error: bool, ffi_prefix: &str) -> String {
+/// `can_return_error` should be true when the enclosing function has `error` in its return type.
+/// When false, marshal failures are handled with `panic` since the function signature has no error return.
+fn gen_param_to_c(
+    param: &alef_core::ir::ParamDef,
+    returns_value_and_error: bool,
+    can_return_error: bool,
+    ffi_prefix: &str,
+) -> String {
     let mut out = String::with_capacity(512);
     let c_name = format!("c{}", param.name.to_pascal_case());
     let err_return_prefix = if returns_value_and_error { "nil, " } else { "" };
@@ -757,11 +830,16 @@ fn gen_param_to_c(param: &alef_core::ir::ParamDef, returns_value_and_error: bool
             // Named types are opaque handles in the FFI layer. Marshal to JSON,
             // create an opaque handle via _from_json, and pass that to the C function.
             let type_snake = name.to_snake_case();
+            let err_action = if can_return_error {
+                format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
+            } else {
+                "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
+            };
             writeln!(
                 out,
                 "    jsonBytes{c_name}, err := json.Marshal({param})\n    \
                  if err != nil {{\n        \
-                 return {err_prefix}fmt.Errorf(\"failed to marshal: %w\", err)\n    \
+                 {err_action}\n    \
                  }}\n    \
                  tmpStr{c_name} := C.CString(string(jsonBytes{c_name}))\n    \
                  {c_name} := C.{ffi_prefix}_{type_snake}_from_json(tmpStr{c_name})\n    \
@@ -769,9 +847,30 @@ fn gen_param_to_c(param: &alef_core::ir::ParamDef, returns_value_and_error: bool
                  defer C.{ffi_prefix}_{type_snake}_free({c_name})",
                 c_name = c_name,
                 param = param.name,
-                err_prefix = err_return_prefix,
+                err_action = err_action,
                 ffi_prefix = ffi_prefix,
                 type_snake = type_snake,
+            )
+            .ok();
+        }
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            // Vec and Map types are serialized as JSON strings across the FFI boundary.
+            let err_action = if can_return_error {
+                format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
+            } else {
+                "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
+            };
+            writeln!(
+                out,
+                "    jsonBytes{c_name}, err := json.Marshal({param})\n    \
+                 if err != nil {{\n        \
+                 {err_action}\n    \
+                 }}\n    \
+                 {c_name} := C.CString(string(jsonBytes{c_name}))\n    \
+                 defer C.free(unsafe.Pointer({c_name}))",
+                c_name = c_name,
+                param = param.name,
+                err_action = err_action,
             )
             .ok();
         }
@@ -844,6 +943,78 @@ fn type_name(ty: &TypeRef) -> String {
             alef_core::ir::PrimitiveType::Usize => "Usize".to_string(),
             alef_core::ir::PrimitiveType::Isize => "Isize".to_string(),
         },
+    }
+}
+
+/// Generate a Go expression that converts a C return value (`ptr`) to the correct Go type.
+///
+/// For primitives like Bool, this produces inline conversion (e.g., `func() *bool { v := ptr != 0; return &v }()`).
+/// For Named types (opaque handles), this uses `_to_json` to serialize then `json.Unmarshal` in Go.
+/// For strings, this calls `C.GoString`.
+/// The `ffi_prefix` is used to construct C type names for Named types.
+///
+/// When `is_builder_return` is true (method returns its own type for chaining),
+/// a simple unsafe pointer cast is used instead of JSON round-trip.
+fn go_return_expr(ty: &TypeRef, var_name: &str, ffi_prefix: &str) -> String {
+    go_return_expr_inner(ty, var_name, ffi_prefix, false)
+}
+
+/// Builder-pattern variant: for methods that return the same opaque handle type (e.g., builder
+/// setters), use a simple unsafe pointer cast instead of JSON serialization.
+fn go_return_expr_builder(ty: &TypeRef, var_name: &str, ffi_prefix: &str) -> String {
+    go_return_expr_inner(ty, var_name, ffi_prefix, true)
+}
+
+fn go_return_expr_inner(ty: &TypeRef, var_name: &str, ffi_prefix: &str, is_builder: bool) -> String {
+    match ty {
+        TypeRef::Primitive(prim) => match prim {
+            alef_core::ir::PrimitiveType::Bool => {
+                format!("func() *bool {{ v := {} != 0; return &v }}()", var_name)
+            }
+            _ => {
+                // Numeric primitives: cast and take address
+                let go_ty = go_type(ty);
+                format!("func() *{go_ty} {{ v := {go_ty}({var_name}); return &v }}()")
+            }
+        },
+        TypeRef::Named(name) => {
+            if is_builder {
+                // Builder pattern: same opaque handle, just cast the pointer
+                format!(
+                    "(*{})(unsafe.Pointer({}))",
+                    name.to_pascal_case(),
+                    var_name
+                )
+            } else {
+                // Full conversion: serialize C handle to JSON, then unmarshal into Go struct
+                let type_snake = name.to_snake_case();
+                format!(
+                    "func() *{go_type} {{\n\
+                     \tjsonPtr := C.{ffi_prefix}_{type_snake}_to_json({var_name})\n\
+                     \tif jsonPtr == nil {{ return nil }}\n\
+                     \tdefer C.{ffi_prefix}_free_string(jsonPtr)\n\
+                     \tvar result {go_type}\n\
+                     \tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{ return nil }}\n\
+                     \treturn &result\n\
+                     }}()",
+                    go_type = name.to_pascal_case(),
+                    ffi_prefix = ffi_prefix,
+                    type_snake = type_snake,
+                    var_name = var_name,
+                )
+            }
+        }
+        TypeRef::String | TypeRef::Char | TypeRef::Path => {
+            format!("func() *string {{ v := C.GoString({}); return &v }}()", var_name)
+        }
+        TypeRef::Json => {
+            format!("unmarshalJSON({})", var_name)
+        }
+        TypeRef::Bytes => {
+            format!("unmarshalBytes({})", var_name)
+        }
+        TypeRef::Optional(inner) => go_return_expr_inner(inner, var_name, ffi_prefix, is_builder),
+        _ => format!("unmarshal{}({})", type_name(ty), var_name),
     }
 }
 
