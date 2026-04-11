@@ -109,12 +109,20 @@ impl Backend for JavaBackend {
             generated_header: true,
         });
 
+        // Collect complex enums (tagged unions with data) — use Object for these fields.
+        let complex_enums: AHashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| e.variants.iter().any(|v| !v.fields.is_empty()))
+            .map(|e| e.name.clone())
+            .collect();
+
         // 4. Record types
         for typ in &api.types {
             if !typ.is_opaque && !typ.fields.is_empty() {
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
-                    content: gen_record_type(&package, typ),
+                    content: gen_record_type(&package, typ, &complex_enums),
                     generated_header: true,
                 });
                 // Generate builder class for types with defaults
@@ -1150,13 +1158,18 @@ fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str) -> String
 /// Checkstyle enforces 120 chars; we split at 100 to leave headroom for indentation.
 const RECORD_LINE_WRAP_THRESHOLD: usize = 100;
 
-fn gen_record_type(package: &str, typ: &TypeDef) -> String {
+fn gen_record_type(package: &str, typ: &TypeDef, complex_enums: &AHashSet<String>) -> String {
     // Generate the record body first, then scan for needed imports
     let field_list: Vec<String> = typ
         .fields
         .iter()
         .map(|f| {
-            let ftype = if f.optional {
+            // Complex enums (tagged unions with data) can't be simple Java enums.
+            // Use Object for flexible Jackson deserialization.
+            let is_complex = matches!(&f.ty, TypeRef::Named(n) if complex_enums.contains(n.as_str()));
+            let ftype = if is_complex {
+                "Object".to_string()
+            } else if f.optional {
                 format!("Optional<{}>", java_boxed_type(&f.ty))
             } else {
                 java_type(&f.ty).to_string()

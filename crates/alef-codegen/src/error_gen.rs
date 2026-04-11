@@ -1,5 +1,19 @@
 use alef_core::ir::{ErrorDef, ErrorVariant};
 
+use crate::conversions::is_tuple_variant;
+
+/// Generate a wildcard match pattern for an error variant.
+/// Struct variants use `{ .. }`, tuple variants use `(..)`, unit variants have no suffix.
+fn error_variant_wildcard_pattern(rust_path: &str, variant: &ErrorVariant) -> String {
+    if variant.is_unit {
+        format!("{rust_path}::{}", variant.name)
+    } else if is_tuple_variant(&variant.fields) {
+        format!("{rust_path}::{}(..)", variant.name)
+    } else {
+        format!("{rust_path}::{} {{ .. }}", variant.name)
+    }
+}
+
 /// Python builtin exception names that must not be shadowed (A004 compliance).
 const PYTHON_BUILTIN_EXCEPTIONS: &[&str] = &[
     "ConnectionError",
@@ -112,11 +126,7 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
     lines.push("    match &e {".to_string());
 
     for variant in &error.variants {
-        let pattern = if variant.is_unit {
-            format!("{rust_path}::{}", variant.name)
-        } else {
-            format!("{rust_path}::{}(..)", variant.name)
-        };
+        let pattern = error_variant_wildcard_pattern(&rust_path, variant);
         let variant_exc_name = python_exception_name(&variant.name, &error.name);
         lines.push(format!("        {pattern} => {}::new_err(msg),", variant_exc_name));
     }
@@ -210,11 +220,7 @@ pub fn gen_napi_error_converter(error: &ErrorDef, core_import: &str) -> String {
     lines.push("    match &e {".to_string());
 
     for variant in &error.variants {
-        let pattern = if variant.is_unit {
-            format!("{rust_path}::{}", variant.name)
-        } else {
-            format!("{rust_path}::{}(..)", variant.name)
-        };
+        let pattern = error_variant_wildcard_pattern(&rust_path, variant);
         lines.push(format!(
             "        {pattern} => napi::Error::new(napi::Status::GenericFailure, format!(\"[{}] {{}}\", msg)),",
             variant.name,
@@ -286,11 +292,7 @@ pub fn gen_php_error_converter(error: &ErrorDef, core_import: &str) -> String {
     lines.push("    match &e {".to_string());
 
     for variant in &error.variants {
-        let pattern = if variant.is_unit {
-            format!("{rust_path}::{}", variant.name)
-        } else {
-            format!("{rust_path}::{}(..)", variant.name)
-        };
+        let pattern = error_variant_wildcard_pattern(&rust_path, variant);
         lines.push(format!(
             "        {pattern} => ext_php_rs::exception::PhpException::default(format!(\"[{}] {{}}\", msg)),",
             variant.name,
@@ -608,6 +610,44 @@ mod tests {
     use super::*;
     use alef_core::ir::{ErrorDef, ErrorVariant};
 
+    use alef_core::ir::{CoreWrapper, FieldDef, TypeRef};
+
+    /// Helper to create a tuple-style field (e.g. `_0: String`).
+    fn tuple_field(index: usize) -> FieldDef {
+        FieldDef {
+            name: format!("_{index}"),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+        }
+    }
+
+    /// Helper to create a named struct field.
+    fn named_field(name: &str) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+        }
+    }
+
     fn sample_error() -> ErrorDef {
         ErrorDef {
             name: "ConversionError".to_string(),
@@ -616,7 +656,7 @@ mod tests {
                 ErrorVariant {
                     name: "ParseError".to_string(),
                     message_template: Some("HTML parsing error: {0}".to_string()),
-                    fields: vec![],
+                    fields: vec![tuple_field(0)],
                     has_source: false,
                     has_from: false,
                     is_unit: false,
@@ -625,7 +665,7 @@ mod tests {
                 ErrorVariant {
                     name: "IoError".to_string(),
                     message_template: Some("I/O error: {0}".to_string()),
-                    fields: vec![],
+                    fields: vec![tuple_field(0)],
                     has_source: false,
                     has_from: true,
                     is_unit: false,
@@ -634,7 +674,7 @@ mod tests {
                 ErrorVariant {
                     name: "Other".to_string(),
                     message_template: Some("Conversion error: {0}".to_string()),
-                    fields: vec![],
+                    fields: vec![tuple_field(0)],
                     has_source: false,
                     has_from: false,
                     is_unit: false,
@@ -695,6 +735,31 @@ mod tests {
         assert!(output.contains("my_crate::MyError::NotFound => NotFoundError::new_err(msg),"));
         // Ensure no (..) for unit variants
         assert!(!output.contains("NotFound(..)"));
+    }
+
+    #[test]
+    fn test_struct_variant_pattern() {
+        let error = ErrorDef {
+            name: "MyError".to_string(),
+            rust_path: "my_crate::MyError".to_string(),
+            variants: vec![ErrorVariant {
+                name: "Parsing".to_string(),
+                message_template: Some("parsing error: {message}".to_string()),
+                fields: vec![named_field("message")],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+        };
+        let output = gen_pyo3_error_converter(&error, "my_crate");
+        assert!(
+            output.contains("my_crate::MyError::Parsing { .. } => ParsingError::new_err(msg),"),
+            "Struct variants must use {{ .. }} pattern, got:\n{output}"
+        );
+        // Ensure no (..) for struct variants
+        assert!(!output.contains("Parsing(..)"));
     }
 
     // -----------------------------------------------------------------------

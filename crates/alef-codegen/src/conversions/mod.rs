@@ -1,7 +1,7 @@
 mod binding_to_core;
 mod core_to_binding;
 mod enums;
-mod helpers;
+pub(crate) mod helpers;
 
 use ahash::AHashSet;
 
