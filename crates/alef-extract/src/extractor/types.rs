@@ -29,7 +29,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
             .filter(|f| is_pub(&f.vis))
             .map(extract_field)
             .collect(),
-        syn::Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 => {
+        syn::Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 && is_pub(&unnamed.unnamed[0].vis) => {
             let field = &unnamed.unnamed[0];
             let resolved = type_resolver::resolve_type(&field.ty);
             let (ty, optional) = unwrap_optional(resolved);

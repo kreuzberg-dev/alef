@@ -1152,8 +1152,13 @@ fn gen_record_type(typ: &TypeDef, namespace: &str, enum_names: &HashSet<String>)
             out.push_str("    /// </summary>\n");
         }
 
-        // [JsonPropertyName("camelCaseName")]
-        let json_name = field.name.to_lower_camel_case();
+        // [JsonPropertyName("jsonName")]
+        // Use serde_rename_all to determine JSON field naming:
+        // camelCase → to_lower_camel_case, None/snake_case → keep original snake_case
+        let json_name = match typ.serde_rename_all.as_deref() {
+            Some("camelCase") => field.name.to_lower_camel_case(),
+            _ => field.name.clone(),
+        };
         out.push_str(&format!("    [JsonPropertyName(\"{}\")]\n", json_name));
 
         let cs_name = to_csharp_name(&field.name);

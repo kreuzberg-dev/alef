@@ -500,7 +500,11 @@ fn render_assertion(
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let java_val = json_to_java(expected);
-                let _ = writeln!(out, "        assertEquals({java_val}, {field_expr});");
+                if expected.is_string() {
+                    let _ = writeln!(out, "        assertEquals({java_val}, {field_expr}.trim());");
+                } else {
+                    let _ = writeln!(out, "        assertEquals({java_val}, {field_expr});");
+                }
             }
         }
         "contains" => {
