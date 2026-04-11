@@ -136,9 +136,13 @@ pub(crate) fn syn_type_is_boxed(ty: &syn::Type) -> bool {
 }
 
 /// Extract the fully qualified Rust path for a field's type when it uses a multi-segment
-/// path (e.g., `crate::types::OutputFormat` → `types::OutputFormat`).
+/// path (e.g., `crate::types::OutputFormat` → `kreuzberg::types::OutputFormat`).
 /// Returns `None` for simple single-segment types like `OutputFormat` or primitives.
-pub(crate) fn extract_field_type_rust_path(ty: &syn::Type) -> Option<String> {
+///
+/// When `crate_name` is provided, `crate::` prefixes are resolved to the crate name
+/// (e.g., `crate::types::OutputFormat` → `kreuzberg::types::OutputFormat`).
+/// `super::` paths are still skipped since they require full module context.
+pub(crate) fn extract_field_type_rust_path(ty: &syn::Type, crate_name: Option<&str>) -> Option<String> {
     // Unwrap Option<T> to look at inner type
     let inner_ty = if let syn::Type::Path(type_path) = ty {
         if let Some(segment) = type_path.path.segments.last() {
@@ -198,10 +202,21 @@ pub(crate) fn extract_field_type_rust_path(ty: &syn::Type) -> Option<String> {
     if let syn::Type::Path(type_path) = check_ty {
         if type_path.path.segments.len() >= 2 {
             let first_segment = type_path.path.segments[0].ident.to_string();
-            // Skip relative paths (`crate::...`, `super::...`) — these can't be resolved
-            // to absolute paths without full module context and would produce invalid
-            // paths like `kreuzberg::super::super::pdf::PdfConfig` in codegen.
-            if first_segment == "crate" || first_segment == "super" {
+            // Skip `super::` paths — these require full module context and would produce
+            // invalid paths like `kreuzberg::super::super::pdf::PdfConfig` in codegen.
+            if first_segment == "super" {
+                return None;
+            }
+            // Resolve `crate::` paths using the crate name when available.
+            // This enables disambiguation of types with the same short name but different
+            // module paths (e.g., `crate::types::OutputFormat` vs `crate::core::config::OutputFormat`).
+            if first_segment == "crate" {
+                if let Some(name) = crate_name {
+                    let mut segments: Vec<String> =
+                        type_path.path.segments.iter().map(|s| s.ident.to_string()).collect();
+                    segments[0] = name.replace('-', "_").to_string();
+                    return Some(segments.join("::"));
+                }
                 return None;
             }
             let segments: Vec<String> = type_path.path.segments.iter().map(|s| s.ident.to_string()).collect();
@@ -283,13 +298,16 @@ pub(crate) fn unwrap_optional(ty: TypeRef) -> (TypeRef, bool) {
 }
 
 /// Extract a struct field into a `FieldDef`.
-pub(crate) fn extract_field(field: &syn::Field) -> FieldDef {
+///
+/// When `crate_name` is provided, `crate::` prefixes in field type paths are resolved
+/// to the crate name, enabling disambiguation of types with the same short name.
+pub(crate) fn extract_field(field: &syn::Field, crate_name: Option<&str>) -> FieldDef {
     let name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
     let doc = extract_doc_comments(&field.attrs);
     let cfg = extract_cfg_condition(&field.attrs);
 
     let is_boxed = syn_type_is_boxed(&field.ty);
-    let type_rust_path = extract_field_type_rust_path(&field.ty);
+    let type_rust_path = extract_field_type_rust_path(&field.ty, crate_name);
     let core_wrapper = detect_core_wrapper(&field.ty);
     let vec_inner_core_wrapper = detect_vec_inner_core_wrapper(&field.ty);
 
@@ -315,7 +333,7 @@ pub(crate) fn extract_field(field: &syn::Field) -> FieldDef {
 /// Extract an enum variant with its fields.
 pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
     let variant_fields = match &v.fields {
-        syn::Fields::Named(named) => named.named.iter().map(extract_field).collect(),
+        syn::Fields::Named(named) => named.named.iter().map(|f| extract_field(f, None)).collect(),
         syn::Fields::Unnamed(unnamed) => unnamed
             .unnamed
             .iter()
@@ -331,7 +349,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
                     doc: extract_doc_comments(&f.attrs),
                     sanitized: false,
                     is_boxed: syn_type_is_boxed(&f.ty),
-                    type_rust_path: extract_field_type_rust_path(&f.ty),
+                    type_rust_path: extract_field_type_rust_path(&f.ty, None),
                     cfg: None,
                     typed_default: None,
                     core_wrapper: CoreWrapper::None,
@@ -341,11 +359,29 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
             .collect(),
         syn::Fields::Unit => vec![],
     };
+    // Extract #[serde(rename = "...")] or #[cfg_attr(..., serde(rename = "..."))]
+    let serde_rename = v.attrs.iter().find_map(|attr| {
+        let attr_str = quote::quote!(#attr).to_string();
+        if !attr_str.contains("rename") {
+            return None;
+        }
+        // Find rename = "value" pattern in the attribute string
+        let pos = attr_str.find("rename")?;
+        let rest = &attr_str[pos..];
+        let eq_pos = rest.find('=')?;
+        let after_eq = rest[eq_pos + 1..].trim_start();
+        let start = after_eq.find('"')?;
+        let value_start = &after_eq[start + 1..];
+        let end = value_start.find('"')?;
+        Some(value_start[..end].to_string())
+    });
+
     EnumVariant {
         name: v.ident.to_string(),
         fields: variant_fields,
         doc: extract_doc_comments(&v.attrs),
         is_default: v.attrs.iter().any(|a| a.path().is_ident("default")),
+        serde_rename,
     }
 }
 

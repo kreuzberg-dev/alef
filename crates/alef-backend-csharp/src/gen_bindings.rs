@@ -1292,8 +1292,11 @@ fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
         out.push_str("/// </summary>\n");
     }
 
-    out.push_str("[JsonConverter(typeof(JsonStringEnumConverter))]\n");
-    out.push_str(&format!("public enum {}\n", enum_def.name.to_pascal_case()));
+    let enum_pascal = enum_def.name.to_pascal_case();
+    out.push_str(&format!(
+        "[JsonConverter(typeof(JsonStringEnumConverter<{enum_pascal}>))]\n"
+    ));
+    out.push_str(&format!("public enum {enum_pascal}\n"));
     out.push_str("{\n");
 
     // Enum variants with JsonPropertyName for serde-compatible lowercase serialization
@@ -1306,8 +1309,11 @@ fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
             out.push_str("    /// </summary>\n");
         }
 
-        // Use lowercase serialization name to match Rust serde custom serialization
-        let json_name = variant.name.to_lowercase();
+        // Use serde_rename if available, otherwise lowercase to match Rust serde serialization
+        let json_name = variant
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| variant.name.to_lowercase());
         let pascal_name = variant.name.to_pascal_case();
         out.push_str(&format!("    [JsonPropertyName(\"{json_name}\")]\n"));
         out.push_str(&format!("    {pascal_name},\n"));

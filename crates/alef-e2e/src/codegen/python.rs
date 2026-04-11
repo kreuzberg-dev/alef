@@ -246,6 +246,21 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
         }
     }
 
+    // If any handle arg has config, import the config class (CrawlConfig or options_type).
+    let needs_config_import = e2e_config.call.args.iter().any(|arg| {
+        arg.arg_type == "handle"
+            && fixtures.iter().any(|f| {
+                let val = resolve_field(&f.input, &arg.field);
+                !val.is_null() && val.as_object().is_some_and(|o| !o.is_empty())
+            })
+    });
+    if needs_config_import {
+        let config_class = options_type.as_deref().unwrap_or("CrawlConfig");
+        if !import_names.contains(&config_class.to_string()) {
+            import_names.push(config_class.to_string());
+        }
+    }
+
     if let (true, Some(opts_type)) = (needs_options_type, &options_type) {
         import_names.push(opts_type.clone());
         thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
@@ -349,16 +364,29 @@ fn render_test_function(
 
         if arg.arg_type == "handle" {
             // Generate a create_engine (or equivalent) call and pass the variable.
+            // If there's config data, construct a CrawlConfig with kwargs.
             let constructor_name = format!("create_{}", arg.name.to_snake_case());
             let config_value = resolve_field(&fixture.input, &arg.field);
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
                 arg_bindings.push(format!("    {var_name} = {constructor_name}(None)"));
+            } else if let Some(obj) = config_value.as_object() {
+                // Build kwargs for the config constructor (CrawlConfig(key=val, ...)).
+                let kwargs: Vec<String> = obj
+                    .iter()
+                    .map(|(k, v)| {
+                        let snake_key = k.to_snake_case();
+                        format!("{snake_key}={}", json_to_python_literal(v))
+                    })
+                    .collect();
+                // Use the options_type if configured, otherwise "CrawlConfig".
+                let config_class = options_type.unwrap_or("CrawlConfig");
+                arg_bindings.push(format!("    {var_name}_config = {config_class}({})", kwargs.join(", ")));
+                arg_bindings.push(format!("    {var_name} = {constructor_name}({var_name}_config)"));
             } else {
                 let literal = json_to_python_literal(config_value);
-                arg_bindings.push(format!("    {var_name}_config = {literal}"));
-                arg_bindings.push(format!("    {var_name} = {constructor_name}({var_name}_config)"));
+                arg_bindings.push(format!("    {var_name} = {constructor_name}({literal})"));
             }
             kwarg_exprs.push(format!("{var_name}={var_name}"));
             continue;

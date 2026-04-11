@@ -202,6 +202,9 @@ pub struct EnumVariant {
     /// True if this variant has `#[default]` attribute (used by `#[derive(Default)]`).
     #[serde(default)]
     pub is_default: bool,
+    /// Explicit serde rename for this variant (from `#[serde(rename = "...")]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serde_rename: Option<String>,
 }
 
 /// An error type (enum used in Result<T, E>).

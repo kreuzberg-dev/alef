@@ -95,13 +95,13 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
     // are convertible because we wrap/unwrap them via Arc.
     let _all_type_names: AHashSet<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
 
-    // Start with non-opaque types that have no sanitized fields as candidates.
-    // Sanitized fields use Default::default() in the binding→core direction, but
-    // the original core type may not implement Default, so we must exclude them.
+    // Start with all non-opaque types as candidates.
+    // Types with sanitized fields use Default::default() for the sanitized field
+    // in the binding→core direction (lossy but functional).
     let mut convertible: AHashSet<String> = surface
         .types
         .iter()
-        .filter(|t| !t.is_opaque && !has_sanitized_fields(t))
+        .filter(|t| !t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
 

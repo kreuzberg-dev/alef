@@ -27,7 +27,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
             .named
             .iter()
             .filter(|f| is_pub(&f.vis))
-            .map(extract_field)
+            .map(|f| extract_field(f, Some(crate_name)))
             .collect(),
         syn::Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 && is_pub(&unnamed.unnamed[0].vis) => {
             let field = &unnamed.unnamed[0];
@@ -41,7 +41,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
                 doc: String::new(),
                 sanitized: false,
                 is_boxed: syn_type_is_boxed(&field.ty),
-                type_rust_path: extract_field_type_rust_path(&field.ty),
+                type_rust_path: extract_field_type_rust_path(&field.ty, Some(crate_name)),
                 cfg: None,
                 typed_default: None,
                 core_wrapper: detect_core_wrapper(&field.ty),
@@ -139,7 +139,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 from = true;
                                 source = true; // #[from] implies source
                             }
-                            extract_field(f)
+                            extract_field(f, Some(crate_name))
                         })
                         .collect();
                     (fields, source, from, false)
@@ -169,7 +169,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 doc: extract_doc_comments(&f.attrs),
                                 sanitized: false,
                                 is_boxed: syn_type_is_boxed(&f.ty),
-                                type_rust_path: extract_field_type_rust_path(&f.ty),
+                                type_rust_path: extract_field_type_rust_path(&f.ty, Some(crate_name)),
                                 cfg: None,
                                 typed_default: None,
                                 core_wrapper: CoreWrapper::None,

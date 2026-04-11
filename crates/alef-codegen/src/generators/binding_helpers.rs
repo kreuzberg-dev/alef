@@ -406,7 +406,12 @@ pub fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str) -> Str
                 }
                 TypeRef::Vec(inner) => match inner.as_ref() {
                     TypeRef::Named(_) => {
-                        format!("self.{name}.clone().into_iter().map(Into::into).collect()")
+                        if field.optional {
+                            // Option<Vec<Named(T)>>: map over the Option, then convert each element
+                            format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
+                        } else {
+                            format!("self.{name}.clone().into_iter().map(Into::into).collect()")
+                        }
                     }
                     _ => format!("self.{name}.clone()"),
                 },

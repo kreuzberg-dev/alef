@@ -153,10 +153,47 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
     let known_types: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
     let known_enums: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
+    // Build a set of known rust_paths for types and enums.
+    // This enables disambiguation of types with the same short name but different
+    // module paths (e.g., `kreuzberg::types::OutputFormat` vs `kreuzberg::OutputFormat`).
+    let known_type_paths: AHashSet<String> = api.types.iter().map(|t| t.rust_path.clone()).collect();
+    let known_enum_paths: AHashSet<String> = api.enums.iter().map(|e| e.rust_path.clone()).collect();
+
     for typ in &mut api.types {
         for field in &mut typ.fields {
             if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
                 field.sanitized = true;
+            }
+            // Second pass: check type_rust_path for name-collision disambiguation.
+            // If a field has a type_rust_path that doesn't match any known type/enum rust_path,
+            // it references a different type that happens to share the same short name
+            // (e.g., crate::types::OutputFormat vs crate::core::config::OutputFormat).
+            if !field.sanitized {
+                if let Some(ref path) = field.type_rust_path {
+                    if let TypeRef::Named(ref name) = field.ty {
+                        // Only check if the name matches a known type/enum — otherwise it's
+                        // already handled by the standard sanitization above.
+                        if known_types.contains(name.as_str()) || known_enums.contains(name.as_str()) {
+                            // Check if the full path matches any known rust_path
+                            if !known_type_paths.contains(path) && !known_enum_paths.contains(path) {
+                                field.ty = TypeRef::String;
+                                field.sanitized = true;
+                            }
+                        }
+                    }
+                    // Also check Named types inside Optional/Vec wrappers
+                    if let TypeRef::Vec(ref inner) = field.ty {
+                        if let TypeRef::Named(ref name) = **inner {
+                            if (known_types.contains(name.as_str()) || known_enums.contains(name.as_str()))
+                                && !known_type_paths.contains(path)
+                                && !known_enum_paths.contains(path)
+                            {
+                                field.ty = TypeRef::String;
+                                field.sanitized = true;
+                            }
+                        }
+                    }
+                }
             }
         }
         let type_name = typ.name.clone();
