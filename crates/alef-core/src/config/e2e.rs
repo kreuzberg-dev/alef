@@ -32,6 +32,11 @@ pub struct E2eConfig {
     /// Rust generators use .as_deref().unwrap_or("") for strings, .is_some() for structs.
     #[serde(default)]
     pub fields_optional: HashSet<String>,
+    /// Fields that are arrays/Vecs on the result type.
+    /// When a fixture path like `json_ld.name` traverses an array field, the
+    /// accessor adds `[0]` (or language equivalent) to index into the first element.
+    #[serde(default)]
+    pub fields_array: HashSet<String>,
     /// Known top-level fields on the result type.
     ///
     /// When non-empty, assertions whose resolved field path starts with a

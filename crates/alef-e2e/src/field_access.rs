@@ -12,6 +12,7 @@ pub struct FieldResolver {
     aliases: HashMap<String, String>,
     optional_fields: HashSet<String>,
     result_fields: HashSet<String>,
+    array_fields: HashSet<String>,
 }
 
 /// A parsed segment of a field path.
@@ -19,6 +20,8 @@ pub struct FieldResolver {
 enum PathSegment {
     /// Struct field access: `foo`
     Field(String),
+    /// Array field access with index: `foo[0]`
+    ArrayField(String),
     /// Map/dict key access: `foo[key]`
     MapAccess { field: String, key: String },
     /// Length/count of the preceding collection: `.length`
@@ -27,12 +30,18 @@ enum PathSegment {
 
 impl FieldResolver {
     /// Create a new resolver from the e2e config's `fields` aliases,
-    /// `fields_optional` set, and `result_fields` set.
-    pub fn new(fields: &HashMap<String, String>, optional: &HashSet<String>, result_fields: &HashSet<String>) -> Self {
+    /// `fields_optional` set, `result_fields` set, and `fields_array` set.
+    pub fn new(
+        fields: &HashMap<String, String>,
+        optional: &HashSet<String>,
+        result_fields: &HashSet<String>,
+        array_fields: &HashSet<String>,
+    ) -> Self {
         Self {
             aliases: fields.clone(),
             optional_fields: optional.clone(),
             result_fields: result_fields.clone(),
+            array_fields: array_fields.clone(),
         }
     }
 
@@ -72,6 +81,11 @@ impl FieldResolver {
         self.result_fields.contains(first_segment)
     }
 
+    /// Check if a resolved field is an array/Vec type.
+    pub fn is_array(&self, field: &str) -> bool {
+        self.array_fields.contains(field)
+    }
+
     /// Check if a resolved field path ends with a map access (e.g., `foo[key]`).
     /// This is needed because Go map access returns a value type (not a pointer),
     /// so nil checks and pointer dereferences don't apply.
@@ -86,10 +100,55 @@ impl FieldResolver {
     pub fn accessor(&self, fixture_field: &str, language: &str, result_var: &str) -> String {
         let resolved = self.resolve(fixture_field);
         let segments = parse_path(resolved);
+
+        // When a segment is an array field and has child segments following it,
+        // replace Field with ArrayField so renderers emit `[0]` indexing.
+        let segments = self.inject_array_indexing(segments);
+
         if language == "java" {
             return render_java_with_optionals(&segments, result_var, &self.optional_fields);
         }
         render_accessor(&segments, language, result_var)
+    }
+
+    /// Replace `Field` segments with `ArrayField` when the field is in `fields_array`
+    /// and is followed by further child property segments (i.e., we're accessing a
+    /// property on an element, not the array itself).
+    ///
+    /// Does NOT convert when the next segment is `Length` — `links.length` should
+    /// produce `len(result.links)`, not `len(result.links[0])`.
+    fn inject_array_indexing(&self, segments: Vec<PathSegment>) -> Vec<PathSegment> {
+        if self.array_fields.is_empty() {
+            return segments;
+        }
+        let len = segments.len();
+        let mut result = Vec::with_capacity(len);
+        let mut path_so_far = String::new();
+        for i in 0..len {
+            let seg = &segments[i];
+            match seg {
+                PathSegment::Field(f) => {
+                    if !path_so_far.is_empty() {
+                        path_so_far.push('.');
+                    }
+                    path_so_far.push_str(f);
+                    // Convert to ArrayField only if:
+                    // 1. There are more segments after this one
+                    // 2. The field is in fields_array
+                    // 3. The next segment is NOT Length (we want array size, not element size)
+                    let next_is_length = i + 1 < len && matches!(segments[i + 1], PathSegment::Length);
+                    if i + 1 < len && self.array_fields.contains(&path_so_far) && !next_is_length {
+                        result.push(PathSegment::ArrayField(f.clone()));
+                    } else {
+                        result.push(seg.clone());
+                    }
+                }
+                _ => {
+                    result.push(seg.clone());
+                }
+            }
+        }
+        result
     }
 
     /// Generate a Rust variable binding that unwraps an Optional string field.
@@ -100,6 +159,7 @@ impl FieldResolver {
             return None;
         }
         let segments = parse_path(resolved);
+        let segments = self.inject_array_indexing(segments);
         let local_var = resolved.replace(['.', '['], "_").replace(']', "");
         let accessor = render_accessor(&segments, "rust", result_var);
         // Map access (.get("key").map(|s| s.as_str())) already returns Option<&str>,
@@ -163,6 +223,11 @@ fn render_rust(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('.');
                 out.push_str(&f.to_snake_case());
             }
+            PathSegment::ArrayField(f) => {
+                out.push('.');
+                out.push_str(&f.to_snake_case());
+                out.push_str("[0]");
+            }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_snake_case());
@@ -184,6 +249,11 @@ fn render_dot_access(segments: &[PathSegment], result_var: &str, language: &str)
             PathSegment::Field(f) => {
                 out.push('.');
                 out.push_str(f);
+            }
+            PathSegment::ArrayField(f) => {
+                out.push('.');
+                out.push_str(f);
+                out.push_str("[0]");
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -222,6 +292,11 @@ fn render_typescript(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('.');
                 out.push_str(&f.to_lower_camel_case());
             }
+            PathSegment::ArrayField(f) => {
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+                out.push_str("[0]");
+            }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_lower_camel_case());
@@ -243,6 +318,11 @@ fn render_go(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::Field(f) => {
                 out.push('.');
                 out.push_str(&f.to_pascal_case());
+            }
+            PathSegment::ArrayField(f) => {
+                out.push('.');
+                out.push_str(&f.to_pascal_case());
+                out.push_str("[0]");
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -269,6 +349,11 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
                 out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
             }
+            PathSegment::ArrayField(f) => {
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+                out.push_str("().getFirst()");
+            }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_lower_camel_case());
@@ -286,11 +371,7 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
 ///
 /// When an intermediate field is in the `optional_fields` set, `.orElseThrow()`
 /// is appended after the accessor call to unwrap the `Optional<T>`.
-fn render_java_with_optionals(
-    segments: &[PathSegment],
-    result_var: &str,
-    optional_fields: &HashSet<String>,
-) -> String {
+fn render_java_with_optionals(segments: &[PathSegment], result_var: &str, optional_fields: &HashSet<String>) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
     for (i, seg) in segments.iter().enumerate() {
@@ -308,6 +389,15 @@ fn render_java_with_optionals(
                 if !is_leaf && optional_fields.contains(&path_so_far) {
                     out.push_str(".orElseThrow()");
                 }
+            }
+            PathSegment::ArrayField(f) => {
+                if !path_so_far.is_empty() {
+                    path_so_far.push('.');
+                }
+                path_so_far.push_str(f);
+                out.push('.');
+                out.push_str(&f.to_lower_camel_case());
+                out.push_str("().getFirst()");
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -335,6 +425,11 @@ fn render_pascal_dot(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('.');
                 out.push_str(&f.to_pascal_case());
             }
+            PathSegment::ArrayField(f) => {
+                out.push('.');
+                out.push_str(&f.to_pascal_case());
+                out.push_str("[0]");
+            }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_pascal_case());
@@ -356,6 +451,11 @@ fn render_php(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::Field(f) => {
                 out.push_str("->");
                 out.push_str(f);
+            }
+            PathSegment::ArrayField(f) => {
+                out.push_str("->");
+                out.push_str(f);
+                out.push_str("[0]");
             }
             PathSegment::MapAccess { field, key } => {
                 out.push_str("->");
@@ -380,6 +480,11 @@ fn render_r(segments: &[PathSegment], result_var: &str) -> String {
                 out.push('$');
                 out.push_str(f);
             }
+            PathSegment::ArrayField(f) => {
+                out.push('$');
+                out.push_str(f);
+                out.push_str("[[1]]");
+            }
             PathSegment::MapAccess { field, key } => {
                 out.push('$');
                 out.push_str(field);
@@ -400,7 +505,7 @@ fn render_c(segments: &[PathSegment], result_var: &str) -> String {
     let mut trailing_length = false;
     for seg in segments {
         match seg {
-            PathSegment::Field(f) => parts.push(f.to_snake_case()),
+            PathSegment::Field(f) | PathSegment::ArrayField(f) => parts.push(f.to_snake_case()),
             PathSegment::MapAccess { field, key } => {
                 parts.push(field.to_snake_case());
                 parts.push(key.clone());
@@ -434,7 +539,7 @@ mod tests {
         let mut optional = HashSet::new();
         optional.insert("metadata.document.title".to_string());
 
-        FieldResolver::new(&fields, &optional, &HashSet::new())
+        FieldResolver::new(&fields, &optional, &HashSet::new(), &HashSet::new())
     }
 
     #[test]

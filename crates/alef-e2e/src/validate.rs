@@ -82,7 +82,7 @@ fn validate_recursive(
             for error in validator.iter_errors(&value) {
                 errors.push(ValidationError {
                     file: relative.clone(),
-                    message: format!("{} at {}", error, error.instance_path),
+                    message: format!("{} at {}", error, error.instance_path()),
                 });
             }
         }

@@ -80,6 +80,7 @@ impl E2eCodegen for TypeScriptCodegen {
             &e2e_config.fields,
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
+            &e2e_config.fields_array,
         );
 
         // Generate test files per category.

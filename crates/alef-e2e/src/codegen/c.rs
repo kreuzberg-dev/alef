@@ -103,6 +103,7 @@ impl E2eCodegen for CCodegen {
             &e2e_config.fields,
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
+            &e2e_config.fields_array,
         );
 
         // Generate per-category test files.

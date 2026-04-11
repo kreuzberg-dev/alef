@@ -298,6 +298,10 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
         writeln!(body, "    );").ok();
     }
 
+    // Track emitted free handles to avoid duplicates (a type may appear both as
+    // a function return type AND as an opaque type).
+    let mut emitted_free_handles: AHashSet<String> = AHashSet::new();
+
     // Accessor handles for Named return types (struct pointer → field accessor + free)
     for func in &api.functions {
         if let TypeRef::Named(name) = &func.return_type {
@@ -325,15 +329,17 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
             // _free: (struct_ptr) -> void
             let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
             let free_ffi = format!("{}_{}_free", prefix, type_snake);
-            writeln!(
-                body,
-                "    static final MethodHandle {} = LINKER.downcallHandle(",
-                free_handle
-            )
-            .ok();
-            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
-            writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
-            writeln!(body, "    );").ok();
+            if emitted_free_handles.insert(free_handle.clone()) {
+                writeln!(
+                    body,
+                    "    static final MethodHandle {} = LINKER.downcallHandle(",
+                    free_handle
+                )
+                .ok();
+                writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
+                writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
+                writeln!(body, "    );").ok();
+            }
         }
     }
 
@@ -353,16 +359,18 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
             let type_upper = type_snake.to_uppercase();
             let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
             let free_ffi = format!("{}_{}_free", prefix, type_snake);
-            writeln!(body).ok();
-            writeln!(
-                body,
-                "    static final MethodHandle {} = LINKER.downcallHandle(",
-                free_handle
-            )
-            .ok();
-            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
-            writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
-            writeln!(body, "    );").ok();
+            if emitted_free_handles.insert(free_handle.clone()) {
+                writeln!(body).ok();
+                writeln!(
+                    body,
+                    "    static final MethodHandle {} = LINKER.downcallHandle(",
+                    free_handle
+                )
+                .ok();
+                writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
+                writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
+                writeln!(body, "    );").ok();
+            }
         }
     }
 

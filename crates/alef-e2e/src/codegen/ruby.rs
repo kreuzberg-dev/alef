@@ -87,6 +87,7 @@ impl E2eCodegen for RubyCodegen {
                 &e2e_config.fields,
                 &e2e_config.fields_optional,
                 &e2e_config.result_fields,
+                &e2e_config.fields_array,
             );
             let content = render_spec_file(
                 &group.category,

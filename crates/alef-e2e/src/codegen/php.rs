@@ -91,6 +91,7 @@ impl E2eCodegen for PhpCodegen {
             &e2e_config.fields,
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
+            &e2e_config.fields_array,
         );
 
         for group in groups {

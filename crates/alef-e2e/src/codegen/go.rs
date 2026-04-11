@@ -60,6 +60,7 @@ impl E2eCodegen for GoCodegen {
             &e2e_config.fields,
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
+            &e2e_config.fields_array,
         );
 
         // Generate go.mod.
@@ -219,8 +220,30 @@ fn render_test_function(
         return;
     }
 
+    // Check if any assertion actually uses the result variable.
+    // If all assertions are skipped (field not on result type), use `_` to avoid
+    // Go's "declared and not used" compile error.
+    let has_usable_assertion = fixture.assertions.iter().any(|a| {
+        if a.assertion_type == "not_error" || a.assertion_type == "error" {
+            return false;
+        }
+        match &a.field {
+            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            _ => true,
+        }
+    });
+
+    let result_binding = if has_usable_assertion {
+        result_var.to_string()
+    } else {
+        "_".to_string()
+    };
+
     // Normal call: check for error assertions first.
-    let _ = writeln!(out, "\t{result_var}, err := {import_alias}.{function_name}({args_str})");
+    let _ = writeln!(
+        out,
+        "\t{result_binding}, err := {import_alias}.{function_name}({args_str})"
+    );
     let _ = writeln!(out, "\tif err != nil {{");
     let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
     let _ = writeln!(out, "\t}}");

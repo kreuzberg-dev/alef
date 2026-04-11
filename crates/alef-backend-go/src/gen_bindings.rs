@@ -171,20 +171,19 @@ fn gen_go_file(
     writeln!(out, "*/\nimport \"C\"").ok();
     writeln!(out).ok();
     // Determine which imports are needed based on generated code.
-    let has_sync_functions = api
-        .functions
-        .iter()
-        .any(|f| !f.is_async && !matches!(f.return_type, TypeRef::Named(_)));
-    let has_non_static_methods = api.types.iter().any(|t| {
-        t.methods
-            .iter()
-            .any(|m| !(m.is_static && matches!(m.return_type, TypeRef::Named(_))))
-    });
+    let has_opaque_types = api.types.iter().any(|t| t.is_opaque);
+    // Functions that are not skipped (non-async or with non-Named returns) need json + unsafe.
+    // Opaque-returning functions are no longer skipped, so check all non-async functions.
+    let has_sync_functions = api.functions.iter().any(|f| !f.is_async);
+    let has_non_static_methods = api.types.iter().any(|t| t.methods.iter().any(|m| !m.is_static));
     let needs_json_and_unsafe = has_sync_functions || has_non_static_methods;
 
     let mut imports = vec!["\"fmt\""];
     if needs_json_and_unsafe {
         imports.insert(0, "\"encoding/json\"");
+        imports.push("\"unsafe\"");
+    } else if has_opaque_types {
+        // Opaque types need unsafe for pointer wrapping even without JSON serialization.
         imports.push("\"unsafe\"");
     }
     if !api.errors.is_empty() {
@@ -216,8 +215,12 @@ fn gen_go_file(
     }
 
     // Collect opaque type names — these are pointer-wrapped handles, not JSON-serializable structs.
-    let opaque_names: std::collections::HashSet<&str> =
-        api.types.iter().filter(|t| t.is_opaque).map(|t| t.name.as_str()).collect();
+    let opaque_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque)
+        .map(|t| t.name.as_str())
+        .collect();
 
     // Generate struct types
     for typ in &api.types {
@@ -410,10 +413,16 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     writeln!(out).ok();
 
     // Free method
+    let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name.to_pascal_case());
     writeln!(out, "// Free releases the resources held by this handle.").ok();
     writeln!(out, "func (h *{}) Free() {{", typ.name).ok();
     writeln!(out, "    if h.ptr != nil {{").ok();
-    writeln!(out, "        C.{}_{}_free(h.ptr)", ffi_prefix, type_snake).ok();
+    writeln!(
+        out,
+        "        C.{}_{}_free((*C.{})(h.ptr))",
+        ffi_prefix, type_snake, c_type
+    )
+    .ok();
     writeln!(out, "        h.ptr = nil").ok();
     writeln!(out, "    }}").ok();
     writeln!(out, "}}").ok();
@@ -469,7 +478,11 @@ fn gen_struct_type(typ: &TypeDef) -> String {
 }
 
 /// Generate a wrapper function for a free function.
-fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str, opaque_names: &std::collections::HashSet<&str>) -> String {
+fn gen_function_wrapper(
+    func: &FunctionDef,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+) -> String {
     let mut out = String::with_capacity(2048);
 
     let func_go_name = to_go_name(&func.name);
@@ -516,10 +529,17 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str, opaque_names: &std
             // Extra trailing optionals are not in the Go signature; they're
             // extracted from the variadic slice in the body.
         } else {
-            let param_type = if p.optional {
-                go_optional_type(&p.ty)
+            let param_type: String = if p.optional {
+                go_optional_type(&p.ty).into_owned()
+            } else if let TypeRef::Named(name) = &p.ty {
+                if opaque_names.contains(name.as_str()) {
+                    // Opaque types are pointer wrappers — accept as pointer
+                    format!("*{}", go_type(&p.ty))
+                } else {
+                    go_type(&p.ty).into_owned()
+                }
             } else {
-                go_type(&p.ty)
+                go_type(&p.ty).into_owned()
             };
             param_strs.push(format!("{} {}", p.name, param_type));
         }
@@ -558,14 +578,26 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str, opaque_names: &std
             write!(
                 out,
                 "{}",
-                gen_param_to_c(&mod_param, returns_value_and_error, can_return_error, ffi_prefix, opaque_names)
+                gen_param_to_c(
+                    &mod_param,
+                    returns_value_and_error,
+                    can_return_error,
+                    ffi_prefix,
+                    opaque_names
+                )
             )
             .ok();
         } else {
             write!(
                 out,
                 "{}",
-                gen_param_to_c(param, returns_value_and_error, can_return_error, ffi_prefix, opaque_names)
+                gen_param_to_c(
+                    param,
+                    returns_value_and_error,
+                    can_return_error,
+                    ffi_prefix,
+                    opaque_names
+                )
             )
             .ok();
         }
@@ -666,7 +698,12 @@ fn gen_function_wrapper(func: &FunctionDef, ffi_prefix: &str, opaque_names: &std
 }
 
 /// Generate a wrapper method for a struct method.
-fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str, opaque_names: &std::collections::HashSet<&str>) -> String {
+fn gen_method_wrapper(
+    typ: &TypeDef,
+    method: &MethodDef,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+) -> String {
     let mut out = String::with_capacity(2048);
 
     let method_go_name = to_go_name(&method.name);
@@ -705,10 +742,16 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str, opaqu
         .params
         .iter()
         .map(|p| {
-            let param_type = if p.optional {
-                go_optional_type(&p.ty)
+            let param_type: String = if p.optional {
+                go_optional_type(&p.ty).into_owned()
+            } else if let TypeRef::Named(name) = &p.ty {
+                if opaque_names.contains(name.as_str()) {
+                    format!("*{}", go_type(&p.ty))
+                } else {
+                    go_type(&p.ty).into_owned()
+                }
             } else {
-                go_type(&p.ty)
+                go_type(&p.ty).into_owned()
             };
             format!("{} {}", p.name, param_type)
         })
@@ -777,7 +820,13 @@ fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, ffi_prefix: &str, opaqu
             write!(
                 out,
                 "{}",
-                gen_param_to_c(param, returns_value_and_error, can_return_error, ffi_prefix, opaque_names)
+                gen_param_to_c(
+                    param,
+                    returns_value_and_error,
+                    can_return_error,
+                    ffi_prefix,
+                    opaque_names
+                )
             )
             .ok();
         }
@@ -922,11 +971,12 @@ fn gen_param_to_c(
         }
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {
-                // Opaque types are pointer wrappers — pass the raw pointer directly.
+                // Opaque types are pointer wrappers — cast the raw pointer to the C type.
                 writeln!(
                     out,
-                    "    {c_name} := {param}.ptr",
+                    "    {c_name} := (*C.{c_type})(unsafe.Pointer({param}.ptr))",
                     c_name = c_name,
+                    c_type = format!("{}{}", ffi_prefix.to_uppercase(), name.to_pascal_case()),
                     param = param.name,
                 )
                 .ok();
@@ -988,6 +1038,20 @@ fn gen_param_to_c(
                          {} = C.CString(*{})\n        defer C.free(unsafe.Pointer({}))\n    \
                          }}",
                         c_name, param.name, c_name, param.name, c_name
+                    )
+                    .ok();
+                }
+                TypeRef::Named(name) if opaque_names.contains(name.as_str()) => {
+                    // Optional opaque type: cast the raw pointer to the C type or pass nil.
+                    let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name.to_pascal_case());
+                    writeln!(
+                        out,
+                        "    var {c_name} *C.{c_type}\n    if {param} != nil {{\n        \
+                         {c_name} = (*C.{c_type})(unsafe.Pointer({param}.ptr))\n    \
+                         }}",
+                        c_name = c_name,
+                        c_type = c_type,
+                        param = param.name,
                     )
                     .ok();
                 }
@@ -1060,17 +1124,33 @@ fn type_name(ty: &TypeRef) -> String {
 ///
 /// When `is_builder_return` is true (method returns its own type for chaining),
 /// a simple unsafe pointer cast is used instead of JSON round-trip.
-fn go_return_expr(ty: &TypeRef, var_name: &str, ffi_prefix: &str) -> String {
-    go_return_expr_inner(ty, var_name, ffi_prefix, false)
+fn go_return_expr(
+    ty: &TypeRef,
+    var_name: &str,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+) -> String {
+    go_return_expr_inner(ty, var_name, ffi_prefix, false, opaque_names)
 }
 
 /// Builder-pattern variant: for methods that return the same opaque handle type (e.g., builder
 /// setters), use a simple unsafe pointer cast instead of JSON serialization.
-fn go_return_expr_builder(ty: &TypeRef, var_name: &str, ffi_prefix: &str) -> String {
-    go_return_expr_inner(ty, var_name, ffi_prefix, true)
+fn go_return_expr_builder(
+    ty: &TypeRef,
+    var_name: &str,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+) -> String {
+    go_return_expr_inner(ty, var_name, ffi_prefix, true, opaque_names)
 }
 
-fn go_return_expr_inner(ty: &TypeRef, var_name: &str, ffi_prefix: &str, is_builder: bool) -> String {
+fn go_return_expr_inner(
+    ty: &TypeRef,
+    var_name: &str,
+    ffi_prefix: &str,
+    is_builder: bool,
+    opaque_names: &std::collections::HashSet<&str>,
+) -> String {
     match ty {
         TypeRef::Primitive(prim) => match prim {
             alef_core::ir::PrimitiveType::Bool => {
@@ -1083,7 +1163,14 @@ fn go_return_expr_inner(ty: &TypeRef, var_name: &str, ffi_prefix: &str, is_build
             }
         },
         TypeRef::Named(name) => {
-            if is_builder {
+            if opaque_names.contains(name.as_str()) {
+                // Opaque types: wrap the raw C pointer in the Go handle struct.
+                format!(
+                    "&{go_type}{{ptr: unsafe.Pointer({var_name})}}",
+                    go_type = name.to_pascal_case(),
+                    var_name = var_name,
+                )
+            } else if is_builder {
                 // Builder pattern: same opaque handle, just cast the pointer
                 format!("(*{})(unsafe.Pointer({}))", name.to_pascal_case(), var_name)
             } else {
@@ -1114,7 +1201,41 @@ fn go_return_expr_inner(ty: &TypeRef, var_name: &str, ffi_prefix: &str, is_build
         TypeRef::Bytes => {
             format!("unmarshalBytes({})", var_name)
         }
-        TypeRef::Optional(inner) => go_return_expr_inner(inner, var_name, ffi_prefix, is_builder),
+        TypeRef::Optional(inner) => go_return_expr_inner(inner, var_name, ffi_prefix, is_builder, opaque_names),
+        TypeRef::Vec(inner) => {
+            // Vec types are returned as JSON strings from FFI. Deserialize inline.
+            let go_elem = go_type(inner);
+            format!(
+                "func() *[]{go_elem} {{\n\
+                 \tif {var_name} == nil {{ return nil }}\n\
+                 \tdefer C.{ffi_prefix}_free_string({var_name})\n\
+                 \tvar result []{go_elem}\n\
+                 \tif err := json.Unmarshal([]byte(C.GoString({var_name})), &result); err != nil {{ return nil }}\n\
+                 \treturn &result\n\
+                 }}()",
+                go_elem = go_elem,
+                var_name = var_name,
+                ffi_prefix = ffi_prefix,
+            )
+        }
+        TypeRef::Map(k, v) => {
+            // Map types are returned as JSON strings from FFI. Deserialize inline.
+            let go_k = go_type(k);
+            let go_v = go_type(v);
+            format!(
+                "func() *map[{go_k}]{go_v} {{\n\
+                 \tif {var_name} == nil {{ return nil }}\n\
+                 \tdefer C.{ffi_prefix}_free_string({var_name})\n\
+                 \tvar result map[{go_k}]{go_v}\n\
+                 \tif err := json.Unmarshal([]byte(C.GoString({var_name})), &result); err != nil {{ return nil }}\n\
+                 \treturn &result\n\
+                 }}()",
+                go_k = go_k,
+                go_v = go_v,
+                var_name = var_name,
+                ffi_prefix = ffi_prefix,
+            )
+        }
         _ => format!("unmarshal{}({})", type_name(ty), var_name),
     }
 }

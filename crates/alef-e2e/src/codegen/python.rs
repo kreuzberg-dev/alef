@@ -158,6 +158,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
         &e2e_config.fields,
         &e2e_config.fields_optional,
         &e2e_config.result_fields,
+        &e2e_config.fields_array,
     );
 
     let has_error_test = fixtures
