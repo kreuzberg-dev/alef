@@ -4,12 +4,6 @@
 
 <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 16px;">
 
-<a href="https://crates.io/crates/alef-cli">
-  <img src="https://img.shields.io/crates/v/alef-cli?label=crates.io&color=007ec6" alt="crates.io">
-</a>
-<a href="https://github.com/kreuzberg-dev/alef/releases">
-  <img src="https://img.shields.io/github/v/release/kreuzberg-dev/alef?label=Release&color=007ec6" alt="Release">
-</a>
 <a href="https://github.com/kreuzberg-dev/alef/actions/workflows/ci.yml">
   <img src="https://img.shields.io/github/actions/workflow/status/kreuzberg-dev/alef/ci.yml?label=CI&color=007ec6" alt="CI">
 </a>
