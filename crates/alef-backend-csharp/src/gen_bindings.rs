@@ -1244,27 +1244,30 @@ fn gen_record_type(
             };
             out.push_str(&format!(" = {};\n", default_val));
         } else {
-            // Non-optional field without explicit default.
-            // Use type-appropriate zero values instead of `required` to avoid
-            // JSON deserialization failures when fields are omitted via serde skip_serializing_if.
             let field_type = if is_complex {
                 "JsonElement".to_string()
             } else {
                 csharp_type(&field.ty).to_string()
             };
-            let default_val = match &field.ty {
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"",
-                TypeRef::Vec(_) => "[]",
-                TypeRef::Bytes => "Array.Empty<byte>()",
-                TypeRef::Primitive(PrimitiveType::Bool) => "false",
-                TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => "0.0",
-                TypeRef::Primitive(_) => "0",
-                _ => "default!",
-            };
-            out.push_str(&format!(
-                "    public {} {} {{ get; set; }} = {};\n",
-                field_type, cs_name, default_val
-            ));
+            // Use default values for Vecs/Maps (which might be omitted via skip_serializing_if).
+            // Use required for everything else.
+            let needs_default = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
+            if needs_default {
+                let default_val = match &field.ty {
+                    TypeRef::Vec(_) => "[]",
+                    TypeRef::Map(_, _) => "new()",
+                    _ => "default!",
+                };
+                out.push_str(&format!(
+                    "    public {} {} {{ get; set; }} = {};\n",
+                    field_type, cs_name, default_val
+                ));
+            } else {
+                out.push_str(&format!(
+                    "    public required {} {} {{ get; set; }}\n",
+                    field_type, cs_name
+                ));
+            }
         }
 
         out.push('\n');

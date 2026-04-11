@@ -161,6 +161,11 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
 
     for typ in &mut api.types {
         for field in &mut typ.fields {
+            // Fields with CoreWrapper (Cow, Arc, Bytes) are handled by the wrapper —
+            // don't sanitize them even if their resolved type looks unknown.
+            if field.core_wrapper != alef_core::ir::CoreWrapper::None {
+                continue;
+            }
             if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
                 field.sanitized = true;
             }
