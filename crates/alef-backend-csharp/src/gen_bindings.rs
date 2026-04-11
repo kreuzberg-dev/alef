@@ -1179,14 +1179,24 @@ fn gen_record_type(typ: &TypeDef, namespace: &str, enum_names: &HashSet<String>)
             out.push_str(&format!("    public {} {} {{ get; set; }}", field_type, cs_name));
             out.push_str(" = null;\n");
         } else if typ.has_default || field.default.is_some() {
-            // Field with an explicit default value or part of a type with defaults
+            // Field with an explicit default value or part of a type with defaults.
+            // Use typed_default from IR to get Rust-compatible defaults.
             let field_type = csharp_type(&field.ty).to_string();
             out.push_str(&format!("    public {} {} {{ get; set; }}", field_type, cs_name));
-            if let Some(default) = &field.default {
-                out.push_str(&format!(" = {};\n", default));
-            } else {
-                // Use type-appropriate zero value
-                let default_val = match &field.ty {
+            use alef_core::ir::DefaultValue;
+            let default_val = match &field.typed_default {
+                Some(DefaultValue::BoolLiteral(b)) => b.to_string(),
+                Some(DefaultValue::IntLiteral(n)) => n.to_string(),
+                Some(DefaultValue::FloatLiteral(f)) => {
+                    let s = f.to_string();
+                    if s.contains('.') { s } else { format!("{s}.0") }
+                }
+                Some(DefaultValue::StringLiteral(s)) => format!("\"{}\"", s.replace('"', "\\\"")),
+                Some(DefaultValue::EnumVariant(v)) => format!("{}.{}", field_type, v.to_pascal_case()),
+                Some(DefaultValue::None) => "null".to_string(),
+                Some(DefaultValue::Empty) | None => match &field.ty {
+                    TypeRef::Vec(_) => "[]".to_string(),
+                    TypeRef::Map(k, v) => format!("new Dictionary<{}, {}>()", csharp_type(k), csharp_type(v)),
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
                     TypeRef::Bytes => "Array.Empty<byte>()".to_string(),
                     TypeRef::Primitive(p) => match p {
@@ -1194,23 +1204,18 @@ fn gen_record_type(typ: &TypeDef, namespace: &str, enum_names: &HashSet<String>)
                         PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
                         _ => "0".to_string(),
                     },
-                    TypeRef::Vec(_) => "[]".to_string(),
-                    TypeRef::Map(k, v) => format!("new Dictionary<{}, {}>()", csharp_type(k), csharp_type(v)),
-                    TypeRef::Duration => "0".to_string(),
                     TypeRef::Named(name) => {
                         let pascal = name.to_pascal_case();
                         if enum_names.contains(&pascal) {
-                            // Enums are value types in C# — use `default` (not `null`)
                             "default".to_string()
                         } else {
-                            // Reference types — use `default!` to satisfy non-nullable analysis
                             "default!".to_string()
                         }
                     }
                     _ => "default!".to_string(),
-                };
-                out.push_str(&format!(" = {};\n", default_val));
-            }
+                },
+            };
+            out.push_str(&format!(" = {};\n", default_val));
         } else {
             // Required field: no default, not optional
             let field_type = csharp_type(&field.ty).to_string();
