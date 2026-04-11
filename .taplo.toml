@@ -1,6 +1,5 @@
+exclude = ["**/Cargo.toml", "target/**"]
+
 [formatting]
 align_entries = false
 reorder_keys = false
-
-[[rule]]
-exclude = ["**/Cargo.toml", "target/**"]
