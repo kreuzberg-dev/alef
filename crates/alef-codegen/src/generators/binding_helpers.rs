@@ -168,9 +168,17 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                         format!("{}.into()", p.name)
                     }
                 }
-                // String → &str for core function calls
+                // String → &str for core function calls when is_ref=true,
+                // or pass owned when is_ref=false (core takes String/impl Into<String>).
+                // For optional params: as_deref() when is_ref=true, pass owned when is_ref=false.
                 TypeRef::String | TypeRef::Char => {
-                    if promoted {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if promoted {
                         format!("&{}{}", p.name, unwrap_suffix)
                     } else {
                         format!("&{}", p.name)
@@ -185,7 +193,13 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                     }
                 }
                 TypeRef::Bytes => {
-                    if promoted {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if promoted {
                         format!("&{}{}", p.name, unwrap_suffix)
                     } else {
                         format!("&{}", p.name)
@@ -252,7 +266,13 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                     format!("{}_core", p.name)
                 }
                 TypeRef::String | TypeRef::Char => {
-                    if promoted {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if promoted {
                         format!("&{}{}", p.name, unwrap_suffix)
                     } else {
                         format!("&{}", p.name)
@@ -266,7 +286,13 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                     }
                 }
                 TypeRef::Bytes => {
-                    if promoted {
+                    if p.optional {
+                        if p.is_ref {
+                            format!("{}.as_deref()", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else if promoted {
                         format!("&{}{}", p.name, unwrap_suffix)
                     } else {
                         format!("&{}", p.name)
