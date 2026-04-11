@@ -264,7 +264,7 @@ fn build_args_and_setup(
     args: &[crate::config::ArgMapping],
     module_path: &str,
     options_type: Option<&str>,
-    _options_default_fn: Option<&str>,
+    options_default_fn: Option<&str>,
     enum_fields: &HashMap<String, String>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
@@ -301,28 +301,36 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
-                // For json_object args with options_type, pass as a plain map with
-                // string keys. The Elixir Rustler NIF expects string-keyed maps.
+                // For json_object args with options_type, build a proper struct.
                 if arg.arg_type == "json_object" && !v.is_null() {
-                    if let (Some(_opts_type), Some(obj)) = (options_type, v.as_object()) {
-                        let fields: Vec<String> = obj
-                            .iter()
-                            .map(|(k, vv)| {
-                                let snake_key = k.to_snake_case();
-                                let elixir_val = if let Some(_enum_type) = enum_fields.get(k) {
-                                    if let Some(s) = vv.as_str() {
-                                        let snake_val = s.to_snake_case();
-                                        format!("\"{snake_val}\"")
-                                    } else {
-                                        json_to_elixir(vv)
-                                    }
+                    if let (Some(_opts_type), Some(options_fn), Some(obj)) =
+                        (options_type, options_default_fn, v.as_object())
+                    {
+                        // Add setup line to initialize options from default function.
+                        let options_var = "options";
+                        setup_lines.push(format!("{options_var} = {module_path}.{options_fn}()"));
+
+                        // For each field in the options object, add a struct update line.
+                        for (k, vv) in obj.iter() {
+                            let snake_key = k.to_snake_case();
+                            let elixir_val = if let Some(_enum_type) = enum_fields.get(k) {
+                                if let Some(s) = vv.as_str() {
+                                    let snake_val = s.to_snake_case();
+                                    // Use atom for enum values, not string
+                                    format!(":{snake_val}")
                                 } else {
                                     json_to_elixir(vv)
-                                };
-                                format!("\"{snake_key}\" => {elixir_val}")
-                            })
-                            .collect();
-                        parts.push(format!("%{{{}}}", fields.join(", ")));
+                                }
+                            } else {
+                                json_to_elixir(vv)
+                            };
+                            setup_lines.push(format!(
+                                "{options_var} = %{{{options_var} | {snake_key}: {elixir_val}}}"
+                            ));
+                        }
+
+                        // Push the variable name as the argument.
+                        parts.push(options_var.to_string());
                         continue;
                     }
                 }

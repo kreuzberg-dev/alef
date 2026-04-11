@@ -530,7 +530,7 @@ fn render_assertion(
                 let expected = value_to_rust_string(val);
                 let _ = writeln!(
                     out,
-                    "    assert!({field_access}.contains({expected}), \"expected to contain: {{}}\", {expected});"
+                    "    assert!({field_access}.to_string().contains({expected}), \"expected to contain: {{}}\", {expected});"
                 );
             }
         }
@@ -540,7 +540,7 @@ fn render_assertion(
                     let expected = value_to_rust_string(val);
                     let _ = writeln!(
                         out,
-                        "    assert!({field_access}.contains({expected}), \"expected to contain: {{}}\", {expected});"
+                        "    assert!({field_access}.to_string().contains({expected}), \"expected to contain: {{}}\", {expected});"
                     );
                 }
             }
@@ -550,7 +550,7 @@ fn render_assertion(
                 let expected = value_to_rust_string(val);
                 let _ = writeln!(
                     out,
-                    "    assert!(!{field_access}.contains({expected}), \"expected NOT to contain: {{}}\", {expected});"
+                    "    assert!(!{field_access}.to_string().contains({expected}), \"expected NOT to contain: {{}}\", {expected});"
                 );
             }
         }
@@ -608,30 +608,26 @@ fn render_assertion(
         }
         "greater_than" => {
             if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_f64() {
-                    let _ = writeln!(out, "    assert!({field_access} > {n}_f64, \"expected > {n}\");");
-                }
+                let lit = numeric_literal(val);
+                let _ = writeln!(out, "    assert!({field_access} > {lit}, \"expected > {lit}\");");
             }
         }
         "less_than" => {
             if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_f64() {
-                    let _ = writeln!(out, "    assert!({field_access} < {n}_f64, \"expected < {n}\");");
-                }
+                let lit = numeric_literal(val);
+                let _ = writeln!(out, "    assert!({field_access} < {lit}, \"expected < {lit}\");");
             }
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_f64() {
-                    let _ = writeln!(out, "    assert!({field_access} >= {n}_f64, \"expected >= {n}\");");
-                }
+                let lit = numeric_literal(val);
+                let _ = writeln!(out, "    assert!({field_access} >= {lit}, \"expected >= {lit}\");");
             }
         }
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_f64() {
-                    let _ = writeln!(out, "    assert!({field_access} <= {n}_f64, \"expected <= {n}\");");
-                }
+                let lit = numeric_literal(val);
+                let _ = writeln!(out, "    assert!({field_access} <= {lit}, \"expected <= {lit}\");");
             }
         }
         "starts_with" => {
@@ -688,9 +684,29 @@ fn render_assertion(
     }
 }
 
+/// Convert a JSON numeric value to a Rust literal suitable for comparisons.
+///
+/// Whole numbers (no fractional part) are emitted as bare integer literals so
+/// they are compatible with `usize`, `u64`, etc. (e.g., `.len()` results).
+/// Numbers with a fractional component get the `_f64` suffix.
+fn numeric_literal(value: &serde_json::Value) -> String {
+    if let Some(n) = value.as_f64() {
+        if n.fract() == 0.0 {
+            // Whole number — emit without a type suffix so Rust can infer the
+            // correct integer type from context (usize, u64, i64, …).
+            return format!("{}", n as i64);
+        }
+        return format!("{n}_f64");
+    }
+    // Fallback: use the raw JSON representation.
+    value.to_string()
+}
+
 fn value_to_rust_string(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(s) => rust_raw_string(s),
+        serde_json::Value::Bool(b) => format!("{b}"),
+        serde_json::Value::Number(n) => n.to_string(),
         other => {
             let s = other.to_string();
             format!("\"{s}\"")

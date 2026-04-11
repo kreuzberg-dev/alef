@@ -381,7 +381,15 @@ fn render_assertion(
 /// Convert a `serde_json::Value` to an R literal string.
 fn json_to_r(value: &serde_json::Value) -> String {
     match value {
-        serde_json::Value::String(s) => format!("\"{}\"", escape_r(s)),
+        serde_json::Value::String(s) => {
+            // Lowercase enum values (strings starting with uppercase letter)
+            let normalized = if s.chars().next().is_some_and(|c| c.is_uppercase()) {
+                s.to_lowercase()
+            } else {
+                s.clone()
+            };
+            format!("\"{}\"", escape_r(&normalized))
+        }
         serde_json::Value::Bool(true) => "TRUE".to_string(),
         serde_json::Value::Bool(false) => "FALSE".to_string(),
         serde_json::Value::Number(n) => n.to_string(),
