@@ -66,13 +66,8 @@ pub fn extract(
 
     // After newtype resolution, any remaining types with `_0` fields are tuple structs
     // that weren't resolved (because they have methods or complex inner types).
-    // Make these opaque since their inner field is private and can't be accessed.
-    for typ in &mut surface.types {
-        if typ.fields.len() == 1 && typ.fields[0].name == "_0" {
-            typ.fields.clear();
-            typ.is_opaque = true;
-        }
-    }
+    // Keep them as newtypes (with the _0 field) so codegen can generate proper
+    // From impls using tuple constructors. They're not opaque — they have a known inner type.
 
     // Mark types that appear as function return types.
     // These may use a different DTO style (e.g., TypedDict in Python).
