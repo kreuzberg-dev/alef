@@ -3,7 +3,7 @@ use alef_codegen::naming::to_csharp_name;
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase};
+use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -252,6 +252,49 @@ fn returns_json_object(ty: &TypeRef) -> bool {
     )
 }
 
+/// Does this return type represent an opaque handle (Named struct type) that needs special marshalling?
+///
+/// Opaque handles are returned as `IntPtr` from P/Invoke.  The wrapper must call
+/// `{prefix}_{type_snake}_to_json(ptr)` to obtain a JSON string, then deserialise it,
+/// and finally `{prefix}_{type_snake}_free(ptr)` to release the handle.
+///
+/// Enum types are excluded — they are treated as JSON-string `IntPtr` returns like Vec/Map.
+fn returns_opaque_handle(ty: &TypeRef, enum_names: &HashSet<String>) -> bool {
+    match ty {
+        TypeRef::Named(name) => !enum_names.contains(name),
+        _ => false,
+    }
+}
+
+/// Returns the C# type to use for a parameter in a `[DllImport]` declaration.
+///
+/// Managed reference types (Named structs, Vec, Map, Bytes, Optional of Named, etc.)
+/// cannot be directly marshalled by P/Invoke.  They must be passed as `IntPtr` (opaque
+/// handle or JSON-string pointer).  Primitive types and plain strings use their natural
+/// types.
+fn pinvoke_param_type(ty: &TypeRef) -> &'static str {
+    match ty {
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "string",
+        // Managed objects — pass as opaque IntPtr (serialised to handle before call)
+        TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes | TypeRef::Optional(_) => "IntPtr",
+        TypeRef::Unit => "void",
+        TypeRef::Primitive(PrimitiveType::Bool) => "int",
+        TypeRef::Primitive(PrimitiveType::U8) => "byte",
+        TypeRef::Primitive(PrimitiveType::U16) => "ushort",
+        TypeRef::Primitive(PrimitiveType::U32) => "uint",
+        TypeRef::Primitive(PrimitiveType::U64) => "ulong",
+        TypeRef::Primitive(PrimitiveType::I8) => "sbyte",
+        TypeRef::Primitive(PrimitiveType::I16) => "short",
+        TypeRef::Primitive(PrimitiveType::I32) => "int",
+        TypeRef::Primitive(PrimitiveType::I64) => "long",
+        TypeRef::Primitive(PrimitiveType::F32) => "float",
+        TypeRef::Primitive(PrimitiveType::F64) => "double",
+        TypeRef::Primitive(PrimitiveType::Usize) => "ulong",
+        TypeRef::Primitive(PrimitiveType::Isize) => "long",
+        TypeRef::Duration => "ulong",
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Code generation functions
 // ---------------------------------------------------------------------------
@@ -270,6 +313,94 @@ fn gen_native_methods(api: &ApiSurface, namespace: &str, lib_name: &str, prefix:
     // Track emitted C entry-point names to avoid duplicates when the same FFI
     // function appears both as a free function and as a type method.
     let mut emitted: HashSet<String> = HashSet::new();
+
+    // Enum type names — these are NOT opaque handles and must not have from_json / to_json / free
+    // helpers emitted for them.
+    let enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+
+    // Collect opaque struct type names that appear as parameters or return types so we can
+    // emit their from_json / to_json / free P/Invoke helpers.
+    // Enum types are excluded.
+    let mut opaque_param_types: HashSet<String> = HashSet::new();
+    let mut opaque_return_types: HashSet<String> = HashSet::new();
+
+    for func in &api.functions {
+        for param in &func.params {
+            if let TypeRef::Named(name) = &param.ty {
+                if !enum_names.contains(name) {
+                    opaque_param_types.insert(name.clone());
+                }
+            }
+        }
+        if let TypeRef::Named(name) = &func.return_type {
+            if !enum_names.contains(name) {
+                opaque_return_types.insert(name.clone());
+            }
+        }
+    }
+    for typ in &api.types {
+        for method in &typ.methods {
+            for param in &method.params {
+                if let TypeRef::Named(name) = &param.ty {
+                    if !enum_names.contains(name) {
+                        opaque_param_types.insert(name.clone());
+                    }
+                }
+            }
+            if let TypeRef::Named(name) = &method.return_type {
+                if !enum_names.contains(name) {
+                    opaque_return_types.insert(name.clone());
+                }
+            }
+        }
+    }
+
+    // Emit from_json + free helpers for opaque types used as parameters.
+    // E.g. `htm_conversion_options_from_json(const char *json) -> HTMConversionOptions*`
+    for type_name in &opaque_param_types {
+        let snake = type_name.to_snake_case();
+        let from_json_entry = format!("{prefix}_{snake}_from_json");
+        let from_json_cs = format!("{}FromJson", type_name.to_pascal_case());
+        if emitted.insert(from_json_entry.clone()) {
+            out.push_str(&format!(
+                "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{from_json_entry}\")]\n"
+            ));
+            out.push_str(&format!(
+                "    internal static extern IntPtr {from_json_cs}([MarshalAs(UnmanagedType.LPStr)] string json);\n\n"
+            ));
+        }
+        let free_entry = format!("{prefix}_{snake}_free");
+        let free_cs = format!("{}Free", type_name.to_pascal_case());
+        if emitted.insert(free_entry.clone()) {
+            out.push_str(&format!(
+                "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{free_entry}\")]\n"
+            ));
+            out.push_str(&format!("    internal static extern void {free_cs}(IntPtr ptr);\n\n"));
+        }
+    }
+
+    // Emit to_json + free helpers for opaque types returned from functions.
+    for type_name in &opaque_return_types {
+        let snake = type_name.to_snake_case();
+        let to_json_entry = format!("{prefix}_{snake}_to_json");
+        let to_json_cs = format!("{}ToJson", type_name.to_pascal_case());
+        if emitted.insert(to_json_entry.clone()) {
+            out.push_str(&format!(
+                "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{to_json_entry}\")]\n"
+            ));
+            out.push_str(&format!(
+                "    internal static extern IntPtr {to_json_cs}(IntPtr ptr);\n\n"
+            ));
+        }
+        let free_entry = format!("{prefix}_{snake}_free");
+        let free_cs = format!("{}Free", type_name.to_pascal_case());
+        if emitted.insert(free_entry.clone()) {
+            out.push_str(&format!(
+                "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{free_entry}\")]\n"
+            ));
+            out.push_str(&format!("    internal static extern void {free_cs}(IntPtr ptr);\n\n"));
+        }
+    }
 
     // Generate P/Invoke declarations for functions
     for func in &api.functions {
@@ -327,11 +458,12 @@ fn gen_pinvoke_for_func(c_name: &str, func: &FunctionDef) -> String {
         out.push('\n');
         for (i, param) in func.params.iter().enumerate() {
             out.push_str("        ");
-            if matches!(param.ty, TypeRef::String | TypeRef::Char) {
+            let pinvoke_ty = pinvoke_param_type(&param.ty);
+            if pinvoke_ty == "string" {
                 out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
             }
             let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("{} {}", csharp_type(&param.ty), param_name));
+            out.push_str(&format!("{pinvoke_ty} {param_name}"));
 
             if i < func.params.len() - 1 {
                 out.push(',');
@@ -361,11 +493,12 @@ fn gen_pinvoke_for_method(c_name: &str, method: &MethodDef) -> String {
         out.push('\n');
         for (i, param) in method.params.iter().enumerate() {
             out.push_str("        ");
-            if matches!(param.ty, TypeRef::String | TypeRef::Char) {
+            let pinvoke_ty = pinvoke_param_type(&param.ty);
+            if pinvoke_ty == "string" {
                 out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
             }
             let param_name = param.name.to_lower_camel_case();
-            out.push_str(&format!("{} {}", csharp_type(&param.ty), param_name));
+            out.push_str(&format!("{pinvoke_ty} {param_name}"));
 
             if i < method.params.len() - 1 {
                 out.push(',');
@@ -423,9 +556,12 @@ fn gen_wrapper_class(
     out.push_str(&format!("public static class {}\n", class_name));
     out.push_str("{\n");
 
+    // Enum names: used to distinguish opaque struct handles from enum return types.
+    let enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.to_pascal_case()).collect();
+
     // Generate wrapper methods for functions
     for func in &api.functions {
-        out.push_str(&gen_wrapper_function(func, exception_name, prefix));
+        out.push_str(&gen_wrapper_function(func, exception_name, prefix, &enum_names));
     }
 
     // Generate wrapper methods for type methods (prefixed with type name to avoid collisions)
@@ -441,7 +577,13 @@ fn gen_wrapper_class(
                     continue;
                 }
             }
-            out.push_str(&gen_wrapper_method(method, exception_name, prefix, &typ.name));
+            out.push_str(&gen_wrapper_method(
+                method,
+                exception_name,
+                prefix,
+                &typ.name,
+                &enum_names,
+            ));
         }
     }
 
@@ -460,7 +602,83 @@ fn gen_wrapper_class(
     out
 }
 
-fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str) -> String {
+// ---------------------------------------------------------------------------
+// Helpers: Named-param setup/teardown for opaque handle marshalling
+// ---------------------------------------------------------------------------
+
+/// For each `Named` parameter, emit code to serialise it to JSON and obtain a native handle.
+///
+/// ```text
+/// var optionsJson = options != null ? JsonSerializer.Serialize(options) : "null";
+/// var optionsHandle = NativeMethods.ConversionOptionsFromJson(optionsJson);
+/// ```
+fn emit_named_param_setup(out: &mut String, params: &[alef_core::ir::ParamDef], indent: &str) {
+    for param in params {
+        if let TypeRef::Named(type_name) = &param.ty {
+            let param_name = param.name.to_lower_camel_case();
+            let json_var = format!("{param_name}Json");
+            let handle_var = format!("{param_name}Handle");
+            let from_json_method = format!("{}FromJson", type_name.to_pascal_case());
+
+            if param.optional {
+                out.push_str(&format!(
+                    "{indent}var {json_var} = {param_name} != null ? JsonSerializer.Serialize({param_name}) : \"null\";\n"
+                ));
+            } else {
+                out.push_str(&format!(
+                    "{indent}var {json_var} = JsonSerializer.Serialize({param_name});\n"
+                ));
+            }
+            out.push_str(&format!(
+                "{indent}var {handle_var} = NativeMethods.{from_json_method}({json_var});\n"
+            ));
+        }
+    }
+}
+
+/// Returns the argument expression to pass to the native method for a given parameter.
+///
+/// For `Named` types this is the handle variable (e.g. `optionsHandle`).
+/// For everything else it is the parameter name (with `!` for optional).
+fn native_call_arg(ty: &TypeRef, param_name: &str, optional: bool) -> String {
+    if matches!(ty, TypeRef::Named(_)) {
+        format!("{param_name}Handle")
+    } else {
+        let bang = if optional { "!" } else { "" };
+        format!("{param_name}{bang}")
+    }
+}
+
+/// Emit cleanup code to free native handles allocated for `Named` parameters.
+fn emit_named_param_teardown(out: &mut String, params: &[alef_core::ir::ParamDef]) {
+    for param in params {
+        if let TypeRef::Named(type_name) = &param.ty {
+            let param_name = param.name.to_lower_camel_case();
+            let handle_var = format!("{param_name}Handle");
+            let free_method = format!("{}Free", type_name.to_pascal_case());
+            out.push_str(&format!("        NativeMethods.{free_method}({handle_var});\n"));
+        }
+    }
+}
+
+/// Emit cleanup code with configurable indentation (used inside `Task.Run` lambdas).
+fn emit_named_param_teardown_indented(out: &mut String, params: &[alef_core::ir::ParamDef], indent: &str) {
+    for param in params {
+        if let TypeRef::Named(type_name) = &param.ty {
+            let param_name = param.name.to_lower_camel_case();
+            let handle_var = format!("{param_name}Handle");
+            let free_method = format!("{}Free", type_name.to_pascal_case());
+            out.push_str(&format!("{indent}NativeMethods.{free_method}({handle_var});\n"));
+        }
+    }
+}
+
+fn gen_wrapper_function(
+    func: &FunctionDef,
+    _exception_name: &str,
+    _prefix: &str,
+    enum_names: &HashSet<String>,
+) -> String {
     let mut out = String::with_capacity(1024);
 
     // XML doc comment
@@ -522,6 +740,9 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
         }
     }
 
+    // Serialize Named (opaque handle) params to JSON and obtain native handles.
+    emit_named_param_setup(&mut out, &func.params, "        ");
+
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
 
@@ -543,8 +764,8 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
             out.push('\n');
             for (i, param) in func.params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
-                let bang = if param.optional { "!" } else { "" };
-                out.push_str(&format!("                {}{}", param_name, bang));
+                let arg = native_call_arg(&param.ty, &param_name, param.optional);
+                out.push_str(&format!("                {arg}"));
                 if i < func.params.len() - 1 {
                     out.push(',');
                 }
@@ -553,7 +774,9 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
             out.push_str("            );\n");
         }
 
-        emit_return_marshalling_indented(&mut out, &func.return_type, "            ");
+        emit_return_marshalling_indented(&mut out, &func.return_type, "            ", enum_names);
+        emit_named_param_teardown_indented(&mut out, &func.params, "            ");
+        emit_return_statement_indented(&mut out, &func.return_type, "            ");
         out.push_str("        });\n");
     } else {
         if func.return_type != TypeRef::Unit {
@@ -570,8 +793,8 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
             out.push('\n');
             for (i, param) in func.params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
-                let bang = if param.optional { "!" } else { "" };
-                out.push_str(&format!("            {}{}", param_name, bang));
+                let arg = native_call_arg(&param.ty, &param_name, param.optional);
+                out.push_str(&format!("            {arg}"));
                 if i < func.params.len() - 1 {
                     out.push(',');
                 }
@@ -580,7 +803,9 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
             out.push_str("        );\n");
         }
 
-        emit_return_marshalling(&mut out, &func.return_type);
+        emit_return_marshalling(&mut out, &func.return_type, enum_names);
+        emit_named_param_teardown(&mut out, &func.params);
+        emit_return_statement(&mut out, &func.return_type);
     }
 
     out.push_str("    }\n\n");
@@ -588,7 +813,13 @@ fn gen_wrapper_function(func: &FunctionDef, _exception_name: &str, _prefix: &str
     out
 }
 
-fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str, type_name: &str) -> String {
+fn gen_wrapper_method(
+    method: &MethodDef,
+    _exception_name: &str,
+    _prefix: &str,
+    type_name: &str,
+    enum_names: &HashSet<String>,
+) -> String {
     let mut out = String::with_capacity(1024);
 
     // XML doc comment
@@ -653,6 +884,9 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str, 
         }
     }
 
+    // Serialize Named (opaque handle) params to JSON and obtain native handles.
+    emit_named_param_setup(&mut out, &method.params, "        ");
+
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&method.name);
 
@@ -674,8 +908,8 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str, 
             out.push('\n');
             for (i, param) in method.params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
-                let bang = if param.optional { "!" } else { "" };
-                out.push_str(&format!("                {}{}", param_name, bang));
+                let arg = native_call_arg(&param.ty, &param_name, param.optional);
+                out.push_str(&format!("                {arg}"));
                 if i < method.params.len() - 1 {
                     out.push(',');
                 }
@@ -684,7 +918,9 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str, 
             out.push_str("            );\n");
         }
 
-        emit_return_marshalling_indented(&mut out, &method.return_type, "            ");
+        emit_return_marshalling_indented(&mut out, &method.return_type, "            ", enum_names);
+        emit_named_param_teardown_indented(&mut out, &method.params, "            ");
+        emit_return_statement_indented(&mut out, &method.return_type, "            ");
         out.push_str("        });\n");
     } else {
         if method.return_type != TypeRef::Unit {
@@ -701,8 +937,8 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str, 
             out.push('\n');
             for (i, param) in method.params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
-                let bang = if param.optional { "!" } else { "" };
-                out.push_str(&format!("            {}{}", param_name, bang));
+                let arg = native_call_arg(&param.ty, &param_name, param.optional);
+                out.push_str(&format!("            {arg}"));
                 if i < method.params.len() - 1 {
                     out.push(',');
                 }
@@ -711,7 +947,9 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str, 
             out.push_str("        );\n");
         }
 
-        emit_return_marshalling(&mut out, &method.return_type);
+        emit_return_marshalling(&mut out, &method.return_type, enum_names);
+        emit_named_param_teardown(&mut out, &method.params);
+        emit_return_statement(&mut out, &method.return_type);
     }
 
     out.push_str("    }\n\n");
@@ -721,8 +959,15 @@ fn gen_wrapper_method(method: &MethodDef, _exception_name: &str, _prefix: &str, 
 
 /// Emit the return-value marshalling code shared by both function and method wrappers.
 ///
-/// `result` is the local variable holding the native call's return value.
-fn emit_return_marshalling(out: &mut String, return_type: &TypeRef) {
+/// This function emits the code to convert the raw P/Invoke `result` into the managed return
+/// type and store it in a local variable `returnValue`.  It intentionally does **not** emit
+/// the `return` statement so that callers can interpose cleanup (param handle teardown) between
+/// the value computation and the return.
+///
+/// `enum_names`: the set of C# type names that are enums (not opaque handles).
+///
+/// Callers must invoke `emit_return_statement` after their cleanup to complete the method body.
+fn emit_return_marshalling(out: &mut String, return_type: &TypeRef, enum_names: &HashSet<String>) {
     if *return_type == TypeRef::Unit {
         // void — nothing to return
         return;
@@ -730,51 +975,109 @@ fn emit_return_marshalling(out: &mut String, return_type: &TypeRef) {
 
     if returns_string(return_type) {
         // IntPtr → string, then free the native buffer.
-        out.push_str("        var str = Marshal.PtrToStringUTF8(result);\n");
+        out.push_str("        var returnValue = Marshal.PtrToStringUTF8(result) ?? string.Empty;\n");
         out.push_str("        NativeMethods.FreeString(result);\n");
-        out.push_str("        return str ?? string.Empty;\n");
     } else if returns_bool_via_int(return_type) {
         // C int → bool
-        out.push_str("        return result != 0;\n");
+        out.push_str("        var returnValue = result != 0;\n");
+    } else if returns_opaque_handle(return_type, enum_names) {
+        // result is an opaque C handle (e.g. HTMConversionResult*).
+        // Call to_json on the handle to get a JSON string, deserialise, then free both.
+        let cs_ty = csharp_type(return_type);
+        let type_name = match return_type {
+            TypeRef::Named(n) => n.to_pascal_case(),
+            _ => unreachable!(),
+        };
+        let to_json_method = format!("{}ToJson", type_name);
+        let free_method = format!("{}Free", type_name);
+        out.push_str(&format!(
+            "        var jsonPtr = NativeMethods.{to_json_method}(result);\n"
+        ));
+        out.push_str("        var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+        out.push_str("        NativeMethods.FreeString(jsonPtr);\n");
+        out.push_str(&format!("        NativeMethods.{free_method}(result);\n"));
+        out.push_str(&format!(
+            "        var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\")!;\n",
+            cs_ty
+        ));
     } else if returns_json_object(return_type) {
         // IntPtr → JSON string → deserialized object, then free the native buffer.
         let cs_ty = csharp_type(return_type);
         out.push_str("        var json = Marshal.PtrToStringUTF8(result);\n");
         out.push_str("        NativeMethods.FreeString(result);\n");
         out.push_str(&format!(
-            "        return JsonSerializer.Deserialize<{}>(json ?? \"null\")!;\n",
+            "        var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\")!;\n",
             cs_ty
         ));
     } else {
         // Numeric primitives — direct return.
-        out.push_str("        return result;\n");
+        out.push_str("        var returnValue = result;\n");
+    }
+}
+
+/// Emit the final `return returnValue;` statement after cleanup.
+fn emit_return_statement(out: &mut String, return_type: &TypeRef) {
+    if *return_type != TypeRef::Unit {
+        out.push_str("        return returnValue;\n");
     }
 }
 
 /// Emit the return-value marshalling code with configurable indentation.
 ///
-/// Used inside `Task.Run` lambdas where extra indentation is needed.
-fn emit_return_marshalling_indented(out: &mut String, return_type: &TypeRef, indent: &str) {
+/// Like `emit_return_marshalling` this stores the value in `returnValue` without emitting
+/// the final `return` statement.  Callers must call `emit_return_statement_indented` after.
+fn emit_return_marshalling_indented(
+    out: &mut String,
+    return_type: &TypeRef,
+    indent: &str,
+    enum_names: &HashSet<String>,
+) {
     if *return_type == TypeRef::Unit {
         return;
     }
 
     if returns_string(return_type) {
-        out.push_str(&format!("{indent}var str = Marshal.PtrToStringUTF8(result);\n"));
+        out.push_str(&format!(
+            "{indent}var returnValue = Marshal.PtrToStringUTF8(result) ?? string.Empty;\n"
+        ));
         out.push_str(&format!("{indent}NativeMethods.FreeString(result);\n"));
-        out.push_str(&format!("{indent}return str ?? string.Empty;\n"));
     } else if returns_bool_via_int(return_type) {
-        out.push_str(&format!("{indent}return result != 0;\n"));
+        out.push_str(&format!("{indent}var returnValue = result != 0;\n"));
+    } else if returns_opaque_handle(return_type, enum_names) {
+        let cs_ty = csharp_type(return_type);
+        let type_name = match return_type {
+            TypeRef::Named(n) => n.to_pascal_case(),
+            _ => unreachable!(),
+        };
+        let to_json_method = format!("{}ToJson", type_name);
+        let free_method = format!("{}Free", type_name);
+        out.push_str(&format!(
+            "{indent}var jsonPtr = NativeMethods.{to_json_method}(result);\n"
+        ));
+        out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(jsonPtr);\n"));
+        out.push_str(&format!("{indent}NativeMethods.FreeString(jsonPtr);\n"));
+        out.push_str(&format!("{indent}NativeMethods.{free_method}(result);\n"));
+        out.push_str(&format!(
+            "{indent}var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\")!;\n",
+            cs_ty
+        ));
     } else if returns_json_object(return_type) {
         let cs_ty = csharp_type(return_type);
         out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(result);\n"));
         out.push_str(&format!("{indent}NativeMethods.FreeString(result);\n"));
         out.push_str(&format!(
-            "{indent}return JsonSerializer.Deserialize<{}>(json ?? \"null\")!;\n",
+            "{indent}var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\")!;\n",
             cs_ty
         ));
     } else {
-        out.push_str(&format!("{indent}return result;\n"));
+        out.push_str(&format!("{indent}var returnValue = result;\n"));
+    }
+}
+
+/// Emit the final `return returnValue;` with configurable indentation.
+fn emit_return_statement_indented(out: &mut String, return_type: &TypeRef, indent: &str) {
+    if *return_type != TypeRef::Unit {
+        out.push_str(&format!("{indent}return returnValue;\n"));
     }
 }
 

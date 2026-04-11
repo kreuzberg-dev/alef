@@ -2,8 +2,8 @@ use alef_backend_rustler::RustlerBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig, ElixirConfig};
 use alef_core::ir::{
-    ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
-    ReceiverKind, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
+    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 /// Build a minimal AlefConfig for elixir tests.
@@ -67,6 +67,8 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         type_rust_path: None,
         cfg: None,
         typed_default: None,
+        core_wrapper: alef_core::ir::CoreWrapper::None,
+        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
     }
 }
 
@@ -83,6 +85,8 @@ fn make_field_with_default(name: &str, ty: TypeRef, default: DefaultValue) -> Fi
         type_rust_path: None,
         cfg: None,
         typed_default: Some(default),
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
     }
 }
 

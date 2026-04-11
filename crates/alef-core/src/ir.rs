@@ -1,5 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+/// Indicates the core Rust type wraps the resolved type in a smart pointer or cow.
+/// Used by codegen to generate correct From/Into conversions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub enum CoreWrapper {
+    #[default]
+    None,
+    /// `Cow<'static, str>` — binding uses String, core needs `.into()`
+    Cow,
+    /// `Arc<T>` — binding unwraps, core wraps with `Arc::new()`
+    Arc,
+    /// `bytes::Bytes` — binding uses `Vec<u8>`, core needs `Bytes::from()`
+    Bytes,
+}
+
 /// Typed default value for a field, enabling backends to emit language-native defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DefaultValue {
@@ -87,6 +101,12 @@ pub struct FieldDef {
     /// Typed default value for language-native default emission.
     #[serde(default)]
     pub typed_default: Option<DefaultValue>,
+    /// Core wrapper on this field (Cow, Arc, Bytes). Affects From/Into codegen.
+    #[serde(default)]
+    pub core_wrapper: CoreWrapper,
+    /// Core wrapper on Vec inner elements (e.g., `Vec<Arc<T>>`).
+    #[serde(default)]
+    pub vec_inner_core_wrapper: CoreWrapper,
 }
 
 /// A method on a public struct.

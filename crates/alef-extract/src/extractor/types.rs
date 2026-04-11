@@ -1,6 +1,7 @@
-use alef_core::ir::{DefaultValue, EnumDef, ErrorDef, ErrorVariant, FieldDef, TypeDef};
+use alef_core::ir::{CoreWrapper, DefaultValue, EnumDef, ErrorDef, ErrorVariant, FieldDef, TypeDef};
 use syn;
 
+use super::helpers::{detect_core_wrapper, detect_vec_inner_core_wrapper};
 use crate::type_resolver;
 
 use super::helpers::{
@@ -43,6 +44,8 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
                 type_rust_path: extract_field_type_rust_path(&field.ty),
                 cfg: None,
                 typed_default: None,
+                core_wrapper: detect_core_wrapper(&field.ty),
+                vec_inner_core_wrapper: detect_vec_inner_core_wrapper(&field.ty),
             }]
         }
         _ => vec![],
@@ -169,6 +172,8 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 type_rust_path: extract_field_type_rust_path(&f.ty),
                                 cfg: None,
                                 typed_default: None,
+                                core_wrapper: CoreWrapper::None,
+                                vec_inner_core_wrapper: CoreWrapper::None,
                             }
                         })
                         .collect();

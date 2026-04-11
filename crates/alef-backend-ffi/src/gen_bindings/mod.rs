@@ -228,6 +228,8 @@ mod tests {
                         type_rust_path: None,
                         cfg: None,
                         typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     },
                     FieldDef {
                         name: "name".to_string(),
@@ -240,6 +242,8 @@ mod tests {
                         type_rust_path: None,
                         cfg: None,
                         typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     },
                     FieldDef {
                         name: "verbose".to_string(),
@@ -252,6 +256,8 @@ mod tests {
                         type_rust_path: None,
                         cfg: None,
                         typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     },
                 ],
                 methods: vec![],

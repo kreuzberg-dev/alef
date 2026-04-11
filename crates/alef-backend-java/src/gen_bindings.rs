@@ -302,34 +302,51 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
     // a function return type AND as an opaque type).
     let mut emitted_free_handles: AHashSet<String> = AHashSet::new();
 
+    // Build the set of opaque type names so we can pick the right accessor below.
+    let opaque_type_names: AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque)
+        .map(|t| t.name.clone())
+        .collect();
+
     // Accessor handles for Named return types (struct pointer → field accessor + free)
     for func in &api.functions {
         if let TypeRef::Named(name) = &func.return_type {
             let type_snake = name.to_snake_case();
             let type_upper = type_snake.to_uppercase();
+            let is_opaque = opaque_type_names.contains(name.as_str());
 
-            // _content accessor: (struct_ptr) -> char*
-            let content_handle = format!("{}_{}_CONTENT", prefix.to_uppercase(), type_upper);
-            let content_ffi = format!("{}_{}_content", prefix, type_snake);
-            writeln!(body).ok();
-            writeln!(
-                body,
-                "    static final MethodHandle {} = LINKER.downcallHandle(",
-                content_handle
-            )
-            .ok();
-            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", content_ffi).ok();
-            writeln!(
-                body,
-                "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
-            )
-            .ok();
-            writeln!(body, "    );").ok();
+            if is_opaque {
+                // Opaque handles: the caller wraps the pointer directly, no JSON needed.
+                // No content accessor is emitted for opaque types.
+            } else {
+                // Non-opaque record types: use _to_json to serialize the full struct to JSON,
+                // which the Java side then deserializes with ObjectMapper.
+                // NOTE: _content returns only the markdown string field, not the full JSON.
+                let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
+                let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
+                writeln!(body).ok();
+                writeln!(
+                    body,
+                    "    static final MethodHandle {} = LINKER.downcallHandle(",
+                    to_json_handle
+                )
+                .ok();
+                writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", to_json_ffi).ok();
+                writeln!(
+                    body,
+                    "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+                )
+                .ok();
+                writeln!(body, "    );").ok();
+            }
 
             // _free: (struct_ptr) -> void
             let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
             let free_ffi = format!("{}_{}_free", prefix, type_snake);
             if emitted_free_handles.insert(free_handle.clone()) {
+                writeln!(body).ok();
                 writeln!(
                     body,
                     "    static final MethodHandle {} = LINKER.downcallHandle(",
@@ -339,6 +356,68 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
                 writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
                 writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
                 writeln!(body, "    );").ok();
+            }
+        }
+    }
+
+    // FROM_JSON + FREE handles for non-opaque Named types used as parameters.
+    // These allow serializing a Java record to JSON and passing it to the FFI.
+    let mut emitted_from_json_handles: AHashSet<String> = AHashSet::new();
+    for func in &api.functions {
+        for param in &func.params {
+            // Handle both Named and Optional<Named> params
+            let inner_name = match &param.ty {
+                TypeRef::Named(n) => Some(n.clone()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(name) = inner_name {
+                if !opaque_type_names.contains(name.as_str()) {
+                    let type_snake = name.to_snake_case();
+                    let type_upper = type_snake.to_uppercase();
+
+                    // _from_json: (char*) -> struct_ptr
+                    let from_json_handle = format!("{}_{}_FROM_JSON", prefix.to_uppercase(), type_upper);
+                    let from_json_ffi = format!("{}_{}_from_json", prefix, type_snake);
+                    if emitted_from_json_handles.insert(from_json_handle.clone()) {
+                        writeln!(body).ok();
+                        writeln!(
+                            body,
+                            "    static final MethodHandle {} = LINKER.downcallHandle(",
+                            from_json_handle
+                        )
+                        .ok();
+                        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", from_json_ffi).ok();
+                        writeln!(
+                            body,
+                            "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+                        )
+                        .ok();
+                        writeln!(body, "    );").ok();
+                    }
+
+                    // _free: (struct_ptr) -> void
+                    let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);
+                    let free_ffi = format!("{}_{}_free", prefix, type_snake);
+                    if emitted_free_handles.insert(free_handle.clone()) {
+                        writeln!(body).ok();
+                        writeln!(
+                            body,
+                            "    static final MethodHandle {} = LINKER.downcallHandle(",
+                            free_handle
+                        )
+                        .ok();
+                        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", free_ffi).ok();
+                        writeln!(body, "        FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)").ok();
+                        writeln!(body, "    );").ok();
+                    }
+                }
             }
         }
     }
@@ -530,9 +609,39 @@ fn gen_sync_function_method(
 
     writeln!(out, "        try (var arena = Arena.ofConfined()) {{").ok();
 
+    // Collect non-opaque Named params that need FFI pointer cleanup after the call.
+    // These are Rust-allocated by _from_json and must be freed with _free.
+    let _ffi_ptr_params: Vec<(String, String)> = func
+        .params
+        .iter()
+        .filter_map(|p| {
+            let inner_name = match &p.ty {
+                TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => Some(n.clone()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        if !opaque_types.contains(n.as_str()) {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            inner_name.map(|type_name| {
+                let cname = "c".to_string() + &to_java_name(&p.name);
+                let type_snake = type_name.to_snake_case();
+                let free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
+                (cname, free_handle)
+            })
+        })
+        .collect();
+
     // Marshal parameters (use camelCase Java names)
     for param in &func.params {
-        marshal_param_to_ffi(out, &to_java_name(&param.name), &param.ty, opaque_types);
+        marshal_param_to_ffi(out, &to_java_name(&param.name), &param.ty, opaque_types, prefix);
     }
 
     // Call FFI
@@ -604,34 +713,39 @@ fn gen_sync_function_method(
             // Opaque handles: wrap the raw pointer directly, caller owns and will close()
             writeln!(out, "            return new {}(resultPtr);", return_type_name).ok();
         } else {
-            // Record types: use content accessor to get JSON, then deserialize
+            // Record types: use _to_json to serialize the full struct to JSON, then deserialize.
+            // NOTE: _content only returns the markdown string field, not a full JSON object.
             let type_snake = return_type_name.to_snake_case();
             let free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
-            let content_handle = format!(
-                "NativeLib.{}_{}_CONTENT",
+            let to_json_handle = format!(
+                "NativeLib.{}_{}_TO_JSON",
                 prefix.to_uppercase(),
                 type_snake.to_uppercase()
             );
             writeln!(
                 out,
-                "            var contentPtr = (MemorySegment) {}.invoke(resultPtr);",
-                content_handle
-            )
-            .ok();
-            writeln!(
-                out,
-                "            String content = contentPtr.equals(MemorySegment.NULL) ? null :"
-            )
-            .ok();
-            writeln!(
-                out,
-                "                contentPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+                "            var jsonPtr = (MemorySegment) {}.invoke(resultPtr);",
+                to_json_handle
             )
             .ok();
             writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
+            writeln!(out, "            if (jsonPtr.equals(MemorySegment.NULL)) {{").ok();
+            writeln!(out, "                return null;").ok();
+            writeln!(out, "            }}").ok();
             writeln!(
                 out,
-                "            return new ObjectMapper().readValue(content, {}.class);",
+                "            String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+            )
+            .ok();
+            writeln!(
+                out,
+                "            NativeLib.{}_FREE_STRING.invoke(jsonPtr);",
+                prefix.to_uppercase()
+            )
+            .ok();
+            writeln!(
+                out,
+                "            return createObjectMapper().readValue(json, {}.class);",
                 return_type_name
             )
             .ok();
@@ -671,7 +785,7 @@ fn gen_sync_function_method(
         };
         writeln!(
             out,
-            "            return new ObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }});",
+            "            return createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }});",
             element_type
         )
         .ok();
@@ -1119,7 +1233,7 @@ fn gen_ffi_layout(ty: &TypeRef) -> String {
     }
 }
 
-fn marshal_param_to_ffi(out: &mut String, name: &str, ty: &TypeRef, opaque_types: &AHashSet<String>) {
+fn marshal_param_to_ffi(out: &mut String, name: &str, ty: &TypeRef, opaque_types: &AHashSet<String>, prefix: &str) {
     match ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
             let cname = "c".to_string() + name;
@@ -1131,8 +1245,33 @@ fn marshal_param_to_ffi(out: &mut String, name: &str, ty: &TypeRef, opaque_types
                 // Opaque handles: pass the inner MemorySegment via .handle()
                 writeln!(out, "            var {} = {}.handle();", cname, name).ok();
             } else {
-                // Non-opaque named types: serialize to JSON and pass as string
-                writeln!(out, "            var {} = MemorySegment.NULL;", cname).ok();
+                // Non-opaque named types: serialize to JSON, call _from_json to get FFI pointer.
+                // The pointer must be freed after the FFI call with _free.
+                let type_snake = type_name.to_snake_case();
+                let from_json_handle = format!(
+                    "NativeLib.{}_{}_FROM_JSON",
+                    prefix.to_uppercase(),
+                    type_snake.to_uppercase()
+                );
+                let _free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
+                writeln!(
+                    out,
+                    "            var {}Json = {} != null ? createObjectMapper().writeValueAsString({}) : null;",
+                    cname, name, name
+                )
+                .ok();
+                writeln!(
+                    out,
+                    "            var {}JsonSeg = {}Json != null ? arena.allocateFrom({}Json) : MemorySegment.NULL;",
+                    cname, cname, cname
+                )
+                .ok();
+                writeln!(
+                    out,
+                    "            var {} = {}Json != null ? (MemorySegment) {}.invoke({}JsonSeg) : MemorySegment.NULL;",
+                    cname, cname, from_json_handle, cname
+                )
+                .ok();
             }
         }
         TypeRef::Optional(inner) => {
@@ -1157,7 +1296,21 @@ fn marshal_param_to_ffi(out: &mut String, name: &str, ty: &TypeRef, opaque_types
                         )
                         .ok();
                     } else {
-                        writeln!(out, "            var {} = MemorySegment.NULL;", cname).ok();
+                        // Non-opaque named type in Optional: serialize to JSON and call _from_json
+                        let type_snake = type_name.to_snake_case();
+                        let from_json_handle = format!(
+                            "NativeLib.{}_{}_FROM_JSON",
+                            prefix.to_uppercase(),
+                            type_snake.to_uppercase()
+                        );
+                        writeln!(
+                            out,
+                            "            var {}Json = {} != null ? createObjectMapper().writeValueAsString({}) : null;",
+                            cname, name, name
+                        )
+                        .ok();
+                        writeln!(out, "            var {}JsonSeg = {}Json != null ? arena.allocateFrom({}Json) : MemorySegment.NULL;", cname, cname, cname).ok();
+                        writeln!(out, "            var {} = {}Json != null ? (MemorySegment) {}.invoke({}JsonSeg) : MemorySegment.NULL;", cname, cname, from_json_handle, cname).ok();
                     }
                 }
                 _ => {
@@ -1236,13 +1389,40 @@ fn gen_helper_methods(out: &mut String) {
     // Only emit helper methods that are actually called in the generated body.
     let needs_read_cstring = out.contains("readCString(");
     let needs_read_bytes = out.contains("readBytes(");
+    let needs_create_object_mapper = out.contains("createObjectMapper()");
 
-    if !needs_read_cstring && !needs_read_bytes {
+    if !needs_read_cstring && !needs_read_bytes && !needs_create_object_mapper {
         return;
     }
 
     writeln!(out, "    // Helper methods for FFI marshalling").ok();
     writeln!(out).ok();
+
+    if needs_create_object_mapper {
+        // Emit a configured ObjectMapper factory:
+        //   - findAndRegisterModules() to pick up jackson-datatype-jdk8 (Optional support)
+        //   - SNAKE_CASE naming strategy so camelCase Java field names match snake_case JSON keys
+        //   - ACCEPT_CASE_INSENSITIVE_ENUMS so enum names like "json_ld" match JsonLd, etc.
+        writeln!(
+            out,
+            "    private static com.fasterxml.jackson.databind.ObjectMapper createObjectMapper() {{"
+        )
+        .ok();
+        writeln!(out, "        return new com.fasterxml.jackson.databind.ObjectMapper()").ok();
+        writeln!(out, "            .findAndRegisterModules()").ok();
+        writeln!(
+            out,
+            "            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
+        )
+        .ok();
+        writeln!(
+            out,
+            "            .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true);"
+        )
+        .ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
+    }
 
     if needs_read_cstring {
         writeln!(out, "    private static String readCString(MemorySegment ptr) {{").ok();

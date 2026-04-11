@@ -1,4 +1,4 @@
-use alef_core::ir::{PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{CoreWrapper, PrimitiveType, TypeDef, TypeRef};
 use std::fmt::Write;
 
 use super::ConversionConfig;
@@ -44,6 +44,14 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         } else {
             conversion
         };
+        // CoreWrapper: apply Cow/Arc/Bytes wrapping for binding→core direction
+        let conversion = apply_core_wrapper_to_core(
+            &conversion,
+            &field.name,
+            &field.core_wrapper,
+            &field.vec_inner_core_wrapper,
+            field.optional,
+        );
         writeln!(out, "            {conversion},").ok();
     }
     // Use ..Default::default() to fill cfg-gated fields stripped from the IR
@@ -323,5 +331,74 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
         // Fall through to default for everything else
         _ => field_conversion_to_core(name, ty, optional),
+    }
+}
+
+/// Apply CoreWrapper transformations to a binding→core conversion expression.
+/// Wraps the value expression with Arc::new(), .into() for Cow, etc.
+fn apply_core_wrapper_to_core(
+    conversion: &str,
+    name: &str,
+    core_wrapper: &CoreWrapper,
+    vec_inner_core_wrapper: &CoreWrapper,
+    optional: bool,
+) -> String {
+    // Handle Vec<Arc<T>>: replace .map(Into::into) with .map(|v| std::sync::Arc::new(v.into()))
+    if *vec_inner_core_wrapper == CoreWrapper::Arc {
+        return conversion
+            .replace(
+                ".map(Into::into).collect()",
+                ".map(|v| std::sync::Arc::new(v.into())).collect()",
+            )
+            .replace(
+                "map(|v| v.into_iter().map(Into::into)",
+                "map(|v| v.into_iter().map(|v| std::sync::Arc::new(v.into()))",
+            );
+    }
+
+    match core_wrapper {
+        CoreWrapper::None => conversion.to_string(),
+        CoreWrapper::Cow => {
+            // Cow<str>: binding String → core Cow via .into()
+            // The field_conversion already emits "name: val.name" for strings,
+            // we need to add .into() to convert String → Cow<'static, str>
+            if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                if optional {
+                    format!("{name}: {expr}.map(Into::into)")
+                } else if expr == format!("val.{name}") {
+                    format!("{name}: val.{name}.into()")
+                } else {
+                    format!("{name}: ({expr}).into()")
+                }
+            } else {
+                conversion.to_string()
+            }
+        }
+        CoreWrapper::Arc => {
+            // Arc<T>: wrap with Arc::new()
+            if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                if optional {
+                    format!("{name}: {expr}.map(|v| std::sync::Arc::new(v))")
+                } else {
+                    format!("{name}: std::sync::Arc::new({expr})")
+                }
+            } else {
+                conversion.to_string()
+            }
+        }
+        CoreWrapper::Bytes => {
+            // Bytes: binding Vec<u8> → core Bytes via .into()
+            if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                if optional {
+                    format!("{name}: {expr}.map(Into::into)")
+                } else if expr == format!("val.{name}") {
+                    format!("{name}: val.{name}.into()")
+                } else {
+                    format!("{name}: ({expr}).into()")
+                }
+            } else {
+                conversion.to_string()
+            }
+        }
     }
 }

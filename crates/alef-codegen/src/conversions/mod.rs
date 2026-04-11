@@ -73,6 +73,8 @@ mod tests {
                     type_rust_path: None,
                     cfg: None,
                     typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
                 },
                 FieldDef {
                     name: "timeout".into(),
@@ -85,6 +87,8 @@ mod tests {
                     type_rust_path: None,
                     cfg: None,
                     typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
                 },
                 FieldDef {
                     name: "backend".into(),
@@ -97,6 +101,8 @@ mod tests {
                     type_rust_path: None,
                     cfg: None,
                     typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
                 },
             ],
             methods: vec![],

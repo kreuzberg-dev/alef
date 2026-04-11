@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use ahash::AHashMap;
-use alef_core::ir::{EnumVariant, FieldDef, TypeRef};
+use alef_core::ir::{CoreWrapper, EnumVariant, FieldDef, TypeRef};
 use syn;
 
 use crate::type_resolver;
@@ -211,6 +211,69 @@ pub(crate) fn extract_field_type_rust_path(ty: &syn::Type) -> Option<String> {
     None
 }
 
+/// Get the last segment ident of a type, unwrapping Option if present.
+fn outermost_ident(ty: &syn::Type) -> Option<String> {
+    if let syn::Type::Path(p) = ty {
+        if let Some(seg) = p.path.segments.last() {
+            let ident = seg.ident.to_string();
+            if ident == "Option" {
+                // Recurse into Option<T>
+                if let Some(inner) = type_resolver::extract_single_generic_arg_syn(seg) {
+                    return outermost_ident(&inner);
+                }
+            }
+            return Some(ident);
+        }
+    }
+    None
+}
+
+/// Detect if a syn::Type is wrapped in Cow, Arc, or Bytes (before resolution).
+pub(crate) fn detect_core_wrapper(ty: &syn::Type) -> alef_core::ir::CoreWrapper {
+    use alef_core::ir::CoreWrapper;
+    match outermost_ident(ty).as_deref() {
+        Some("Cow") => CoreWrapper::Cow,
+        Some("Arc") => CoreWrapper::Arc,
+        Some("Bytes") => CoreWrapper::Bytes,
+        _ => CoreWrapper::None,
+    }
+}
+
+/// Detect if a Vec's inner type is wrapped in Arc (e.g., `Vec<Arc<T>>`).
+pub(crate) fn detect_vec_inner_core_wrapper(ty: &syn::Type) -> alef_core::ir::CoreWrapper {
+    use alef_core::ir::CoreWrapper;
+    // Unwrap Option<Vec<Arc<T>>> → check Vec inner
+    let check_ty = if let syn::Type::Path(p) = ty {
+        if let Some(seg) = p.path.segments.last() {
+            if seg.ident == "Option" {
+                type_resolver::extract_single_generic_arg_syn(seg)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let ty_ref = check_ty.as_deref().unwrap_or(ty);
+
+    if let syn::Type::Path(p) = ty_ref {
+        if let Some(seg) = p.path.segments.last() {
+            if seg.ident == "Vec" {
+                if let Some(vec_inner) = type_resolver::extract_single_generic_arg_syn(seg) {
+                    if let Some(ident) = outermost_ident(&vec_inner) {
+                        if ident == "Arc" {
+                            return CoreWrapper::Arc;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    CoreWrapper::None
+}
+
 /// If the resolved type is `TypeRef::Optional(inner)`, unwrap it and mark as optional.
 pub(crate) fn unwrap_optional(ty: TypeRef) -> (TypeRef, bool) {
     match ty {
@@ -227,6 +290,8 @@ pub(crate) fn extract_field(field: &syn::Field) -> FieldDef {
 
     let is_boxed = syn_type_is_boxed(&field.ty);
     let type_rust_path = extract_field_type_rust_path(&field.ty);
+    let core_wrapper = detect_core_wrapper(&field.ty);
+    let vec_inner_core_wrapper = detect_vec_inner_core_wrapper(&field.ty);
 
     let resolved = type_resolver::resolve_type(&field.ty);
     let (ty, optional) = unwrap_optional(resolved);
@@ -242,6 +307,8 @@ pub(crate) fn extract_field(field: &syn::Field) -> FieldDef {
         type_rust_path,
         cfg,
         typed_default: None,
+        core_wrapper,
+        vec_inner_core_wrapper,
     }
 }
 
@@ -267,6 +334,8 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
                     type_rust_path: extract_field_type_rust_path(&f.ty),
                     cfg: None,
                     typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
                 }
             })
             .collect(),

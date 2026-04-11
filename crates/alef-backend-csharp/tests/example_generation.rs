@@ -25,6 +25,8 @@ fn test_generated_code_example() {
                     type_rust_path: None,
                     cfg: None,
                     typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                 },
                 FieldDef {
                     name: "timeout".to_string(),
@@ -37,6 +39,8 @@ fn test_generated_code_example() {
                     type_rust_path: None,
                     cfg: None,
                     typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                 },
             ],
             methods: vec![],

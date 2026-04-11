@@ -1,7 +1,9 @@
 use ahash::AHashSet;
 use alef_codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig, gen_enum, gen_function, gen_struct};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::ir::{EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{
+    CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
+};
 use std::borrow::Cow;
 
 /// Minimal TypeMapper using plain Rust type names (no backend-specific overrides).
@@ -54,6 +56,8 @@ fn simple_type_def() -> TypeDef {
                 type_rust_path: None,
                 cfg: None,
                 typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
             },
             FieldDef {
                 name: "count".to_string(),
@@ -66,6 +70,8 @@ fn simple_type_def() -> TypeDef {
                 type_rust_path: None,
                 cfg: None,
                 typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
             },
         ],
         methods: vec![],

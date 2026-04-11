@@ -331,7 +331,7 @@ fn build_args_and_setup(
     for arg in args {
         if arg.arg_type == "mock_url" {
             setup_lines.push(format!(
-                "const {} = process.env.MOCK_SERVER_URL + '/fixtures/{fixture_id}';",
+                "const {} = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;",
                 arg.name,
             ));
             parts.push(arg.name.clone());
@@ -516,7 +516,20 @@ fn json_to_js(value: &serde_json::Value) -> String {
             format!("[{}]", items.join(", "))
         }
         serde_json::Value::Object(map) => {
-            let entries: Vec<String> = map.iter().map(|(k, v)| format!("{}: {}", k, json_to_js(v))).collect();
+            let entries: Vec<String> = map
+                .iter()
+                .map(|(k, v)| {
+                    // Quote keys that aren't valid JS identifiers (contain hyphens, spaces, etc.)
+                    let key = if k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                        && !k.starts_with(|c: char| c.is_ascii_digit())
+                    {
+                        k.clone()
+                    } else {
+                        format!("\"{}\"", escape_js(k))
+                    };
+                    format!("{key}: {}", json_to_js(v))
+                })
+                .collect();
             format!("{{ {} }}", entries.join(", "))
         }
     }

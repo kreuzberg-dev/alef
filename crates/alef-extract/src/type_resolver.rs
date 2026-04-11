@@ -181,6 +181,18 @@ fn resolve_slice_type(elem: &syn::Type) -> TypeRef {
 }
 
 /// Extract the first generic type argument from a path segment, e.g., `Vec<T>` → T.
+/// Extract the raw syn::Type of the first generic argument (unresolved).
+pub fn extract_single_generic_arg_syn(segment: &syn::PathSegment) -> Option<Box<syn::Type>> {
+    if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+        for arg in &args.args {
+            if let syn::GenericArgument::Type(ty) = arg {
+                return Some(Box::new(ty.clone()));
+            }
+        }
+    }
+    None
+}
+
 fn extract_single_generic_arg(segment: &syn::PathSegment) -> Option<TypeRef> {
     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
         for arg in &args.args {

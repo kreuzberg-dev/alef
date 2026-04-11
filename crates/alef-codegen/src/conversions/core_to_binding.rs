@@ -1,5 +1,5 @@
 use ahash::AHashSet;
-use alef_core::ir::{PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{CoreWrapper, PrimitiveType, TypeDef, TypeRef};
 use std::fmt::Write;
 
 use super::ConversionConfig;
@@ -59,6 +59,14 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             base_conversion
         };
+        // CoreWrapper: unwrap Arc, convert Cow→String, Bytes→Vec<u8>
+        let conversion = apply_core_wrapper_from_core(
+            &conversion,
+            &field.name,
+            &field.core_wrapper,
+            &field.vec_inner_core_wrapper,
+            field.optional,
+        );
         // Skip cfg-gated fields — they don't exist in the binding struct
         if field.cfg.is_some() {
             continue;
@@ -400,5 +408,74 @@ pub fn field_conversion_from_core_cfg(
         }
         // Fall through to default (handles paths, opaque without prefix, etc.)
         _ => field_conversion_from_core(name, ty, optional, sanitized, opaque_types),
+    }
+}
+
+/// Apply CoreWrapper transformations for core→binding direction.
+/// Unwraps Arc, converts Cow→String, Bytes→Vec<u8>.
+fn apply_core_wrapper_from_core(
+    conversion: &str,
+    name: &str,
+    core_wrapper: &CoreWrapper,
+    vec_inner_core_wrapper: &CoreWrapper,
+    optional: bool,
+) -> String {
+    // Handle Vec<Arc<T>>: unwrap Arc elements
+    if *vec_inner_core_wrapper == CoreWrapper::Arc {
+        return conversion
+            .replace(".map(Into::into).collect()", ".map(|v| (*v).clone().into()).collect()")
+            .replace(
+                "map(|v| v.into_iter().map(Into::into)",
+                "map(|v| v.into_iter().map(|v| (*v).clone().into())",
+            );
+    }
+
+    match core_wrapper {
+        CoreWrapper::None => conversion.to_string(),
+        CoreWrapper::Cow => {
+            // Cow<str> → String: core val.name is Cow, binding needs String
+            // The conversion already emits "name: val.name" for strings which works
+            // since Cow<str> derefs to &str and String: From<Cow<str>> exists.
+            // But if it's "val.name" directly, add .into_owned() or .to_string()
+            if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                if optional {
+                    // Already handled by map
+                    conversion.to_string()
+                } else if expr == format!("val.{name}") {
+                    format!("{name}: val.{name}.into_owned()")
+                } else {
+                    conversion.to_string()
+                }
+            } else {
+                conversion.to_string()
+            }
+        }
+        CoreWrapper::Arc => {
+            // Arc<T> → T: unwrap via clone
+            if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                if optional {
+                    format!("{name}: {expr}.map(|v| (*v).clone().into())")
+                } else {
+                    let unwrapped = expr.replace(&format!("val.{name}"), &format!("(*val.{name}).clone()"));
+                    format!("{name}: {unwrapped}")
+                }
+            } else {
+                conversion.to_string()
+            }
+        }
+        CoreWrapper::Bytes => {
+            // Bytes → Vec<u8>: .to_vec()
+            if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                if optional {
+                    format!("{name}: {expr}.map(|v| v.to_vec())")
+                } else if expr == format!("val.{name}") {
+                    format!("{name}: val.{name}.to_vec()")
+                } else {
+                    conversion.to_string()
+                }
+            } else {
+                conversion.to_string()
+            }
+        }
     }
 }
