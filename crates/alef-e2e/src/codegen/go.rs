@@ -252,12 +252,22 @@ fn render_test_function(
 
     // Collect optional fields referenced by assertions and emit nil-safe
     // dereference blocks so that assertions can use plain string locals.
+    // Only dereference fields whose assertion values are strings (or that are
+    // used in string-oriented assertions like equals/contains with string values).
     let mut optional_locals: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
             if !f.is_empty() {
                 let resolved = field_resolver.resolve(f);
                 if field_resolver.is_optional(resolved) && !optional_locals.contains_key(f.as_str()) {
+                    // Only create deref locals for string-valued fields.
+                    // Detect by checking if the assertion value is a string.
+                    let is_string_field = assertion.value.as_ref().is_some_and(|v| v.is_string());
+                    if !is_string_field {
+                        // Non-string optional fields (e.g., *uint64) are handled
+                        // by nil guards in render_assertion instead.
+                        continue;
+                    }
                     let field_expr = field_resolver.accessor(f, "go", result_var);
                     let local_var = resolved.replace(['.', '['], "_").replace(']', "");
                     if field_resolver.has_map_access(f) {
@@ -410,11 +420,55 @@ fn render_assertion(
         _ => result_var.to_string(),
     };
 
+    // Check if the field (after resolution) is optional, which means it's a pointer in Go.
+    // Also check if a `.length` suffix's parent is optional (e.g., metadata.headings.length
+    // where metadata.headings is optional → len() needs dereference).
+    let is_optional = assertion
+        .field
+        .as_ref()
+        .map(|f| {
+            let resolved = field_resolver.resolve(f);
+            let check_path = resolved
+                .strip_suffix(".length")
+                .or_else(|| resolved.strip_suffix(".count"))
+                .or_else(|| resolved.strip_suffix(".size"))
+                .unwrap_or(resolved);
+            field_resolver.is_optional(check_path) && !optional_locals.contains_key(f.as_str())
+        })
+        .unwrap_or(false);
+
+    // When field_expr is `len(X)` and X is an optional (pointer) field, rewrite to `len(*X)`
+    // and we'll wrap with a nil guard in the assertion handlers.
+    let field_expr = if is_optional && field_expr.starts_with("len(") && field_expr.ends_with(')') {
+        let inner = &field_expr[4..field_expr.len() - 1];
+        format!("len(*{inner})")
+    } else {
+        field_expr
+    };
+    // Build the nil-guard expression for the inner pointer (without len wrapper).
+    let nil_guard_expr = if is_optional && field_expr.starts_with("len(*") {
+        Some(field_expr[5..field_expr.len() - 1].to_string())
+    } else {
+        None
+    };
+
+    // For optional non-string fields that weren't dereferenced into locals,
+    // we need to dereference the pointer in comparisons.
+    let deref_field_expr = if is_optional && !field_expr.starts_with("len(") {
+        format!("*{field_expr}")
+    } else {
+        field_expr.clone()
+    };
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let go_val = json_to_go(expected);
-                let _ = writeln!(out, "\tif {field_expr} != {go_val} {{");
+                if is_optional && !field_expr.starts_with("len(") {
+                    let _ = writeln!(out, "\tif {field_expr} != nil && {deref_field_expr} != {go_val} {{");
+                } else {
+                    let _ = writeln!(out, "\tif {field_expr} != {go_val} {{");
+                }
                 let _ = writeln!(out, "\t\tt.Errorf(\"equals mismatch: got %q\", {field_expr})");
                 let _ = writeln!(out, "\t}}");
             }
@@ -422,7 +476,7 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let go_val = json_to_go(expected);
-                let _ = writeln!(out, "\tif !strings.Contains({field_expr}, {go_val}) {{");
+                let _ = writeln!(out, "\tif !strings.Contains(string({field_expr}), {go_val}) {{");
                 let _ = writeln!(
                     out,
                     "\t\tt.Errorf(\"expected to contain %s, got %q\", {go_val}, {field_expr})"
@@ -434,7 +488,7 @@ fn render_assertion(
             if let Some(values) = &assertion.values {
                 for val in values {
                     let go_val = json_to_go(val);
-                    let _ = writeln!(out, "\tif !strings.Contains({field_expr}, {go_val}) {{");
+                    let _ = writeln!(out, "\tif !strings.Contains(string({field_expr}), {go_val}) {{");
                     let _ = writeln!(out, "\t\tt.Errorf(\"expected to contain %s\", {go_val})");
                     let _ = writeln!(out, "\t}}");
                 }
@@ -443,7 +497,7 @@ fn render_assertion(
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let go_val = json_to_go(expected);
-                let _ = writeln!(out, "\tif strings.Contains({field_expr}, {go_val}) {{");
+                let _ = writeln!(out, "\tif strings.Contains(string({field_expr}), {go_val}) {{");
                 let _ = writeln!(
                     out,
                     "\t\tt.Errorf(\"expected NOT to contain %s, got %q\", {go_val}, {field_expr})"
@@ -452,12 +506,20 @@ fn render_assertion(
             }
         }
         "not_empty" => {
-            let _ = writeln!(out, "\tif len({field_expr}) == 0 {{");
+            if is_optional {
+                let _ = writeln!(out, "\tif {field_expr} == nil || len(*{field_expr}) == 0 {{");
+            } else {
+                let _ = writeln!(out, "\tif len({field_expr}) == 0 {{");
+            }
             let _ = writeln!(out, "\t\tt.Errorf(\"expected non-empty value\")");
             let _ = writeln!(out, "\t}}");
         }
         "is_empty" => {
-            let _ = writeln!(out, "\tif len({field_expr}) != 0 {{");
+            if is_optional {
+                let _ = writeln!(out, "\tif {field_expr} != nil && len(*{field_expr}) != 0 {{");
+            } else {
+                let _ = writeln!(out, "\tif len({field_expr}) != 0 {{");
+            }
             let _ = writeln!(out, "\t\tt.Errorf(\"expected empty value, got %q\", {field_expr})");
             let _ = writeln!(out, "\t}}");
         }
@@ -500,9 +562,17 @@ fn render_assertion(
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let go_val = json_to_go(val);
-                let _ = writeln!(out, "\tif {field_expr} < {go_val} {{");
-                let _ = writeln!(out, "\t\tt.Errorf(\"expected >= {go_val}, got %v\", {field_expr})");
-                let _ = writeln!(out, "\t}}");
+                if let Some(ref guard) = nil_guard_expr {
+                    let _ = writeln!(out, "\tif {guard} != nil {{");
+                    let _ = writeln!(out, "\t\tif {field_expr} < {go_val} {{");
+                    let _ = writeln!(out, "\t\t\tt.Errorf(\"expected >= {go_val}, got %v\", {field_expr})");
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t}}");
+                } else {
+                    let _ = writeln!(out, "\tif {field_expr} < {go_val} {{");
+                    let _ = writeln!(out, "\t\tt.Errorf(\"expected >= {go_val}, got %v\", {field_expr})");
+                    let _ = writeln!(out, "\t}}");
+                }
             }
         }
         "less_than_or_equal" => {
@@ -516,7 +586,7 @@ fn render_assertion(
         "starts_with" => {
             if let Some(expected) = &assertion.value {
                 let go_val = json_to_go(expected);
-                let _ = writeln!(out, "\tif !strings.HasPrefix({field_expr}, {go_val}) {{");
+                let _ = writeln!(out, "\tif !strings.HasPrefix(string({field_expr}), {go_val}) {{");
                 let _ = writeln!(
                     out,
                     "\t\tt.Errorf(\"expected to start with %s, got %q\", {go_val}, {field_expr})"
@@ -527,10 +597,19 @@ fn render_assertion(
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "\tassert.GreaterOrEqual(t, len({field_expr}), {n}, \"expected at least {n} elements\")"
-                    );
+                    if is_optional {
+                        let _ = writeln!(out, "\tif {field_expr} != nil && len(*{field_expr}) >= {n} {{");
+                        let _ = writeln!(
+                            out,
+                            "\t\tassert.GreaterOrEqual(t, len(*{field_expr}), {n}, \"expected at least {n} elements\")"
+                        );
+                        let _ = writeln!(out, "\t}}");
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "\tassert.GreaterOrEqual(t, len({field_expr}), {n}, \"expected at least {n} elements\")"
+                        );
+                    }
                 }
             }
         }

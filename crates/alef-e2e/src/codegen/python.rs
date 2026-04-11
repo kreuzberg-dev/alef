@@ -454,7 +454,21 @@ fn render_test_function(
     }
 
     // Non-error path.
-    let _ = writeln!(out, "    {result_var} = {call_expr}");
+    let has_usable_assertion = fixture.assertions.iter().any(|a| {
+        if a.assertion_type == "not_error" || a.assertion_type == "error" {
+            return false;
+        }
+        match &a.field {
+            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            _ => true,
+        }
+    });
+    let py_result_var = if has_usable_assertion {
+        result_var.to_string()
+    } else {
+        "_".to_string()
+    };
+    let _ = writeln!(out, "    {py_result_var} = {call_expr}");
 
     for assertion in &fixture.assertions {
         if assertion.assertion_type == "not_error" {

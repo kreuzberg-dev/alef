@@ -56,7 +56,27 @@ impl FieldResolver {
 
     /// Check if a resolved field path is optional.
     pub fn is_optional(&self, field: &str) -> bool {
-        self.optional_fields.contains(field)
+        if self.optional_fields.contains(field) {
+            return true;
+        }
+        // Also check with/without bracket notation: `json_ld.name` ↔ `json_ld[].name`
+        // Strip `[]` from each segment and retry.
+        let normalized = field.replace("[].", ".");
+        if normalized != field && self.optional_fields.contains(normalized.as_str()) {
+            return true;
+        }
+        // Try adding `[]` after known array fields.
+        for af in &self.array_fields {
+            if let Some(rest) = field.strip_prefix(af.as_str()) {
+                if let Some(rest) = rest.strip_prefix('.') {
+                    let with_bracket = format!("{af}[].{rest}");
+                    if self.optional_fields.contains(with_bracket.as_str()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Check if a fixture field has an explicit alias mapping.

@@ -332,6 +332,13 @@ fn render_assertion(
         }
     };
 
+    // Determine whether the field resolves to an optional (nullable) type in C#.
+    let field_is_optional = assertion
+        .field
+        .as_deref()
+        .map(|f| field_resolver.is_optional(field_resolver.resolve(f)))
+        .unwrap_or(false);
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
@@ -339,6 +346,10 @@ fn render_assertion(
                 // Only call .Trim() on string fields, not numeric or boolean ones.
                 if expected.is_string() {
                     let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr}.Trim());");
+                } else if expected.is_number() && field_is_optional {
+                    // Nullable numeric fields require an explicit cast of the expected
+                    // literal so that C# can resolve the overload (e.g. ulong?).
+                    let _ = writeln!(out, "        Assert.Equal((object?){cs_val}, (object?){field_expr});");
                 } else {
                     let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr});");
                 }
@@ -347,21 +358,24 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_expr});");
+                // Use .ToString() so this works for both string fields and enum fields.
+                // string.ToString() returns the string itself, so this is always safe.
+                let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_expr}.ToString());");
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
                 for val in values {
                     let cs_val = json_to_csharp(val);
-                    let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_expr});");
+                    // Use .ToString() so this works for both string fields and enum fields.
+                    let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_expr}.ToString());");
                 }
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.DoesNotContain({cs_val}, {field_expr});");
+                let _ = writeln!(out, "        Assert.DoesNotContain({cs_val}, {field_expr}.ToString());");
             }
         }
         "not_empty" => {
@@ -376,7 +390,7 @@ fn render_assertion(
                     .iter()
                     .map(|v| {
                         let cs_val = json_to_csharp(v);
-                        format!("{field_expr}.Contains({cs_val})")
+                        format!("{field_expr}.ToString().Contains({cs_val})")
                     })
                     .collect();
                 let joined = checks.join(" || ");

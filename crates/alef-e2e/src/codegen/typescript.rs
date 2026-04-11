@@ -283,8 +283,25 @@ fn render_test_case(
         let _ = writeln!(out, "    {line}");
     }
 
-    // Emit variable declarations for input args (for readability in complex cases).
-    let _ = writeln!(out, "    const {result_var} = {await_kw}{function_name}({args_str});");
+    // Check if any assertion actually uses the result variable.
+    // If all assertions are skipped (field not on result type), skip the const assignment.
+    let has_usable_assertion = fixture.assertions.iter().any(|a| {
+        if a.assertion_type == "not_error" || a.assertion_type == "error" {
+            return false;
+        }
+        match &a.field {
+            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            _ => true,
+        }
+    });
+
+    if has_usable_assertion {
+        // Emit variable declarations for input args (for readability in complex cases).
+        let _ = writeln!(out, "    const {result_var} = {await_kw}{function_name}({args_str});");
+    } else {
+        // No usable assertions; just call the function without capturing the result.
+        let _ = writeln!(out, "    {await_kw}{function_name}({args_str});");
+    }
 
     // Emit assertions.
     for assertion in &fixture.assertions {

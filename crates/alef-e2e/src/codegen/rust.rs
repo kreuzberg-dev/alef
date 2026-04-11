@@ -223,13 +223,32 @@ fn render_test_function(
     // Non-error path: unwrap the result.
     let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
 
+    // Check if any assertion actually uses the result variable.
+    // If all assertions are skipped (field not on result type), use `_` to avoid
+    // Rust's "variable never used" warning.
+    let has_usable_assertion = fixture.assertions.iter().any(|a| {
+        if a.assertion_type == "not_error" || a.assertion_type == "error" {
+            return false;
+        }
+        match &a.field {
+            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            _ => true,
+        }
+    });
+
+    let result_binding = if has_usable_assertion {
+        result_var.to_string()
+    } else {
+        "_".to_string()
+    };
+
     if has_not_error || !fixture.assertions.is_empty() {
         let _ = writeln!(
             out,
-            "    let {result_var} = {function_name}({args_str}).expect(\"should succeed\");"
+            "    let {result_binding} = {function_name}({args_str}).expect(\"should succeed\");"
         );
     } else {
-        let _ = writeln!(out, "    let {result_var} = {function_name}({args_str});");
+        let _ = writeln!(out, "    let {result_binding} = {function_name}({args_str});");
     }
 
     // Emit Option field unwrap bindings for any fields accessed in assertions.
