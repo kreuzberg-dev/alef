@@ -442,11 +442,13 @@ fn gen_struct(typ: &TypeDef, mapper: &RustlerMapper, module_prefix: &str) -> Str
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
     if typ.has_default {
-        writeln!(out, "#[derive(Debug, Clone, Default, rustler::NifStruct)]").ok();
+        // Config types use NifMap so partial maps can be passed —
+        // unspecified keys use Rust Default values instead of Elixir zero values.
+        writeln!(out, "#[derive(Debug, Clone, Default, rustler::NifMap)]").ok();
     } else {
         writeln!(out, "#[derive(Debug, Clone, rustler::NifStruct)]").ok();
+        writeln!(out, "#[module = \"{}.{}\"]", module_prefix, typ.name).ok();
     }
-    writeln!(out, "#[module = \"{}.{}\"]", module_prefix, typ.name).ok();
     writeln!(out, "pub struct {} {{", typ.name).ok();
 
     for field in &typ.fields {

@@ -594,7 +594,7 @@ fn json_to_elixir_struct(
     struct_name: &str,
     atom_list_fields: &std::collections::HashSet<String>,
 ) -> String {
-    let struct_module = format!("{module_path}.{struct_name}");
+    let _struct_module = format!("{module_path}.{struct_name}");
     match value {
         serde_json::Value::Object(map) if !map.is_empty() => {
             let entries: Vec<String> = map
@@ -609,7 +609,9 @@ fn json_to_elixir_struct(
                     format!("{snake_key}: {elixir_val}")
                 })
                 .collect();
-            format!("%{struct_module}{{{}}}", entries.join(", "))
+            // Use plain atom-keyed map (not struct) since NifMap accepts partial maps
+            // and unspecified keys use Rust Default values.
+            format!("%{{{}}}", entries.join(", "))
         }
         serde_json::Value::Null => "nil".to_string(),
         // Non-object values fall back to the plain literal (e.g. nil for null).

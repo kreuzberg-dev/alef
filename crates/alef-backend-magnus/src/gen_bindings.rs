@@ -6,7 +6,7 @@ use alef_codegen::shared::{self, constructor_parts, function_params};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -343,7 +343,15 @@ fn gen_opaque_instance_method(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let core_call = format!("self.inner.{}({})", method.name, call_args);
+        // For owned-receiver (consuming) methods, clone the Arc's inner value before calling,
+        // since we cannot move out of an Arc from a &self method.
+        let is_owned_receiver = matches!(method.receiver, Some(ReceiverKind::Owned));
+        let inner_access = if is_owned_receiver {
+            "self.inner.as_ref().clone()".to_string()
+        } else {
+            "self.inner".to_string()
+        };
+        let core_call = format!("{inner_access}.{}({})", method.name, call_args);
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
                 format!(
@@ -902,11 +910,14 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
         ));
 
         if !typ.is_opaque && !typ.fields.is_empty() {
+            // Magnus function! macro only supports arity -2..=15.
+            // Types with >15 fields use a hash-based constructor (RHash param = arity 1).
             let arg_count = typ.fields.len();
+            let arity = if arg_count > 15 { 1 } else { arg_count };
             lines.push(format!(
                 r#"    class.define_singleton_method("new", function!({name}::new, {count}))?;"#,
                 name = typ.name,
-                count = arg_count
+                count = arity
             ));
         }
 

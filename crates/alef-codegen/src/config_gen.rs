@@ -525,29 +525,137 @@ impl TypeRefExt for TypeRef {
     }
 }
 
+/// The maximum arity supported by Magnus `function!` macro.
+const MAGNUS_MAX_ARITY: usize = 15;
+
 /// Generate a Magnus (Ruby) kwargs constructor for a type with `has_default`.
-/// Generates a `new` method that accepts keyword arguments with defaults.
+///
+/// For types with <=15 fields, generates a positional `Option<T>` parameter constructor.
+/// For types with >15 fields (exceeding Magnus arity limit), generates a hash-based constructor
+/// using `RHash` that extracts fields by name, applying defaults for missing keys.
 pub fn gen_magnus_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
+    if typ.fields.len() > MAGNUS_MAX_ARITY {
+        gen_magnus_hash_constructor(typ, type_mapper)
+    } else {
+        gen_magnus_positional_constructor(typ, type_mapper)
+    }
+}
+
+/// Wrap a type string for use as a type-path prefix in Rust.
+///
+/// Types containing `<` (generics like `Vec<String>`, `Option<T>`) cannot be used as
+/// `Vec<String>::try_convert(v)` — that's a parse error. They must use the UFCS form
+/// `<Vec<String>>::try_convert(v)` instead. Simple names like `String`, `bool` can use
+/// `String::try_convert(v)` directly.
+fn as_type_path_prefix(type_str: &str) -> String {
+    if type_str.contains('<') {
+        format!("<{type_str}>")
+    } else {
+        type_str.to_string()
+    }
+}
+
+/// Generate a hash-based Magnus constructor for types with many fields.
+/// Accepts `(kwargs: RHash)` and extracts each field by symbol name, applying defaults.
+fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(1024);
+
+    writeln!(out, "fn new(kwargs: magnus::RHash) -> Result<Self, magnus::Error> {{").ok();
+    writeln!(out, "    let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+    writeln!(out, "    Ok(Self {{").ok();
+
+    for field in &typ.fields {
+        let is_optional = field_is_optional_in_rust(field);
+        // Use inner type for try_convert, since the hash value is the inner T, not Option<T>.
+        let inner_type = type_mapper(&field.ty);
+        let type_prefix = as_type_path_prefix(&inner_type);
+        if is_optional {
+            // Field is Option<T>: extract from hash, wrap in Some, default to None
+            writeln!(
+                out,
+                "        {name}: kwargs.get(ruby.to_symbol(\"{name}\")).and_then(|v| {type_prefix}::try_convert(v).ok()),",
+                name = field.name,
+                type_prefix = type_prefix,
+            ).ok();
+        } else if use_unwrap_or_default(field) {
+            writeln!(
+                out,
+                "        {name}: kwargs.get(ruby.to_symbol(\"{name}\")).and_then(|v| {type_prefix}::try_convert(v).ok()).unwrap_or_default(),",
+                name = field.name,
+                type_prefix = type_prefix,
+            ).ok();
+        } else {
+            let default_str = default_value_for_field(field, "rust");
+            writeln!(
+                out,
+                "        {name}: kwargs.get(ruby.to_symbol(\"{name}\")).and_then(|v| {type_prefix}::try_convert(v).ok()).unwrap_or({default}),",
+                name = field.name,
+                type_prefix = type_prefix,
+                default = default_str,
+            ).ok();
+        }
+    }
+
+    writeln!(out, "    }})").ok();
+    writeln!(out, "}}").ok();
+
+    out
+}
+
+/// Returns true if the generated Rust field type is already `Option<T>`.
+/// This covers both:
+/// - Fields with `optional: true` (the Rust field type becomes `Option<inner_type>`)
+/// - Fields whose `TypeRef` is explicitly `Optional(_)` (rare, for nested Option types)
+fn field_is_optional_in_rust(field: &FieldDef) -> bool {
+    field.optional || matches!(&field.ty, TypeRef::Optional(_))
+}
+
+/// Generate a positional Magnus constructor for types with <=15 fields.
+/// Uses `Option<T>` parameters and applies defaults in the body.
+fn gen_magnus_positional_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
 
-    // Start with fn new(
     writeln!(out, "fn new(").ok();
 
-    // Add all fields as keyword parameters with defaults
+    // All params are Option<T> so Ruby users can pass nil for any field.
+    // If the Rust field type is already Option<T> (via optional:true or TypeRef::Optional),
+    // use that type directly (avoids Option<Option<T>>).
     for (i, field) in typ.fields.iter().enumerate() {
-        let field_type = type_mapper(&field.ty);
-        let default_str = default_value_for_field(field, "ruby");
         let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        writeln!(out, "    {}: {} = {}{}", field.name, field_type, default_str, comma).ok();
+        let is_optional = field_is_optional_in_rust(field);
+        if is_optional {
+            // field.ty is the inner type; the mapper maps inner type, we wrap in Option<>
+            // BUT the type_mapper call site already wraps when field.optional==true.
+            // Here we call type_mapper on the field's inner type directly to get the param type.
+            let inner_type = type_mapper(&field.ty);
+            writeln!(out, "    {}: Option<{}>{}", field.name, inner_type, comma).ok();
+        } else {
+            let field_type = type_mapper(&field.ty);
+            writeln!(out, "    {}: Option<{}>{}", field.name, field_type, comma).ok();
+        }
     }
 
     writeln!(out, ") -> Self {{").ok();
     writeln!(out, "    Self {{").ok();
 
-    // Field assignments
     for field in &typ.fields {
-        writeln!(out, "        {},", field.name).ok();
+        let is_optional = field_is_optional_in_rust(field);
+        if is_optional {
+            // The Rust field is Option<T>; param is Option<T>; assign directly.
+            writeln!(out, "        {},", field.name).ok();
+        } else if use_unwrap_or_default(field) {
+            writeln!(out, "        {}: {}.unwrap_or_default(),", field.name, field.name).ok();
+        } else {
+            let default_str = default_value_for_field(field, "rust");
+            writeln!(
+                out,
+                "        {}: {}.unwrap_or({}),",
+                field.name, field.name, default_str
+            )
+            .ok();
+        }
     }
 
     writeln!(out, "    }}").ok();
