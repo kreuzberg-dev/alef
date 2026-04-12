@@ -174,6 +174,31 @@ fn resolve_enum_fields(e2e_config: &E2eConfig) -> &HashMap<String, String> {
         .unwrap_or(&EMPTY)
 }
 
+/// Resolve handle nested type mappings from the Python override config.
+/// Maps config field names to their Python constructor type names.
+fn resolve_handle_nested_types(e2e_config: &E2eConfig) -> &HashMap<String, String> {
+    static EMPTY: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
+    e2e_config
+        .call
+        .overrides
+        .get("python")
+        .map(|o| &o.handle_nested_types)
+        .unwrap_or(&EMPTY)
+}
+
+/// Resolve handle dict type set from the Python override config.
+/// Fields in this set use `TypeName({...})` instead of `TypeName(key=val, ...)`.
+fn resolve_handle_dict_types(e2e_config: &E2eConfig) -> &std::collections::HashSet<String> {
+    static EMPTY: std::sync::LazyLock<std::collections::HashSet<String>> =
+        std::sync::LazyLock::new(std::collections::HashSet::new);
+    e2e_config
+        .call
+        .overrides
+        .get("python")
+        .map(|o| &o.handle_dict_types)
+        .unwrap_or(&EMPTY)
+}
+
 fn is_skipped(fixture: &Fixture, language: &str) -> bool {
     fixture.skip.as_ref().is_some_and(|s| s.should_skip(language))
 }
@@ -203,6 +228,8 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     let options_type = resolve_options_type(e2e_config);
     let options_via = resolve_options_via(e2e_config);
     let enum_fields = resolve_enum_fields(e2e_config);
+    let handle_nested_types = resolve_handle_nested_types(e2e_config);
+    let handle_dict_types = resolve_handle_dict_types(e2e_config);
     let field_resolver = FieldResolver::new(
         &e2e_config.fields,
         &e2e_config.fields_optional,
@@ -311,6 +338,32 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
         }
     }
 
+    // Import any nested handle config types actually used in this file.
+    if !handle_nested_types.is_empty() {
+        let mut used_nested_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for fixture in fixtures.iter() {
+            for arg in &e2e_config.call.args {
+                if arg.arg_type == "handle" {
+                    let config_value = resolve_field(&fixture.input, &arg.field);
+                    if let Some(obj) = config_value.as_object() {
+                        for key in obj.keys() {
+                            if let Some(type_name) = handle_nested_types.get(key) {
+                                if obj[key].is_object() && !obj[key].as_object().unwrap().is_empty() {
+                                    used_nested_types.insert(type_name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for type_name in used_nested_types {
+            if !import_names.contains(&type_name) {
+                import_names.push(type_name);
+            }
+        }
+    }
+
     if let (true, Some(opts_type)) = (needs_options_type, &options_type) {
         import_names.push(opts_type.clone());
         thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
@@ -362,6 +415,8 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
             options_type.as_deref(),
             options_via,
             enum_fields,
+            handle_nested_types,
+            handle_dict_types,
             &field_resolver,
         );
         let _ = writeln!(out);
@@ -377,6 +432,8 @@ fn render_test_function(
     options_type: Option<&str>,
     options_via: &str,
     enum_fields: &HashMap<String, String>,
+    handle_nested_types: &HashMap<String, String>,
+    handle_dict_types: &std::collections::HashSet<String>,
     field_resolver: &FieldResolver,
 ) {
     let fn_name = sanitize_ident(&fixture.id);
@@ -429,11 +486,40 @@ fn render_test_function(
                 arg_bindings.push(format!("    {var_name} = {constructor_name}(None)"));
             } else if let Some(obj) = config_value.as_object() {
                 // Build kwargs for the config constructor (CrawlConfig(key=val, ...)).
+                // For fields with a nested type mapping, wrap the dict value in the
+                // appropriate typed constructor instead of passing a plain dict.
                 let kwargs: Vec<String> = obj
                     .iter()
                     .map(|(k, v)| {
                         let snake_key = k.to_snake_case();
-                        format!("{snake_key}={}", json_to_python_literal(v))
+                        let py_val = if let Some(type_name) = handle_nested_types.get(k) {
+                            // Wrap the nested dict in the typed constructor.
+                            if let Some(nested_obj) = v.as_object() {
+                                if nested_obj.is_empty() {
+                                    // Empty dict: use the default constructor.
+                                    format!("{type_name}()")
+                                } else if handle_dict_types.contains(k) {
+                                    // Type takes a single dict argument.
+                                    format!("{type_name}({})", json_to_python_literal(v))
+                                } else {
+                                    // Type takes keyword arguments.
+                                    let nested_kwargs: Vec<String> = nested_obj
+                                        .iter()
+                                        .map(|(nk, nv)| {
+                                            let nested_snake_key = nk.to_snake_case();
+                                            format!("{nested_snake_key}={}", json_to_python_literal(nv))
+                                        })
+                                        .collect();
+                                    format!("{type_name}({})", nested_kwargs.join(", "))
+                                }
+                            } else {
+                                // Non-object value: use as-is.
+                                json_to_python_literal(v)
+                            }
+                        } else {
+                            json_to_python_literal(v)
+                        };
+                        format!("{snake_key}={py_val}")
                     })
                     .collect();
                 // Use the options_type if configured, otherwise "CrawlConfig".
@@ -640,6 +726,16 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
         _ => result_var.to_string(),
     };
 
+    // Check whether the field path (or any prefix of it) is optional so we can
+    // guard `in` / `not in` expressions against None.
+    let field_is_optional = match &assertion.field {
+        Some(f) if !f.is_empty() => {
+            let resolved = field_resolver.resolve(f);
+            field_resolver.is_optional(resolved)
+        }
+        _ => false,
+    };
+
     match assertion.assertion_type.as_str() {
         "error" | "not_error" => {
             // Handled at call site.
@@ -661,21 +757,42 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
         "contains" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
-                let _ = writeln!(out, "    assert {expected} in {field_access}  # noqa: S101");
+                if field_is_optional {
+                    let _ = writeln!(
+                        out,
+                        "    assert {field_access} is not None and {expected} in {field_access}  # noqa: S101"
+                    );
+                } else {
+                    let _ = writeln!(out, "    assert {expected} in {field_access}  # noqa: S101");
+                }
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
                 for val in values {
                     let expected = value_to_python_string(val);
-                    let _ = writeln!(out, "    assert {expected} in {field_access}  # noqa: S101");
+                    if field_is_optional {
+                        let _ = writeln!(
+                            out,
+                            "    assert {field_access} is not None and {expected} in {field_access}  # noqa: S101"
+                        );
+                    } else {
+                        let _ = writeln!(out, "    assert {expected} in {field_access}  # noqa: S101");
+                    }
                 }
             }
         }
         "not_contains" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
-                let _ = writeln!(out, "    assert {expected} not in {field_access}  # noqa: S101");
+                if field_is_optional {
+                    let _ = writeln!(
+                        out,
+                        "    assert {field_access} is None or {expected} not in {field_access}  # noqa: S101"
+                    );
+                } else {
+                    let _ = writeln!(out, "    assert {expected} not in {field_access}  # noqa: S101");
+                }
             }
         }
         "not_empty" => {
@@ -688,10 +805,17 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
             if let Some(values) = &assertion.values {
                 let items: Vec<String> = values.iter().map(value_to_python_string).collect();
                 let list_str = items.join(", ");
-                let _ = writeln!(
-                    out,
-                    "    assert any(v in {field_access} for v in [{list_str}])  # noqa: S101"
-                );
+                if field_is_optional {
+                    let _ = writeln!(
+                        out,
+                        "    assert {field_access} is not None and any(v in {field_access} for v in [{list_str}])  # noqa: S101"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "    assert any(v in {field_access} for v in [{list_str}])  # noqa: S101"
+                    );
+                }
             }
         }
         "greater_than" => {

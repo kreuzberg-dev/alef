@@ -147,13 +147,13 @@ fn render_pom_xml(pkg_name: &str, java_group_id: &str, pkg_version: &str) -> Str
         <junit.version>5.11.4</junit.version>
     </properties>
 
-    <!-- The Java package JAR must be pre-installed in the local Maven repo.
-         Run: mvn install -f ../../packages/java/pom.xml -DskipTests before testing. -->
     <dependencies>
         <dependency>
             <groupId>{java_group_id}</groupId>
             <artifactId>{pkg_name}</artifactId>
             <version>{pkg_version}</version>
+            <scope>system</scope>
+            <systemPath>${{project.basedir}}/../../packages/java/target/{pkg_name}-{pkg_version}.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

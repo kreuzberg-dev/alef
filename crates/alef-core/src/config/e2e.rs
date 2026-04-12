@@ -181,6 +181,21 @@ pub struct CallOverride {
     /// (or equivalent field access) will use the result variable directly.
     #[serde(default)]
     pub result_is_simple: bool,
+    /// Maps handle config field names to their Python type constructor names.
+    ///
+    /// When the handle config object contains a nested dict-valued field, the
+    /// generator will wrap it in the specified type using keyword arguments.
+    /// E.g., `{"browser": "BrowserConfig"}` generates `BrowserConfig(mode="auto")`
+    /// instead of `{"mode": "auto"}`.
+    #[serde(default)]
+    pub handle_nested_types: HashMap<String, String>,
+    /// Handle config fields whose type constructor takes a single dict argument
+    /// instead of keyword arguments.
+    ///
+    /// E.g., `["auth"]` means `AuthConfig({"type": "basic", ...})` instead of
+    /// `AuthConfig(type="basic", ...)`.
+    #[serde(default)]
+    pub handle_dict_types: HashSet<String>,
 }
 
 /// Per-language package reference configuration.
