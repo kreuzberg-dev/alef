@@ -202,6 +202,13 @@ fn main() -> Result<()> {
                 }
             }
 
+            // Generate type stubs (e.g., .pyi for Python, .d.ts for TypeScript)
+            let stub_files = pipeline::generate_stubs(&api, &config, &languages)?;
+            if !stub_files.is_empty() {
+                let stub_count = pipeline::write_files(&stub_files, &base_dir)?;
+                eprintln!("Generated {stub_count} type stub files");
+            }
+
             println!("Generated {count} files");
             Ok(())
         }

@@ -75,6 +75,7 @@ pub(crate) fn gen_php_struct(typ: &TypeDef, mapper: &PhpMapper, cfg: &RustBindin
             async_pattern: cfg.async_pattern,
             has_serde: cfg.has_serde,
             type_name_prefix: cfg.type_name_prefix,
+            option_duration_on_defaults: cfg.option_duration_on_defaults,
         };
         generators::gen_struct(typ, mapper, &modified_cfg)
     } else {

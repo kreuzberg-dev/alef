@@ -100,8 +100,14 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             base_conversion
         };
-        // Optionalized non-optional fields need Some() wrapping in core→binding direction
-        let conversion = if optionalized && !field.optional {
+        // Optionalized non-optional fields need Some() wrapping in core→binding direction.
+        // This covers both NAPI-style full optionalization and PyO3-style Duration optionalization.
+        let needs_some_wrap = (optionalized && !field.optional)
+            || (config.option_duration_on_defaults
+                && typ.has_default
+                && !field.optional
+                && matches!(field.ty, TypeRef::Duration));
+        let conversion = if needs_some_wrap {
             // Extract the value expression after "name: " and wrap in Some()
             if let Some(expr) = base_conversion.strip_prefix(&format!("{}: ", field.name)) {
                 format!("{}: Some({})", field.name, expr)

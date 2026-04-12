@@ -86,6 +86,15 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     out
 }
 
+/// Python keywords and builtins that cannot be used as variant identifiers in PyO3 enums.
+/// When a variant name matches one of these, a `#[pyo3(name = "...")]` rename attribute
+/// is emitted so the Rust identifier remains unchanged while Python sees a safe name.
+const PYTHON_KEYWORDS: &[&str] = &[
+    "None", "True", "False", "from", "import", "class", "def", "return", "yield", "pass", "break", "continue", "and",
+    "or", "not", "is", "in", "if", "else", "elif", "for", "while", "with", "as", "try", "except", "finally", "raise",
+    "del", "global", "nonlocal", "lambda", "assert", "type",
+];
+
 /// Generate an enum.
 pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // All enums are generated as unit-variant-only in the binding layer.
@@ -102,8 +111,14 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     for attr in cfg.enum_attrs {
         writeln!(out, "#[{attr}]").ok();
     }
+    // Detect PyO3 context so we can rename Python keyword variants via #[pyo3(name = "...")].
+    // The Rust identifier stays unchanged; only the Python-exposed attribute name gets the suffix.
+    let is_pyo3 = cfg.enum_attrs.iter().any(|a| a.contains("pyclass"));
     writeln!(out, "pub enum {} {{", enum_def.name).ok();
     for (idx, variant) in enum_def.variants.iter().enumerate() {
+        if is_pyo3 && PYTHON_KEYWORDS.contains(&variant.name.as_str()) {
+            writeln!(out, "    #[pyo3(name = \"{}_\")]", variant.name).ok();
+        }
         writeln!(out, "    {} = {idx},", variant.name).ok();
     }
     writeln!(out, "}}").ok();

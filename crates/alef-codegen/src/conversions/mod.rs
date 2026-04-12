@@ -33,6 +33,12 @@ pub struct ConversionConfig<'a> {
     /// When true, add synthetic metadata field conversion for ConversionResult.
     /// Only NAPI backend sets this (it adds metadata field to the struct).
     pub include_cfg_metadata: bool,
+    /// When true, non-optional Duration fields on `has_default` types are stored as
+    /// `Option<u64>` in the binding struct.  The From conversion uses the builder
+    /// pattern so that `None` falls back to the core type's `Default` implementation
+    /// (giving the real default, e.g. `Duration::from_secs(30)`) instead of `Duration::ZERO`.
+    /// Used by PyO3 to prevent validation failures when `request_timeout` is unset.
+    pub option_duration_on_defaults: bool,
 }
 
 // Re-export all public items so callers continue to use `conversions::foo`.

@@ -54,7 +54,14 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         if field.cfg.is_some() {
             continue;
         }
-        let ty = if field.optional {
+        // When option_duration_on_defaults is set, wrap non-optional Duration fields in
+        // Option<u64> for has_default types so the binding constructor can accept None
+        // and the From conversion falls back to the core type's Default.
+        let force_optional = cfg.option_duration_on_defaults
+            && typ.has_default
+            && !field.optional
+            && matches!(field.ty, TypeRef::Duration);
+        let ty = if field.optional || force_optional {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
             mapper.map_type(&field.ty)

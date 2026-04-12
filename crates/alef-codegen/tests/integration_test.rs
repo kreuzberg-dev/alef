@@ -41,6 +41,7 @@ fn default_cfg<'a>() -> RustBindingConfig<'a> {
         async_pattern: AsyncPattern::None,
         has_serde: false,
         type_name_prefix: "",
+        option_duration_on_defaults: false,
     }
 }
 

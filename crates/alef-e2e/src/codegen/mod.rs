@@ -19,6 +19,27 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
 
+/// Convert a JSON value's object keys from camelCase to snake_case recursively.
+///
+/// Used when serializing fixture options for FFI-based languages (Rust, C, Java)
+/// where the receiving Rust type uses default serde (snake_case) without `rename_all`.
+pub(crate) fn normalize_json_keys_to_snake_case(value: &serde_json::Value) -> serde_json::Value {
+    use heck::ToSnakeCase;
+    match value {
+        serde_json::Value::Object(obj) => {
+            let new_obj: serde_json::Map<String, serde_json::Value> = obj
+                .iter()
+                .map(|(k, v)| (k.to_snake_case(), normalize_json_keys_to_snake_case(v)))
+                .collect();
+            serde_json::Value::Object(new_obj)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(normalize_json_keys_to_snake_case).collect())
+        }
+        other => other.clone(),
+    }
+}
+
 /// Trait for per-language e2e test code generation.
 pub trait E2eCodegen: Send + Sync {
     /// Generate all e2e test project files for this language.

@@ -22,7 +22,7 @@ pub fn gen_constructor(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBinding
 
     // For types with has_default, generate optional kwargs-style constructor
     let (param_list, sig_defaults, assignments) = if typ.has_default {
-        crate::shared::config_constructor_parts(&typ.fields, &map_fn)
+        crate::shared::config_constructor_parts_with_options(&typ.fields, &map_fn, cfg.option_duration_on_defaults)
     } else {
         constructor_parts(&typ.fields, &map_fn)
     };

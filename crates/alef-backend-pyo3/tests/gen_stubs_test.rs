@@ -190,12 +190,12 @@ fn test_basic_stubs() {
     // Assert enum stub
     assert!(content.contains("class Mode:"), "Should define Mode enum class stub");
     assert!(
-        content.contains("Fast: int = 0"),
-        "Should have Fast variant with value 0"
+        content.contains("Fast: Mode = ..."),
+        "Should have Fast variant typed as Mode"
     );
     assert!(
-        content.contains("Accurate: int = 1"),
-        "Should have Accurate variant with value 1"
+        content.contains("Accurate: Mode = ..."),
+        "Should have Accurate variant typed as Mode"
     );
     assert!(
         content.contains("def __init__(self, value: int | str) -> None:"),
@@ -336,18 +336,18 @@ fn test_enum_stubs() {
     // Assert enum class definition
     assert!(content.contains("class Status:"), "Should define Status enum class");
 
-    // Assert enum variants with their indices as int values
+    // Assert enum variants typed as the enum class itself
     assert!(
-        content.contains("Pending: int = 0"),
-        "Should have Pending variant with int value 0"
+        content.contains("Pending: Status = ..."),
+        "Should have Pending variant typed as Status"
     );
     assert!(
-        content.contains("Active: int = 1"),
-        "Should have Active variant with int value 1"
+        content.contains("Active: Status = ..."),
+        "Should have Active variant typed as Status"
     );
     assert!(
-        content.contains("Complete: int = 2"),
-        "Should have Complete variant with int value 2"
+        content.contains("Complete: Status = ..."),
+        "Should have Complete variant typed as Status"
     );
 
     // Assert enum __init__ signature
@@ -915,6 +915,12 @@ fn test_multiple_types_and_functions() {
 
     // Assert enum is defined
     assert!(content.contains("class SortOrder:"), "Should define SortOrder enum");
-    assert!(content.contains("Asc: int = 0"), "Should have Asc variant");
-    assert!(content.contains("Desc: int = 1"), "Should have Desc variant");
+    assert!(
+        content.contains("Asc: SortOrder = ..."),
+        "Should have Asc variant typed as SortOrder"
+    );
+    assert!(
+        content.contains("Desc: SortOrder = ..."),
+        "Should have Desc variant typed as SortOrder"
+    );
 }

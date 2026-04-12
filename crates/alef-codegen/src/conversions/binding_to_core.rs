@@ -38,6 +38,52 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         return out;
     }
 
+    // When option_duration_on_defaults is set for a has_default type, non-optional Duration
+    // fields are stored as Option<u64> in the binding struct.  We use the builder pattern
+    // so that None falls back to the core type's Default (giving the real field default,
+    // e.g. Duration::from_secs(30)) rather than Duration::ZERO.
+    let has_optionalized_duration = config.option_duration_on_defaults
+        && typ.has_default
+        && typ
+            .fields
+            .iter()
+            .any(|f| !f.optional && matches!(f.ty, TypeRef::Duration));
+
+    if has_optionalized_duration {
+        // Builder pattern: start from core default, override explicitly-set fields.
+        writeln!(out, "        let mut __result = {core_path}::default();").ok();
+        let optionalized = config.optionalize_defaults && typ.has_default;
+        for field in &typ.fields {
+            if field.sanitized {
+                // sanitized fields keep the default value — skip
+                continue;
+            }
+            // Duration field stored as Option<u64>: only override when Some
+            if !field.optional && matches!(field.ty, TypeRef::Duration) {
+                writeln!(
+                    out,
+                    "        if let Some(__v) = val.{} {{ __result.{} = std::time::Duration::from_secs(__v); }}",
+                    field.name, field.name
+                )
+                .ok();
+                continue;
+            }
+            let conversion = if optionalized && !field.optional {
+                gen_optionalized_field_to_core(&field.name, &field.ty, config)
+            } else {
+                field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
+            };
+            // Strip the "name: " prefix to get just the expression, then assign
+            if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
+                writeln!(out, "        __result.{} = {};", field.name, expr).ok();
+            }
+        }
+        writeln!(out, "        __result").ok();
+        writeln!(out, "    }}").ok();
+        write!(out, "}}").ok();
+        return out;
+    }
+
     writeln!(out, "        Self {{").ok();
     let optionalized = config.optionalize_defaults && typ.has_default;
     for field in &typ.fields {

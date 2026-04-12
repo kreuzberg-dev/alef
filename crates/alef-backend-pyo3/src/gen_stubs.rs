@@ -7,6 +7,8 @@ fn python_safe_name(name: &str) -> String {
         "from", "import", "class", "def", "return", "yield", "pass", "break", "continue", "and", "or", "not", "is",
         "in", "if", "else", "elif", "for", "while", "with", "as", "try", "except", "finally", "raise", "del", "global",
         "nonlocal", "lambda", "assert", "type",
+        // Built-in constants that are also reserved in some contexts
+        "None", "True", "False",
     ];
     if PYTHON_KEYWORDS.contains(&name) {
         format!("{name}_")
@@ -30,11 +32,11 @@ fn constructor_param_type(ty: &TypeRef, api: &ApiSurface) -> String {
         .collect();
 
     match ty {
-        TypeRef::Named(name) if data_enum_names.contains(name) => format!("{} | dict", name),
+        TypeRef::Named(name) if data_enum_names.contains(name) => format!("{} | dict[str, Any]", name),
         TypeRef::Named(name) if enum_names.contains(name) => format!("{} | str", name),
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(name) if data_enum_names.contains(name) => {
-                format!("{} | dict | None", name)
+                format!("{} | dict[str, Any] | None", name)
             }
             TypeRef::Named(name) if enum_names.contains(name) => format!("{} | str | None", name),
             _ => python_type(ty),
@@ -169,10 +171,10 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
     }));
 
     let single_line = format!("    def __init__(self, {}) -> None: ...", params.join(", "));
-    if single_line.len() <= 120 {
+    if single_line.len() <= 100 {
         single_line
     } else {
-        // Wrap parameters across multiple lines to stay within 120 chars
+        // Wrap parameters across multiple lines to stay within 100 chars
         let mut wrapped = String::from("    def __init__(\n");
         wrapped.push_str("        self,\n");
         for param in &params {
@@ -234,7 +236,7 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
                 params.join(", "),
                 return_type
             );
-            if def_line.len() <= 120 {
+            if def_line.len() <= 100 {
                 single_line
             } else {
                 let mut wrapped = format!("{}@staticmethod\n{}def {}(\n", indent, indent, safe_name);
@@ -256,7 +258,7 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
                 params.join(", "),
                 return_type
             );
-            if single_line.len() <= 120 {
+            if single_line.len() <= 100 {
                 single_line
             } else {
                 let mut wrapped = format!("{}def {}(\n", indent, safe_name);
@@ -280,10 +282,10 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
 
     if enum_has_data_variants(enum_def) {
         // Data enums are frozen structs accepting a dict.
-        lines.push("    def __init__(self, value: dict) -> None: ...".to_string());
+        lines.push("    def __init__(self, value: dict[str, Any]) -> None: ...".to_string());
     } else {
         for (idx, variant) in enum_def.variants.iter().enumerate() {
-            lines.push(format!("    {}: int = {}", variant.name, idx));
+            lines.push(format!("    {}: int = {}", python_safe_name(&variant.name), idx));
         }
         lines.push("    def __init__(self, value: int | str) -> None: ...".to_string());
     }
@@ -319,7 +321,7 @@ fn gen_function_stub(func: &FunctionDef) -> String {
     let safe_name = python_safe_name(&func.name);
 
     let single_line = format!("def {}({}) -> {}: ...", safe_name, params.join(", "), return_type);
-    if single_line.len() <= 120 {
+    if single_line.len() <= 100 {
         single_line
     } else {
         let mut wrapped = format!("def {}(\n", safe_name);

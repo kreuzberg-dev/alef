@@ -250,9 +250,29 @@ pub fn format_default_value(default: &DefaultValue) -> String {
 ///
 /// Returns (param_list, signature_defaults, assignments).
 /// This is used by PyO3 and similar backends that need signature annotations.
+/// Like `config_constructor_parts` but with extra options.
+/// When `option_duration_on_defaults` is true, non-optional Duration fields are stored
+/// as `Option<u64>` in the binding struct, so the constructor assignment is a passthrough
+/// (the From conversion will handle the None → core default mapping).
+pub fn config_constructor_parts_with_options(
+    fields: &[FieldDef],
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    option_duration_on_defaults: bool,
+) -> (String, String, String) {
+    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults)
+}
+
 pub fn config_constructor_parts(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
+) -> (String, String, String) {
+    config_constructor_parts_inner(fields, type_mapper, false)
+}
+
+fn config_constructor_parts_inner(
+    fields: &[FieldDef],
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    option_duration_on_defaults: bool,
 ) -> (String, String, String) {
     let mut sorted_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.cfg.is_none()).collect();
     sorted_fields.sort_by_key(|f| f.optional as u8);
@@ -278,6 +298,11 @@ pub fn config_constructor_parts(
         .iter()
         .filter(|f| f.cfg.is_none())
         .map(|f| {
+            // Duration fields on has_default types are stored as Option<u64> when
+            // option_duration_on_defaults is set — treat them as passthrough.
+            if option_duration_on_defaults && matches!(f.ty, TypeRef::Duration) {
+                return format!("{}: {}", f.name, f.name);
+            }
             if f.optional || matches!(&f.ty, TypeRef::Optional(_)) {
                 // Optional fields: passthrough (both param and field are Option<T>)
                 format!("{}: {}", f.name, f.name)

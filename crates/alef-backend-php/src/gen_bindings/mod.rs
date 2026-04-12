@@ -43,6 +43,7 @@ impl PhpBackend {
             async_pattern: AsyncPattern::TokioBlockOn,
             has_serde,
             type_name_prefix: "",
+            option_duration_on_defaults: false,
         }
     }
 }

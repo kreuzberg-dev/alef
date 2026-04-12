@@ -62,6 +62,11 @@ pub struct RustBindingConfig<'a> {
     /// Prefix for binding type names (e.g. "Js" for NAPI/WASM, "" for PyO3/PHP).
     /// Used in impl block targets: `impl {prefix}{TypeName}`.
     pub type_name_prefix: &'a str,
+    /// When true, non-optional Duration fields on `has_default` types are emitted as
+    /// `Option<u64>` in the binding struct so that unset fields fall back to the core
+    /// type's `Default` implementation rather than `Duration::ZERO`.
+    /// Used by PyO3 to prevent validation failures when `request_timeout` is unset.
+    pub option_duration_on_defaults: bool,
 }
 
 /// Method names that conflict with standard trait methods.

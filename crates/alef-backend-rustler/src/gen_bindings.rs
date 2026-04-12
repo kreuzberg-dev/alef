@@ -215,11 +215,19 @@ impl Backend for RustlerBackend {
 
         let mut files: Vec<GeneratedFile> = Vec::new();
 
-        let output_dir = resolve_output_dir(
-            config.output.elixir.as_ref(),
-            &config.crate_config.name,
-            "packages/elixir/lib/",
-        );
+        // Elixir .ex files belong in the Elixir lib/ directory, not the Rust native/src/ dir.
+        // If config.output.elixir points at a native/ path (e.g. packages/elixir/native/.../src/),
+        // derive the lib/ sibling by stripping everything from "/native/" onwards.
+        let output_dir = if let Some(elixir_output) = config.output.elixir.as_ref() {
+            let s = elixir_output.to_string_lossy();
+            if let Some(idx) = s.find("/native/") {
+                format!("{}/lib/", &s[..idx])
+            } else {
+                s.into_owned()
+            }
+        } else {
+            "packages/elixir/lib/".to_owned()
+        };
 
         // ── 1. native.ex – NIF stub module ───────────────────────────────────
         let native_content = gen_native_ex(api, &app_name, &app_module, &crate_name);
@@ -900,7 +908,7 @@ fn gen_nif_init(api: &ApiSurface, config: &AlefConfig) -> String {
 }
 
 /// Generate the `{AppModule}.Native` Elixir module with NIF stubs for all functions and methods.
-fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, crate_name: &str) -> String {
+fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, _crate_name: &str) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(1024);
 
@@ -910,10 +918,11 @@ fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, crate_name:
     let _ = writeln!(out);
     let _ = writeln!(out, "  use Rustler,");
     let _ = writeln!(out, "    otp_app: :{app_name},");
-    let _ = writeln!(out, "    crate: \"{crate_name}_rustler\"");
+    let _ = writeln!(out, "    crate: \"{app_name}_nif\"");
     let _ = writeln!(out);
 
     // Stubs for top-level API functions
+    let mut last_was_multiline = false;
     for func in &api.functions {
         let fn_name = if func.is_async {
             format!("{}_async", func.name)
@@ -925,12 +934,7 @@ fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, crate_name:
             .iter()
             .map(|p| format!("_{}", p.name.to_snake_case()))
             .collect();
-        let _ = writeln!(
-            out,
-            "  def {}({}), do: :erlang.nif_error(:nif_not_loaded)",
-            fn_name,
-            underscored_params.join(", ")
-        );
+        last_was_multiline = write_nif_stub(&mut out, &fn_name, &underscored_params, last_was_multiline);
     }
 
     // Stubs for type methods
@@ -950,21 +954,53 @@ fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, crate_name:
                 underscored_params.push(format!("_{}", p.name.to_snake_case()));
             }
 
-            if underscored_params.is_empty() {
-                let _ = writeln!(out, "  def {nif_fn_name}(), do: :erlang.nif_error(:nif_not_loaded)");
-            } else {
-                let _ = writeln!(
-                    out,
-                    "  def {}({}), do: :erlang.nif_error(:nif_not_loaded)",
-                    nif_fn_name,
-                    underscored_params.join(", ")
-                );
-            }
+            last_was_multiline = write_nif_stub(&mut out, &nif_fn_name, &underscored_params, last_was_multiline);
         }
     }
 
     let _ = writeln!(out, "end");
     out
+}
+
+/// Write a NIF stub line, splitting onto two lines when the single-line form exceeds 98 chars.
+///
+/// `prev_was_multiline` should be `true` when the previous stub was multi-line. This is used
+/// to insert a single blank separator line around multi-line defs (mix format requirement):
+/// - single → multi: blank before multi
+/// - multi → single: blank before single
+/// - multi → multi: single blank between them (not double)
+/// - single → single: no blank
+///
+/// Returns `true` when this stub was written in multi-line form.
+///
+/// Single-line form:  `  def fn_name(args), do: :erlang.nif_error(:nif_not_loaded)`
+/// Two-line form:
+/// ```elixir
+///   def fn_name(args),
+///     do: :erlang.nif_error(:nif_not_loaded)
+/// ```
+fn write_nif_stub(out: &mut String, fn_name: &str, params: &[String], prev_was_multiline: bool) -> bool {
+    use std::fmt::Write;
+    let args = params.join(", ");
+    // "  def fn_name(args), do: :erlang.nif_error(:nif_not_loaded)"
+    // prefix="  def " (6) + fn_name + "(" (1) + args + "), do: :erlang.nif_error(:nif_not_loaded)" (40)
+    let single_line_len = 6 + fn_name.len() + 1 + args.len() + 40;
+    if single_line_len > 98 {
+        // mix format requires a blank line before multi-line defs when preceded by a single-line
+        // def. When preceded by another multi-line def the blank was already emitted after that
+        // multi-line stub (prev_was_multiline=true), so skip to avoid a double blank.
+        if !prev_was_multiline {
+            let _ = writeln!(out);
+        }
+        let _ = writeln!(out, "  def {fn_name}({args}),");
+        let _ = writeln!(out, "    do: :erlang.nif_error(:nif_not_loaded)");
+        // Emit trailing blank so the NEXT stub (whether single or multi) is separated correctly.
+        let _ = writeln!(out);
+        true
+    } else {
+        let _ = writeln!(out, "  def {fn_name}({args}), do: :erlang.nif_error(:nif_not_loaded)");
+        false
+    }
 }
 
 /// Generate a `defmodule {AppModule}.{TypeName}` file with a `defstruct` for a non-opaque type.
@@ -988,13 +1024,23 @@ fn gen_elixir_struct_module(
     }
     let _ = writeln!(out);
 
-    // defstruct with defaults
-    let _ = writeln!(out, "  defstruct [");
-    for field in &typ.fields {
-        let default = elixir_field_default(field, &field.ty, enum_defaults, opaque_types);
-        let _ = writeln!(out, "    {}: {},", field.name.to_snake_case(), default);
+    // defstruct with defaults - use bare keyword list style (mix format compliant)
+    let fields: Vec<_> = typ.fields.iter().collect();
+    if fields.is_empty() {
+        let _ = writeln!(out, "  defstruct []");
+    } else {
+        let _ = write!(out, "  defstruct ");
+        for (i, field) in fields.iter().enumerate() {
+            let default = elixir_field_default(field, &field.ty, enum_defaults, opaque_types);
+            let name = field.name.to_snake_case();
+            if i == 0 {
+                let _ = write!(out, "{name}: {default}");
+            } else {
+                let _ = write!(out, ",\n            {name}: {default}");
+            }
+        }
+        let _ = writeln!(out);
     }
-    let _ = writeln!(out, "  ]");
     let _ = writeln!(out, "end");
     out
 }
