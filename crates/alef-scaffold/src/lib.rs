@@ -183,7 +183,7 @@ requires-python = ">=3.10"
 repository = "{repository}"
 
 [tool.maturin]
-module-name = "{module_name}"
+module-name = "{name}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 features = ["pyo3/extension-module"]
 
