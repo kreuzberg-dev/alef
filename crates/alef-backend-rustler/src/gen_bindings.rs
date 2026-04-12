@@ -337,7 +337,9 @@ impl Backend for RustlerBackend {
             }
         }
 
-        content.push_str("end\n");
+        // Trim trailing blank lines so `mix format` doesn't see an extra blank before `end`.
+        let trimmed = content.trim_end_matches('\n');
+        content = format!("{trimmed}\nend\n");
 
         files.push(GeneratedFile {
             path: PathBuf::from(&output_dir).join(format!("{}.ex", app_name.to_snake_case())),
@@ -1045,6 +1047,25 @@ fn gen_elixir_struct_module(
     out
 }
 
+/// Format an integer literal with underscore separators for Elixir conventions.
+/// E.g. 5242880 → "5_242_880". Numbers < 1000 are returned unchanged.
+fn elixir_format_integer(n: i64) -> String {
+    let (neg, s) = if n < 0 {
+        (true, (-n).to_string())
+    } else {
+        (false, n.to_string())
+    };
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push('_');
+        }
+        result.push(c);
+    }
+    let formatted: String = result.chars().rev().collect();
+    if neg { format!("-{formatted}") } else { formatted }
+}
+
 /// Derive an Elixir default expression for a struct field.
 fn elixir_field_default(
     field: &FieldDef,
@@ -1058,7 +1079,7 @@ fn elixir_field_default(
         return match td {
             DefaultValue::BoolLiteral(b) => (if *b { "true" } else { "false" }).to_string(),
             DefaultValue::StringLiteral(s) => format!("\"{}\"", s.replace('"', "\\\"")),
-            DefaultValue::IntLiteral(i) => i.to_string(),
+            DefaultValue::IntLiteral(i) => elixir_format_integer(*i),
             DefaultValue::FloatLiteral(f) => format!("{f}"),
             DefaultValue::EnumVariant(v) => format!(":{}", v.to_snake_case()),
             DefaultValue::Empty => elixir_zero_value(ty, enum_defaults),

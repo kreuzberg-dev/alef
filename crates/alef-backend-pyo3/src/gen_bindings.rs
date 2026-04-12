@@ -1131,9 +1131,10 @@ fn gen_api_py(api: &ApiSurface, module_name: &str) -> String {
         if !func.doc.is_empty() {
             let doc_first_line = func.doc.lines().next().unwrap_or("");
             let doc_trimmed = doc_first_line.trim();
-            // `    """..."""` is 10 chars of overhead; limit content to 90 chars to stay ≤100.
-            let doc_content = if doc_trimmed.len() > 90 {
-                &doc_trimmed[..90]
+            // `    """..."""` is 10 chars of overhead; period may add 1 more char.
+            // Limit content to 89 chars so that with a trailing period the full line stays ≤100.
+            let doc_content = if doc_trimmed.len() > 89 {
+                &doc_trimmed[..89]
             } else {
                 doc_trimmed
             };
