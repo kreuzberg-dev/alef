@@ -434,8 +434,18 @@ pub fn is_simple_non_opaque_param(ty: &TypeRef) -> bool {
 /// Sanitized fields use `Default::default()`, non-sanitized fields are cloned and converted.
 /// Fields are accessed via `self.` (behind &self), so all non-Copy types need `.clone()`.
 pub fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str) -> String {
+    gen_lossy_binding_to_core_fields_inner(typ, core_import, false)
+}
+
+/// Same as `gen_lossy_binding_to_core_fields` but declares `core_self` as mutable.
+pub fn gen_lossy_binding_to_core_fields_mut(typ: &TypeDef, core_import: &str) -> String {
+    gen_lossy_binding_to_core_fields_inner(typ, core_import, true)
+}
+
+fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, needs_mut: bool) -> String {
     let core_path = crate::conversions::core_type_path(typ, core_import);
-    let mut out = format!("let core_self = {core_path} {{\n");
+    let mut_kw = if needs_mut { "mut " } else { "" };
+    let mut out = format!("let {mut_kw}core_self = {core_path} {{\n");
     for field in &typ.fields {
         let name = &field.name;
         if field.sanitized {

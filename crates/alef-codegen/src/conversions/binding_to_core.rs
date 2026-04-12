@@ -425,6 +425,10 @@ fn apply_core_wrapper_to_core(
                     format!("{name}: {expr}.map(Into::into)")
                 } else if expr == format!("val.{name}") {
                     format!("{name}: val.{name}.into()")
+                } else if expr == "Default::default()" {
+                    // Sanitized field: Default::default() already resolves to the correct core type
+                    // (e.g. Cow<'static, str> — adding .into() breaks type inference).
+                    conversion.to_string()
                 } else {
                     format!("{name}: ({expr}).into()")
                 }
@@ -435,7 +439,11 @@ fn apply_core_wrapper_to_core(
         CoreWrapper::Arc => {
             // Arc<T>: wrap with Arc::new()
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
-                if optional {
+                if expr == "Default::default()" {
+                    // Sanitized field: Default::default() resolves to the correct core type;
+                    // wrapping in Arc::new() would change the type.
+                    conversion.to_string()
+                } else if optional {
                     format!("{name}: {expr}.map(|v| std::sync::Arc::new(v))")
                 } else {
                     format!("{name}: std::sync::Arc::new({expr})")
@@ -451,6 +459,10 @@ fn apply_core_wrapper_to_core(
                     format!("{name}: {expr}.map(Into::into)")
                 } else if expr == format!("val.{name}") {
                     format!("{name}: val.{name}.into()")
+                } else if expr == "Default::default()" {
+                    // Sanitized field: Default::default() already resolves to the correct core type
+                    // (e.g. bytes::Bytes — adding .into() breaks type inference).
+                    conversion.to_string()
                 } else {
                     format!("{name}: ({expr}).into()")
                 }

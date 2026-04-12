@@ -95,9 +95,18 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
     // are convertible because we wrap/unwrap them via Arc.
     let _all_type_names: AHashSet<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
 
+    // Build set of Named types that implement Default — sanitized fields referencing
+    // Named types without Default would cause a compile error in the generated From impl.
+    let default_type_names: AHashSet<&str> = surface
+        .types
+        .iter()
+        .filter(|t| t.has_default)
+        .map(|t| t.name.as_str())
+        .collect();
+
     // Start with all non-opaque types as candidates.
     // Types with sanitized fields use Default::default() for the sanitized field
-    // in the binding→core direction (lossy but functional).
+    // in the binding→core direction — but only if the field type implements Default.
     let mut convertible: AHashSet<String> = surface
         .types
         .iter()
@@ -127,10 +136,15 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
         let mut to_remove = Vec::new();
         for type_name in &snapshot {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
-                let ok = typ
-                    .fields
-                    .iter()
-                    .all(|f| is_field_convertible(&f.ty, &convertible_enums, &known));
+                let ok = typ.fields.iter().all(|f| {
+                    if f.sanitized {
+                        // Sanitized fields use Default::default() in the generated From impl.
+                        // If the field type is a Named type without Default, the impl won't compile.
+                        sanitized_field_has_default(&f.ty, &default_type_names)
+                    } else {
+                        is_field_convertible(&f.ty, &convertible_enums, &known)
+                    }
+                });
                 if !ok {
                     to_remove.push(type_name.clone());
                 }
@@ -143,6 +157,38 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
         }
     }
     convertible
+}
+
+/// Check if a sanitized field's type can produce a valid `Default::default()` expression.
+/// Primitive types, strings, collections, Options, and Named types with `has_default` are fine.
+/// Named types without `has_default` are not — generating `Default::default()` for them would
+/// fail to compile.
+fn sanitized_field_has_default(ty: &TypeRef, default_types: &AHashSet<&str>) -> bool {
+    match ty {
+        TypeRef::Primitive(_)
+        | TypeRef::String
+        | TypeRef::Char
+        | TypeRef::Bytes
+        | TypeRef::Path
+        | TypeRef::Unit
+        | TypeRef::Duration
+        | TypeRef::Json => true,
+        // Option<T> defaults to None regardless of T
+        TypeRef::Optional(_) => true,
+        // Vec<T> defaults to empty vec regardless of T
+        TypeRef::Vec(_) => true,
+        // Map<K, V> defaults to empty map regardless of K/V
+        TypeRef::Map(_, _) => true,
+        TypeRef::Named(name) => {
+            if is_tuple_type_name(name) {
+                // Tuple types are always passthrough
+                true
+            } else {
+                // Named type must have has_default to be safely used via Default::default()
+                default_types.contains(name.as_str())
+            }
+        }
+    }
 }
 
 /// Check if a specific type is in the convertible set.

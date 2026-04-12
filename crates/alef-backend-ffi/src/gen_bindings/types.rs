@@ -159,12 +159,18 @@ pub(super) fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, 
     // When the field has a specific type_rust_path, use it for Named types to avoid
     // ambiguity when multiple types share the same short name.
     let field_core_import = if let Some(ref rust_path) = field.type_rust_path {
-        // type_rust_path is e.g. "types::extraction::OutputFormat" — we need the module path
-        // prefix without the type name itself.
+        // type_rust_path may be e.g. "types::extraction::OutputFormat" (relative)
+        // or "kreuzberg::types::OutputFormat" (already fully qualified with crate prefix).
+        // We need the module path prefix without the type name itself.
         if let Some(pos) = rust_path.rfind("::") {
-            // e.g. "types::extraction" from "types::extraction::OutputFormat"
-            // Prefix with core_import to get the fully qualified module
-            format!("{core_import}::{}", &rust_path[..pos])
+            let module_prefix = &rust_path[..pos];
+            // Avoid double-prefixing: if rust_path already starts with core_import,
+            // use it as-is. Otherwise prepend core_import.
+            if module_prefix == core_import || module_prefix.starts_with(&format!("{core_import}::")) {
+                module_prefix.to_string()
+            } else {
+                format!("{core_import}::{module_prefix}")
+            }
         } else {
             core_import.to_string()
         }

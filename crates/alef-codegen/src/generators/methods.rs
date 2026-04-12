@@ -1,6 +1,7 @@
 use crate::generators::binding_helpers::{
     gen_async_body, gen_call_args, gen_call_args_with_let_bindings, gen_lossy_binding_to_core_fields,
-    gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param, wrap_return,
+    gen_lossy_binding_to_core_fields_mut, gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
+    is_simple_non_opaque_param, wrap_return,
 };
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::shared::{constructor_parts, function_params, function_sig_defaults, partition_methods};
@@ -187,7 +188,12 @@ pub fn gen_method(
         {
             // Non-opaque delegation: construct core type field-by-field, call method, convert back.
             // Sanitized fields use Default::default() (lossy but functional for builder pattern).
-            let field_conversions = gen_lossy_binding_to_core_fields(typ, cfg.core_import);
+            let is_ref_mut = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
+            let field_conversions = if is_ref_mut {
+                gen_lossy_binding_to_core_fields_mut(typ, cfg.core_import)
+            } else {
+                gen_lossy_binding_to_core_fields(typ, cfg.core_import)
+            };
             let core_call = format!("core_self.{}({call_args})", method.name);
             let result_wrap = match &method.return_type {
                 TypeRef::Named(n) if n == type_name => ".into()".to_string(),
