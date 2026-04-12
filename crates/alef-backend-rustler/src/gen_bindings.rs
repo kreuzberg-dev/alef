@@ -985,23 +985,24 @@ fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, _crate_name
 fn write_nif_stub(out: &mut String, fn_name: &str, params: &[String], prev_was_multiline: bool) -> bool {
     use std::fmt::Write;
     let args = params.join(", ");
-    // "  def fn_name(args), do: :erlang.nif_error(:nif_not_loaded)"
-    // prefix="  def " (6) + fn_name + "(" (1) + args + "), do: :erlang.nif_error(:nif_not_loaded)" (40)
-    let single_line_len = 6 + fn_name.len() + 1 + args.len() + 40;
+    // Elixir convention: omit parens on zero-arg defs
+    let sig = if args.is_empty() {
+        fn_name.to_string()
+    } else {
+        format!("{fn_name}({args})")
+    };
+    // "  def <sig>, do: :erlang.nif_error(:nif_not_loaded)"
+    let single_line_len = 6 + sig.len() + 40;
     if single_line_len > 98 {
-        // mix format requires a blank line before multi-line defs when preceded by a single-line
-        // def. When preceded by another multi-line def the blank was already emitted after that
-        // multi-line stub (prev_was_multiline=true), so skip to avoid a double blank.
         if !prev_was_multiline {
             let _ = writeln!(out);
         }
-        let _ = writeln!(out, "  def {fn_name}({args}),");
+        let _ = writeln!(out, "  def {sig},");
         let _ = writeln!(out, "    do: :erlang.nif_error(:nif_not_loaded)");
-        // Emit trailing blank so the NEXT stub (whether single or multi) is separated correctly.
         let _ = writeln!(out);
         true
     } else {
-        let _ = writeln!(out, "  def {fn_name}({args}), do: :erlang.nif_error(:nif_not_loaded)");
+        let _ = writeln!(out, "  def {sig}, do: :erlang.nif_error(:nif_not_loaded)");
         false
     }
 }
