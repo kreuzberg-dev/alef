@@ -133,6 +133,7 @@ impl Backend for WasmBackend {
         let wasm_conv_config = alef_codegen::conversions::ConversionConfig {
             type_name_prefix: "Js",
             map_uses_jsvalue: true,
+            option_duration_on_defaults: true,
             ..Default::default()
         };
         let convertible = alef_codegen::conversions::convertible_types(api);

@@ -43,7 +43,7 @@ impl PhpBackend {
             async_pattern: AsyncPattern::TokioBlockOn,
             has_serde,
             type_name_prefix: "",
-            option_duration_on_defaults: false,
+            option_duration_on_defaults: true,
         }
     }
 }
@@ -175,6 +175,7 @@ impl Backend for PhpBackend {
             enum_string_names: Some(enum_names_ref),
             json_to_string: true,
             include_cfg_metadata: false,
+            option_duration_on_defaults: true,
             ..Default::default()
         };
         // Build transitive set of types that can't have binding->core From

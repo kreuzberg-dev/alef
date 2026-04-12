@@ -32,7 +32,7 @@ impl NapiBackend {
             // NAPI napi(object) structs don't derive Serialize — disable serde bridge
             has_serde: false,
             type_name_prefix: "Js",
-            option_duration_on_defaults: false,
+            option_duration_on_defaults: true,
         }
     }
 }
@@ -139,6 +139,7 @@ impl Backend for NapiBackend {
             // make all fields Option<T> and apply defaults via FromNapiValue,
             // enabling JS users to pass partial objects and omit fields they want defaults for.
             optionalize_defaults: true,
+            option_duration_on_defaults: true,
             include_cfg_metadata: true,
             ..Default::default()
         };
