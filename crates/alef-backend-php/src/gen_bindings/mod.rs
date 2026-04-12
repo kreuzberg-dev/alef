@@ -435,6 +435,24 @@ impl Backend for PhpBackend {
             // the fields: required first, then optional (preserving relative order within each group).
             let mut sorted_fields: Vec<&alef_core::ir::FieldDef> = typ.fields.iter().collect();
             sorted_fields.sort_by_key(|f| f.optional);
+
+            // Emit PHPDoc before the constructor for any array-typed fields so PHPStan
+            // understands the generic element type (e.g. `@param array<string> $items`).
+            let array_fields: Vec<&alef_core::ir::FieldDef> = sorted_fields
+                .iter()
+                .copied()
+                .filter(|f| matches!(&f.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)))
+                .collect();
+            if !array_fields.is_empty() {
+                content.push_str("    /**\n");
+                for f in &array_fields {
+                    let phpdoc = php_phpdoc_type(&f.ty);
+                    let nullable_prefix = if f.optional { "?" } else { "" };
+                    content.push_str(&format!("     * @param {}{} ${}\n", nullable_prefix, phpdoc, f.name));
+                }
+                content.push_str("     */\n");
+            }
+
             let params: Vec<String> = sorted_fields
                 .iter()
                 .map(|f| {
@@ -450,12 +468,19 @@ impl Backend for PhpBackend {
 
             // Getter methods for each field
             for field in &typ.fields {
+                let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
                 let return_type = if field.optional {
                     format!("?{}", php_type(&field.ty))
                 } else {
                     php_type(&field.ty)
                 };
                 let getter_name = field.name.to_lower_camel_case();
+                // Emit PHPDoc for array return types so PHPStan knows the element type.
+                if is_array {
+                    let phpdoc = php_phpdoc_type(&field.ty);
+                    let nullable_prefix = if field.optional { "?" } else { "" };
+                    content.push_str(&format!("    /** @return {}{} */\n", nullable_prefix, phpdoc));
+                }
                 content.push_str(&format!(
                     "    public function get{}(): {} {{ }}\n",
                     getter_name.to_pascal_case(),
@@ -601,8 +626,7 @@ fn php_type(ty: &TypeRef) -> String {
             let inner_type = php_type(inner);
             format!("?{}", inner_type)
         }
-        TypeRef::Vec(inner) => format!("array<{}>", php_type(inner)),
-        TypeRef::Map(k, v) => format!("array<{}, {}>", php_type(k), php_type(v)),
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => "array".to_string(),
         TypeRef::Named(name) => name.clone(),
         TypeRef::Unit => "void".to_string(),
         TypeRef::Duration => "float".to_string(),
