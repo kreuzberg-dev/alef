@@ -666,7 +666,8 @@ fn gen_nif_function(
                             "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
                             p.name, core_ty
                         ));
-                        return format!("{}_core.unwrap_or_default()", p.name);
+                        // Wrap in Some() since the core function takes Option<T>
+                        return format!("Some({}_core.unwrap_or_default())", p.name);
                     }
                 }
                 // Fall back to the standard call-arg logic for all other types.
@@ -768,7 +769,7 @@ fn gen_nif_async_function(
                             "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
                             p.name, core_ty
                         ));
-                        return format!("{}_core.unwrap_or_default()", p.name);
+                        return format!("Some({}_core.unwrap_or_default())", p.name);
                     }
                 }
                 match &p.ty {
