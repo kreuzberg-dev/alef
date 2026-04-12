@@ -286,7 +286,7 @@ impl Backend for RustlerBackend {
             let params: Vec<String> = func.params.iter().map(|p| p.name.to_snake_case()).collect();
             if params.is_empty() {
                 content.push_str(&format!("  def {nif_fn_name} do\n"));
-                content.push_str(&format!("    {native_mod}.{nif_fn_name}\n"));
+                content.push_str(&format!("    {native_mod}.{nif_fn_name}()\n"));
             } else {
                 content.push_str(&format!("  def {nif_fn_name}({})", params.join(", ")));
                 content.push_str(" do\n");
@@ -336,7 +336,7 @@ impl Backend for RustlerBackend {
 
                 if param_names.is_empty() {
                     content.push_str(&format!("  def {nif_fn_name} do\n"));
-                    content.push_str(&format!("    {native_mod}.{nif_fn_name}\n"));
+                    content.push_str(&format!("    {native_mod}.{nif_fn_name}()\n"));
                 } else {
                     content.push_str(&format!("  def {nif_fn_name}({})", param_names.join(", ")));
                     content.push_str(" do\n");
