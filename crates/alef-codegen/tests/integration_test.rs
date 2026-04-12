@@ -285,6 +285,7 @@ fn test_gen_instance_method_with_ref_receiver() {
         trait_source: None,
         returns_ref: false,
         return_newtype_wrapper: None,
+        returns_cow: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -323,6 +324,7 @@ fn test_gen_static_method_without_receiver() {
         trait_source: None,
         returns_ref: false,
         return_newtype_wrapper: None,
+        returns_cow: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -353,6 +355,7 @@ fn test_gen_async_method_generates_async_signature() {
         trait_source: None,
         returns_ref: false,
         return_newtype_wrapper: None,
+        returns_cow: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -420,6 +423,7 @@ fn test_gen_method_with_multiple_params() {
         trait_source: None,
         returns_ref: false,
         return_newtype_wrapper: None,
+        returns_cow: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -451,6 +455,7 @@ fn test_gen_method_with_error_type() {
         trait_source: None,
         returns_ref: false,
         return_newtype_wrapper: None,
+        returns_cow: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();
@@ -487,6 +492,7 @@ fn test_gen_impl_block_with_constructor_and_methods() {
             trait_source: None,
             returns_ref: false,
             return_newtype_wrapper: None,
+            returns_cow: false,
         },
         MethodDef {
             name: "create".to_string(),
@@ -501,6 +507,7 @@ fn test_gen_impl_block_with_constructor_and_methods() {
             trait_source: None,
             returns_ref: false,
             return_newtype_wrapper: None,
+            returns_cow: false,
         },
     ];
 
@@ -544,6 +551,7 @@ fn test_gen_method_with_optional_param() {
         trait_source: None,
         returns_ref: false,
         return_newtype_wrapper: None,
+        returns_cow: false,
     };
     let mapper = RustMapper;
     let cfg = default_cfg();

@@ -392,6 +392,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
                 // Static method that returns a primitive (not skipped)
                 MethodDef {
@@ -407,6 +408,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
                 // Instance method with parameters and error
                 MethodDef {
@@ -431,6 +433,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
             ],
             is_opaque: false,

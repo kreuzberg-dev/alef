@@ -196,6 +196,10 @@ pub fn gen_method(
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
             let result_wrap = match &method.return_type {
+                // When returns_ref=true for Named types, the core method returns Cow<'_, T>
+                // (or &T). Use .into_owned() to get an owned T before converting.
+                TypeRef::Named(n) if n == type_name && method.returns_ref => ".into_owned().into()".to_string(),
+                TypeRef::Named(_) if method.returns_ref => ".into_owned().into()".to_string(),
                 TypeRef::Named(n) if n == type_name => ".into()".to_string(),
                 TypeRef::Named(_) => ".into()".to_string(),
                 TypeRef::String | TypeRef::Bytes | TypeRef::Path => {

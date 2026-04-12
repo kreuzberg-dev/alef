@@ -453,6 +453,7 @@ fn test_opaque_type_stubs() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
                 MethodDef {
                     name: "new".to_string(),
@@ -476,6 +477,7 @@ fn test_opaque_type_stubs() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
             ],
             is_opaque: true,
@@ -628,6 +630,7 @@ fn test_type_with_methods_and_fields() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
                 MethodDef {
                     name: "increment".to_string(),
@@ -651,6 +654,7 @@ fn test_type_with_methods_and_fields() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
             ],
             is_opaque: false,

@@ -255,14 +255,27 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
             _ => format!("{name}: val.{name}"),
         },
         // Map -- collect to handle HashMap↔BTreeMap conversion;
-        // additionally convert Named keys/values via Into.
-        // Skip .map() when neither key nor value needs conversion (avoids clippy::map_identity).
+        // additionally convert Named keys/values via Into, Json values via serde.
         TypeRef::Map(k, v) => {
-            let has_named_key = matches!(k.as_ref(), TypeRef::Named(_));
-            let has_named_val = matches!(v.as_ref(), TypeRef::Named(_));
-            if has_named_key || has_named_val {
-                let k_expr = if has_named_key { "k.into()" } else { "k" };
-                let v_expr = if has_named_val { "v.into()" } else { "v" };
+            let has_named_key = matches!(k.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
+            let has_named_val = matches!(v.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
+            let has_json_val = matches!(v.as_ref(), TypeRef::Json);
+            let has_json_key = matches!(k.as_ref(), TypeRef::Json);
+            if has_json_val || has_json_key || has_named_key || has_named_val {
+                let k_expr = if has_json_key {
+                    "serde_json::from_str(&k).unwrap_or(serde_json::Value::String(k))"
+                } else if has_named_key {
+                    "k.into()"
+                } else {
+                    "k"
+                };
+                let v_expr = if has_json_val {
+                    "serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v))"
+                } else if has_named_val {
+                    "v.into()"
+                } else {
+                    "v"
+                };
                 if optional {
                     format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({k_expr}, {v_expr})).collect())")
                 } else {

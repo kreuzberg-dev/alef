@@ -418,6 +418,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
                 MethodDef {
                     name: "increment".to_string(),
@@ -441,6 +442,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
             ],
             is_opaque: false,
@@ -674,6 +676,7 @@ fn test_opaque_type() {
                 returns_ref: false,
                 return_newtype_wrapper: None,
                 trait_source: None,
+                returns_cow: false,
             }],
             is_opaque: true,
             is_clone: true,

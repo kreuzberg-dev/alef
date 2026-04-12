@@ -707,6 +707,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
                 MethodDef {
                     name: "reset".to_string(),
@@ -721,6 +722,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
             ],
             is_opaque: false,
@@ -792,6 +794,7 @@ fn test_async_method() {
                 returns_ref: false,
                 return_newtype_wrapper: None,
                 trait_source: None,
+                returns_cow: false,
             }],
             is_opaque: true, // Make it opaque so async delegation works
             is_clone: true,
@@ -1049,6 +1052,7 @@ fn test_static_method() {
                 returns_ref: false,
                 return_newtype_wrapper: None,
                 trait_source: None,
+                returns_cow: false,
             }],
             is_opaque: false,
             is_clone: true,

@@ -182,7 +182,11 @@ impl Backend for Pyo3Backend {
             }
         }
         for e in &api.enums {
-            builder.add_item(&generators::gen_enum(e, &cfg));
+            if generators::enum_has_data_variants(e) {
+                builder.add_item(&generators::gen_pyo3_data_enum(e, &core_import));
+            } else {
+                builder.add_item(&generators::gen_enum(e, &cfg));
+            }
         }
         for f in &api.functions {
             builder.add_item(&generators::gen_function(
@@ -219,6 +223,10 @@ impl Backend for Pyo3Backend {
             }
         }
         for e in &api.enums {
+            // Data enums generate their own From impls inside gen_pyo3_data_enum; skip here.
+            if generators::enum_has_data_variants(e) {
+                continue;
+            }
             // Binding→core: only for enums with simple fields (Default::default() must work)
             if alef_codegen::conversions::can_generate_enum_conversion(e) {
                 builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
@@ -370,8 +378,15 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
         out.push_str("from typing import Any\n\n\n");
     }
 
-    // Collect enum names for type detection
+    // Collect enum names for type detection (plain unit enums vs data enums)
     let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    // Data enums (tagged unions) are exposed as dict-accepting structs, not str enums.
+    let data_enum_names: std::collections::HashSet<String> = api
+        .enums
+        .iter()
+        .filter(|e| generators::enum_has_data_variants(e))
+        .map(|e| e.name.clone())
+        .collect();
 
     // Collect all Named types referenced by has_default types
     let mut referenced_types: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -426,6 +441,10 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
         if !needed_enums.contains(&enum_def.name) {
             continue;
         }
+        // Data enums are dict-accepting structs on the Rust side; skip str,Enum generation.
+        if data_enum_names.contains(&enum_def.name) {
+            continue;
+        }
         out.push_str(&format!("class {}(str, Enum):\n", enum_def.name));
         if !enum_def.doc.is_empty() {
             out.push_str(&format!(
@@ -463,7 +482,7 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
         let use_typeddict = output_style == PythonDtoStyle::TypedDict && typ.is_return_type;
 
         if use_typeddict {
-            out.push_str(&gen_typeddict(typ, &enum_names));
+            out.push_str(&gen_typeddict(typ, &enum_names, &data_enum_names));
         } else {
             out.push_str("@dataclass\n");
             out.push_str(&format!("class {}:\n", typ.name));
@@ -473,11 +492,11 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
 
             for field in &typ.fields {
                 // Determine Python type hint
-                let type_hint = python_field_type(&field.ty, field.optional, &enum_names);
+                let type_hint = python_field_type(&field.ty, field.optional, &enum_names, &data_enum_names);
 
                 // Determine default value and check if we need | None
                 let (type_hint_with_none, default) = if let Some(td) = &field.typed_default {
-                    let default = typed_default_to_python(td, &field.ty, &enum_defaults);
+                    let default = typed_default_to_python(td, &field.ty, &enum_defaults, &data_enum_names);
                     (type_hint.clone(), default)
                 } else if field.optional {
                     // If default is None but type is Named (not already Optional), add | None
@@ -488,7 +507,10 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
                     };
                     (final_hint, "None".to_string())
                 } else {
-                    (type_hint.clone(), python_zero_value(&field.ty, &enum_names))
+                    (
+                        type_hint.clone(),
+                        python_zero_value(&field.ty, &enum_names, &data_enum_names),
+                    )
                 };
 
                 if !field.doc.is_empty() {
@@ -521,14 +543,18 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
 ///     content: str | None
 ///     tables: list[ExtractedTable]
 /// ```
-fn gen_typeddict(typ: &alef_core::ir::TypeDef, enum_names: &std::collections::HashSet<String>) -> String {
+fn gen_typeddict(
+    typ: &alef_core::ir::TypeDef,
+    enum_names: &std::collections::HashSet<String>,
+    data_enum_names: &std::collections::HashSet<String>,
+) -> String {
     let mut out = String::new();
     out.push_str(&format!("class {}(TypedDict, total=False):\n", typ.name));
     if !typ.doc.is_empty() {
         out.push_str(&format!("    \"\"\"{}\"\"\"\n\n", typ.doc.lines().next().unwrap_or("")));
     }
     for field in &typ.fields {
-        let type_hint = python_field_type(&field.ty, field.optional, enum_names);
+        let type_hint = python_field_type(&field.ty, field.optional, enum_names, data_enum_names);
         // Ensure Optional-like fields always include `| None`
         let type_hint_with_none = if field.optional && !type_hint.contains('|') {
             if matches!(&field.ty, alef_core::ir::TypeRef::Named(_)) {
@@ -555,11 +581,13 @@ fn gen_typeddict(typ: &alef_core::ir::TypeDef, enum_names: &std::collections::Ha
 
 /// Map IR TypeRef to Python type hint string for dataclass fields.
 /// Enum-typed fields become `str` (users pass string literals).
+/// Data enum-typed fields become `dict` (users pass dicts with type + fields).
 /// Non-enum Named types that aren't defined become `Any` to avoid F821 errors.
 fn python_field_type(
     ty: &alef_core::ir::TypeRef,
     optional: bool,
     enum_names: &std::collections::HashSet<String>,
+    data_enum_names: &std::collections::HashSet<String>,
 ) -> String {
     use alef_core::ir::TypeRef;
     let base = match ty {
@@ -570,16 +598,21 @@ fn python_field_type(
         },
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "str".to_string(),
         TypeRef::Bytes => "bytes".to_string(),
-        TypeRef::Vec(inner) => format!("list[{}]", python_field_type(inner, false, enum_names)),
+        TypeRef::Vec(inner) => format!("list[{}]", python_field_type(inner, false, enum_names, data_enum_names)),
         TypeRef::Map(k, v) => format!(
             "dict[{}, {}]",
-            python_field_type(k, false, enum_names),
-            python_field_type(v, false, enum_names)
+            python_field_type(k, false, enum_names, data_enum_names),
+            python_field_type(v, false, enum_names, data_enum_names)
         ),
+        // Data enums: users pass a dict with a "type" discriminator and fields.
+        TypeRef::Named(name) if data_enum_names.contains(name) => "dict".to_string(),
         TypeRef::Named(name) if enum_names.contains(name) => "str".to_string(),
         TypeRef::Named(_name) => "Any".to_string(), // Use Any for undefined types to avoid F821
         TypeRef::Optional(inner) => {
-            return format!("{} | None", python_field_type(inner, false, enum_names));
+            return format!(
+                "{} | None",
+                python_field_type(inner, false, enum_names, data_enum_names)
+            );
         }
         TypeRef::Unit => "None".to_string(),
         TypeRef::Duration => "int".to_string(),
@@ -589,10 +622,12 @@ fn python_field_type(
 
 /// Convert a typed default value to Python literal.
 /// For `Empty` on enum-typed fields, resolves to the enum's default (first) variant.
+/// For `Empty` on data enum-typed fields, resolves to None (no sensible default dict).
 fn typed_default_to_python(
     td: &alef_core::ir::DefaultValue,
     ty: &alef_core::ir::TypeRef,
     enum_defaults: &std::collections::HashMap<String, String>,
+    data_enum_names: &std::collections::HashSet<String>,
 ) -> String {
     use alef_core::ir::{DefaultValue, TypeRef};
     match td {
@@ -606,7 +641,13 @@ fn typed_default_to_python(
             format!("\"{}\"", v.to_snake_case())
         }
         DefaultValue::Empty => {
-            // For enum-typed fields, resolve to the default variant's string value.
+            // For data enum-typed fields, use None (no sensible default dict).
+            if let TypeRef::Named(name) = ty {
+                if data_enum_names.contains(name) {
+                    return "None".to_string();
+                }
+            }
+            // For plain enum-typed fields, resolve to the default variant's string value.
             // For other Named types, use None (Rust binding applies its own default).
             if let TypeRef::Named(name) = ty {
                 if let Some(default_variant) = enum_defaults.get(name) {
@@ -633,7 +674,11 @@ fn typed_default_to_python(
 }
 
 /// Generate a Python zero value for a type (when no typed_default is available).
-fn python_zero_value(ty: &alef_core::ir::TypeRef, enum_names: &std::collections::HashSet<String>) -> String {
+fn python_zero_value(
+    ty: &alef_core::ir::TypeRef,
+    enum_names: &std::collections::HashSet<String>,
+    data_enum_names: &std::collections::HashSet<String>,
+) -> String {
     use alef_core::ir::TypeRef;
     match ty {
         TypeRef::Primitive(p) => match p {
@@ -645,6 +690,8 @@ fn python_zero_value(ty: &alef_core::ir::TypeRef, enum_names: &std::collections:
         TypeRef::Bytes => "b\"\"".to_string(),
         TypeRef::Vec(_) => "field(default_factory=list)".to_string(),
         TypeRef::Map(_, _) => "field(default_factory=dict)".to_string(),
+        // Data enums have no simple zero value; default to None (they're typically Optional).
+        TypeRef::Named(name) if data_enum_names.contains(name) => "None".to_string(),
         TypeRef::Named(name) if enum_names.contains(name) => "\"\"".to_string(),
         TypeRef::Named(_) => "None".to_string(),
         TypeRef::Optional(_) => "None".to_string(),
@@ -1012,7 +1059,7 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
 
 /// Generate __init__.py — re-exports and version.
 /// Only exports user-facing types (not internal Update types or all enums).
-fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
+fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str) -> String {
     use alef_core::ir::TypeRef;
 
     let mut out = String::with_capacity(1024);
@@ -1022,15 +1069,37 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
 
     // Collect enum names referenced by config types (user-facing enums only)
     let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let data_enum_names: std::collections::HashSet<String> = api
+        .enums
+        .iter()
+        .filter(|e| generators::enum_has_data_variants(e))
+        .map(|e| e.name.clone())
+        .collect();
     let mut needed_enums: Vec<String> = Vec::new();
+    let mut needed_data_enums: Vec<String> = Vec::new();
     let mut config_types: Vec<String> = Vec::new();
     for typ in &api.types {
         if typ.has_default && !typ.name.ends_with("Update") {
             config_types.push(typ.name.clone());
             for field in &typ.fields {
-                if let TypeRef::Named(name) = &field.ty {
-                    if enum_names.contains(name) && !needed_enums.contains(name) {
-                        needed_enums.push(name.clone());
+                let inner_name = match &field.ty {
+                    TypeRef::Named(n) => Some(n.as_str()),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(name) = inner_name {
+                    if data_enum_names.contains(name) {
+                        if !needed_data_enums.iter().any(|n| n == name) {
+                            needed_data_enums.push(name.to_string());
+                        }
+                    } else if enum_names.contains(name) && !needed_enums.contains(&name.to_string()) {
+                        needed_enums.push(name.to_string());
                     }
                 }
             }
@@ -1040,6 +1109,7 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
     // Collect all imports and sort them
     let mut imports_from_api = Vec::new();
     let mut imports_from_options = Vec::new();
+    let mut imports_from_native = Vec::new();
     let mut imports_from_exceptions = Vec::new();
 
     // Import functions from api
@@ -1049,7 +1119,11 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
         imports_from_api.extend(names);
     }
 
-    // Import config types and enums from options
+    // Data enums are backed by native Rust structs — import from the native module.
+    needed_data_enums.sort();
+    imports_from_native.extend(needed_data_enums.iter().cloned());
+
+    // Import plain enums and config types from options
     let mut opt_imports = needed_enums.clone();
     opt_imports.extend(config_types.iter().cloned());
     opt_imports.sort();
@@ -1068,7 +1142,7 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
     exc_names.sort();
     imports_from_exceptions.extend(exc_names.clone());
 
-    // Output imports in sorted order (by module name: api, exceptions, options)
+    // Output imports in sorted order (by module name: api, exceptions, native, options)
     // Use multi-line format if the import line would be too long (>88 chars for ruff)
     if !imports_from_api.is_empty() {
         let import_line = format!("from .api import {}", imports_from_api.join(", "));
@@ -1087,6 +1161,19 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
         if import_line.len() > 88 {
             out.push_str("from .exceptions import (\n");
             for name in &imports_from_exceptions {
+                out.push_str(&format!("    {},\n", name));
+            }
+            out.push_str(")\n");
+        } else {
+            out.push_str(&format!("{}\n", import_line));
+        }
+    }
+    // Data enums are Rust-backed structs; re-export from the native module.
+    if !imports_from_native.is_empty() {
+        let import_line = format!("from .{module_name} import {}", imports_from_native.join(", "));
+        if import_line.len() > 88 {
+            out.push_str(&format!("from .{module_name} import (\n"));
+            for name in &imports_from_native {
                 out.push_str(&format!("    {},\n", name));
             }
             out.push_str(")\n");
@@ -1113,6 +1200,7 @@ fn gen_init_py(api: &ApiSurface, _module_name: &str, version: &str) -> String {
         all_items.push(f.name.clone());
     }
     all_items.extend(needed_enums);
+    all_items.extend(needed_data_enums);
     all_items.extend(config_types);
     all_items.extend(exc_names);
     all_items.sort();

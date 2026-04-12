@@ -149,28 +149,33 @@ pub fn field_conversion_from_core(
             if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::String) {
                 if optional {
                     return format!(
-                        "{name}: val.{name}.as_ref().map(|m| m.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())"
+                        "{name}: val.{name}.as_ref().map(|m| m.iter().map(|(k, v)| (format!(\"{{:?}}\", k), format!(\"{{:?}}\", v))).collect())"
                     );
                 }
                 return format!(
-                    "{name}: val.{name}.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()"
+                    "{name}: val.{name}.into_iter().map(|(k, v)| (format!(\"{{:?}}\", k), format!(\"{{:?}}\", v))).collect()"
                 );
             }
         }
-        // Vec<String>: sanitized from Vec<Box<str>> etc.
+        // Vec<String>: sanitized from Vec<Box<str>>, Vec<(T, U)>, etc.
         if let TypeRef::Vec(inner) = ty {
             if matches!(inner.as_ref(), TypeRef::String) {
                 if optional {
-                    return format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.to_string()).collect())");
+                    return format!(
+                        "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())"
+                    );
                 }
-                return format!("{name}: val.{name}.iter().map(ToString::to_string).collect()");
+                return format!("{name}: val.{name}.iter().map(|i| format!(\"{{:?}}\", i)).collect()");
             }
         }
-        // Optional<Vec<String>>: sanitized from Optional<Vec<Box<str>>> etc.
+        // Optional<Vec<String>>: sanitized from Optional<Vec<Box<str>>>, Optional<Vec<(T, U)>>, etc.
+        // Use format!("{:?}", i) because source elements may not impl Display (e.g. tuples).
         if let TypeRef::Optional(opt_inner) = ty {
             if let TypeRef::Vec(vec_inner) = opt_inner.as_ref() {
                 if matches!(vec_inner.as_ref(), TypeRef::String) {
-                    return format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.to_string()).collect())");
+                    return format!(
+                        "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())"
+                    );
                 }
             }
         }
@@ -247,6 +252,24 @@ pub fn field_conversion_from_core(
                 format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.to_string()).collect())")
             } else {
                 format!("{name}: val.{name}.iter().map(ToString::to_string).collect()")
+            }
+        }
+        // Map with Json values: core uses HashMap<K, serde_json::Value>, binding uses HashMap<K, String>
+        TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
+            let k_is_json = matches!(k.as_ref(), TypeRef::Json);
+            let k_expr = if k_is_json { "k.to_string()" } else { "k" };
+            if optional {
+                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({k_expr}, v.to_string())).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| ({k_expr}, v.to_string())).collect()")
+            }
+        }
+        // Map with Json keys: core uses HashMap<serde_json::Value, V>, binding uses HashMap<String, V>
+        TypeRef::Map(k, _v) if matches!(k.as_ref(), TypeRef::Json) => {
+            if optional {
+                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.to_string(), v)).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.to_string(), v)).collect()")
             }
         }
         // Everything else is symmetric

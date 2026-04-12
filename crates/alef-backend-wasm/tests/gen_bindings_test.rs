@@ -484,6 +484,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
                 MethodDef {
                     name: "get_value".to_string(),
@@ -498,6 +499,7 @@ fn test_methods_generation() {
                     returns_ref: false,
                     return_newtype_wrapper: None,
                     trait_source: None,
+                    returns_cow: false,
                 },
             ],
             is_opaque: false,
@@ -567,6 +569,7 @@ fn test_async_methods() {
                 returns_ref: false,
                 return_newtype_wrapper: None,
                 trait_source: None,
+                returns_cow: false,
             }],
             is_opaque: false,
             is_clone: true,

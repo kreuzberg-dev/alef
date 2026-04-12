@@ -342,6 +342,7 @@ fn extract_items(
                                     sanitized: false,
                                     trait_source: None,
                                     returns_ref,
+                                    returns_cow: false,
                                     return_newtype_wrapper: None,
                                 })
                             } else {

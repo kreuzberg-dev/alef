@@ -64,8 +64,18 @@ pub fn gen_function(
         } else if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
             // Serde-based param conversion: serialize binding types to JSON, deserialize to core types.
             // This handles Named params (e.g., ProcessConfig) that lack binding→core From impls.
+            // For async functions with Pyo3FutureIntoPy, serde bindings use indented format.
+            let is_async_pyo3 = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+            let (serde_indent, serde_err_async) = if is_async_pyo3 {
+                (
+                    "        ",
+                    ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))",
+                )
+            } else {
+                ("    ", serde_err_conv)
+            };
             let serde_bindings =
-                gen_serde_let_bindings(&func.params, opaque_types, core_import, serde_err_conv, "    ");
+                gen_serde_let_bindings(&func.params, opaque_types, core_import, serde_err_async, serde_indent);
             let core_call = format!("{core_fn_path}({call_args})");
 
             // Determine return wrapping strategy (same as delegatable case)
@@ -93,7 +103,20 @@ pub fn gen_function(
                 }
             };
 
-            if matches!(func.return_type, TypeRef::Unit) {
+            if is_async_pyo3 {
+                // Async serde path: wrap everything in future_into_py
+                let is_unit = matches!(func.return_type, TypeRef::Unit);
+                let wrapped = wrap_return("result");
+                let core_await = format!(
+                    "{core_call}.await\n            .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?"
+                );
+                let inner_body = if is_unit {
+                    format!("{serde_bindings}{core_await};\n            Ok(())")
+                } else {
+                    format!("{serde_bindings}let result = {core_await};\n            Ok({wrapped})")
+                };
+                format!("pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n{inner_body}\n        }})")
+            } else if matches!(func.return_type, TypeRef::Unit) {
                 // Unit return with error: avoid let_unit_value
                 format!("{serde_bindings}{core_call}{serde_err_conv}?;\n    Ok(())")
             } else {

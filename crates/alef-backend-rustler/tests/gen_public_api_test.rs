@@ -107,6 +107,7 @@ fn make_static_method(name: &str, return_type: TypeRef) -> MethodDef {
         trait_source: None,
         returns_ref: false,
         return_newtype_wrapper: None,
+        returns_cow: false,
     }
 }
 
@@ -125,6 +126,7 @@ fn make_instance_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef)
         trait_source: None,
         returns_ref: false,
         return_newtype_wrapper: None,
+        returns_cow: false,
     }
 }
 

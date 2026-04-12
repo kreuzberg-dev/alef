@@ -240,6 +240,10 @@ pub(crate) fn extract_method(
 
     let (mut return_type, error_type, returns_ref) = resolve_return_type(&method.sig.output);
 
+    // Detect if the method returns Cow<'_, T> where T is a named type (not str/bytes).
+    // This is used by codegen to emit `.into_owned()` before type conversion.
+    let returns_cow = detect_cow_return(&method.sig.output);
+
     // Detect future-returning functions as async:
     // BoxFuture<'_, T>, Pin<Box<dyn Future<Output = T>>>, etc.
     if !is_async {
@@ -270,6 +274,7 @@ pub(crate) fn extract_method(
         sanitized: false,
         trait_source,
         returns_ref,
+        returns_cow,
         return_newtype_wrapper: None,
     }
 }
@@ -465,7 +470,9 @@ pub(crate) fn resolve_return_type(output: &syn::ReturnType) -> (TypeRef, Option<
             };
             // Unwrap Box/Arc/Rc wrappers to check the actual inner type
             let unwrapped = unwrap_smart_pointer(inner_ty);
-            let returns_ref = syn_type_contains_ref(unwrapped);
+            // Cow<'_, NamedType> returns also need special handling — treat as returns_ref
+            // so codegen can emit `.into_owned()` instead of direct `.into()`.
+            let returns_ref = syn_type_contains_ref(unwrapped) || is_cow_named_return(inner_ty);
             let resolved = type_resolver::resolve_type(inner_ty);
             (resolved, error_type, returns_ref)
         }
@@ -513,4 +520,44 @@ fn syn_type_contains_ref(ty: &syn::Type) -> bool {
         }
         _ => false,
     }
+}
+
+/// Check if a method's return type is `Cow<'_, T>` where T is a named type.
+fn detect_cow_return(output: &syn::ReturnType) -> bool {
+    if let syn::ReturnType::Type(_, ty) = output {
+        is_cow_named_return(ty)
+    } else {
+        false
+    }
+}
+
+/// Check if a type is `Cow<'_, T>` where T is a named (struct/enum) type.
+///
+/// Returns true for `Cow<'_, MyStruct>` but false for `Cow<'_, str>` (→ String)
+/// or `Cow<'_, [u8]>` (→ Bytes). Used so codegen can emit `.into_owned()`.
+fn is_cow_named_return(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Cow" {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    for arg in &args.args {
+                        if let syn::GenericArgument::Type(inner) = arg {
+                            match inner {
+                                // Cow<'_, str> → maps to String naturally, not a "cow named return"
+                                syn::Type::Path(p) => {
+                                    if let Some(seg) = p.path.segments.last() {
+                                        return seg.ident != "str";
+                                    }
+                                }
+                                // Cow<'_, [u8]> → maps to Bytes naturally
+                                syn::Type::Slice(_) => return false,
+                                _ => return true,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
 }
