@@ -293,8 +293,8 @@ fn build_args_and_setup(
     options_default_fn: Option<&str>,
     enum_fields: &HashMap<String, String>,
     fixture_id: &str,
-    handle_struct_type: Option<&str>,
-    handle_atom_list_fields: &std::collections::HashSet<String>,
+    _handle_struct_type: Option<&str>,
+    _handle_atom_list_fields: &std::collections::HashSet<String>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), json_to_elixir(input));
@@ -315,24 +315,21 @@ fn build_args_and_setup(
 
         if arg.arg_type == "handle" {
             // Generate a create_{name} call using {:ok, name} = ... pattern.
+            // The NIF now accepts config as an optional JSON string (not a NifStruct/NifMap)
+            // so that partial maps work: serde_json::from_str respects #[serde(default)].
             let constructor_name = format!("create_{}", arg.name.to_snake_case());
             let config_value = input.get(&arg.field).unwrap_or(&serde_json::Value::Null);
+            let name = &arg.name;
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
-                setup_lines.push(format!("{{:ok, {}}} = {module_path}.{constructor_name}(nil)", arg.name,));
+                setup_lines.push(format!("{{:ok, {name}}} = {module_path}.{constructor_name}(nil)"));
             } else {
-                // When a struct type is known, use proper Elixir struct syntax so that
-                // Rustler's NifStruct decoder can match on the __struct__ key and atom fields.
-                // Plain string-keyed maps (%{"key" => val}) are rejected by NifStruct.
-                let literal = match handle_struct_type {
-                    Some(struct_name) => {
-                        json_to_elixir_struct(config_value, module_path, struct_name, handle_atom_list_fields)
-                    }
-                    None => json_to_elixir(config_value),
-                };
-                let name = &arg.name;
-                setup_lines.push(format!("{name}_config = {literal}"));
+                // Serialize the config map to a JSON string with Jason so that Rust can
+                // deserialize it with serde_json and apply field defaults for missing keys.
+                let json_str = serde_json::to_string(config_value).unwrap_or_else(|_| "{}".to_string());
+                let escaped = escape_elixir(&json_str);
+                setup_lines.push(format!("{name}_config = \"{escaped}\""));
                 setup_lines.push(format!(
                     "{{:ok, {name}}} = {module_path}.{constructor_name}({name}_config)",
                 ));

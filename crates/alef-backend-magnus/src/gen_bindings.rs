@@ -72,6 +72,9 @@ impl Backend for MagnusBackend {
             builder.add_import("std::collections::HashMap");
         }
 
+        // Compute module name early so it can be used for class paths in #[magnus::wrap]
+        let module_name = get_module_name(&api.crate_name);
+
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Ruby);
         for module in custom_mods {
@@ -91,10 +94,10 @@ impl Backend for MagnusBackend {
 
         for typ in &api.types {
             if typ.is_opaque {
-                builder.add_item(&gen_opaque_struct(typ, &core_import));
+                builder.add_item(&gen_opaque_struct(typ, &core_import, &module_name));
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
             } else {
-                builder.add_item(&gen_struct(typ, &mapper));
+                builder.add_item(&gen_struct(typ, &mapper, &module_name));
                 if typ.has_default {
                     builder.add_item(&alef_codegen::generators::gen_struct_default_impl(typ, ""));
                 }
@@ -164,7 +167,6 @@ impl Backend for MagnusBackend {
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Ruby)?;
 
-        let module_name = get_module_name(&api.crate_name);
         builder.add_item(&gen_module_init(&module_name, api, config));
 
         let content = builder.build();
@@ -273,8 +275,7 @@ fn get_module_name(crate_name: &str) -> String {
 }
 
 /// Generate an opaque Magnus-wrapped struct with inner Arc.
-fn gen_opaque_struct(typ: &TypeDef, core_import: &str) -> String {
-    let module_name = "Kreuzberg";
+fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &str) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
 
     let mut out = String::with_capacity(256);
@@ -452,8 +453,7 @@ fn gen_opaque_async_instance_method(
 }
 
 /// Generate a Magnus-wrapped struct definition using the shared TypeMapper.
-fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper) -> String {
-    let module_name = "Kreuzberg";
+fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
 
     let mut struct_builder = StructBuilder::new(&typ.name);

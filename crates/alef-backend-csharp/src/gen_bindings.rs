@@ -639,24 +639,36 @@ fn gen_wrapper_class(
 /// ```
 fn emit_named_param_setup(out: &mut String, params: &[alef_core::ir::ParamDef], indent: &str) {
     for param in params {
-        if let TypeRef::Named(type_name) = &param.ty {
-            let param_name = param.name.to_lower_camel_case();
-            let json_var = format!("{param_name}Json");
-            let handle_var = format!("{param_name}Handle");
-            let from_json_method = format!("{}FromJson", type_name.to_pascal_case());
+        let param_name = param.name.to_lower_camel_case();
+        let json_var = format!("{param_name}Json");
+        let handle_var = format!("{param_name}Handle");
 
-            if param.optional {
+        match &param.ty {
+            TypeRef::Named(type_name) => {
+                let from_json_method = format!("{}FromJson", type_name.to_pascal_case());
+                if param.optional {
+                    out.push_str(&format!(
+                        "{indent}var {json_var} = {param_name} != null ? JsonSerializer.Serialize({param_name}, JsonOptions) : \"null\";\n"
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "{indent}var {json_var} = JsonSerializer.Serialize({param_name}, JsonOptions);\n"
+                    ));
+                }
                 out.push_str(&format!(
-                    "{indent}var {json_var} = {param_name} != null ? JsonSerializer.Serialize({param_name}, JsonOptions) : \"null\";\n"
+                    "{indent}var {handle_var} = NativeMethods.{from_json_method}({json_var});\n"
                 ));
-            } else {
+            }
+            TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                // Vec/Map: serialize to JSON string, marshal to native pointer
                 out.push_str(&format!(
                     "{indent}var {json_var} = JsonSerializer.Serialize({param_name}, JsonOptions);\n"
                 ));
+                out.push_str(&format!(
+                    "{indent}var {handle_var} = Marshal.StringToHGlobalAnsi({json_var});\n"
+                ));
             }
-            out.push_str(&format!(
-                "{indent}var {handle_var} = NativeMethods.{from_json_method}({json_var});\n"
-            ));
+            _ => {}
         }
     }
 }
@@ -666,7 +678,7 @@ fn emit_named_param_setup(out: &mut String, params: &[alef_core::ir::ParamDef], 
 /// For `Named` types this is the handle variable (e.g. `optionsHandle`).
 /// For everything else it is the parameter name (with `!` for optional).
 fn native_call_arg(ty: &TypeRef, param_name: &str, optional: bool) -> String {
-    if matches!(ty, TypeRef::Named(_)) {
+    if matches!(ty, TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _)) {
         format!("{param_name}Handle")
     } else {
         let bang = if optional { "!" } else { "" };
@@ -677,11 +689,17 @@ fn native_call_arg(ty: &TypeRef, param_name: &str, optional: bool) -> String {
 /// Emit cleanup code to free native handles allocated for `Named` parameters.
 fn emit_named_param_teardown(out: &mut String, params: &[alef_core::ir::ParamDef]) {
     for param in params {
-        if let TypeRef::Named(type_name) = &param.ty {
-            let param_name = param.name.to_lower_camel_case();
-            let handle_var = format!("{param_name}Handle");
-            let free_method = format!("{}Free", type_name.to_pascal_case());
-            out.push_str(&format!("        NativeMethods.{free_method}({handle_var});\n"));
+        let param_name = param.name.to_lower_camel_case();
+        let handle_var = format!("{param_name}Handle");
+        match &param.ty {
+            TypeRef::Named(type_name) => {
+                let free_method = format!("{}Free", type_name.to_pascal_case());
+                out.push_str(&format!("        NativeMethods.{free_method}({handle_var});\n"));
+            }
+            TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                out.push_str(&format!("        Marshal.FreeHGlobal({handle_var});\n"));
+            }
+            _ => {}
         }
     }
 }
@@ -689,11 +707,17 @@ fn emit_named_param_teardown(out: &mut String, params: &[alef_core::ir::ParamDef
 /// Emit cleanup code with configurable indentation (used inside `Task.Run` lambdas).
 fn emit_named_param_teardown_indented(out: &mut String, params: &[alef_core::ir::ParamDef], indent: &str) {
     for param in params {
-        if let TypeRef::Named(type_name) = &param.ty {
-            let param_name = param.name.to_lower_camel_case();
-            let handle_var = format!("{param_name}Handle");
-            let free_method = format!("{}Free", type_name.to_pascal_case());
-            out.push_str(&format!("{indent}NativeMethods.{free_method}({handle_var});\n"));
+        let param_name = param.name.to_lower_camel_case();
+        let handle_var = format!("{param_name}Handle");
+        match &param.ty {
+            TypeRef::Named(type_name) => {
+                let free_method = format!("{}Free", type_name.to_pascal_case());
+                out.push_str(&format!("{indent}NativeMethods.{free_method}({handle_var});\n"));
+            }
+            TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                out.push_str(&format!("{indent}Marshal.FreeHGlobal({handle_var});\n"));
+            }
+            _ => {}
         }
     }
 }

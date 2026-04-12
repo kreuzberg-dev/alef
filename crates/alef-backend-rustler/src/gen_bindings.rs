@@ -95,11 +95,32 @@ impl Backend for RustlerBackend {
             builder.add_item(&gen_enum(enum_def));
         }
 
+        // Types with has_default=true accept JSON strings at the NIF boundary so
+        // partial maps can be passed without every field being required.
+        let default_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.has_default && !t.is_opaque)
+            .map(|t| t.name.clone())
+            .collect();
+
         for func in &api.functions {
             if func.is_async {
-                builder.add_item(&gen_nif_async_function(func, &mapper, &opaque_types, &core_import));
+                builder.add_item(&gen_nif_async_function(
+                    func,
+                    &mapper,
+                    &opaque_types,
+                    &default_types,
+                    &core_import,
+                ));
             } else {
-                builder.add_item(&gen_nif_function(func, &mapper, &opaque_types, &core_import));
+                builder.add_item(&gen_nif_function(
+                    func,
+                    &mapper,
+                    &opaque_types,
+                    &default_types,
+                    &core_import,
+                ));
             }
         }
 
@@ -198,6 +219,14 @@ impl Backend for RustlerBackend {
             .map(|t| t.name.clone())
             .collect();
 
+        // Types whose NIF params are JSON strings (has_default = true, non-opaque).
+        let default_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.has_default && !t.is_opaque)
+            .map(|t| t.name.clone())
+            .collect();
+
         // Build enum defaults map: enum name -> first variant snake_case (for struct field defaults)
         let enum_defaults: std::collections::HashMap<String, String> = api
             .enums
@@ -273,11 +302,16 @@ impl Backend for RustlerBackend {
                 .params
                 .iter()
                 .map(|p| {
-                    let base = elixir_typespec(&p.ty, &opaque_types);
+                    let base = elixir_typespec(&p.ty, &opaque_types, &default_types);
                     if p.optional { format!("{base} | nil") } else { base }
                 })
                 .collect();
-            let return_spec = elixir_return_typespec(&func.return_type, func.error_type.is_some(), &opaque_types);
+            let return_spec = elixir_return_typespec(
+                &func.return_type,
+                func.error_type.is_some(),
+                &opaque_types,
+                &default_types,
+            );
             let all_params: Vec<String> = func.params.iter().map(|p| p.name.to_snake_case()).collect();
 
             // Count how many trailing parameters are optional so we can emit shorter-arity overloads.
@@ -346,8 +380,12 @@ impl Backend for RustlerBackend {
                     param_names.push(p.name.to_snake_case());
                 }
 
-                let return_spec =
-                    elixir_return_typespec(&method.return_type, method.error_type.is_some(), &opaque_types);
+                let return_spec = elixir_return_typespec(
+                    &method.return_type,
+                    method.error_type.is_some(),
+                    &opaque_types,
+                    &default_types,
+                );
                 content.push_str(&format!("  @spec {nif_fn_name}("));
                 let type_specs: Vec<String> = {
                     let mut specs: Vec<String> = Vec::new();
@@ -356,7 +394,7 @@ impl Backend for RustlerBackend {
                         specs.push("map()".to_string());
                     }
                     for p in &method.params {
-                        let base = elixir_typespec(&p.ty, &opaque_types);
+                        let base = elixir_typespec(&p.ty, &opaque_types, &default_types);
                         specs.push(if p.optional { format!("{base} | nil") } else { base });
                     }
                     specs
@@ -505,31 +543,6 @@ fn gen_enum(enum_def: &EnumDef) -> String {
     lines.join("\n")
 }
 
-/// Build call argument expressions for Rustler (opaque Named types access .inner via ResourceArc).
-fn gen_rustler_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
-    params
-        .iter()
-        .map(|p| match &p.ty {
-            TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                format!("&{}.inner", p.name)
-            }
-            TypeRef::Named(_) => {
-                if p.optional {
-                    format!("{}.map(Into::into)", p.name)
-                } else {
-                    format!("{}.into()", p.name)
-                }
-            }
-            TypeRef::String | TypeRef::Char => format!("&{}", p.name),
-            TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
-            TypeRef::Bytes => format!("&{}", p.name),
-            TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
-            _ => p.name.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 /// Wrap a return expression for Rustler (opaque types get ResourceArc wrapping).
 fn gen_rustler_wrap_return(
     expr: &str,
@@ -600,6 +613,7 @@ fn gen_nif_function(
     func: &FunctionDef,
     mapper: &RustlerMapper,
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
     let params_str = func
@@ -609,6 +623,11 @@ fn gen_nif_function(
             if let TypeRef::Named(n) = &p.ty {
                 if opaque_types.contains(n) {
                     return format!("{}: ResourceArc<{}>", p.name, n);
+                }
+                // Default (has_default) types are passed as JSON strings so that
+                // partial maps work — serde_json::from_str respects #[serde(default)].
+                if default_types.contains(n) {
+                    return format!("{}: Option<String>", p.name);
                 }
                 if p.optional {
                     return format!("{}: Option<{}>", p.name, n);
@@ -622,16 +641,70 @@ fn gen_nif_function(
     let return_type = map_return_type(&func.return_type, mapper, opaque_types);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+    // A function can be auto-delegated when all params (after JSON deserialization)
+    // map cleanly to core types.  We treat default-typed params as delegatable by
+    // building the JSON deserialization preamble ourselves.
+    let has_default_params = func
+        .params
+        .iter()
+        .any(|p| matches!(&p.ty, TypeRef::Named(n) if default_types.contains(n)));
+
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types) || has_default_params;
 
     let body = if can_delegate {
-        let call_args = gen_rustler_call_args(&func.params, opaque_types);
-        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        // Build per-param deserialization lines and call-arg expressions.
+        let mut deser_lines: Vec<String> = Vec::new();
+        let call_args: Vec<String> = func
+            .params
+            .iter()
+            .map(|p| {
+                if let TypeRef::Named(n) = &p.ty {
+                    if default_types.contains(n) {
+                        let core_ty = format!("{core_import}::{n}");
+                        // Optional JSON string → Option<CoreType> via serde
+                        deser_lines.push(format!(
+                            "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
+                            p.name, core_ty
+                        ));
+                        return format!("{}_core.unwrap_or_default()", p.name);
+                    }
+                }
+                // Fall back to the standard call-arg logic for all other types.
+                match &p.ty {
+                    TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                        format!("&{}.inner", p.name)
+                    }
+                    TypeRef::Named(_) => {
+                        if p.optional {
+                            format!("{}.map(Into::into)", p.name)
+                        } else {
+                            format!("{}.into()", p.name)
+                        }
+                    }
+                    TypeRef::String | TypeRef::Char => format!("&{}", p.name),
+                    TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
+                    TypeRef::Bytes => format!("&{}", p.name),
+                    TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
+                    _ => p.name.clone(),
+                }
+            })
+            .collect();
+
+        let preamble = if deser_lines.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n    ", deser_lines.join("\n    "))
+        };
+
+        let core_call = format!("{core_import}::{}({})", func.name, call_args.join(", "));
         if func.error_type.is_some() {
             let wrap = gen_rustler_wrap_return("result", &func.return_type, "", opaque_types, func.returns_ref);
-            format!("let result = {core_call}.map_err(|e| e.to_string())?;\n    Ok({wrap})")
+            format!("{preamble}let result = {core_call}.map_err(|e| e.to_string())?;\n    Ok({wrap})")
         } else {
-            gen_rustler_wrap_return(&core_call, &func.return_type, "", opaque_types, func.returns_ref)
+            format!(
+                "{preamble}{}",
+                gen_rustler_wrap_return(&core_call, &func.return_type, "", opaque_types, func.returns_ref)
+            )
         }
     } else {
         gen_rustler_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
@@ -648,6 +721,7 @@ fn gen_nif_async_function(
     func: &FunctionDef,
     mapper: &RustlerMapper,
     opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
     let params_str = func
@@ -657,6 +731,10 @@ fn gen_nif_async_function(
             if let TypeRef::Named(n) = &p.ty {
                 if opaque_types.contains(n) {
                     return format!("{}: ResourceArc<{}>", p.name, n);
+                }
+                // Default (has_default) types are passed as JSON strings.
+                if default_types.contains(n) {
+                    return format!("{}: Option<String>", p.name);
                 }
                 if p.optional {
                     return format!("{}: Option<{}>", p.name, n);
@@ -670,21 +748,66 @@ fn gen_nif_async_function(
     let return_type = map_return_type(&func.return_type, mapper, opaque_types);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+    let has_default_params = func
+        .params
+        .iter()
+        .any(|p| matches!(&p.ty, TypeRef::Named(n) if default_types.contains(n)));
+
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types) || has_default_params;
 
     let body = if can_delegate {
-        let call_args = gen_rustler_call_args(&func.params, opaque_types);
-        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let mut deser_lines: Vec<String> = Vec::new();
+        let call_args: Vec<String> = func
+            .params
+            .iter()
+            .map(|p| {
+                if let TypeRef::Named(n) = &p.ty {
+                    if default_types.contains(n) {
+                        let core_ty = format!("{core_import}::{n}");
+                        deser_lines.push(format!(
+                            "let {0}_core: Option<{1}> = {0}.map(|s| serde_json::from_str::<{1}>(&s)).transpose().map_err(|e| e.to_string())?;",
+                            p.name, core_ty
+                        ));
+                        return format!("{}_core.unwrap_or_default()", p.name);
+                    }
+                }
+                match &p.ty {
+                    TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+                        format!("&{}.inner", p.name)
+                    }
+                    TypeRef::Named(_) => {
+                        if p.optional {
+                            format!("{}.map(Into::into)", p.name)
+                        } else {
+                            format!("{}.into()", p.name)
+                        }
+                    }
+                    TypeRef::String | TypeRef::Char => format!("&{}", p.name),
+                    TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
+                    TypeRef::Bytes => format!("&{}", p.name),
+                    TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
+                    _ => p.name.clone(),
+                }
+            })
+            .collect();
+
+        let preamble = if deser_lines.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n    ", deser_lines.join("\n    "))
+        };
+
+        let core_call = format!("{core_import}::{}({})", func.name, call_args.join(", "));
         let result_wrap = gen_rustler_wrap_return("result", &func.return_type, "", opaque_types, func.returns_ref);
         if func.error_type.is_some() {
             format!(
-                "let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
+                "{preamble}let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
                  let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| e.to_string())?;\n    \
                  Ok({result_wrap})"
             )
         } else {
             format!(
-                "let rt = tokio::runtime::Runtime::new().unwrap();\n    \
+                "{preamble}let rt = tokio::runtime::Runtime::new().unwrap();\n    \
                  let result = rt.block_on(async {{ {core_call}.await }});\n    \
                  {result_wrap}"
             )
@@ -1162,7 +1285,11 @@ fn elixir_zero_value(ty: &TypeRef, enum_defaults: &std::collections::HashMap<Str
 }
 
 /// Map a TypeRef to an Elixir typespec string for `@spec` annotations.
-fn elixir_typespec(ty: &TypeRef, opaque_types: &AHashSet<String>) -> String {
+///
+/// `default_types` lists types that are passed as JSON strings at the NIF boundary
+/// (types with `has_default = true`).  Their typespec is `String.t() | nil` rather
+/// than `map()` because callers encode them with `Jason.encode!/1`.
+fn elixir_typespec(ty: &TypeRef, opaque_types: &AHashSet<String>, default_types: &AHashSet<String>) -> String {
     match ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "String.t()".to_string(),
         TypeRef::Bytes => "binary()".to_string(),
@@ -1185,23 +1312,31 @@ fn elixir_typespec(ty: &TypeRef, opaque_types: &AHashSet<String>) -> String {
         TypeRef::Named(name) => {
             if opaque_types.contains(name) {
                 "reference()".to_string()
+            } else if default_types.contains(name) {
+                // Passed as an optional JSON string; nil means use defaults.
+                "String.t() | nil".to_string()
             } else {
                 "map()".to_string()
             }
         }
         TypeRef::Optional(inner) => {
-            format!("{} | nil", elixir_typespec(inner, opaque_types))
+            format!("{} | nil", elixir_typespec(inner, opaque_types, default_types))
         }
         TypeRef::Vec(inner) => {
-            format!("[{}]", elixir_typespec(inner, opaque_types))
+            format!("[{}]", elixir_typespec(inner, opaque_types, default_types))
         }
         TypeRef::Map(_, _) => "map()".to_string(),
     }
 }
 
 /// Map a return TypeRef to an Elixir typespec for `@spec` return annotations.
-fn elixir_return_typespec(ty: &TypeRef, has_error: bool, opaque_types: &AHashSet<String>) -> String {
-    let base = elixir_typespec(ty, opaque_types);
+fn elixir_return_typespec(
+    ty: &TypeRef,
+    has_error: bool,
+    opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
+) -> String {
+    let base = elixir_typespec(ty, opaque_types, default_types);
     if has_error {
         format!("{{:ok, {}}} | {{:error, String.t()}}", base)
     } else {
