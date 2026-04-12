@@ -496,7 +496,14 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
 
                 // Determine default value and check if we need | None
                 let (type_hint_with_none, default) = if let Some(td) = &field.typed_default {
-                    let default = typed_default_to_python(td, &field.ty, &enum_defaults, &data_enum_names);
+                    // For optional fields with Empty default, use None — not a zero value.
+                    // This ensures Option<usize> defaults to None (not 0), preventing
+                    // "max_concurrent must be > 0" validation errors.
+                    let default = if field.optional && matches!(td, alef_core::ir::DefaultValue::Empty) {
+                        "None".to_string()
+                    } else {
+                        typed_default_to_python(td, &field.ty, &enum_defaults, &data_enum_names)
+                    };
                     (type_hint.clone(), default)
                 } else if field.optional {
                     // If default is None but type is Named (not already Optional), add | None

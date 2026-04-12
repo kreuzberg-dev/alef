@@ -45,6 +45,7 @@ fn make_config_with_stubs() -> AlefConfig {
                 output: PathBuf::from("packages/python/src/"),
             }),
             features: None,
+            serde_rename_all: None,
         }),
         node: None,
         ruby: None,

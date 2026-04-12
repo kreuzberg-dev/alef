@@ -864,6 +864,7 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
+serde_wasm_bindgen = "0.6"
 js-sys = "0.3"
 "#,
         name = name,

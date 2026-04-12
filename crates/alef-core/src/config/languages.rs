@@ -13,6 +13,10 @@ pub struct PythonConfig {
     /// `[crate] features` for this language's binding crate.
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +31,10 @@ pub struct NodeConfig {
     /// `[crate] features` for this language's binding crate.
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +45,10 @@ pub struct RubyConfig {
     /// `[crate] features` for this language's binding crate.
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +63,10 @@ pub struct PhpConfig {
     pub stubs: Option<StubsConfig>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +74,10 @@ pub struct ElixirConfig {
     pub app_name: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +90,10 @@ pub struct WasmConfig {
     pub type_overrides: HashMap<String, String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +111,10 @@ pub struct FfiConfig {
     pub visitor_callbacks: bool,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 fn default_error_style() -> String {
@@ -100,6 +128,10 @@ pub struct GoConfig {
     pub package_name: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +141,10 @@ pub struct JavaConfig {
     pub ffi_style: String,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 fn default_java_ffi_style() -> String {
@@ -121,6 +157,10 @@ pub struct CSharpConfig {
     pub target_framework: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +168,10 @@ pub struct RConfig {
     pub package_name: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
 }
 
 /// Custom modules that alef should declare (mod X;) but not generate.

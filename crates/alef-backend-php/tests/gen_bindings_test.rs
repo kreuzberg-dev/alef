@@ -45,6 +45,7 @@ fn make_config() -> AlefConfig {
             feature_gate: None,
             stubs: None,
             features: None,
+            serde_rename_all: None,
         }),
         elixir: None,
         wasm: None,

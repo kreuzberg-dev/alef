@@ -52,11 +52,13 @@ fn make_config() -> AlefConfig {
             lib_name: None,
             visitor_callbacks: false,
             features: None,
+            serde_rename_all: None,
         }),
         go: Some(GoConfig {
             module: Some("github.com/test/test-lib".to_string()),
             package_name: None,
             features: None,
+            serde_rename_all: None,
         }),
         java: None,
         csharp: None,

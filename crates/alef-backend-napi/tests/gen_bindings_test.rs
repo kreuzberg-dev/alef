@@ -41,6 +41,7 @@ fn make_config() -> AlefConfig {
         node: Some(NodeConfig {
             package_name: Some("test-lib".to_string()),
             features: None,
+            serde_rename_all: None,
         }),
         ruby: None,
         php: None,

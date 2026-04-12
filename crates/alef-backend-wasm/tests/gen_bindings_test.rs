@@ -52,6 +52,7 @@ fn make_config() -> AlefConfig {
             exclude_types: vec![],
             type_overrides: std::collections::HashMap::new(),
             features: None,
+            serde_rename_all: None,
         }),
         ffi: None,
         go: None,

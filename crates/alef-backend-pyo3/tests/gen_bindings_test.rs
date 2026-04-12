@@ -42,6 +42,7 @@ fn make_config() -> AlefConfig {
             async_runtime: None,
             stubs: None,
             features: None,
+            serde_rename_all: None,
         }),
         node: None,
         ruby: None,

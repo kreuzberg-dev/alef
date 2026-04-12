@@ -30,6 +30,7 @@ fn make_config(app_name: &str) -> AlefConfig {
         elixir: Some(ElixirConfig {
             app_name: Some(app_name.to_string()),
             features: None,
+            serde_rename_all: None,
         }),
         wasm: None,
         ffi: None,

@@ -377,6 +377,48 @@ impl AlefConfig {
             .map(|v| v.to_string())
     }
 
+    /// Get the effective serde rename_all strategy for a given language.
+    ///
+    /// Resolution order:
+    /// 1. Per-language config override (`[python] serde_rename_all = "..."`)
+    /// 2. Language default:
+    ///    - camelCase: node, wasm, java, csharp
+    ///    - snake_case: python, ruby, php, go, ffi, elixir, r
+    pub fn serde_rename_all_for_language(&self, lang: extras::Language) -> String {
+        // 1. Check per-language config override.
+        let override_val = match lang {
+            extras::Language::Python => self.python.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Node => self.node.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Ruby => self.ruby.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Php => self.php.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Elixir => self.elixir.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Wasm => self.wasm.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Ffi => self.ffi.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Go => self.go.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Java => self.java.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::R => self.r.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+        };
+
+        if let Some(val) = override_val {
+            return val.to_string();
+        }
+
+        // 2. Language defaults.
+        match lang {
+            extras::Language::Node | extras::Language::Wasm | extras::Language::Java | extras::Language::Csharp => {
+                "camelCase".to_string()
+            }
+            extras::Language::Python
+            | extras::Language::Ruby
+            | extras::Language::Php
+            | extras::Language::Go
+            | extras::Language::Ffi
+            | extras::Language::Elixir
+            | extras::Language::R => "snake_case".to_string(),
+        }
+    }
+
     /// Rewrite a rust_path using path_mappings.
     /// Matches the longest prefix first.
     pub fn rewrite_path(&self, rust_path: &str) -> String {

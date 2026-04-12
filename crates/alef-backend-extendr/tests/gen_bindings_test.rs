@@ -50,6 +50,7 @@ fn make_config() -> AlefConfig {
         r: Some(RConfig {
             package_name: Some("testlib".to_string()),
             features: None,
+            serde_rename_all: None,
         }),
         scaffold: None,
         readme: None,

@@ -46,6 +46,7 @@ fn make_config() -> AlefConfig {
             gem_name: Some("test_lib".to_string()),
             stubs: None,
             features: None,
+            serde_rename_all: None,
         }),
         php: None,
         elixir: None,
