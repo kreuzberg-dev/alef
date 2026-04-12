@@ -8,7 +8,6 @@ use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
-use heck::{ToKebabCase, ToLowerCamelCase, ToShoutySnakeCase, ToSnakeCase};
 use std::path::PathBuf;
 
 pub struct NapiBackend;
@@ -620,29 +619,33 @@ fn gen_static_method(
 }
 
 /// Generate a NAPI enum definition using string_enum with Js prefix.
-/// Applies serde_rename / serde_rename_all so the JS-side string values
-/// match the snake_case (or other) names used by the Rust core's serde config.
+/// Maps serde rename_all strategy to NAPI's `string_enum = "case"` so the
+/// JS-side string values match the Rust core's serde convention.
 fn gen_enum(enum_def: &EnumDef) -> String {
+    // Map serde rename_all to NAPI string_enum case parameter
+    let napi_case = enum_def.serde_rename_all.as_deref().and_then(|s| match s {
+        "snake_case" => Some("snake_case"),
+        "camelCase" => Some("camelCase"),
+        "kebab-case" => Some("kebab-case"),
+        "SCREAMING_SNAKE_CASE" => Some("UPPER_SNAKE"),
+        "lowercase" => Some("lowercase"),
+        "UPPERCASE" => Some("UPPERCASE"),
+        "PascalCase" => Some("PascalCase"),
+        _ => None,
+    });
+
+    let string_enum_attr = match napi_case {
+        Some(case) => format!("#[napi(string_enum = \"{case}\")]"),
+        None => "#[napi(string_enum)]".to_string(),
+    };
+
     let mut lines = vec![
-        "#[napi(string_enum)]".to_string(),
+        string_enum_attr,
         "#[derive(Clone)]".to_string(),
         format!("pub enum Js{} {{", enum_def.name),
     ];
 
     for variant in &enum_def.variants {
-        // Determine the string value this variant should map to in JS.
-        // Priority: explicit serde(rename) > serde(rename_all) applied to variant name > variant name as-is.
-        let js_value = if let Some(ref rename) = variant.serde_rename {
-            Some(rename.clone())
-        } else {
-            enum_def
-                .serde_rename_all
-                .as_deref()
-                .and_then(|strategy| apply_rename_strategy(&variant.name, strategy))
-        };
-        if let Some(ref val) = js_value {
-            lines.push(format!("    #[napi(value = \"{val}\")]"));
-        }
         lines.push(format!("    {},", variant.name));
     }
 
@@ -1166,20 +1169,4 @@ fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool) -> String {
         other => dts_type(other),
     };
     if is_async { format!("Promise<{base}>") } else { base }
-}
-
-/// Apply a serde rename_all strategy to a PascalCase variant name.
-/// Returns `None` if the variant name already matches or the strategy is unknown.
-fn apply_rename_strategy(variant_name: &str, strategy: &str) -> Option<String> {
-    let result = match strategy {
-        "snake_case" => variant_name.to_snake_case(),
-        "camelCase" => variant_name.to_lower_camel_case(),
-        "kebab-case" => variant_name.to_kebab_case(),
-        "SCREAMING_SNAKE_CASE" => variant_name.to_shouty_snake_case(),
-        "lowercase" => variant_name.to_lowercase(),
-        "UPPERCASE" => variant_name.to_uppercase(),
-        _ => return None,
-    };
-    // Only return Some if the rename actually changes the name
-    if result == variant_name { None } else { Some(result) }
 }
