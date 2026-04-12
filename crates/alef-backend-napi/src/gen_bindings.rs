@@ -162,19 +162,26 @@ impl Backend for NapiBackend {
             }
         }
         for e in &api.enums {
-            if alef_codegen::conversions::can_generate_enum_conversion(e) {
-                builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
-                    e,
-                    &core_import,
-                    &napi_conv_config,
-                ));
-            }
-            if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding_cfg(
-                    e,
-                    &core_import,
-                    &napi_conv_config,
-                ));
+            let has_data = e.variants.iter().any(|v| !v.fields.is_empty());
+            if has_data {
+                // Tagged data enums use flattened struct — generate custom conversions
+                builder.add_item(&gen_tagged_enum_binding_to_core(e, &core_import));
+                builder.add_item(&gen_tagged_enum_core_to_binding(e, &core_import));
+            } else {
+                if alef_codegen::conversions::can_generate_enum_conversion(e) {
+                    builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
+                        e,
+                        &core_import,
+                        &napi_conv_config,
+                    ));
+                }
+                if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
+                    builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding_cfg(
+                        e,
+                        &core_import,
+                        &napi_conv_config,
+                    ));
+                }
             }
         }
 
@@ -619,10 +626,18 @@ fn gen_static_method(
 }
 
 /// Generate a NAPI enum definition using string_enum with Js prefix.
-/// Maps serde rename_all strategy to NAPI's `string_enum = "case"` so the
-/// JS-side string values match the Rust core's serde convention.
+/// Generate a NAPI enum definition.
+/// For simple enums (no variant fields): generates `#[napi(string_enum)]`.
+/// For tagged enums with data fields: generates a flattened `#[napi(object)]` struct
+/// with a discriminant field and all variant fields as optional.
 fn gen_enum(enum_def: &EnumDef) -> String {
-    // Map serde rename_all to NAPI string_enum case parameter
+    let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+
+    if has_data {
+        return gen_tagged_enum_as_object(enum_def);
+    }
+
+    // Simple string enum
     let napi_case = enum_def.serde_rename_all.as_deref().and_then(|s| match s {
         "snake_case" => Some("snake_case"),
         "camelCase" => Some("camelCase"),
@@ -659,6 +674,66 @@ fn gen_enum(enum_def: &EnumDef) -> String {
         lines.push(format!("    fn default() -> Self {{ Self::{} }}", first.name));
         lines.push("}".to_string());
     }
+
+    lines.join("\n")
+}
+
+/// Generate a tagged enum as a flattened `#[napi(object)]` struct.
+/// E.g. `AuthConfig { Basic { username, password }, Bearer { token } }` becomes:
+/// ```rust
+/// #[napi(object)]
+/// struct JsAuthConfig {
+///     #[napi(js_name = "type")]
+///     pub auth_type: String,
+///     pub username: Option<String>,
+///     pub password: Option<String>,
+///     pub token: Option<String>,
+/// }
+/// ```
+fn gen_tagged_enum_as_object(enum_def: &EnumDef) -> String {
+    use alef_codegen::type_mapper::TypeMapper;
+    let mapper = NapiMapper;
+
+    let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
+
+    let mut lines = vec![
+        "#[derive(Clone)]".to_string(),
+        "#[napi(object)]".to_string(),
+        format!("pub struct Js{} {{", enum_def.name),
+        format!("    #[napi(js_name = \"{tag_field}\")]"),
+        format!("    pub {tag_field}_tag: String,"),
+    ];
+
+    // Collect all unique fields across all variants (all made optional)
+    let mut seen_fields: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for variant in &enum_def.variants {
+        for field in &variant.fields {
+            if seen_fields.insert(field.name.clone()) {
+                let field_type = mapper.map_type(&field.ty);
+                let js_name = alef_codegen::naming::to_node_name(&field.name);
+                if js_name != field.name {
+                    lines.push(format!("    #[napi(js_name = \"{js_name}\")]"));
+                }
+                lines.push(format!("    pub {}: Option<{field_type}>,", field.name));
+            }
+        }
+    }
+
+    lines.push("}".to_string());
+
+    // Default impl
+    lines.push(String::new());
+    lines.push("#[allow(clippy::derivable_impls)]".to_string());
+    lines.push(format!("impl Default for Js{} {{", enum_def.name));
+    lines.push(format!(
+        "    fn default() -> Self {{ Self {{ {tag_field}_tag: String::new(), {} }} }}",
+        seen_fields
+            .iter()
+            .map(|f| format!("{f}: None"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    lines.push("}".to_string());
 
     lines.join("\n")
 }
@@ -1169,4 +1244,133 @@ fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool) -> String {
         other => dts_type(other),
     };
     if is_async { format!("Promise<{base}>") } else { base }
+}
+
+/// Generate `From<JsTaggedEnum> for core::TaggedEnum` for a flattened struct representation.
+fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str) -> String {
+    use std::fmt::Write;
+    let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
+    let binding_name = format!("Js{}", enum_def.name);
+    let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
+
+    let mut out = String::with_capacity(512);
+    writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
+    writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
+    writeln!(out, "        match val.{tag_field}_tag.as_str() {{").ok();
+
+    for variant in &enum_def.variants {
+        let default_tag = variant.name.to_lowercase();
+        let tag_value = variant.serde_rename.as_deref().unwrap_or(&default_tag);
+        if variant.fields.is_empty() {
+            writeln!(out, "            \"{tag_value}\" => Self::{},", variant.name).ok();
+        } else {
+            let field_inits: Vec<String> = variant
+                .fields
+                .iter()
+                .map(|f| format!("{}: val.{}.unwrap_or_default()", f.name, f.name))
+                .collect();
+            writeln!(
+                out,
+                "            \"{tag_value}\" => Self::{} {{ {} }},",
+                variant.name,
+                field_inits.join(", ")
+            )
+            .ok();
+        }
+    }
+
+    // Default fallback to first variant
+    if let Some(first) = enum_def.variants.first() {
+        if first.fields.is_empty() {
+            writeln!(out, "            _ => Self::{},", first.name).ok();
+        } else {
+            let defaults: Vec<String> = first
+                .fields
+                .iter()
+                .map(|f| format!("{}: Default::default()", f.name))
+                .collect();
+            writeln!(
+                out,
+                "            _ => Self::{} {{ {} }},",
+                first.name,
+                defaults.join(", ")
+            )
+            .ok();
+        }
+    }
+
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
+    out
+}
+
+/// Generate `From<core::TaggedEnum> for JsTaggedEnum` for a flattened struct representation.
+fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str) -> String {
+    use std::fmt::Write;
+    let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
+    let binding_name = format!("Js{}", enum_def.name);
+    let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
+
+    // Collect all field names across all variants
+    let all_fields: Vec<String> = {
+        let mut fields = std::collections::BTreeSet::new();
+        for v in &enum_def.variants {
+            for f in &v.fields {
+                fields.insert(f.name.clone());
+            }
+        }
+        fields.into_iter().collect()
+    };
+
+    let mut out = String::with_capacity(512);
+    writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();
+    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
+    writeln!(out, "        match val {{").ok();
+
+    for variant in &enum_def.variants {
+        let default_tag = variant.name.to_lowercase();
+        let tag_value = variant.serde_rename.as_deref().unwrap_or(&default_tag);
+        let variant_field_names: std::collections::BTreeSet<String> =
+            variant.fields.iter().map(|f| f.name.clone()).collect();
+
+        if variant.fields.is_empty() {
+            writeln!(
+                out,
+                "            {core_path}::{} => Self {{ {tag_field}_tag: \"{tag_value}\".to_string(), {} }},",
+                variant.name,
+                all_fields
+                    .iter()
+                    .map(|f| format!("{f}: None"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+            .ok();
+        } else {
+            let destructured: Vec<String> = variant.fields.iter().map(|f| f.name.clone()).collect();
+            let field_inits: Vec<String> = all_fields
+                .iter()
+                .map(|f| {
+                    if variant_field_names.contains(f) {
+                        format!("{f}: Some({f})")
+                    } else {
+                        format!("{f}: None")
+                    }
+                })
+                .collect();
+            writeln!(
+                out,
+                "            {core_path}::{} {{ {} }} => Self {{ {tag_field}_tag: \"{tag_value}\".to_string(), {} }},",
+                variant.name,
+                destructured.join(", "),
+                field_inits.join(", ")
+            )
+            .ok();
+        }
+    }
+
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
+    out
 }
