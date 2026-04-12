@@ -136,6 +136,8 @@ publish = false
 
 [dependencies]
 {dep_spec}{serde_line}
+tokio = {{ version = "1", features = ["full"] }}
+wiremock = "0.6"
 "#
     )
 }

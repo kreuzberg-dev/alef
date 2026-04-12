@@ -140,6 +140,7 @@ fn scaffold_python(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
     let name = &config.crate_config.name;
     let version = &api.version;
     let module_name = config.python_module_name();
+    let core_crate_dir = config.core_crate_dir();
 
     let authors_toml = if meta.authors.is_empty() {
         String::new()
@@ -181,6 +182,7 @@ repository = "{repository}"
 
 [tool.maturin]
 module-name = "{module_name}"
+manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 features = ["pyo3/extension-module"]
 
 [tool.ruff]
@@ -199,6 +201,7 @@ select = ["E", "F", "W"]
         homepage = homepage_toml,
         repository = meta.repository,
         module_name = module_name,
+        crate_dir = core_crate_dir,
     );
 
     Ok(vec![GeneratedFile {
@@ -738,9 +741,13 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                 <version>3.4.0</version>
                 <configuration>
                     <java>
-                        <googleJavaFormat>
-                            <version>1.25.2</version>
-                        </googleJavaFormat>
+                        <removeUnusedImports/>
+                        <indent>
+                            <spaces>true</spaces>
+                            <spacesPerTab>4</spacesPerTab>
+                        </indent>
+                        <trimTrailingWhitespace/>
+                        <endWithNewline/>
                     </java>
                 </configuration>
                 <executions>
