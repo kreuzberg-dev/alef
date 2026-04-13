@@ -22,7 +22,7 @@ pub fn java_type(ty: &TypeRef) -> Cow<'static, str> {
         TypeRef::Path => Cow::Borrowed("java.nio.file.Path"),
         TypeRef::Unit => Cow::Borrowed("void"),
         TypeRef::Json => Cow::Borrowed("Object"),
-        TypeRef::Duration => Cow::Borrowed("long"),
+        TypeRef::Duration => Cow::Borrowed("Long"),
     }
 }
 

@@ -1782,7 +1782,7 @@ fn gen_helper_methods(out: &mut String) {
         .ok();
         writeln!(
             out,
-            "            .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_DEFAULT)"
+            "            .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)"
         )
         .ok();
         writeln!(

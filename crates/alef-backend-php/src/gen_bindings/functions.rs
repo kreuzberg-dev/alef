@@ -26,14 +26,11 @@ pub(crate) fn gen_instance_method(
 
     let params_str = if params.is_empty() { String::new() } else { params };
 
-    // Exclude methods with non-opaque Named params: ext-php-rs can't pass #[php_class]
-    // types by value (no FromZvalMut impl for owned php_class types).
-    let has_non_opaque_named_params = method
-        .params
-        .iter()
-        .any(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
-
-    let body = if can_delegate && is_opaque && !has_non_opaque_named_params {
+    // Non-opaque Named params are received as `&T` (ext-php-rs doesn't support owned T via
+    // FromZvalMut), so gen_php_function_params uses &T and gen_php_call_args emits
+    // `.clone().into()`.  This means we CAN delegate opaque methods even with non-opaque Named
+    // params — the `&T` → clone → `.into()` chain handles the conversion correctly.
+    let body = if can_delegate && is_opaque {
         let call_args = gen_php_call_args(&method.params, opaque_types);
         let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
         let core_call = if is_owned_receiver {
