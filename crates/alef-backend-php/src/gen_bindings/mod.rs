@@ -133,14 +133,33 @@ impl Backend for PhpBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Compute the PHP namespace for namespaced class registration.
+        // Uses the same logic as `generate_public_api` / `generate_type_stubs`.
+        let extension_name = config.php_extension_name();
+        let php_namespace = if extension_name.contains('_') {
+            let parts: Vec<&str> = extension_name.split('_').collect();
+            let ns_parts: Vec<String> = parts.iter().map(|p| p.to_pascal_case()).collect();
+            ns_parts.join("\\")
+        } else {
+            extension_name.to_pascal_case()
+        };
+
         for typ in &api.types {
             if typ.is_opaque {
-                builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
+                // Generate the opaque struct with separate #[php_class] and
+                // #[php(name = "Ns\\Type")] attributes (ext-php-rs 0.15+ syntax).
+                let php_name_attr = format!("php(name = \"{}\\\\{}\")", php_namespace, typ.name);
+                let opaque_attr_arr = ["php_class", php_name_attr.as_str()];
+                let opaque_cfg = RustBindingConfig {
+                    struct_attrs: &opaque_attr_arr,
+                    ..cfg
+                };
+                builder.add_item(&generators::gen_opaque_struct(typ, &opaque_cfg));
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types, &core_import));
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&gen_php_struct(typ, &mapper, &cfg));
+                builder.add_item(&gen_php_struct(typ, &mapper, &cfg, Some(&php_namespace)));
                 builder.add_item(&gen_struct_methods(
                     typ,
                     &mapper,
@@ -334,9 +353,16 @@ impl Backend for PhpBackend {
             content.push_str(&params.join(", "));
             content.push_str(&format!("): {}\n", return_php_type));
             content.push_str("    {\n");
+            // Async functions are registered in the extension with an `_async` suffix
+            // (see gen_async_function which generates `pub fn {name}_async`).
+            let ext_func_name = if func.is_async {
+                format!("{}_async", func.name)
+            } else {
+                func.name.clone()
+            };
             content.push_str(&format!(
                 "        return \\{}({}); // delegate to extension function\n",
-                func.name,
+                ext_func_name,
                 func.params
                     .iter()
                     .map(|p| format!("${}", p.name))
@@ -534,9 +560,15 @@ impl Backend for PhpBackend {
                     }
                 })
                 .collect();
+            // Async functions are registered in the extension with an `_async` suffix.
+            let stub_func_name = if func.is_async {
+                format!("{}_async", func.name)
+            } else {
+                func.name.clone()
+            };
             content.push_str(&format!(
                 "function {}({}): {} {{ }}\n\n",
-                func.name,
+                stub_func_name,
                 params.join(", "),
                 return_type
             ));

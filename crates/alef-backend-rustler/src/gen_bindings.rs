@@ -1070,10 +1070,20 @@ fn gen_nif_init(api: &ApiSurface, config: &AlefConfig) -> String {
         })
         .unwrap_or_else(|| "Elixir.NativeModule.Native".to_string());
     // Check if any opaque types need Resource registration via on_load
-    let has_opaque = api.types.iter().any(|t| t.is_opaque);
-    if has_opaque {
+    let opaque_types: Vec<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque)
+        .map(|t| t.name.as_str())
+        .collect();
+    if !opaque_types.is_empty() {
+        let registrations: Vec<String> = opaque_types
+            .iter()
+            .map(|name| format!("    env.register::<{name}>().expect(\"Failed to register resource type {name}\");"))
+            .collect();
+        let reg_body = registrations.join("\n");
         format!(
-            "fn on_load(_env: rustler::Env, _info: rustler::Term) -> bool {{\n    true\n}}\n\n\
+            "fn on_load(env: rustler::Env, _info: rustler::Term) -> bool {{\n{reg_body}\n    true\n}}\n\n\
              rustler::init!(\"{module}\", load = on_load);"
         )
     } else {

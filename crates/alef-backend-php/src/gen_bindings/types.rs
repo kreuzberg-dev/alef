@@ -52,14 +52,37 @@ pub(crate) fn gen_opaque_struct_methods(
 /// structs with from_json may reference other structs that also need Deserialize.
 /// Serialize is needed for the serde bridge `From<BindingType> for CoreType` used
 /// by enum-tainted types (types with enum-Named fields that PHP maps to String).
-pub(crate) fn gen_php_struct(typ: &TypeDef, mapper: &PhpMapper, cfg: &RustBindingConfig<'_>) -> String {
+///
+/// When `php_namespace` is provided, a separate `#[php(name = "Namespace\\ClassName")]` attribute
+/// is generated alongside the plain `#[php_class]` so that ext-php-rs 0.15+ registers the class
+/// in the correct PHP namespace (e.g. `Kreuzcrawl\CrawlConfig` instead of global `CrawlConfig`).
+/// Note: `#[php_class(name = "...")]` was removed in ext-php-rs 0.15; the two-attribute form is required.
+pub(crate) fn gen_php_struct(
+    typ: &TypeDef,
+    mapper: &PhpMapper,
+    cfg: &RustBindingConfig<'_>,
+    php_namespace: Option<&str>,
+) -> String {
+    // Build the php_class attributes: with namespace → plain #[php_class] + #[php(name = "Ns\\ClassName")],
+    // without → use the config's struct_attrs unchanged.
+    // ext-php-rs 0.15+ uses a separate #[php] attr for the name; #[php_class(<args>)] is no longer supported.
+    let php_name_attr: String;
+    let struct_attrs_override: Vec<&str>;
+    let effective_struct_attrs: &[&str] = if let Some(ns) = php_namespace {
+        php_name_attr = format!("php(name = \"{}\\\\{}\")", ns, typ.name);
+        struct_attrs_override = vec!["php_class", php_name_attr.as_str()];
+        &struct_attrs_override
+    } else {
+        cfg.struct_attrs
+    };
+
     if cfg.has_serde {
         // Build a modified config that also derives Serialize + Deserialize.
         let mut extra_derives: Vec<&str> = cfg.struct_derives.to_vec();
         extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
         let modified_cfg = RustBindingConfig {
-            struct_attrs: cfg.struct_attrs,
+            struct_attrs: effective_struct_attrs,
             field_attrs: cfg.field_attrs,
             struct_derives: &extra_derives,
             method_block_attr: cfg.method_block_attr,
@@ -79,7 +102,11 @@ pub(crate) fn gen_php_struct(typ: &TypeDef, mapper: &PhpMapper, cfg: &RustBindin
         };
         generators::gen_struct(typ, mapper, &modified_cfg)
     } else {
-        generators::gen_struct(typ, mapper, cfg)
+        let modified_cfg = RustBindingConfig {
+            struct_attrs: effective_struct_attrs,
+            ..*cfg
+        };
+        generators::gen_struct(typ, mapper, &modified_cfg)
     }
 }
 

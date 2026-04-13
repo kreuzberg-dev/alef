@@ -2,7 +2,7 @@ use alef_core::ir::EnumDef;
 use std::fmt::Write;
 
 use super::ConversionConfig;
-use super::helpers::{binding_to_core_match_arm, core_enum_path, core_to_binding_match_arm};
+use super::helpers::{binding_to_core_match_arm_ext, core_enum_path, core_to_binding_match_arm_ext};
 
 /// Generate `impl From<BindingEnum> for core::Enum` (binding -> core).
 pub fn gen_enum_from_binding_to_core(enum_def: &EnumDef, core_import: &str) -> String {
@@ -18,7 +18,12 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
     writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
     writeln!(out, "        match val {{").ok();
     for variant in &enum_def.variants {
-        let arm = binding_to_core_match_arm(&binding_name, &variant.name, &variant.fields);
+        let arm = binding_to_core_match_arm_ext(
+            &binding_name,
+            &variant.name,
+            &variant.fields,
+            config.binding_enums_have_data,
+        );
         writeln!(out, "            {arm}").ok();
     }
     writeln!(out, "        }}").ok();
@@ -41,7 +46,12 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
     writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
     writeln!(out, "        match val {{").ok();
     for variant in &enum_def.variants {
-        let arm = core_to_binding_match_arm(&core_path, &variant.name, &variant.fields);
+        let arm = core_to_binding_match_arm_ext(
+            &core_path,
+            &variant.name,
+            &variant.fields,
+            config.binding_enums_have_data,
+        );
         writeln!(out, "            {arm}").ok();
     }
     writeln!(out, "        }}").ok();

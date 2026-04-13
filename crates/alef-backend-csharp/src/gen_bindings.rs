@@ -129,6 +129,28 @@ impl Backend for CsharpBackend {
             .map(|e| e.name.to_pascal_case())
             .collect();
 
+        // Collect enums that require a custom JsonConverter (non-standard serialized names or
+        // tagged unions). When a property has this enum as its type, we must emit a property-level
+        // [JsonConverter] attribute so the custom converter wins over the global JsonStringEnumConverter.
+        let custom_converter_enums: HashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| {
+                // Tagged unions always use a custom converter
+                (e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
+                // Enums with non-standard variant names need a custom converter
+                || e.variants.iter().any(|v| {
+                    if let Some(ref rename) = v.serde_rename {
+                        let snake = apply_rename_all(&v.name, e.serde_rename_all.as_deref());
+                        rename != &snake
+                    } else {
+                        false
+                    }
+                })
+            })
+            .map(|e| e.name.to_pascal_case())
+            .collect();
+
         // Resolve the language-level serde rename_all strategy (always wins over IR type-level).
         let lang_rename_all = config.serde_rename_all_for_language(Language::Csharp);
 
@@ -150,6 +172,7 @@ impl Backend for CsharpBackend {
                         &namespace,
                         &enum_names,
                         &complex_enums,
+                        &custom_converter_enums,
                         &lang_rename_all,
                     )),
                     generated_header: true,
@@ -1284,6 +1307,7 @@ fn gen_record_type(
     namespace: &str,
     enum_names: &HashSet<String>,
     complex_enums: &HashSet<String>,
+    custom_converter_enums: &HashSet<String>,
     _lang_rename_all: &str,
 ) -> String {
     let mut out = String::from(
@@ -1323,6 +1347,23 @@ fn gen_record_type(
             out.push_str("    /// </summary>\n");
         }
 
+        // If the field's type is an enum with a custom converter, emit a property-level
+        // [JsonConverter] attribute. This ensures the custom converter takes precedence
+        // over the global JsonStringEnumConverter registered in JsonSerializerOptions.
+        let field_base_type = match &field.ty {
+            TypeRef::Named(n) => Some(n.to_pascal_case()),
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::Named(n) => Some(n.to_pascal_case()),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(ref base) = field_base_type {
+            if custom_converter_enums.contains(base) {
+                out.push_str(&format!("    [JsonConverter(typeof({base}JsonConverter))]\n"));
+            }
+        }
+
         // [JsonPropertyName("json_name")]
         // FFI-based languages serialize to JSON that Rust serde deserializes.
         // Since Rust uses default snake_case, JSON property names must be snake_case.
@@ -1359,6 +1400,13 @@ fn gen_record_type(
             };
             out.push_str(&format!("    public {} {} {{ get; set; }}", field_type, cs_name));
             use alef_core::ir::DefaultValue;
+            // Duration fields are mapped to ulong? so that 0 is distinguishable from
+            // "not set". Always default to null here; Rust has its own default.
+            if matches!(&field.ty, TypeRef::Duration) {
+                out.push_str(" = null;\n");
+                out.push('\n');
+                continue;
+            }
             let default_val = match &field.typed_default {
                 Some(DefaultValue::BoolLiteral(b)) => b.to_string(),
                 Some(DefaultValue::IntLiteral(n)) => n.to_string(),
@@ -1401,19 +1449,27 @@ fn gen_record_type(
             } else {
                 csharp_type(&field.ty).to_string()
             };
-            let default_val = match &field.ty {
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"",
-                TypeRef::Vec(_) => "[]",
-                TypeRef::Bytes => "Array.Empty<byte>()",
-                TypeRef::Primitive(PrimitiveType::Bool) => "false",
-                TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => "0.0",
-                TypeRef::Primitive(_) => "0",
-                _ => "default!",
-            };
-            out.push_str(&format!(
-                "    public {} {} {{ get; set; }} = {};\n",
-                field_type, cs_name, default_val
-            ));
+            // Duration is mapped to ulong? so null is the correct "not set" default.
+            if matches!(&field.ty, TypeRef::Duration) {
+                out.push_str(&format!(
+                    "    public {} {} {{ get; set; }} = null;\n",
+                    field_type, cs_name
+                ));
+            } else {
+                let default_val = match &field.ty {
+                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"",
+                    TypeRef::Vec(_) => "[]",
+                    TypeRef::Bytes => "Array.Empty<byte>()",
+                    TypeRef::Primitive(PrimitiveType::Bool) => "false",
+                    TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => "0.0",
+                    TypeRef::Primitive(_) => "0",
+                    _ => "default!",
+                };
+                out.push_str(&format!(
+                    "    public {} {} {{ get; set; }} = {};\n",
+                    field_type, cs_name, default_val
+                ));
+            }
         }
 
         out.push('\n');
@@ -1445,10 +1501,41 @@ fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
         return gen_tagged_union(enum_def, namespace);
     }
 
-    let mut out = String::from(
-        "// This file is auto-generated by alef. DO NOT EDIT.\n\
-         using System.Text.Json.Serialization;\n\n",
-    );
+    // If any variant has an explicit serde_rename whose value differs from what
+    // SnakeCaseLower would produce (e.g. "og:image" vs "og_image"), the global
+    // JsonStringEnumConverter(SnakeCaseLower) in KreuzcrawlLib.JsonOptions would
+    // ignore [JsonPropertyName] and use the naming policy instead.
+    // Also, the non-generic JsonStringEnumConverter does NOT support [JsonPropertyName]
+    // on enum members at all. For these cases we generate a custom JsonConverter<T>
+    // that explicitly maps each variant name.
+    let needs_custom_converter = enum_def.variants.iter().any(|v| {
+        if let Some(ref rename) = v.serde_rename {
+            let snake = apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref());
+            rename != &snake
+        } else {
+            false
+        }
+    });
+
+    let enum_pascal = enum_def.name.to_pascal_case();
+
+    // Collect (json_name, pascal_name) pairs
+    let variants: Vec<(String, String)> = enum_def
+        .variants
+        .iter()
+        .map(|v| {
+            let json_name = v
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
+            let pascal_name = v.name.to_pascal_case();
+            (json_name, pascal_name)
+        })
+        .collect();
+
+    let mut out = String::from("// This file is auto-generated by alef. DO NOT EDIT.\n");
+    out.push_str("using System.Text.Json;\n");
+    out.push_str("using System.Text.Json.Serialization;\n\n");
 
     out.push_str(&format!("namespace {};\n\n", namespace));
 
@@ -1461,31 +1548,83 @@ fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
         out.push_str("/// </summary>\n");
     }
 
-    let enum_pascal = enum_def.name.to_pascal_case();
+    if needs_custom_converter {
+        out.push_str(&format!("[JsonConverter(typeof({enum_pascal}JsonConverter))]\n"));
+    }
     out.push_str(&format!("public enum {enum_pascal}\n"));
     out.push_str("{\n");
 
-    // Enum variants with JsonPropertyName for serde-compatible serialization
-    for variant in &enum_def.variants {
-        if !variant.doc.is_empty() {
-            out.push_str("    /// <summary>\n");
-            for line in variant.doc.lines() {
-                out.push_str(&format!("    /// {}\n", line));
+    for (json_name, pascal_name) in &variants {
+        // Find doc for this variant
+        if let Some(v) = enum_def
+            .variants
+            .iter()
+            .find(|v| v.name.to_pascal_case() == *pascal_name)
+        {
+            if !v.doc.is_empty() {
+                out.push_str("    /// <summary>\n");
+                for line in v.doc.lines() {
+                    out.push_str(&format!("    /// {}\n", line));
+                }
+                out.push_str("    /// </summary>\n");
             }
-            out.push_str("    /// </summary>\n");
         }
-
-        // Use serde_rename if available, otherwise apply rename_all strategy
-        let json_name = variant
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
-        let pascal_name = variant.name.to_pascal_case();
         out.push_str(&format!("    [JsonPropertyName(\"{json_name}\")]\n"));
         out.push_str(&format!("    {pascal_name},\n"));
     }
 
     out.push_str("}\n");
+
+    // Generate custom converter class after the enum when needed
+    if needs_custom_converter {
+        out.push('\n');
+        out.push_str(&format!(
+            "/// <summary>Custom JSON converter for <see cref=\"{enum_pascal}\"/> that respects explicit variant names.</summary>\n"
+        ));
+        out.push_str(&format!(
+            "internal sealed class {enum_pascal}JsonConverter : JsonConverter<{enum_pascal}>\n"
+        ));
+        out.push_str("{\n");
+
+        // Read
+        out.push_str(&format!(
+            "    public override {enum_pascal} Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)\n"
+        ));
+        out.push_str("    {\n");
+        out.push_str("        var value = reader.GetString();\n");
+        out.push_str("        return value switch\n");
+        out.push_str("        {\n");
+        for (json_name, pascal_name) in &variants {
+            out.push_str(&format!(
+                "            \"{json_name}\" => {enum_pascal}.{pascal_name},\n"
+            ));
+        }
+        out.push_str(&format!(
+            "            _ => throw new JsonException($\"Unknown {enum_pascal} value: {{value}}\")\n"
+        ));
+        out.push_str("        };\n");
+        out.push_str("    }\n\n");
+
+        // Write
+        out.push_str(&format!(
+            "    public override void Write(Utf8JsonWriter writer, {enum_pascal} value, JsonSerializerOptions options)\n"
+        ));
+        out.push_str("    {\n");
+        out.push_str("        var str = value switch\n");
+        out.push_str("        {\n");
+        for (json_name, pascal_name) in &variants {
+            out.push_str(&format!(
+                "            {enum_pascal}.{pascal_name} => \"{json_name}\",\n"
+            ));
+        }
+        out.push_str(&format!(
+            "            _ => throw new JsonException($\"Unknown {enum_pascal} value: {{value}}\")\n"
+        ));
+        out.push_str("        };\n");
+        out.push_str("        writer.WriteStringValue(str);\n");
+        out.push_str("    }\n");
+        out.push_str("}\n");
+    }
 
     out
 }
@@ -1493,13 +1632,17 @@ fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
 /// Generate a C# abstract record hierarchy for internally tagged enums.
 ///
 /// Maps `#[serde(tag = "type_field", rename_all = "snake_case")]` Rust enums to
-/// `[JsonPolymorphic]` C# abstract records with nested sealed record subtypes.
+/// a custom `JsonConverter<T>` that buffers all JSON properties before resolving
+/// the discriminator. This is more robust than `[JsonPolymorphic]` which requires
+/// the discriminator to be the first property in the JSON object.
 fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let enum_pascal = enum_def.name.to_pascal_case();
+    let converter_name = format!("{enum_pascal}JsonConverter");
 
     let mut out = String::from(
         "// This file is auto-generated by alef. DO NOT EDIT.\n\
+         using System.Collections.Generic;\n\
          using System.Text.Json;\n\
          using System.Text.Json.Serialization;\n\n",
     );
@@ -1514,21 +1657,8 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         out.push_str("/// </summary>\n");
     }
 
-    // [JsonPolymorphic] + [JsonDerivedType] attributes
-    out.push_str(&format!(
-        "[JsonPolymorphic(TypeDiscriminatorPropertyName = \"{tag_field}\")]\n"
-    ));
-    for variant in &enum_def.variants {
-        let discriminator = variant
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
-        let pascal = variant.name.to_pascal_case();
-        out.push_str(&format!(
-            "[JsonDerivedType(typeof({enum_pascal}.{pascal}), typeDiscriminator: \"{discriminator}\")]\n"
-        ));
-    }
-
+    // Use custom converter instead of [JsonPolymorphic] to handle discriminator in any position
+    out.push_str(&format!("[JsonConverter(typeof({converter_name}))]\n"));
     out.push_str(&format!("public abstract record {enum_pascal}\n"));
     out.push_str("{\n");
 
@@ -1568,6 +1698,94 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         }
     }
 
+    out.push_str("}\n\n");
+
+    // Generate custom converter that buffers the JSON document before dispatching
+    out.push_str(&format!(
+        "/// <summary>Custom JSON converter for <see cref=\"{enum_pascal}\"/> that reads the \"{tag_field}\" discriminator from any position.</summary>\n"
+    ));
+    out.push_str(&format!(
+        "internal sealed class {converter_name} : JsonConverter<{enum_pascal}>\n"
+    ));
+    out.push_str("{\n");
+
+    // Read method
+    out.push_str(&format!(
+        "    public override {enum_pascal} Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)\n"
+    ));
+    out.push_str("    {\n");
+    out.push_str("        using var doc = JsonDocument.ParseValue(ref reader);\n");
+    out.push_str("        var root = doc.RootElement;\n");
+    out.push_str(&format!(
+        "        if (!root.TryGetProperty(\"{tag_field}\", out var tagEl))\n"
+    ));
+    out.push_str(&format!(
+        "            throw new JsonException(\"{enum_pascal}: missing \\\"{tag_field}\\\" discriminator\");\n"
+    ));
+    out.push_str("        var tag = tagEl.GetString();\n");
+    out.push_str("        var json = root.GetRawText();\n");
+    out.push_str("        return tag switch\n");
+    out.push_str("        {\n");
+
+    for variant in &enum_def.variants {
+        let discriminator = variant
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
+        let pascal = variant.name.to_pascal_case();
+        out.push_str(&format!(
+            "            \"{discriminator}\" => JsonSerializer.Deserialize<{enum_pascal}.{pascal}>(json, options)!\n"
+        ));
+        out.push_str(&format!(
+            "                ?? throw new JsonException(\"Failed to deserialize {enum_pascal}.{pascal}\"),\n"
+        ));
+    }
+
+    out.push_str(&format!(
+        "            _ => throw new JsonException($\"Unknown {enum_pascal} discriminator: {{tag}}\")\n"
+    ));
+    out.push_str("        };\n");
+    out.push_str("    }\n\n");
+
+    // Write method
+    out.push_str(&format!(
+        "    public override void Write(Utf8JsonWriter writer, {enum_pascal} value, JsonSerializerOptions options)\n"
+    ));
+    out.push_str("    {\n");
+
+    // Build options without this converter to avoid infinite recursion
+    out.push_str("        // Serialize the concrete type, then inject the discriminator\n");
+    out.push_str("        switch (value)\n");
+    out.push_str("        {\n");
+
+    for variant in &enum_def.variants {
+        let discriminator = variant
+            .serde_rename
+            .clone()
+            .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
+        let pascal = variant.name.to_pascal_case();
+        out.push_str(&format!("            case {enum_pascal}.{pascal} v:\n"));
+        out.push_str("            {\n");
+        out.push_str(&"                var doc = JsonSerializer.SerializeToDocument(v, options);\n".to_string());
+        out.push_str("                writer.WriteStartObject();\n");
+        out.push_str(&format!(
+            "                writer.WriteString(\"{tag_field}\", \"{discriminator}\");\n"
+        ));
+        out.push_str("                foreach (var prop in doc.RootElement.EnumerateObject())\n");
+        out.push_str(&format!(
+            "                    if (prop.Name != \"{tag_field}\") prop.WriteTo(writer);\n"
+        ));
+        out.push_str("                writer.WriteEndObject();\n");
+        out.push_str("                break;\n");
+        out.push_str("            }\n");
+    }
+
+    out.push_str(&format!(
+        "            default: throw new JsonException($\"Unknown {enum_pascal} subtype: {{value.GetType().Name}}\");\n"
+    ));
+    out.push_str("        }\n");
+    out.push_str("    }\n");
     out.push_str("}\n");
+
     out
 }

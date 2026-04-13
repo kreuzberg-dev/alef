@@ -302,8 +302,37 @@ pub fn core_enum_path(enum_def: &EnumDef, core_import: &str) -> String {
 /// Binding enums are always unit-variant-only. Core enums may have data variants.
 /// For data variants: `BindingEnum::Variant => CoreEnum::Variant(Default::default(), ...)`
 pub fn binding_to_core_match_arm(binding_prefix: &str, variant_name: &str, fields: &[FieldDef]) -> String {
+    binding_to_core_match_arm_ext(binding_prefix, variant_name, fields, false)
+}
+
+/// Like `binding_to_core_match_arm` but `binding_has_data` controls whether the binding
+/// enum has the variant's fields (true) or is unit-only (false, e.g. Rustler/Elixir).
+pub fn binding_to_core_match_arm_ext(
+    binding_prefix: &str,
+    variant_name: &str,
+    fields: &[FieldDef],
+    binding_has_data: bool,
+) -> String {
     if fields.is_empty() {
         format!("{binding_prefix}::{variant_name} => Self::{variant_name},")
+    } else if !binding_has_data {
+        // Binding is unit-only: use Default for core fields
+        if is_tuple_variant(fields) {
+            let defaults: Vec<&str> = fields.iter().map(|_| "Default::default()").collect();
+            format!(
+                "{binding_prefix}::{variant_name} => Self::{variant_name}({}),",
+                defaults.join(", ")
+            )
+        } else {
+            let defaults: Vec<String> = fields
+                .iter()
+                .map(|f| format!("{}: Default::default()", f.name))
+                .collect();
+            format!(
+                "{binding_prefix}::{variant_name} => Self::{variant_name} {{ {} }},",
+                defaults.join(", ")
+            )
+        }
     } else if is_tuple_variant(fields) {
         // Binding uses struct syntax with _0, _1 etc., core uses tuple syntax
         let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
@@ -350,8 +379,26 @@ pub fn binding_to_core_match_arm(binding_prefix: &str, variant_name: &str, field
 /// When the binding also has data variants, destructure and forward fields.
 /// When the binding is unit-variant-only, discard core data with `..`.
 pub fn core_to_binding_match_arm(core_prefix: &str, variant_name: &str, fields: &[FieldDef]) -> String {
+    core_to_binding_match_arm_ext(core_prefix, variant_name, fields, false)
+}
+
+/// Like `core_to_binding_match_arm` but `binding_has_data` controls whether the binding
+/// enum has the variant's fields (true) or is unit-only (false).
+pub fn core_to_binding_match_arm_ext(
+    core_prefix: &str,
+    variant_name: &str,
+    fields: &[FieldDef],
+    binding_has_data: bool,
+) -> String {
     if fields.is_empty() {
         format!("{core_prefix}::{variant_name} => Self::{variant_name},")
+    } else if !binding_has_data {
+        // Binding is unit-only: discard core data
+        if is_tuple_variant(fields) {
+            format!("{core_prefix}::{variant_name}(..) => Self::{variant_name},")
+        } else {
+            format!("{core_prefix}::{variant_name} {{ .. }} => Self::{variant_name},")
+        }
     } else if is_tuple_variant(fields) {
         // Core uses tuple syntax, binding uses struct syntax with _0, _1 etc.
         let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();

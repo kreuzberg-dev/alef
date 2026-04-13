@@ -152,17 +152,24 @@ impl Backend for MagnusBackend {
                 ));
             }
         }
+        // Magnus generates data enums with fields, so enable binding_enums_have_data
+        let magnus_conv_config = alef_codegen::conversions::ConversionConfig {
+            binding_enums_have_data: true,
+            ..Default::default()
+        };
         for e in &api.enums {
             if alef_codegen::conversions::can_generate_enum_conversion(e) {
-                builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
+                builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
                     e,
                     &core_import,
+                    &magnus_conv_config,
                 ));
             }
             if alef_codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding(
+                builder.add_item(&alef_codegen::conversions::gen_enum_from_core_to_binding_cfg(
                     e,
                     &core_import,
+                    &magnus_conv_config,
                 ));
             }
         }

@@ -260,7 +260,7 @@ fn gen_go_file(
         if typ.is_opaque {
             writeln!(out, "{}\n", gen_opaque_type(typ, ffi_prefix)).ok();
         } else {
-            writeln!(out, "{}\n", gen_struct_type(typ)).ok();
+            writeln!(out, "{}\n", gen_struct_type(typ, &enum_names)).ok();
             // Generate functional options pattern if type has defaults.
             // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update
             // structs that share field names with the primary config type, producing duplicate
@@ -472,7 +472,7 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
 }
 
 /// Generate a Go struct type definition with json tags for marshaling.
-fn gen_struct_type(typ: &TypeDef) -> String {
+fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
     let mut out = String::with_capacity(1024);
 
     if !typ.doc.is_empty() {
@@ -493,6 +493,14 @@ fn gen_struct_type(typ: &TypeDef) -> String {
         // the Go zero value differs from the Rust Default value (e.g., Duration, bool true, int != 0).
         let use_default_pointer = !field.optional && typ.has_default && needs_omitempty_pointer(field);
 
+        // Named types that map to Go string enums must also use omitempty (without pointer),
+        // because the Go zero value "" is never a valid Rust enum variant. Without omitempty,
+        // marshaling an empty struct sends `"field": ""` which fails Rust serde deserialization.
+        let is_named_enum = !field.optional
+            && !use_default_pointer
+            && typ.has_default
+            && matches!(&field.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
+
         let field_type = if field.optional {
             go_optional_type(&field.ty)
         } else if use_default_pointer {
@@ -505,11 +513,12 @@ fn gen_struct_type(typ: &TypeDef) -> String {
 
         // Determine json tag - apply serde rename_all strategy.
         // Use omitempty for optional fields, slice/map types (nil slices serialize to null
-        // in Go, which breaks Rust serde deserialization expecting an array), and fields
-        // where the Go zero value differs from the Rust Default value.
+        // in Go, which breaks Rust serde deserialization expecting an array), fields
+        // where the Go zero value differs from the Rust Default value, and string enum
+        // fields where "" is never a valid Rust enum variant.
         let json_name = apply_serde_rename(&field.name, typ.serde_rename_all.as_deref());
         let is_collection = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
-        let json_tag = if field.optional || is_collection || use_default_pointer {
+        let json_tag = if field.optional || is_collection || use_default_pointer || is_named_enum {
             format!("json:\"{},omitempty\"", json_name)
         } else {
             format!("json:\"{}\"", json_name)

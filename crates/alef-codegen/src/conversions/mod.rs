@@ -39,6 +39,9 @@ pub struct ConversionConfig<'a> {
     /// (giving the real default, e.g. `Duration::from_secs(30)`) instead of `Duration::ZERO`.
     /// Used by PyO3 to prevent validation failures when `request_timeout` is unset.
     pub option_duration_on_defaults: bool,
+    /// When true, binding enums include data variant fields (Magnus).
+    /// When false (default), binding enums are unit-only and data is lost in conversion.
+    pub binding_enums_have_data: bool,
 }
 
 // Re-export all public items so callers continue to use `conversions::foo`.
