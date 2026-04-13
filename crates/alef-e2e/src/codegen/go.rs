@@ -540,6 +540,22 @@ fn render_assertion(
         field_expr.clone()
     };
 
+    // Detect array element access (e.g., `result.Assets[0].ContentHash`).
+    // When the field_expr contains `[0]`, we must guard against an out-of-bounds
+    // panic by checking that the array is non-empty first.
+    // Extract the array slice expression (everything before `[0]`).
+    let array_guard: Option<String> = if let Some(idx) = field_expr.find("[0]") {
+        let array_expr = &field_expr[..idx];
+        Some(array_expr.to_string())
+    } else {
+        None
+    };
+
+    // Render the assertion into a temporary buffer first, then wrap with the array
+    // bounds guard (if needed) by adding one extra level of indentation.
+    let mut assertion_buf = String::new();
+    let out_ref = &mut assertion_buf;
+
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
@@ -553,19 +569,19 @@ fn render_assertion(
                         format!("strings.TrimSpace({field_expr})")
                     };
                     if is_optional && !field_expr.starts_with("len(") {
-                        let _ = writeln!(out, "\tif {field_expr} != nil && {trimmed_field} != {go_val} {{");
+                        let _ = writeln!(out_ref, "\tif {field_expr} != nil && {trimmed_field} != {go_val} {{");
                     } else {
-                        let _ = writeln!(out, "\tif {trimmed_field} != {go_val} {{");
+                        let _ = writeln!(out_ref, "\tif {trimmed_field} != {go_val} {{");
                     }
                 } else {
                     if is_optional && !field_expr.starts_with("len(") {
-                        let _ = writeln!(out, "\tif {field_expr} != nil && {deref_field_expr} != {go_val} {{");
+                        let _ = writeln!(out_ref, "\tif {field_expr} != nil && {deref_field_expr} != {go_val} {{");
                     } else {
-                        let _ = writeln!(out, "\tif {field_expr} != {go_val} {{");
+                        let _ = writeln!(out_ref, "\tif {field_expr} != {go_val} {{");
                     }
                 }
-                let _ = writeln!(out, "\t\tt.Errorf(\"equals mismatch: got %v\", {field_expr})");
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out_ref, "\t\tt.Errorf(\"equals mismatch: got %v\", {field_expr})");
+                let _ = writeln!(out_ref, "\t}}");
             }
         }
         "contains" => {
@@ -578,12 +594,12 @@ fn render_assertion(
                 } else {
                     format!("string({field_expr})")
                 };
-                let _ = writeln!(out, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
+                let _ = writeln!(out_ref, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
                 let _ = writeln!(
-                    out,
+                    out_ref,
                     "\t\tt.Errorf(\"expected to contain %s, got %v\", {go_val}, {field_expr})"
                 );
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out_ref, "\t}}");
             }
         }
         "contains_all" => {
@@ -597,9 +613,9 @@ fn render_assertion(
                     } else {
                         format!("string({field_expr})")
                     };
-                    let _ = writeln!(out, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
-                    let _ = writeln!(out, "\t\tt.Errorf(\"expected to contain %s\", {go_val})");
-                    let _ = writeln!(out, "\t}}");
+                    let _ = writeln!(out_ref, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
+                    let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected to contain %s\", {go_val})");
+                    let _ = writeln!(out_ref, "\t}}");
                 }
             }
         }
@@ -613,31 +629,31 @@ fn render_assertion(
                 } else {
                     format!("string({field_expr})")
                 };
-                let _ = writeln!(out, "\tif strings.Contains({field_for_contains}, {go_val}) {{");
+                let _ = writeln!(out_ref, "\tif strings.Contains({field_for_contains}, {go_val}) {{");
                 let _ = writeln!(
-                    out,
+                    out_ref,
                     "\t\tt.Errorf(\"expected NOT to contain %s, got %v\", {go_val}, {field_expr})"
                 );
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out_ref, "\t}}");
             }
         }
         "not_empty" => {
             if is_optional {
-                let _ = writeln!(out, "\tif {field_expr} == nil || len(*{field_expr}) == 0 {{");
+                let _ = writeln!(out_ref, "\tif {field_expr} == nil || len(*{field_expr}) == 0 {{");
             } else {
-                let _ = writeln!(out, "\tif len({field_expr}) == 0 {{");
+                let _ = writeln!(out_ref, "\tif len({field_expr}) == 0 {{");
             }
-            let _ = writeln!(out, "\t\tt.Errorf(\"expected non-empty value\")");
-            let _ = writeln!(out, "\t}}");
+            let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected non-empty value\")");
+            let _ = writeln!(out_ref, "\t}}");
         }
         "is_empty" => {
             if is_optional {
-                let _ = writeln!(out, "\tif {field_expr} != nil && len(*{field_expr}) != 0 {{");
+                let _ = writeln!(out_ref, "\tif {field_expr} != nil && len(*{field_expr}) != 0 {{");
             } else {
-                let _ = writeln!(out, "\tif len({field_expr}) != 0 {{");
+                let _ = writeln!(out_ref, "\tif len({field_expr}) != 0 {{");
             }
-            let _ = writeln!(out, "\t\tt.Errorf(\"expected empty value, got %v\", {field_expr})");
-            let _ = writeln!(out, "\t}}");
+            let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected empty value, got %v\", {field_expr})");
+            let _ = writeln!(out_ref, "\t}}");
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
@@ -648,22 +664,22 @@ fn render_assertion(
                 } else {
                     field_expr.clone()
                 };
-                let _ = writeln!(out, "\t{{");
-                let _ = writeln!(out, "\t\tfound := false");
+                let _ = writeln!(out_ref, "\t{{");
+                let _ = writeln!(out_ref, "\t\tfound := false");
                 for val in values {
                     let go_val = json_to_go(val);
                     let _ = writeln!(
-                        out,
+                        out_ref,
                         "\t\tif strings.Contains({field_for_contains}, {go_val}) {{ found = true }}"
                     );
                 }
-                let _ = writeln!(out, "\t\tif !found {{");
+                let _ = writeln!(out_ref, "\t\tif !found {{");
                 let _ = writeln!(
-                    out,
+                    out_ref,
                     "\t\t\tt.Errorf(\"expected to contain at least one of the specified values\")"
                 );
-                let _ = writeln!(out, "\t\t}}");
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out_ref, "\t\t}}");
+                let _ = writeln!(out_ref, "\t}}");
             }
         }
         "greater_than" => {
@@ -673,44 +689,47 @@ fn render_assertion(
                 // warning when N is 0 (len(x) <= 0 → len(x) < 1).
                 if let Some(n) = val.as_u64() {
                     let next = n + 1;
-                    let _ = writeln!(out, "\tif {field_expr} < {next} {{");
+                    let _ = writeln!(out_ref, "\tif {field_expr} < {next} {{");
                 } else {
-                    let _ = writeln!(out, "\tif {field_expr} <= {go_val} {{");
+                    let _ = writeln!(out_ref, "\tif {field_expr} <= {go_val} {{");
                 }
-                let _ = writeln!(out, "\t\tt.Errorf(\"expected > {go_val}, got %v\", {field_expr})");
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected > {go_val}, got %v\", {field_expr})");
+                let _ = writeln!(out_ref, "\t}}");
             }
         }
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let go_val = json_to_go(val);
-                let _ = writeln!(out, "\tif {field_expr} >= {go_val} {{");
-                let _ = writeln!(out, "\t\tt.Errorf(\"expected < {go_val}, got %v\", {field_expr})");
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out_ref, "\tif {field_expr} >= {go_val} {{");
+                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected < {go_val}, got %v\", {field_expr})");
+                let _ = writeln!(out_ref, "\t}}");
             }
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let go_val = json_to_go(val);
                 if let Some(ref guard) = nil_guard_expr {
-                    let _ = writeln!(out, "\tif {guard} != nil {{");
-                    let _ = writeln!(out, "\t\tif {field_expr} < {go_val} {{");
-                    let _ = writeln!(out, "\t\t\tt.Errorf(\"expected >= {go_val}, got %v\", {field_expr})");
-                    let _ = writeln!(out, "\t\t}}");
-                    let _ = writeln!(out, "\t}}");
+                    let _ = writeln!(out_ref, "\tif {guard} != nil {{");
+                    let _ = writeln!(out_ref, "\t\tif {field_expr} < {go_val} {{");
+                    let _ = writeln!(
+                        out_ref,
+                        "\t\t\tt.Errorf(\"expected >= {go_val}, got %v\", {field_expr})"
+                    );
+                    let _ = writeln!(out_ref, "\t\t}}");
+                    let _ = writeln!(out_ref, "\t}}");
                 } else {
-                    let _ = writeln!(out, "\tif {field_expr} < {go_val} {{");
-                    let _ = writeln!(out, "\t\tt.Errorf(\"expected >= {go_val}, got %v\", {field_expr})");
-                    let _ = writeln!(out, "\t}}");
+                    let _ = writeln!(out_ref, "\tif {field_expr} < {go_val} {{");
+                    let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected >= {go_val}, got %v\", {field_expr})");
+                    let _ = writeln!(out_ref, "\t}}");
                 }
             }
         }
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let go_val = json_to_go(val);
-                let _ = writeln!(out, "\tif {field_expr} > {go_val} {{");
-                let _ = writeln!(out, "\t\tt.Errorf(\"expected <= {go_val}, got %v\", {field_expr})");
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out_ref, "\tif {field_expr} > {go_val} {{");
+                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected <= {go_val}, got %v\", {field_expr})");
+                let _ = writeln!(out_ref, "\t}}");
             }
         }
         "starts_with" => {
@@ -723,27 +742,27 @@ fn render_assertion(
                 } else {
                     format!("string({field_expr})")
                 };
-                let _ = writeln!(out, "\tif !strings.HasPrefix({field_for_prefix}, {go_val}) {{");
+                let _ = writeln!(out_ref, "\tif !strings.HasPrefix({field_for_prefix}, {go_val}) {{");
                 let _ = writeln!(
-                    out,
+                    out_ref,
                     "\t\tt.Errorf(\"expected to start with %s, got %v\", {go_val}, {field_expr})"
                 );
-                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out_ref, "\t}}");
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
                     if is_optional {
-                        let _ = writeln!(out, "\tif {field_expr} != nil {{");
+                        let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
                         let _ = writeln!(
-                            out,
+                            out_ref,
                             "\t\tassert.GreaterOrEqual(t, len(*{field_expr}), {n}, \"expected at least {n} elements\")"
                         );
-                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(out_ref, "\t}}");
                     } else {
                         let _ = writeln!(
-                            out,
+                            out_ref,
                             "\tassert.GreaterOrEqual(t, len({field_expr}), {n}, \"expected at least {n} elements\")"
                         );
                     }
@@ -757,8 +776,23 @@ fn render_assertion(
             // Handled at the test function level.
         }
         other => {
-            let _ = writeln!(out, "\t// TODO: unsupported assertion type: {other}");
+            let _ = writeln!(out_ref, "\t// TODO: unsupported assertion type: {other}");
         }
+    }
+
+    // If the assertion accesses an array element via [0], wrap the generated code in a
+    // bounds check to prevent an index-out-of-range panic when the array is empty.
+    if let Some(ref arr) = array_guard {
+        if !assertion_buf.is_empty() {
+            let _ = writeln!(out, "\tif len({arr}) > 0 {{");
+            // Re-indent each line by one additional tab level.
+            for line in assertion_buf.lines() {
+                let _ = writeln!(out, "\t{line}");
+            }
+            let _ = writeln!(out, "\t}}");
+        }
+    } else {
+        out.push_str(&assertion_buf);
     }
 }
 

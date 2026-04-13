@@ -31,7 +31,7 @@ pub fn gen_from_core_to_binding_cfg(
         let inner_expr = match &field.ty {
             TypeRef::Named(_) => "val.0.into()".to_string(),
             TypeRef::Path => "val.0.to_string_lossy().to_string()".to_string(),
-            TypeRef::Duration => "val.0.as_secs()".to_string(),
+            TypeRef::Duration => "val.0.as_millis() as u64".to_string(),
             _ => "val.0".to_string(),
         };
         writeln!(out, "        Self {{ _0: {inner_expr} }}").ok();
@@ -200,12 +200,12 @@ pub fn field_conversion_from_core(
         return format!("{name}: format!(\"{{:?}}\", val.{name})");
     }
     match ty {
-        // Duration: core uses std::time::Duration, binding uses u64 (secs)
+        // Duration: core uses std::time::Duration, binding uses u64 (millis)
         TypeRef::Duration => {
             if optional {
-                return format!("{name}: val.{name}.map(|d| d.as_secs())");
+                return format!("{name}: val.{name}.map(|d| d.as_millis() as u64)");
             }
-            format!("{name}: val.{name}.as_secs()")
+            format!("{name}: val.{name}.as_millis() as u64")
         }
         // Path: core uses PathBuf, binding uses String — PathBuf→String needs special handling
         TypeRef::Path => {
@@ -376,9 +376,9 @@ pub fn field_conversion_from_core_cfg(
         // Duration with i64 casting
         TypeRef::Duration if config.cast_large_ints_to_i64 => {
             if optional {
-                format!("{name}: val.{name}.map(|d| d.as_secs() as i64)")
+                format!("{name}: val.{name}.map(|d| d.as_millis() as u64 as i64)")
             } else {
-                format!("{name}: val.{name}.as_secs() as i64")
+                format!("{name}: val.{name}.as_millis() as u64 as i64")
             }
         }
         // Opaque Named types with prefix: wrap in Arc with prefixed binding name

@@ -29,7 +29,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         let inner_expr = match &field.ty {
             TypeRef::Named(_) => "val._0.into()".to_string(),
             TypeRef::Path => "val._0.into()".to_string(),
-            TypeRef::Duration => "std::time::Duration::from_secs(val._0)".to_string(),
+            TypeRef::Duration => "std::time::Duration::from_millis(val._0)".to_string(),
             _ => "val._0".to_string(),
         };
         writeln!(out, "        Self({inner_expr})").ok();
@@ -41,7 +41,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     // When option_duration_on_defaults is set for a has_default type, non-optional Duration
     // fields are stored as Option<u64> in the binding struct.  We use the builder pattern
     // so that None falls back to the core type's Default (giving the real field default,
-    // e.g. Duration::from_secs(30)) rather than Duration::ZERO.
+    // e.g. Duration::from_millis(30000)) rather than Duration::ZERO.
     let has_optionalized_duration = config.option_duration_on_defaults
         && typ.has_default
         && typ
@@ -63,7 +63,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 let cast = if config.cast_large_ints_to_i64 { " as u64" } else { "" };
                 writeln!(
                     out,
-                    "        if let Some(__v) = val.{} {{ __result.{} = std::time::Duration::from_secs(__v{cast}); }}",
+                    "        if let Some(__v) = val.{} {{ __result.{} = std::time::Duration::from_millis(__v{cast}); }}",
                     field.name, field.name
                 )
                 .ok();
@@ -177,10 +177,10 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
             format!("{name}: val.{name}.map(|v| v as {core_ty}).unwrap_or_default()")
         }
         TypeRef::Duration if config.cast_large_ints_to_i64 => {
-            format!("{name}: val.{name}.map(|v| std::time::Duration::from_secs(v as u64)).unwrap_or_default()")
+            format!("{name}: val.{name}.map(|v| std::time::Duration::from_millis(v as u64)).unwrap_or_default()")
         }
         TypeRef::Duration => {
-            format!("{name}: val.{name}.map(std::time::Duration::from_secs).unwrap_or_default()")
+            format!("{name}: val.{name}.map(std::time::Duration::from_millis).unwrap_or_default()")
         }
         TypeRef::Path => {
             format!("{name}: val.{name}.map(Into::into).unwrap_or_default()")
@@ -240,12 +240,12 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                 format!("{name}: val.{name}.chars().next().unwrap_or('*')")
             }
         }
-        // Duration: binding uses u64 (secs), core uses std::time::Duration
+        // Duration: binding uses u64 (millis), core uses std::time::Duration
         TypeRef::Duration => {
             if optional {
-                format!("{name}: val.{name}.map(std::time::Duration::from_secs)")
+                format!("{name}: val.{name}.map(std::time::Duration::from_millis)")
             } else {
-                format!("{name}: std::time::Duration::from_secs(val.{name})")
+                format!("{name}: std::time::Duration::from_millis(val.{name})")
             }
         }
         // Path needs .into() — binding uses String, core uses PathBuf
@@ -401,9 +401,9 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         }
         TypeRef::Duration if config.cast_large_ints_to_i64 => {
             if optional {
-                format!("{name}: val.{name}.map(|v| std::time::Duration::from_secs(v as u64))")
+                format!("{name}: val.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
             } else {
-                format!("{name}: std::time::Duration::from_secs(val.{name} as u64)")
+                format!("{name}: std::time::Duration::from_millis(val.{name} as u64)")
             }
         }
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) => {

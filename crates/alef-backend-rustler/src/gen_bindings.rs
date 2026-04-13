@@ -566,7 +566,7 @@ fn gen_rustler_wrap_return(
         }
         TypeRef::String | TypeRef::Char | TypeRef::Bytes => format!("{expr}.into()"),
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
-        TypeRef::Duration => format!("{expr}.as_secs()"),
+        TypeRef::Duration => format!("{expr}.as_millis() as u64"),
         TypeRef::Json => format!("{expr}.to_string()"),
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
@@ -599,7 +599,7 @@ fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &AHashSet<Str
             TypeRef::String | TypeRef::Char => format!("&{}", p.name),
             TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
             TypeRef::Bytes => format!("&{}", p.name),
-            TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
+            TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
             _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
@@ -683,7 +683,7 @@ fn gen_nif_function(
                     TypeRef::String | TypeRef::Char => format!("&{}", p.name),
                     TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
                     TypeRef::Bytes => format!("&{}", p.name),
-                    TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
+                    TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     _ => p.name.clone(),
                 }
             })
@@ -784,7 +784,7 @@ fn gen_nif_async_function(
                     TypeRef::String | TypeRef::Char => format!("&{}", p.name),
                     TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
                     TypeRef::Bytes => format!("&{}", p.name),
-                    TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
+                    TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     _ => p.name.clone(),
                 }
             })

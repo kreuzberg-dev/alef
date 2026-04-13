@@ -882,9 +882,9 @@ fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> S
             }
             TypeRef::Duration => {
                 if p.optional {
-                    format!("{}.map(|v| std::time::Duration::from_secs(v as u64))", p.name)
+                    format!("{}.map(|v| std::time::Duration::from_millis(v as u64))", p.name)
                 } else {
-                    format!("std::time::Duration::from_secs({} as u64)", p.name)
+                    format!("std::time::Duration::from_millis({} as u64)", p.name)
                 }
             }
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
@@ -924,7 +924,7 @@ fn napi_wrap_return(
         TypeRef::Primitive(p) if needs_napi_cast(p) => {
             format!("{expr} as i64")
         }
-        TypeRef::Duration => format!("{expr}.as_secs() as i64"),
+        TypeRef::Duration => format!("{expr}.as_millis() as i64"),
         // Opaque Named returns need Js prefix
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
             if returns_ref {
@@ -970,7 +970,7 @@ fn napi_wrap_return_fn(
         TypeRef::Primitive(p) if needs_napi_cast(p) => {
             format!("{expr} as i64")
         }
-        TypeRef::Duration => format!("{expr}.as_secs() as i64"),
+        TypeRef::Duration => format!("{expr}.as_millis() as i64"),
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
                 format!("Js{n} {{ inner: Arc::new({expr}.clone()) }}")

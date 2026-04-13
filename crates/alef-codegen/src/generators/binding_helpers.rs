@@ -64,8 +64,8 @@ pub fn wrap_return(
         }
         // Path: PathBuf→String needs to_string_lossy, &Path→String too
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
-        // Duration: core returns std::time::Duration, binding uses u64 (secs)
-        TypeRef::Duration => format!("{expr}.as_secs()"),
+        // Duration: core returns std::time::Duration, binding uses u64 (millis)
+        TypeRef::Duration => format!("{expr}.as_millis() as u64"),
         // Json: serde_json::Value needs serialization to string
         TypeRef::Json => format!("{expr}.to_string()"),
         // Optional: wrap inner conversion in .map(...)
@@ -94,7 +94,7 @@ pub fn wrap_return(
                     expr.to_string()
                 }
             }
-            TypeRef::Duration => format!("{expr}.map(|d| d.as_secs())"),
+            TypeRef::Duration => format!("{expr}.map(|d| d.as_millis() as u64)"),
             TypeRef::Json => format!("{expr}.map(ToString::to_string)"),
             _ => expr.to_string(),
         },
@@ -225,9 +225,9 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                 // Duration: binding uses u64 (secs), core uses std::time::Duration
                 TypeRef::Duration => {
                     if promoted {
-                        format!("std::time::Duration::from_secs({}{})", p.name, unwrap_suffix)
+                        format!("std::time::Duration::from_millis({}{})", p.name, unwrap_suffix)
                     } else {
-                        format!("std::time::Duration::from_secs({})", p.name)
+                        format!("std::time::Duration::from_millis({})", p.name)
                     }
                 }
                 _ => {
@@ -323,9 +323,9 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                 }
                 TypeRef::Duration => {
                     if promoted {
-                        format!("std::time::Duration::from_secs({}{})", p.name, unwrap_suffix)
+                        format!("std::time::Duration::from_millis({}{})", p.name, unwrap_suffix)
                     } else {
-                        format!("std::time::Duration::from_secs({})", p.name)
+                        format!("std::time::Duration::from_millis({})", p.name)
                     }
                 }
                 _ => {
@@ -468,7 +468,7 @@ fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, need
                     if field.optional {
                         format!("self.{name}.map(std::time::Duration::from_secs)")
                     } else {
-                        format!("std::time::Duration::from_secs(self.{name})")
+                        format!("std::time::Duration::from_millis(self.{name})")
                     }
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes => format!("self.{name}.clone()"),

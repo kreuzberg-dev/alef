@@ -68,11 +68,20 @@ pub struct E2eConfig {
     ///
     /// When a `contains` / `contains_all` / etc. assertion targets one of these
     /// fields, language generators that cannot call `.contains()` directly on an
-    /// enum (e.g., Java) will emit a string-conversion call first.
+    /// enum (e.g., Java) will emit a string-conversion call first.  For Java,
+    /// the generated assertion calls `.getValue()` on the enum — the `@JsonValue`
+    /// method that all alef-generated Java enums expose — to obtain the lowercase
+    /// serde string before performing the string comparison.
     ///
-    /// Use the fixture field path (before alias resolution), e.g.:
+    /// Both the raw fixture field path (before alias resolution) and the resolved
+    /// path (after alias resolution via `[e2e.fields]`) are accepted, so you can
+    /// use either form:
+    ///
     /// ```toml
-    /// fields_enum = ["links[].link_type", "browser.js_render_hint"]
+    /// # Raw fixture field:
+    /// fields_enum = ["links[].link_type", "assets[].category"]
+    /// # …or the resolved (aliased) field name:
+    /// fields_enum = ["links[].link_type", "assets[].asset_category"]
     /// ```
     #[serde(default)]
     pub fields_enum: HashSet<String>,

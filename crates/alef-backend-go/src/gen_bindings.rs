@@ -381,6 +381,13 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     writeln!(out, "// Variants: {}", variant_names.join(", ")).ok();
     writeln!(out, "type {} struct {{", enum_def.name).ok();
 
+    // Emit the serde tag discriminator field first (e.g. `Type string \`json:"type"\``).
+    // This ensures round-trip JSON serialization preserves the variant discriminator,
+    // which Rust needs to deserialize the correct enum variant.
+    if let Some(tag_name) = &enum_def.serde_tag {
+        writeln!(out, "    {} string `json:\"{}\"`", to_go_name(tag_name), tag_name).ok();
+    }
+
     // Collect and deduplicate fields across all variants.
     // Track: field name -> (FieldDef, count of variants containing it)
     let mut seen_fields: Vec<(String, FieldDef, usize)> = Vec::new();

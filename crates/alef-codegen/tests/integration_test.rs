@@ -625,7 +625,7 @@ fn test_wrap_return_duration_conversion() {
         false,
         false,
     );
-    assert_eq!(result, "result.as_secs()");
+    assert_eq!(result, "result.as_millis() as u64");
 }
 
 #[test]
@@ -810,7 +810,7 @@ fn test_gen_call_args_duration_param() {
     let opaque_types = AHashSet::new();
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
-    assert_eq!(result, "std::time::Duration::from_secs(timeout)");
+    assert_eq!(result, "std::time::Duration::from_millis(timeout)");
 }
 
 #[test]
@@ -1156,5 +1156,5 @@ fn test_gen_lossy_binding_to_core_fields_with_duration() {
 
     let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate");
 
-    assert!(result.contains("timeout: std::time::Duration::from_secs(self.timeout),"));
+    assert!(result.contains("timeout: std::time::Duration::from_millis(self.timeout),"));
 }

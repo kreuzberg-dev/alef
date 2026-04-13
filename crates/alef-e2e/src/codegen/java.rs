@@ -496,7 +496,13 @@ fn render_assertion(
     }
 
     // Determine if this field is an enum type (no `.contains()` on enums in Java).
-    let field_is_enum = assertion.field.as_deref().is_some_and(|f| enum_fields.contains(f));
+    // Check both the raw fixture field path and the resolved (aliased) path so that
+    // `fields_enum` entries can use either form (e.g., `"assets[].category"` or the
+    // resolved `"assets[].asset_category"`).
+    let field_is_enum = assertion
+        .field
+        .as_deref()
+        .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
     let field_expr = if result_is_simple {
         result_var.to_string()
@@ -517,10 +523,11 @@ fn render_assertion(
         }
     };
 
-    // For enum fields, string-based assertions need .name().toLowerCase() to convert
-    // the enum constant to a comparable string (e.g., LinkType.EXTERNAL -> "external").
+    // For enum fields, string-based assertions need .getValue() to convert the enum to
+    // its serde-serialized lowercase string value (e.g., AssetCategory.Image -> "image").
+    // All alef-generated Java enums expose a getValue() method annotated with @JsonValue.
     let string_expr = if field_is_enum {
-        format!("{field_expr}.name().toLowerCase()")
+        format!("{field_expr}.getValue()")
     } else {
         field_expr.clone()
     };

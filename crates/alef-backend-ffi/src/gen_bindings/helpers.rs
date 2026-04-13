@@ -58,7 +58,7 @@ pub(super) fn gen_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> String {
             writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").ok();
         }
         TypeRef::Duration => {
-            writeln!(out, "{indent}{expr}.as_secs()").ok();
+            writeln!(out, "{indent}{expr}.as_millis() as u64").ok();
         }
         TypeRef::Unit => {
             // nothing to return
@@ -197,7 +197,7 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> St
             writeln!(out, "{indent}}}").ok();
         }
         TypeRef::Duration => {
-            writeln!(out, "{indent}{expr}.as_secs()").ok();
+            writeln!(out, "{indent}{expr}.as_millis() as u64").ok();
         }
         TypeRef::Unit => {}
     }

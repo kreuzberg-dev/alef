@@ -730,8 +730,8 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "    let {rs_name} = {name};").ok();
             }
             TypeRef::Duration => {
-                // Duration passed as u64 seconds
-                writeln!(out, "    let {rs_name} = std::time::Duration::from_secs({name});").ok();
+                // Duration passed as u64 milliseconds
+                writeln!(out, "    let {rs_name} = std::time::Duration::from_millis({name});").ok();
             }
             TypeRef::Unit => {
                 // No parameter to convert

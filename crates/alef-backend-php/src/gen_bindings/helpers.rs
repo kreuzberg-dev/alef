@@ -132,7 +132,7 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                     format!("&{}", p.name)
                 }
             }
-            TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
+            TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
             _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
@@ -213,7 +213,7 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     format!("&{}", p.name)
                 }
             }
-            TypeRef::Duration => format!("std::time::Duration::from_secs({})", p.name),
+            TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
             _ => p.name.clone(),
         })
         .collect::<Vec<_>>()
@@ -257,9 +257,9 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &
                 TypeRef::Primitive(_) => format!("self.{name}"),
                 TypeRef::Duration => {
                     if field.optional {
-                        format!("self.{name}.map(|v| std::time::Duration::from_secs(v as u64))")
+                        format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
                     } else {
-                        format!("std::time::Duration::from_secs(self.{name} as u64)")
+                        format!("std::time::Duration::from_millis(self.{name} as u64)")
                     }
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes => format!("self.{name}.clone()"),
