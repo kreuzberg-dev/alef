@@ -582,7 +582,7 @@ fn gen_wrapper_class(
     out.push_str("    private static readonly JsonSerializerOptions JsonOptions = new()\n");
     out.push_str("    {\n");
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
-    out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull\n");
+    out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault\n");
     out.push_str("    };\n\n");
 
     // Enum names: used to distinguish opaque struct handles from enum return types.
@@ -882,6 +882,13 @@ fn gen_wrapper_function(
             out.push_str("            );\n");
         }
 
+        // Check for FFI error (null result means the call failed).
+        if func.return_type != TypeRef::Unit {
+            out.push_str(
+                "            if (result == IntPtr.Zero) { var err = GetLastError(); if (err.Code != 0) throw err; }\n",
+            );
+        }
+
         emit_return_marshalling_indented(
             &mut out,
             &func.return_type,
@@ -915,6 +922,13 @@ fn gen_wrapper_function(
                 out.push('\n');
             }
             out.push_str("        );\n");
+        }
+
+        // Check for FFI error (null result means the call failed).
+        if func.return_type != TypeRef::Unit {
+            out.push_str(
+                "        if (result == IntPtr.Zero) { var err = GetLastError(); if (err.Code != 0) throw err; }\n",
+            );
         }
 
         emit_return_marshalling(&mut out, &func.return_type, enum_names, true_opaque_types);
@@ -1358,7 +1372,8 @@ fn gen_record_type(
                 Some(DefaultValue::Empty) | None => match &field.ty {
                     TypeRef::Vec(_) => "[]".to_string(),
                     TypeRef::Map(k, v) => format!("new Dictionary<{}, {}>()", csharp_type(k), csharp_type(v)),
-                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
+                    TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+                    TypeRef::Json => "null".to_string(),
                     TypeRef::Bytes => "Array.Empty<byte>()".to_string(),
                     TypeRef::Primitive(p) => match p {
                         PrimitiveType::Bool => "false".to_string(),

@@ -27,7 +27,7 @@ pub fn csharp_type(ty: &TypeRef) -> Cow<'static, str> {
         TypeRef::Map(k, v) => Cow::Owned(format!("Dictionary<{}, {}>", csharp_type(k), csharp_type(v))),
         TypeRef::Named(name) => Cow::Owned(name.clone()),
         TypeRef::Path => Cow::Borrowed("string"),
-        TypeRef::Json => Cow::Borrowed("string"),
+        TypeRef::Json => Cow::Borrowed("object"),
         TypeRef::Unit => Cow::Borrowed("void"),
         TypeRef::Duration => Cow::Borrowed("ulong"),
     }
