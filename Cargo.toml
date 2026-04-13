@@ -29,6 +29,9 @@ edition = "2024"
 rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/kreuzberg-dev/alef"
+homepage = "https://github.com/kreuzberg-dev/alef"
+keywords = ["codegen", "bindings", "ffi", "polyglot", "pyo3"]
+categories = ["development-tools::ffi", "development-tools::build-utils"]
 
 [workspace.dependencies]
 ahash = "0.8"

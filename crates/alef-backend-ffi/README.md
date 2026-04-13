@@ -1,10 +1,21 @@
+<div align="center">
+
+<img width="100%" alt="kreuzberg.dev banner" src="https://github.com/user-attachments/assets/1b6c6ad7-3b6d-4171-b1c9-f2026cc9deb8" />
+
+<a href="https://crates.io/crates/alef-backend-ffi">
+  <img src="https://img.shields.io/crates/v/alef-backend-ffi?color=007ec6" alt="crates.io">
+</a>
+<a href="https://discord.gg/xt9WY3GnKR">
+  <img src="https://img.shields.io/badge/Discord-Join%20our%20community-7289da?logo=discord&logoColor=white" alt="Discord">
+</a>
+
+</div>
+
 # alef-backend-ffi
 
-C FFI backend for alef.
+C FFI backend for alef
 
-This crate generates a complete C-compatible FFI layer for a Rust library, producing `#[no_mangle] extern "C"` functions, opaque handle types, and all supporting infrastructure. Generated code includes allocate/free pairs for every type, field accessors, JSON serialization/deserialization functions, enum-to-integer conversions, a thread-local error reporting mechanism, a Tokio runtime for async operations, and a `build.rs` with `cbindgen.toml` for automatic C header generation.
-
-The backend optionally generates a visitor callback system with a `#[repr(C)]` callback struct covering up to 42 trait methods, enabling host languages to implement Rust trait behavior via C function pointers. This FFI layer serves as the foundation for the Go, Java, and C# backends, which generate wrapper code that calls through these C bindings.
+Generates a complete C-compatible FFI layer with `#[no_mangle] extern "C"` functions, opaque handle types, allocate/free pairs, field accessors, JSON serialization helpers, and cbindgen integration for automatic C header generation. Includes a thread-local error reporting mechanism and a Tokio runtime for async operations. This FFI layer serves as the shared foundation for the Go (cgo), Java (Panama FFM), and C# (P/Invoke) backends.
 
 Part of the [alef](https://github.com/kreuzberg-dev/alef) polyglot binding generator.
 

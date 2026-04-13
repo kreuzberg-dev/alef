@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "Core types, config schema, and backend trait for the alef polyglot binding generator"
 readme = "README.md"
 

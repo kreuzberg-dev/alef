@@ -909,11 +909,11 @@ fn gen_function(
                 let binding_ty = &p.name;
                 if p.optional {
                     deser_lines.push(format!(
-                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| serde_json::from_str(s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))).transpose()?;"
+                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
                     ));
                 } else {
                     deser_lines.push(format!(
-                        "let {binding_ty}: {name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?;"
+                        "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?; core.into() }};"
                     ));
                 }
             }
@@ -1016,11 +1016,11 @@ fn gen_async_function(
                 let binding_ty = &p.name;
                 if p.optional {
                     deser_lines.push(format!(
-                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| serde_json::from_str(s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))).transpose()?;"
+                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
                     ));
                 } else {
                     deser_lines.push(format!(
-                        "let {binding_ty}: {name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?;"
+                        "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?; core.into() }};"
                     ));
                 }
             }

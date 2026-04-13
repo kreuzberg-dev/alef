@@ -131,7 +131,7 @@ fn try_template_readme(
     // Register render_performance_table filter: {{ perf | render_performance_table(name) }}
     env.add_filter(
         "render_performance_table",
-        |benchmarks: Value, _name: String| -> String { render_performance_table(&benchmarks) },
+        |benchmarks: Value, name: String| -> String { render_performance_table(&benchmarks, &name) },
     );
 
     // Register has_migration function
@@ -323,48 +323,95 @@ fn extract_code_block(md: &str) -> String {
 ///
 /// Expects the value to be a sequence of mappings with keys:
 /// `name`, `value`, `unit` (optional), `notes` (optional).
-fn render_performance_table(benchmarks: &Value) -> String {
+fn render_performance_table(perf: &Value, _name: &str) -> String {
     use minijinja::value::ValueKind;
 
-    if benchmarks.kind() != ValueKind::Seq && benchmarks.kind() != ValueKind::Iterable {
-        return String::new();
-    }
+    // Extract platform/function/note metadata
+    let platform = perf
+        .get_attr("platform")
+        .ok()
+        .and_then(|v: Value| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    let function = perf
+        .get_attr("function")
+        .ok()
+        .and_then(|v: Value| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    let note = perf
+        .get_attr("note")
+        .ok()
+        .and_then(|v: Value| v.as_str().map(str::to_string))
+        .unwrap_or_default();
 
+    // Extract benchmarks array
+    let benchmarks = match perf.get_attr("benchmarks") {
+        Ok(v) if v.kind() == ValueKind::Seq => v,
+        _ => return String::new(),
+    };
     let Ok(iter) = benchmarks.try_iter() else {
         return String::new();
     };
 
-    let mut table = String::from("| Benchmark | Result |\n|-----------|--------|\n");
-    for item in iter {
-        let name = item
-            .get_attr("name")
-            .ok()
-            .and_then(|v: Value| v.as_str().map(str::to_string))
-            .unwrap_or_default();
-        let value = item
-            .get_attr("value")
-            .ok()
-            .and_then(|v: Value| v.as_str().map(str::to_string))
-            .unwrap_or_default();
-        let unit = item
-            .get_attr("unit")
-            .ok()
-            .and_then(|v: Value| v.as_str().map(str::to_string))
-            .unwrap_or_default();
-        let notes = item
-            .get_attr("notes")
-            .ok()
-            .and_then(|v: Value| v.as_str().map(str::to_string))
-            .unwrap_or_default();
-
-        let result = if notes.is_empty() {
-            format!("{value} {unit}")
-        } else {
-            format!("{value} {unit} ({notes})")
-        };
-        table.push_str(&format!("| {name} | {result} |\n"));
+    let mut out = String::new();
+    if !platform.is_empty() {
+        out.push_str(&format!("**{platform}** · `{function}` · {note}\n\n"));
     }
-    table
+
+    // Detect table format: latency/throughput or ops/sec
+    let items: Vec<Value> = iter.collect();
+    let has_throughput = items
+        .iter()
+        .any(|item| item.get_attr("throughput").ok().is_some_and(|v| !v.is_undefined()));
+
+    if has_throughput {
+        out.push_str("| Document | Size | Latency | Throughput |\n");
+        out.push_str("|----------|------|---------|------------|\n");
+        for item in &items {
+            let name = item
+                .get_attr("name")
+                .ok()
+                .and_then(|v: Value| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            let size = item
+                .get_attr("size")
+                .ok()
+                .and_then(|v: Value| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            let latency = item
+                .get_attr("latency")
+                .ok()
+                .and_then(|v: Value| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            let throughput = item
+                .get_attr("throughput")
+                .ok()
+                .and_then(|v: Value| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            out.push_str(&format!("| {name} | {size} | {latency} | {throughput} |\n"));
+        }
+    } else {
+        out.push_str("| Document | Size | Ops/sec |\n");
+        out.push_str("|----------|------|---------|\n");
+        for item in &items {
+            let name = item
+                .get_attr("name")
+                .ok()
+                .and_then(|v: Value| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            let size = item
+                .get_attr("size")
+                .ok()
+                .and_then(|v: Value| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            let ops = item
+                .get_attr("ops_sec")
+                .ok()
+                .map(|v: Value| format!("{v}"))
+                .unwrap_or_default();
+            out.push_str(&format!("| {name} | {size} | {ops} |\n"));
+        }
+    }
+    out
 }
 
 /// Convert a `serde_json::Value` into a `minijinja::Value` via serde serialization.
@@ -670,7 +717,7 @@ mod tests {
     #[test]
     fn test_render_performance_table_empty() {
         let v = Value::from(Vec::<Value>::new());
-        let result = render_performance_table(&v);
+        let result = render_performance_table(&v, "test");
         assert!(result.contains("Benchmark"));
     }
 

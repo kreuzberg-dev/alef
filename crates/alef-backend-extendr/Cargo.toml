@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 description = "R (extendr) backend for alef"
 repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
 
 [dependencies]

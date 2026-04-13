@@ -5,7 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 description = "API reference documentation generator for alef polyglot bindings"
+readme = "README.md"
 
 [dependencies]
 alef-core = { workspace = true }

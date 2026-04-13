@@ -4,6 +4,9 @@
 
 <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 16px;">
 
+<a href="https://crates.io/crates/alef-cli">
+  <img src="https://img.shields.io/crates/v/alef-cli?color=007ec6" alt="crates.io">
+</a>
 <a href="https://github.com/kreuzberg-dev/alef/actions/workflows/ci.yml">
   <img src="https://img.shields.io/github/actions/workflow/status/kreuzberg-dev/alef/ci.yml?label=CI&color=007ec6" alt="CI">
 </a>
@@ -60,13 +63,16 @@ Generate fully-typed, lint-clean language bindings for Rust libraries across 11 
 ### Install
 
 ```bash
+# Pre-built binary (fastest)
+cargo binstall alef-cli
+
 # From crates.io
 cargo install alef-cli
 
-# Or via Homebrew
+# Via Homebrew
 brew install kreuzberg-dev/tap/alef
 
-# Or from source
+# From source
 git clone https://github.com/kreuzberg-dev/alef.git
 cd alef && cargo install --path crates/alef-cli
 ```
@@ -507,25 +513,58 @@ Rust Source Files
 
 | Crate | Role |
 |-------|------|
-| [`alef-core`](crates/alef-core) | IR types, config schema, `Backend` trait |
-| [`alef-extract`](crates/alef-extract) | Rust source to IR extraction via `syn` |
-| [`alef-codegen`](crates/alef-codegen) | Shared code generation (type mappers, converters, builders) |
-| [`alef-cli`](crates/alef-cli) | CLI binary with all commands |
-| [`alef-backend-pyo3`](crates/alef-backend-pyo3) | Python backend |
-| [`alef-backend-napi`](crates/alef-backend-napi) | TypeScript/Node.js backend |
-| [`alef-backend-wasm`](crates/alef-backend-wasm) | WebAssembly backend |
-| [`alef-backend-ffi`](crates/alef-backend-ffi) | C FFI backend (used by Go, Java, C#) |
-| [`alef-backend-magnus`](crates/alef-backend-magnus) | Ruby backend |
-| [`alef-backend-php`](crates/alef-backend-php) | PHP backend |
-| [`alef-backend-rustler`](crates/alef-backend-rustler) | Elixir backend |
-| [`alef-backend-extendr`](crates/alef-backend-extendr) | R backend |
-| [`alef-backend-go`](crates/alef-backend-go) | Go backend |
-| [`alef-backend-java`](crates/alef-backend-java) | Java backend |
-| [`alef-backend-csharp`](crates/alef-backend-csharp) | C# backend |
-| [`alef-adapters`](crates/alef-adapters) | Adapter pattern code generators |
-| [`alef-scaffold`](crates/alef-scaffold) | Package manifest generator |
-| [`alef-readme`](crates/alef-readme) | Per-language README generator |
-| [`alef-e2e`](crates/alef-e2e) | Fixture-driven e2e test generator |
+| [`alef-core`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-core) | IR types, config schema, `Backend` trait |
+| [`alef-extract`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-extract) | Rust source to IR extraction via `syn` |
+| [`alef-codegen`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-codegen) | Shared code generation (type mappers, converters, builders) |
+| [`alef-adapters`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-adapters) | Adapter pattern code generators |
+| [`alef-cli`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-cli) | CLI binary with all commands |
+| [`alef-docs`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-docs) | API reference documentation generator |
+| [`alef-e2e`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-e2e) | Fixture-driven e2e test generator |
+| [`alef-readme`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-readme) | Per-language README generator |
+| [`alef-scaffold`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-scaffold) | Package manifest generator |
+| [`alef-backend-pyo3`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-pyo3) | Python backend |
+| [`alef-backend-napi`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-napi) | TypeScript/Node.js backend |
+| [`alef-backend-wasm`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-wasm) | WebAssembly backend |
+| [`alef-backend-ffi`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-ffi) | C FFI backend (used by Go, Java, C#) |
+| [`alef-backend-magnus`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-magnus) | Ruby backend |
+| [`alef-backend-php`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-php) | PHP backend |
+| [`alef-backend-rustler`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-rustler) | Elixir backend |
+| [`alef-backend-extendr`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-extendr) | R backend |
+| [`alef-backend-go`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-go) | Go backend |
+| [`alef-backend-java`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-java) | Java backend |
+| [`alef-backend-csharp`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-csharp) | C# backend |
+
+## Pre-commit Hooks
+
+Alef ships pre-commit hooks that consumer projects can use to keep generated output up to date.
+
+### Verify mode (CI-friendly, check-only)
+
+Fails if any generated file is stale -- does not modify files:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/kreuzberg-dev/alef
+    rev: v0.3.0
+    hooks:
+      - id: alef-verify
+```
+
+### Generate mode (auto-regenerate)
+
+Regenerates all output (bindings, stubs, docs, readme, scaffold) when source files change:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/kreuzberg-dev/alef
+    rev: v0.3.0
+    hooks:
+      - id: alef-generate
+```
+
+Both hooks trigger on `.rs` and `.toml` file changes. They require `alef` to be installed and available on `PATH`.
 
 ## Contributing
 

@@ -519,28 +519,30 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let rb_val = json_to_ruby(expected);
-                let _ = writeln!(out, "    expect({field_expr}).to include({rb_val})");
+                // Use .to_s to handle both String and Symbol (enum) fields
+                let _ = writeln!(out, "    expect({field_expr}.to_s).to include({rb_val})");
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
                 for val in values {
                     let rb_val = json_to_ruby(val);
-                    let _ = writeln!(out, "    expect({field_expr}).to include({rb_val})");
+                    let _ = writeln!(out, "    expect({field_expr}.to_s).to include({rb_val})");
                 }
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let rb_val = json_to_ruby(expected);
-                let _ = writeln!(out, "    expect({field_expr}).not_to include({rb_val})");
+                let _ = writeln!(out, "    expect({field_expr}.to_s).not_to include({rb_val})");
             }
         }
         "not_empty" => {
             let _ = writeln!(out, "    expect({field_expr}).not_to be_empty");
         }
         "is_empty" => {
-            let _ = writeln!(out, "    expect({field_expr}).to be_empty");
+            // Handle nil (None) as empty for optional fields
+            let _ = writeln!(out, "    expect({field_expr}.nil? || {field_expr}.empty?).to be(true)");
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
@@ -548,7 +550,7 @@ fn render_assertion(
                 let arr_str = items.join(", ");
                 let _ = writeln!(
                     out,
-                    "    expect([{arr_str}].any? {{ |v| {field_expr}.include?(v) }}).to be(true)"
+                    "    expect([{arr_str}].any? {{ |v| {field_expr}.to_s.include?(v) }}).to be(true)"
                 );
             }
         }
