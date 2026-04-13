@@ -716,6 +716,31 @@ fn gen_sync_function_method(
         .ok();
         emit_ffi_ptr_cleanup(out);
         writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
+        writeln!(
+            out,
+            "                int errCode = (int) NativeLib.{}_LAST_ERROR_CODE.invoke();",
+            prefix.to_uppercase()
+        )
+        .ok();
+        writeln!(out, "                if (errCode != 0) {{").ok();
+        writeln!(
+            out,
+            "                    var ctxPtr = (MemorySegment) NativeLib.{}_LAST_ERROR_CONTEXT.invoke();",
+            prefix.to_uppercase()
+        )
+        .ok();
+        writeln!(
+            out,
+            "                    String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        )
+        .ok();
+        writeln!(
+            out,
+            "                    throw new {}Exception(errCode, msg);",
+            class_name
+        )
+        .ok();
+        writeln!(out, "                }}").ok();
         writeln!(out, "                return null;").ok();
         writeln!(out, "            }}").ok();
         writeln!(
@@ -750,6 +775,31 @@ fn gen_sync_function_method(
         .ok();
         emit_ffi_ptr_cleanup(out);
         writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
+        writeln!(
+            out,
+            "                int errCode = (int) NativeLib.{}_LAST_ERROR_CODE.invoke();",
+            prefix.to_uppercase()
+        )
+        .ok();
+        writeln!(out, "                if (errCode != 0) {{").ok();
+        writeln!(
+            out,
+            "                    var ctxPtr = (MemorySegment) NativeLib.{}_LAST_ERROR_CONTEXT.invoke();",
+            prefix.to_uppercase()
+        )
+        .ok();
+        writeln!(
+            out,
+            "                    String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        )
+        .ok();
+        writeln!(
+            out,
+            "                    throw new {}Exception(errCode, msg);",
+            class_name
+        )
+        .ok();
+        writeln!(out, "                }}").ok();
         writeln!(out, "                return null;").ok();
         writeln!(out, "            }}").ok();
 
@@ -774,6 +824,31 @@ fn gen_sync_function_method(
             .ok();
             writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
             writeln!(out, "            if (jsonPtr.equals(MemorySegment.NULL)) {{").ok();
+            writeln!(
+                out,
+                "                int errCode = (int) NativeLib.{}_LAST_ERROR_CODE.invoke();",
+                prefix.to_uppercase()
+            )
+            .ok();
+            writeln!(out, "                if (errCode != 0) {{").ok();
+            writeln!(
+                out,
+                "                    var ctxPtr = (MemorySegment) NativeLib.{}_LAST_ERROR_CONTEXT.invoke();",
+                prefix.to_uppercase()
+            )
+            .ok();
+            writeln!(
+                out,
+                "                    String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+            )
+            .ok();
+            writeln!(
+                out,
+                "                    throw new {}Exception(errCode, msg);",
+                class_name
+            )
+            .ok();
+            writeln!(out, "                }}").ok();
             writeln!(out, "                return null;").ok();
             writeln!(out, "            }}").ok();
             writeln!(
