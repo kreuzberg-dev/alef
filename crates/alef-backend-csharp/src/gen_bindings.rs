@@ -1766,7 +1766,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         let pascal = variant.name.to_pascal_case();
         out.push_str(&format!("            case {enum_pascal}.{pascal} v:\n"));
         out.push_str("            {\n");
-        out.push_str(&"                var doc = JsonSerializer.SerializeToDocument(v, options);\n".to_string());
+        out.push_str("                var doc = JsonSerializer.SerializeToDocument(v, options);\n");
         out.push_str("                writer.WriteStartObject();\n");
         out.push_str(&format!(
             "                writer.WriteString(\"{tag_field}\", \"{discriminator}\");\n"
