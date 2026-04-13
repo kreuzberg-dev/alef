@@ -906,7 +906,10 @@ fn gen_function(
         mapper.map_type(ty)
     });
     let return_type = mapper.map_type(&func.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    // Async functions always return Result because Runtime::new() can fail, even when the core
+    // function itself has no error type.
+    let has_error = func.error_type.is_some() || func.is_async;
+    let return_annotation = mapper.wrap_return(&return_type, has_error);
 
     // Generate serde_magnus deserialization preamble for non-opaque Named params
     let mut deser_lines = Vec::new();
@@ -938,7 +941,8 @@ fn gen_function(
         let call_args = generators::gen_call_args(&func.params, opaque_types);
         let core_call = format!("{core_import}::{}({call_args})", func.name);
         if func.is_async {
-            // Async core function: wrap in tokio runtime block_on
+            // Async core function: wrap in tokio runtime block_on.
+            // Runtime::new() can fail, so always use map_err and return Ok(...).
             let wrap = generators::wrap_return(
                 "result",
                 &func.return_type,
@@ -956,9 +960,9 @@ fn gen_function(
                 )
             } else {
                 format!(
-                    "let rt = tokio::runtime::Runtime::new().unwrap();\n    \
+                    "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
                      let result = rt.block_on(async {{ {core_call}.await }});\n    \
-                     {wrap}"
+                     Ok({wrap})"
                 )
             }
         } else if func.error_type.is_some() {
@@ -1013,7 +1017,9 @@ fn gen_async_function(
         mapper.map_type(ty)
     });
     let return_type = mapper.map_type(&func.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    // Async functions always return Result because Runtime::new() can fail, even when the core
+    // function itself has no error type.
+    let return_annotation = mapper.wrap_return(&return_type, true);
 
     // Generate serde_magnus deserialization preamble for non-opaque Named params
     let mut deser_lines = Vec::new();
@@ -1060,10 +1066,11 @@ fn gen_async_function(
                  Ok({result_wrap})"
             )
         } else {
+            // No error type, but Runtime::new() can still fail — use map_err and Ok().
             format!(
-                "let rt = tokio::runtime::Runtime::new().unwrap();\n    \
+                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
                  let result = rt.block_on(async {{ {core_call}.await }});\n    \
-                 {result_wrap}"
+                 Ok({result_wrap})"
             )
         }
     } else {

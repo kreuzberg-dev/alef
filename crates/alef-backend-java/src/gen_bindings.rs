@@ -1677,6 +1677,17 @@ fn marshal_param_to_ffi(out: &mut String, name: &str, ty: &TypeRef, opaque_types
                 }
             }
         }
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            // Vec/Map types: serialize to JSON string, then pass as a C string via arena.
+            let cname = "c".to_string() + name;
+            writeln!(
+                out,
+                "            var {}Json = createObjectMapper().writeValueAsString({});",
+                cname, name
+            )
+            .ok();
+            writeln!(out, "            var {} = arena.allocateFrom({}Json);", cname, cname).ok();
+        }
         _ => {
             // Primitives and others pass through directly
         }
@@ -1687,6 +1698,7 @@ fn ffi_param_name(name: &str, ty: &TypeRef, _opaque_types: &AHashSet<String>) ->
     match ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "c".to_string() + name,
         TypeRef::Named(_) => "c".to_string() + name,
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => "c".to_string() + name,
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Named(_) => {
                 "c".to_string() + name
@@ -1775,11 +1787,6 @@ fn gen_helper_methods(out: &mut String) {
         )
         .ok();
         writeln!(out, "            .findAndRegisterModules()").ok();
-        writeln!(
-            out,
-            "            .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)"
-        )
-        .ok();
         writeln!(
             out,
             "            .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)"

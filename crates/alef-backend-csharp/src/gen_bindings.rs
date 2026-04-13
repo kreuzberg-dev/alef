@@ -459,10 +459,15 @@ fn gen_native_methods(api: &ApiSurface, namespace: &str, lib_name: &str, prefix:
 
     // Generate P/Invoke declarations for type methods
     for typ in &api.types {
+        let type_snake = typ.name.to_snake_case();
         for method in &typ.methods {
-            let c_method_name = format!("{}_{}", prefix, method.name.to_lowercase());
+            let c_method_name = format!("{}_{}_{}", prefix, type_snake, method.name.to_lowercase());
+            // Use a type-prefixed C# method name to avoid collisions when different types
+            // share a method with the same name (e.g. BrowserConfig::default and CrawlConfig::default
+            // would both produce "Default" without the prefix, but have different FFI entry points).
+            let cs_method_name = format!("{}{}", typ.name.to_pascal_case(), to_csharp_name(&method.name));
             if emitted.insert(c_method_name.clone()) {
-                out.push_str(&gen_pinvoke_for_method(&c_method_name, method));
+                out.push_str(&gen_pinvoke_for_method(&c_method_name, &cs_method_name, method));
             }
         }
     }
@@ -523,8 +528,7 @@ fn gen_pinvoke_for_func(c_name: &str, func: &FunctionDef) -> String {
     out
 }
 
-fn gen_pinvoke_for_method(c_name: &str, method: &MethodDef) -> String {
-    let cs_name = to_csharp_name(&method.name);
+fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &MethodDef) -> String {
     let mut out =
         format!("    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{c_name}\")]\n");
     out.push_str("    internal static extern ");
@@ -1039,8 +1043,11 @@ fn gen_wrapper_method(
     // Serialize Named (opaque handle) params to JSON and obtain native handles.
     emit_named_param_setup(&mut out, &method.params, "        ", true_opaque_types);
 
-    // Method body - delegation to native method with proper marshalling
-    let cs_native_name = to_csharp_name(&method.name);
+    // Method body - delegation to native method with proper marshalling.
+    // Use the type-prefixed name to match the P/Invoke declaration, which includes the type
+    // name to avoid collisions between different types with identically-named methods
+    // (e.g. BrowserConfig::default and CrawlConfig::default).
+    let cs_native_name = format!("{}{}", type_name.to_pascal_case(), to_csharp_name(&method.name));
 
     if method.is_async {
         // Async: wrap in Task.Run for non-blocking execution

@@ -88,4 +88,6 @@ pub use functions::{collect_trait_imports, gen_function};
 pub use methods::{
     gen_constructor, gen_impl_block, gen_method, gen_opaque_impl_block, gen_static_method, is_trait_method_name,
 };
-pub use structs::{gen_opaque_struct, gen_opaque_struct_prefixed, gen_struct, gen_struct_default_impl};
+pub use structs::{
+    gen_opaque_struct, gen_opaque_struct_prefixed, gen_struct, gen_struct_default_impl, gen_struct_with_per_field_attrs,
+};

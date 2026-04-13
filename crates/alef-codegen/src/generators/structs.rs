@@ -23,6 +23,56 @@ fn diff_count(s1: &str, s2: &str) -> usize {
     s1.chars().zip(s2.chars()).filter(|(c1, c2)| c1 != c2).count()
 }
 
+/// Generate a struct definition using the builder, with a per-field attribute callback.
+///
+/// `extra_field_attrs` is called for each field and returns additional `#[...]` attributes to
+/// prepend (beyond `cfg.field_attrs`). Pass `|_| vec![]` to use the default behaviour.
+pub fn gen_struct_with_per_field_attrs(
+    typ: &TypeDef,
+    mapper: &dyn TypeMapper,
+    cfg: &RustBindingConfig,
+    extra_field_attrs: impl Fn(&alef_core::ir::FieldDef) -> Vec<String>,
+) -> String {
+    let mut sb = StructBuilder::new(&typ.name);
+    for attr in cfg.struct_attrs {
+        sb.add_attr(attr);
+    }
+
+    // Check if struct has similar field names (e.g., sub_symbol and sup_symbol)
+    let field_names: Vec<_> = typ.fields.iter().filter(|f| f.cfg.is_none()).map(|f| &f.name).collect();
+    if has_similar_names(&field_names) {
+        sb.add_attr("allow(clippy::similar_names)");
+    }
+
+    for d in cfg.struct_derives {
+        sb.add_derive(d);
+    }
+    if typ.has_default {
+        sb.add_derive("Default");
+    }
+    if cfg.has_serde {
+        sb.add_derive("serde::Serialize");
+    }
+    for field in &typ.fields {
+        if field.cfg.is_some() {
+            continue;
+        }
+        let force_optional = cfg.option_duration_on_defaults
+            && typ.has_default
+            && !field.optional
+            && matches!(field.ty, TypeRef::Duration);
+        let ty = if field.optional || force_optional {
+            mapper.optional(&mapper.map_type(&field.ty))
+        } else {
+            mapper.map_type(&field.ty)
+        };
+        let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
+        attrs.extend(extra_field_attrs(field));
+        sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
+    }
+    sb.build()
+}
+
 /// Generate a struct definition using the builder.
 pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfig) -> String {
     let mut sb = StructBuilder::new(&typ.name);

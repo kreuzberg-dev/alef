@@ -4,12 +4,27 @@ use alef_codegen::builder::ImplBuilder;
 use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::shared::{constructor_parts, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::ir::{EnumDef, TypeDef};
+use alef_core::ir::{EnumDef, FieldDef, TypeDef, TypeRef};
 
 use super::functions::{
     gen_async_instance_method, gen_async_static_method, gen_instance_method, gen_instance_method_non_opaque,
     gen_static_method,
 };
+
+/// Returns true if the type is "scalar-compatible" — i.e. ext-php-rs can handle it as a
+/// `#[php(prop)]` without needing a manual getter.  Scalar-compatible means the mapped Rust
+/// type implements `IntoZval` + `FromZval` automatically:
+///   primitives, String, bool, Duration (→ u64), Path (→ String), Option<scalar>,
+///   Vec<primitive> (the `Vec<T: IntoZval>` blanket impl).
+/// Anything containing a Named struct, Map, nested Vec, Json, or Bytes requires a getter.
+fn is_php_prop_scalar(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char | TypeRef::Duration | TypeRef::Path => true,
+        TypeRef::Optional(inner) => is_php_prop_scalar(inner),
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char),
+        TypeRef::Named(_) | TypeRef::Map(_, _) | TypeRef::Json | TypeRef::Bytes | TypeRef::Unit => false,
+    }
+}
 
 /// Generate ext-php-rs methods for an opaque struct (delegates to self.inner).
 pub(crate) fn gen_opaque_struct_methods(
@@ -76,6 +91,18 @@ pub(crate) fn gen_php_struct(
         cfg.struct_attrs
     };
 
+    // Per-field attribute callback: add `php(prop)` for scalar-compatible fields so that
+    // ext-php-rs 0.15 exposes them as PHP properties automatically.  Non-scalar fields get
+    // no automatic attribute; instead a `#[php(getter)]` method is generated separately in
+    // `gen_struct_methods`.
+    let field_attrs_fn = |field: &FieldDef| -> Vec<String> {
+        if is_php_prop_scalar(&field.ty) {
+            vec!["php(prop)".to_string()]
+        } else {
+            vec![]
+        }
+    };
+
     if cfg.has_serde {
         // Build a modified config that also derives Serialize + Deserialize.
         let mut extra_derives: Vec<&str> = cfg.struct_derives.to_vec();
@@ -100,13 +127,13 @@ pub(crate) fn gen_php_struct(
             type_name_prefix: cfg.type_name_prefix,
             option_duration_on_defaults: cfg.option_duration_on_defaults,
         };
-        generators::gen_struct(typ, mapper, &modified_cfg)
+        generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)
     } else {
         let modified_cfg = RustBindingConfig {
             struct_attrs: effective_struct_attrs,
             ..*cfg
         };
-        generators::gen_struct(typ, mapper, &modified_cfg)
+        generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)
     }
 }
 
@@ -168,6 +195,29 @@ pub(crate) fn gen_struct_methods(
                 );
                 impl_builder.add_method(&constructor);
             }
+        }
+    }
+
+    // Generate #[php(getter)] methods for non-scalar fields so PHP can access them as
+    // $obj->fieldName.  Scalar fields already have #[php(prop)] on the struct field itself.
+    for field in &typ.fields {
+        if field.cfg.is_some() {
+            continue;
+        }
+        let effective_ty = &field.ty;
+        if !is_php_prop_scalar(effective_ty) {
+            let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
+            let rust_return_type = if field.optional {
+                mapper.optional(&mapper.map_type(&field.ty))
+            } else {
+                map_fn(&field.ty)
+            };
+            let getter_method = format!(
+                "#[php(getter)]\npub fn get_{field_name}(&self) -> {ret} {{\n    self.{field_name}.clone()\n}}",
+                field_name = field.name,
+                ret = rust_return_type,
+            );
+            impl_builder.add_method(&getter_method);
         }
     }
 
