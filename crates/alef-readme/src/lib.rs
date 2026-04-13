@@ -718,7 +718,7 @@ mod tests {
     fn test_render_performance_table_empty() {
         let v = Value::from(Vec::<Value>::new());
         let result = render_performance_table(&v, "test");
-        assert!(result.contains("Benchmark"));
+        assert!(result.is_empty());
     }
 
     #[test]

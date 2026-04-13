@@ -21,7 +21,7 @@ pub fn java_type(ty: &TypeRef) -> Cow<'static, str> {
         TypeRef::Named(name) => Cow::Owned(name.clone()),
         TypeRef::Path => Cow::Borrowed("java.nio.file.Path"),
         TypeRef::Unit => Cow::Borrowed("void"),
-        TypeRef::Json => Cow::Borrowed("String"),
+        TypeRef::Json => Cow::Borrowed("Object"),
         TypeRef::Duration => Cow::Borrowed("long"),
     }
 }
@@ -55,7 +55,7 @@ pub fn java_boxed_type(ty: &TypeRef) -> Cow<'static, str> {
         TypeRef::Named(name) => Cow::Owned(name.clone()),
         TypeRef::Path => Cow::Borrowed("java.nio.file.Path"),
         TypeRef::Unit => Cow::Borrowed("Void"),
-        TypeRef::Json => Cow::Borrowed("String"),
+        TypeRef::Json => Cow::Borrowed("Object"),
         TypeRef::Duration => Cow::Borrowed("Long"),
     }
 }

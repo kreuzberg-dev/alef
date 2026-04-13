@@ -1694,6 +1694,11 @@ fn gen_helper_methods(out: &mut String) {
         )
         .ok();
         writeln!(out, "        return new com.fasterxml.jackson.databind.ObjectMapper()").ok();
+        writeln!(
+            out,
+            "            .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())"
+        )
+        .ok();
         writeln!(out, "            .findAndRegisterModules()").ok();
         writeln!(
             out,
@@ -1839,7 +1844,8 @@ fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
                 default.clone()
             } else {
                 match &field.ty {
-                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
+                    TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+                    TypeRef::Json => "null".to_string(),
                     TypeRef::Bytes => "new byte[0]".to_string(),
                     TypeRef::Primitive(p) => match p {
                         PrimitiveType::Bool => "false".to_string(),
