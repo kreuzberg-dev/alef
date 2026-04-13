@@ -456,8 +456,7 @@ fn get_module_info(_api: &ApiSurface, config: &AlefConfig) -> (String, String) {
 /// thread-safe access.
 fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_types: &AHashSet<String>) -> String {
     let mut out = String::with_capacity(512);
-    // rustler::Resource derive ensures proper resource registration via inventory.
-    out.push_str("#[derive(Clone, rustler::Resource)]\n");
+    out.push_str("#[derive(Clone)]\n");
     out.push_str(&format!("pub struct {} {{\n", typ.name));
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
     out.push_str(&format!("    inner: Arc<{}>,\n", core_path));
@@ -466,8 +465,9 @@ fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_types: &AHashSe
     // Rustler's ResourceArc ensures thread-safe access.
     out.push_str(&format!(
         "// SAFETY: See gen_opaque_resource in alef-backend-rustler for rationale.\n\
-         impl std::panic::RefUnwindSafe for {} {{}}\n",
-        typ.name
+         impl std::panic::RefUnwindSafe for {} {{}}\n\n\
+         impl rustler::Resource for {} {{}}\n",
+        typ.name, typ.name
     ));
     out
 }
