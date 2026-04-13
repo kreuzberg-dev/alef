@@ -1069,7 +1069,16 @@ fn gen_nif_init(api: &ApiSurface, config: &AlefConfig) -> String {
             )
         })
         .unwrap_or_else(|| "Elixir.NativeModule.Native".to_string());
-    format!("rustler::init!(\"{module}\");")
+    // Check if any opaque types need Resource registration via on_load
+    let has_opaque = api.types.iter().any(|t| t.is_opaque);
+    if has_opaque {
+        format!(
+            "fn on_load(_env: rustler::Env, _info: rustler::Term) -> bool {{\n    true\n}}\n\n\
+             rustler::init!(\"{module}\", load = on_load);"
+        )
+    } else {
+        format!("rustler::init!(\"{module}\");")
+    }
 }
 
 /// Generate the `{AppModule}.Native` Elixir module with NIF stubs for all functions and methods.
