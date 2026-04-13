@@ -279,9 +279,14 @@ fn render_dot_access(segments: &[PathSegment], result_var: &str, language: &str)
                 out.push_str(f);
             }
             PathSegment::ArrayField(f) => {
-                out.push('.');
-                out.push_str(f);
-                out.push_str("[0]");
+                if language == "elixir" {
+                    let current = std::mem::take(&mut out);
+                    out = format!("Enum.at({current}.{f}, 0)");
+                } else {
+                    out.push('.');
+                    out.push_str(f);
+                    out.push_str("[0]");
+                }
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
