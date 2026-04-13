@@ -1248,6 +1248,7 @@ fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool) -> String {
 
 /// Generate `From<JsTaggedEnum> for core::TaggedEnum` for a flattened struct representation.
 fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str) -> String {
+    use alef_core::ir::TypeRef;
     use std::fmt::Write;
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = format!("Js{}", enum_def.name);
@@ -1267,7 +1268,25 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str) -> Str
             let field_inits: Vec<String> = variant
                 .fields
                 .iter()
-                .map(|f| format!("{}: val.{}.unwrap_or_default()", f.name, f.name))
+                .map(|f| {
+                    if f.optional {
+                        // Core field is Option<T>; binding also has Option<T> — pass through.
+                        format!("{}: val.{}", f.name, f.name)
+                    } else if f.sanitized {
+                        // Sanitized fields can't be faithfully round-tripped; use Default.
+                        format!("{}: Default::default()", f.name)
+                    } else {
+                        match &f.ty {
+                            TypeRef::Named(_) => {
+                                // Named types need .into() to convert Js* → core type.
+                                format!("{}: val.{}.unwrap_or_default().into()", f.name, f.name)
+                            }
+                            _ => {
+                                format!("{}: val.{}.unwrap_or_default()", f.name, f.name)
+                            }
+                        }
+                    }
+                })
                 .collect();
             writeln!(
                 out,
@@ -1331,7 +1350,7 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str) -> Str
     for variant in &enum_def.variants {
         let default_tag = variant.name.to_lowercase();
         let tag_value = variant.serde_rename.as_deref().unwrap_or(&default_tag);
-        let variant_field_names: std::collections::BTreeSet<String> =
+        let _variant_field_names: std::collections::BTreeSet<String> =
             variant.fields.iter().map(|f| f.name.clone()).collect();
 
         if variant.fields.is_empty() {
@@ -1347,12 +1366,34 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str) -> Str
             )
             .ok();
         } else {
+            use alef_core::ir::TypeRef;
             let destructured: Vec<String> = variant.fields.iter().map(|f| f.name.clone()).collect();
+            // Build a lookup map so we can access field metadata when generating inits.
+            let variant_field_map: std::collections::BTreeMap<&str, &alef_core::ir::FieldDef> =
+                variant.fields.iter().map(|f| (f.name.as_str(), f)).collect();
             let field_inits: Vec<String> = all_fields
                 .iter()
                 .map(|f| {
-                    if variant_field_names.contains(f) {
-                        format!("{f}: Some({f})")
+                    if let Some(field) = variant_field_map.get(f.as_str()) {
+                        if field.optional {
+                            // Core field is already Option<T>; destructured variable is Option<T>.
+                            // Pass through directly — no Some() wrapping needed.
+                            format!("{f}: {f}")
+                        } else if field.sanitized {
+                            // Sanitized fields can't be faithfully converted to binding.
+                            // Use None to signal absence (lossy but type-correct).
+                            format!("{f}: None")
+                        } else {
+                            match &field.ty {
+                                TypeRef::Named(_) => {
+                                    // Named types need .into() to convert core → Js* type.
+                                    format!("{f}: Some({f}.into())")
+                                }
+                                _ => {
+                                    format!("{f}: Some({f})")
+                                }
+                            }
+                        }
                     } else {
                         format!("{f}: None")
                     }

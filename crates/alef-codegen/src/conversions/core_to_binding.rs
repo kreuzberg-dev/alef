@@ -292,11 +292,13 @@ pub fn field_conversion_from_core_cfg(
     opaque_types: &AHashSet<String>,
     config: &ConversionConfig,
 ) -> String {
-    // Sanitized fields: for WASM (map_uses_jsvalue), Map and Vec<String> fields target JsValue
+    // Sanitized fields: for WASM (map_uses_jsvalue), Map and Vec<Json> fields target JsValue
     // and need serde_wasm_bindgen::to_value() instead of iterator-based .collect().
+    // Note: Vec<String> sanitized does NOT use the JsValue path because Vec<String> maps to
+    // Vec<String> in WASM (not JsValue) — use the normal sanitized iterator path instead.
     if sanitized {
         if config.map_uses_jsvalue {
-            // Map(String, String) sanitized → JsValue
+            // Map(String, String) sanitized → JsValue (HashMap maps to JsValue in WASM)
             if let TypeRef::Map(k, v) = ty {
                 if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::String) {
                     if optional {
@@ -307,18 +309,7 @@ pub fn field_conversion_from_core_cfg(
                     return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
                 }
             }
-            // Vec<String> sanitized → JsValue
-            if let TypeRef::Vec(inner) = ty {
-                if matches!(inner.as_ref(), TypeRef::String) {
-                    if optional {
-                        return format!(
-                            "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())"
-                        );
-                    }
-                    return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
-                }
-            }
-            // Vec<Json> sanitized → JsValue
+            // Vec<Json> sanitized → JsValue (Vec<Json> maps to JsValue in WASM via nested-vec path)
             if let TypeRef::Vec(inner) = ty {
                 if matches!(inner.as_ref(), TypeRef::Json) {
                     if optional {
