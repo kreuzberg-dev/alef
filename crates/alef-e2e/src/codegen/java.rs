@@ -262,6 +262,7 @@ fn render_test_file(
     }
     if needs_object_mapper {
         let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;");
+        let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;");
     }
     // Import the options type if tests use it (it's in the same package as the main class).
     if let Some(opts_type) = options_type {
@@ -290,7 +291,7 @@ fn render_test_file(
         let _ = writeln!(out);
         let _ = writeln!(
             out,
-            "    private static final ObjectMapper MAPPER = new ObjectMapper();"
+            "    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module());"
         );
     }
 

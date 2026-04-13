@@ -276,16 +276,6 @@ fn returns_json_object(ty: &TypeRef) -> bool {
 ///
 /// Opaque handles are returned as `IntPtr` from P/Invoke.  The wrapper must call
 /// `{prefix}_{type_snake}_to_json(ptr)` to obtain a JSON string, then deserialise it,
-/// and finally `{prefix}_{type_snake}_free(ptr)` to release the handle.
-///
-/// Enum types are excluded — they are treated as JSON-string `IntPtr` returns like Vec/Map.
-fn returns_opaque_handle(ty: &TypeRef, enum_names: &HashSet<String>) -> bool {
-    match ty {
-        TypeRef::Named(name) => !enum_names.contains(name),
-        _ => false,
-    }
-}
-
 /// Returns the C# type to use for a parameter in a `[DllImport]` declaration.
 ///
 /// Managed reference types (Named structs, Vec, Map, Bytes, Optional of Named, etc.)
@@ -598,30 +588,39 @@ fn gen_wrapper_class(
     // Enum names: used to distinguish opaque struct handles from enum return types.
     let enum_names: HashSet<String> = api.enums.iter().map(|e| e.name.to_pascal_case()).collect();
 
+    // Truly opaque types (is_opaque = true) — returned/passed as handles, no JSON serialization.
+    let true_opaque_types: HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque)
+        .map(|t| t.name.clone())
+        .collect();
+
     // Generate wrapper methods for functions
     for func in &api.functions {
-        out.push_str(&gen_wrapper_function(func, exception_name, prefix, &enum_names));
+        out.push_str(&gen_wrapper_function(
+            func,
+            exception_name,
+            prefix,
+            &enum_names,
+            &true_opaque_types,
+        ));
     }
 
     // Generate wrapper methods for type methods (prefixed with type name to avoid collisions)
     for typ in &api.types {
-        // Skip opaque types (no C# representation for their methods)
+        // Skip opaque types — their methods belong on the opaque handle class, not the static wrapper
         if typ.is_opaque {
             continue;
         }
         for method in &typ.methods {
-            // Skip methods that return opaque types not representable in C#
-            if let alef_core::ir::TypeRef::Named(ref name) = method.return_type {
-                if api.types.iter().any(|t| t.name == *name && t.is_opaque) {
-                    continue;
-                }
-            }
             out.push_str(&gen_wrapper_method(
                 method,
                 exception_name,
                 prefix,
                 &typ.name,
                 &enum_names,
+                &true_opaque_types,
             ));
         }
     }
@@ -647,11 +646,22 @@ fn gen_wrapper_class(
 
 /// For each `Named` parameter, emit code to serialise it to JSON and obtain a native handle.
 ///
+/// For truly opaque types (is_opaque = true), the C# class already wraps the native handle, so
+/// we pass `param.Handle` directly without any JSON serialisation.
+///
 /// ```text
-/// var optionsJson = options != null ? JsonSerializer.Serialize(options) : "null";
+/// // Data struct (has from_json):
+/// var optionsJson = JsonSerializer.Serialize(options);
 /// var optionsHandle = NativeMethods.ConversionOptionsFromJson(optionsJson);
+///
+/// // Truly opaque handle: passed as engineHandle.Handle directly — no setup needed.
 /// ```
-fn emit_named_param_setup(out: &mut String, params: &[alef_core::ir::ParamDef], indent: &str) {
+fn emit_named_param_setup(
+    out: &mut String,
+    params: &[alef_core::ir::ParamDef],
+    indent: &str,
+    true_opaque_types: &HashSet<String>,
+) {
     for param in params {
         let param_name = param.name.to_lower_camel_case();
         let json_var = format!("{param_name}Json");
@@ -659,6 +669,11 @@ fn emit_named_param_setup(out: &mut String, params: &[alef_core::ir::ParamDef], 
 
         match &param.ty {
             TypeRef::Named(type_name) => {
+                // Truly opaque handles: the C# wrapper class holds the IntPtr directly.
+                // No from_json round-trip needed — pass .Handle directly in native_call_arg.
+                if true_opaque_types.contains(type_name) {
+                    continue;
+                }
                 let from_json_method = format!("{}FromJson", type_name.to_pascal_case());
                 if param.optional {
                     out.push_str(&format!(
@@ -689,24 +704,44 @@ fn emit_named_param_setup(out: &mut String, params: &[alef_core::ir::ParamDef], 
 
 /// Returns the argument expression to pass to the native method for a given parameter.
 ///
-/// For `Named` types this is the handle variable (e.g. `optionsHandle`).
+/// For truly opaque types (is_opaque = true), the C# class wraps an IntPtr; pass `.Handle`.
+/// For data-struct `Named` types this is the handle variable (e.g. `optionsHandle`).
 /// For everything else it is the parameter name (with `!` for optional).
-fn native_call_arg(ty: &TypeRef, param_name: &str, optional: bool) -> String {
-    if matches!(ty, TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _)) {
-        format!("{param_name}Handle")
-    } else {
-        let bang = if optional { "!" } else { "" };
-        format!("{param_name}{bang}")
+fn native_call_arg(ty: &TypeRef, param_name: &str, optional: bool, true_opaque_types: &HashSet<String>) -> String {
+    match ty {
+        TypeRef::Named(type_name) if true_opaque_types.contains(type_name) => {
+            // Truly opaque: unwrap the IntPtr from the C# handle class.
+            let bang = if optional { "!" } else { "" };
+            format!("{param_name}{bang}.Handle")
+        }
+        TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            format!("{param_name}Handle")
+        }
+        _ => {
+            let bang = if optional { "!" } else { "" };
+            format!("{param_name}{bang}")
+        }
     }
 }
 
 /// Emit cleanup code to free native handles allocated for `Named` parameters.
-fn emit_named_param_teardown(out: &mut String, params: &[alef_core::ir::ParamDef]) {
+///
+/// Truly opaque handles (is_opaque = true) are NOT freed here — their lifetime is managed by
+/// the C# wrapper class (IDisposable). Only data-struct handles (from_json-allocated) are freed.
+fn emit_named_param_teardown(
+    out: &mut String,
+    params: &[alef_core::ir::ParamDef],
+    true_opaque_types: &HashSet<String>,
+) {
     for param in params {
         let param_name = param.name.to_lower_camel_case();
         let handle_var = format!("{param_name}Handle");
         match &param.ty {
             TypeRef::Named(type_name) => {
+                if true_opaque_types.contains(type_name) {
+                    // Caller owns the opaque handle — do not free it here.
+                    continue;
+                }
                 let free_method = format!("{}Free", type_name.to_pascal_case());
                 out.push_str(&format!("        NativeMethods.{free_method}({handle_var});\n"));
             }
@@ -719,12 +754,21 @@ fn emit_named_param_teardown(out: &mut String, params: &[alef_core::ir::ParamDef
 }
 
 /// Emit cleanup code with configurable indentation (used inside `Task.Run` lambdas).
-fn emit_named_param_teardown_indented(out: &mut String, params: &[alef_core::ir::ParamDef], indent: &str) {
+fn emit_named_param_teardown_indented(
+    out: &mut String,
+    params: &[alef_core::ir::ParamDef],
+    indent: &str,
+    true_opaque_types: &HashSet<String>,
+) {
     for param in params {
         let param_name = param.name.to_lower_camel_case();
         let handle_var = format!("{param_name}Handle");
         match &param.ty {
             TypeRef::Named(type_name) => {
+                if true_opaque_types.contains(type_name) {
+                    // Caller owns the opaque handle — do not free it here.
+                    continue;
+                }
                 let free_method = format!("{}Free", type_name.to_pascal_case());
                 out.push_str(&format!("{indent}NativeMethods.{free_method}({handle_var});\n"));
             }
@@ -741,6 +785,7 @@ fn gen_wrapper_function(
     _exception_name: &str,
     _prefix: &str,
     enum_names: &HashSet<String>,
+    true_opaque_types: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(1024);
 
@@ -804,7 +849,7 @@ fn gen_wrapper_function(
     }
 
     // Serialize Named (opaque handle) params to JSON and obtain native handles.
-    emit_named_param_setup(&mut out, &func.params, "        ");
+    emit_named_param_setup(&mut out, &func.params, "        ", true_opaque_types);
 
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
@@ -827,7 +872,7 @@ fn gen_wrapper_function(
             out.push('\n');
             for (i, param) in func.params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional);
+                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 out.push_str(&format!("                {arg}"));
                 if i < func.params.len() - 1 {
                     out.push(',');
@@ -837,8 +882,14 @@ fn gen_wrapper_function(
             out.push_str("            );\n");
         }
 
-        emit_return_marshalling_indented(&mut out, &func.return_type, "            ", enum_names);
-        emit_named_param_teardown_indented(&mut out, &func.params, "            ");
+        emit_return_marshalling_indented(
+            &mut out,
+            &func.return_type,
+            "            ",
+            enum_names,
+            true_opaque_types,
+        );
+        emit_named_param_teardown_indented(&mut out, &func.params, "            ", true_opaque_types);
         emit_return_statement_indented(&mut out, &func.return_type, "            ");
         out.push_str("        });\n");
     } else {
@@ -856,7 +907,7 @@ fn gen_wrapper_function(
             out.push('\n');
             for (i, param) in func.params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional);
+                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 out.push_str(&format!("            {arg}"));
                 if i < func.params.len() - 1 {
                     out.push(',');
@@ -866,8 +917,8 @@ fn gen_wrapper_function(
             out.push_str("        );\n");
         }
 
-        emit_return_marshalling(&mut out, &func.return_type, enum_names);
-        emit_named_param_teardown(&mut out, &func.params);
+        emit_return_marshalling(&mut out, &func.return_type, enum_names, true_opaque_types);
+        emit_named_param_teardown(&mut out, &func.params, true_opaque_types);
         emit_return_statement(&mut out, &func.return_type);
     }
 
@@ -882,6 +933,7 @@ fn gen_wrapper_method(
     _prefix: &str,
     type_name: &str,
     enum_names: &HashSet<String>,
+    true_opaque_types: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(1024);
 
@@ -948,7 +1000,7 @@ fn gen_wrapper_method(
     }
 
     // Serialize Named (opaque handle) params to JSON and obtain native handles.
-    emit_named_param_setup(&mut out, &method.params, "        ");
+    emit_named_param_setup(&mut out, &method.params, "        ", true_opaque_types);
 
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&method.name);
@@ -971,7 +1023,7 @@ fn gen_wrapper_method(
             out.push('\n');
             for (i, param) in method.params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional);
+                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 out.push_str(&format!("                {arg}"));
                 if i < method.params.len() - 1 {
                     out.push(',');
@@ -981,8 +1033,14 @@ fn gen_wrapper_method(
             out.push_str("            );\n");
         }
 
-        emit_return_marshalling_indented(&mut out, &method.return_type, "            ", enum_names);
-        emit_named_param_teardown_indented(&mut out, &method.params, "            ");
+        emit_return_marshalling_indented(
+            &mut out,
+            &method.return_type,
+            "            ",
+            enum_names,
+            true_opaque_types,
+        );
+        emit_named_param_teardown_indented(&mut out, &method.params, "            ", true_opaque_types);
         emit_return_statement_indented(&mut out, &method.return_type, "            ");
         out.push_str("        });\n");
     } else {
@@ -1000,7 +1058,7 @@ fn gen_wrapper_method(
             out.push('\n');
             for (i, param) in method.params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional);
+                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 out.push_str(&format!("            {arg}"));
                 if i < method.params.len() - 1 {
                     out.push(',');
@@ -1010,8 +1068,8 @@ fn gen_wrapper_method(
             out.push_str("        );\n");
         }
 
-        emit_return_marshalling(&mut out, &method.return_type, enum_names);
-        emit_named_param_teardown(&mut out, &method.params);
+        emit_return_marshalling(&mut out, &method.return_type, enum_names, true_opaque_types);
+        emit_named_param_teardown(&mut out, &method.params, true_opaque_types);
         emit_return_statement(&mut out, &method.return_type);
     }
 
@@ -1028,9 +1086,15 @@ fn gen_wrapper_method(
 /// the value computation and the return.
 ///
 /// `enum_names`: the set of C# type names that are enums (not opaque handles).
+/// `true_opaque_types`: types with `is_opaque = true` — wrapped in `new CsType(result)`.
 ///
 /// Callers must invoke `emit_return_statement` after their cleanup to complete the method body.
-fn emit_return_marshalling(out: &mut String, return_type: &TypeRef, enum_names: &HashSet<String>) {
+fn emit_return_marshalling(
+    out: &mut String,
+    return_type: &TypeRef,
+    enum_names: &HashSet<String>,
+    true_opaque_types: &HashSet<String>,
+) {
     if *return_type == TypeRef::Unit {
         // void — nothing to return
         return;
@@ -1043,26 +1107,36 @@ fn emit_return_marshalling(out: &mut String, return_type: &TypeRef, enum_names: 
     } else if returns_bool_via_int(return_type) {
         // C int → bool
         out.push_str("        var returnValue = result != 0;\n");
-    } else if returns_opaque_handle(return_type, enum_names) {
-        // result is an opaque C handle (e.g. HTMConversionResult*).
-        // Call to_json on the handle to get a JSON string, deserialise, then free both.
-        let cs_ty = csharp_type(return_type);
-        let type_name = match return_type {
-            TypeRef::Named(n) => n.to_pascal_case(),
-            _ => unreachable!(),
-        };
-        let to_json_method = format!("{}ToJson", type_name);
-        let free_method = format!("{}Free", type_name);
-        out.push_str(&format!(
-            "        var jsonPtr = NativeMethods.{to_json_method}(result);\n"
-        ));
-        out.push_str("        var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
-        out.push_str("        NativeMethods.FreeString(jsonPtr);\n");
-        out.push_str(&format!("        NativeMethods.{free_method}(result);\n"));
-        out.push_str(&format!(
-            "        var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
-            cs_ty
-        ));
+    } else if let TypeRef::Named(type_name) = return_type {
+        let pascal = type_name.to_pascal_case();
+        if true_opaque_types.contains(type_name) {
+            // Truly opaque handle: wrap the IntPtr in the C# handle class.
+            out.push_str(&format!("        var returnValue = new {pascal}(result);\n"));
+        } else if !enum_names.contains(&pascal) {
+            // Data struct with to_json: call to_json, deserialise, then free both.
+            let to_json_method = format!("{pascal}ToJson");
+            let free_method = format!("{pascal}Free");
+            let cs_ty = csharp_type(return_type);
+            out.push_str(&format!(
+                "        var jsonPtr = NativeMethods.{to_json_method}(result);\n"
+            ));
+            out.push_str("        var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+            out.push_str("        NativeMethods.FreeString(jsonPtr);\n");
+            out.push_str(&format!("        NativeMethods.{free_method}(result);\n"));
+            out.push_str(&format!(
+                "        var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
+                cs_ty
+            ));
+        } else {
+            // Enum returned as JSON string IntPtr.
+            let cs_ty = csharp_type(return_type);
+            out.push_str("        var json = Marshal.PtrToStringUTF8(result);\n");
+            out.push_str("        NativeMethods.FreeString(result);\n");
+            out.push_str(&format!(
+                "        var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
+                cs_ty
+            ));
+        }
     } else if returns_json_object(return_type) {
         // IntPtr → JSON string → deserialized object, then free the native buffer.
         let cs_ty = csharp_type(return_type);
@@ -1094,6 +1168,7 @@ fn emit_return_marshalling_indented(
     return_type: &TypeRef,
     indent: &str,
     enum_names: &HashSet<String>,
+    true_opaque_types: &HashSet<String>,
 ) {
     if *return_type == TypeRef::Unit {
         return;
@@ -1106,24 +1181,36 @@ fn emit_return_marshalling_indented(
         out.push_str(&format!("{indent}NativeMethods.FreeString(result);\n"));
     } else if returns_bool_via_int(return_type) {
         out.push_str(&format!("{indent}var returnValue = result != 0;\n"));
-    } else if returns_opaque_handle(return_type, enum_names) {
-        let cs_ty = csharp_type(return_type);
-        let type_name = match return_type {
-            TypeRef::Named(n) => n.to_pascal_case(),
-            _ => unreachable!(),
-        };
-        let to_json_method = format!("{}ToJson", type_name);
-        let free_method = format!("{}Free", type_name);
-        out.push_str(&format!(
-            "{indent}var jsonPtr = NativeMethods.{to_json_method}(result);\n"
-        ));
-        out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(jsonPtr);\n"));
-        out.push_str(&format!("{indent}NativeMethods.FreeString(jsonPtr);\n"));
-        out.push_str(&format!("{indent}NativeMethods.{free_method}(result);\n"));
-        out.push_str(&format!(
-            "{indent}var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
-            cs_ty
-        ));
+    } else if let TypeRef::Named(type_name) = return_type {
+        let pascal = type_name.to_pascal_case();
+        if true_opaque_types.contains(type_name) {
+            // Truly opaque handle: wrap the IntPtr in the C# handle class.
+            out.push_str(&format!("{indent}var returnValue = new {pascal}(result);\n"));
+        } else if !enum_names.contains(&pascal) {
+            // Data struct with to_json: call to_json, deserialise, then free both.
+            let to_json_method = format!("{pascal}ToJson");
+            let free_method = format!("{pascal}Free");
+            let cs_ty = csharp_type(return_type);
+            out.push_str(&format!(
+                "{indent}var jsonPtr = NativeMethods.{to_json_method}(result);\n"
+            ));
+            out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(jsonPtr);\n"));
+            out.push_str(&format!("{indent}NativeMethods.FreeString(jsonPtr);\n"));
+            out.push_str(&format!("{indent}NativeMethods.{free_method}(result);\n"));
+            out.push_str(&format!(
+                "{indent}var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
+                cs_ty
+            ));
+        } else {
+            // Enum returned as JSON string IntPtr.
+            let cs_ty = csharp_type(return_type);
+            out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(result);\n"));
+            out.push_str(&format!("{indent}NativeMethods.FreeString(result);\n"));
+            out.push_str(&format!(
+                "{indent}var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
+                cs_ty
+            ));
+        }
     } else if returns_json_object(return_type) {
         let cs_ty = csharp_type(return_type);
         out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(result);\n"));

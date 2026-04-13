@@ -411,7 +411,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface) -> String {
     out
 }
 
-fn render_method(method: &MethodDef, _type_name_str: &str, lang: Language) -> String {
+fn render_method(method: &MethodDef, type_name_str: &str, lang: Language) -> String {
     let mut out = String::new();
     let mname = func_name(&method.name, lang);
 
@@ -425,14 +425,14 @@ fn render_method(method: &MethodDef, _type_name_str: &str, lang: Language) -> St
     }
 
     let lang_code = lang_code_fence(lang);
-    let sig = render_method_signature(method, lang);
+    let sig = render_method_signature(method, type_name_str, lang);
     out.push_str("**Signature:**\n\n");
     out.push_str(&format!("```{lang_code}\n{sig}\n```\n\n"));
 
     out
 }
 
-fn render_method_signature(method: &MethodDef, lang: Language) -> String {
+fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Language) -> String {
     let name = func_name(&method.name, lang);
     let ret = doc_type(&method.return_type, lang);
 
@@ -481,7 +481,8 @@ fn render_method_signature(method: &MethodDef, lang: Language) -> String {
         }
         Language::Go => {
             // Go methods: func (receiver *TypeName) MethodName(params) ReturnType
-            // We don't have type name here; use a placeholder receiver
+            let go_receiver_type = type_name(type_name_str, Language::Go);
+            let receiver = format!("o *{go_receiver_type}");
             let params: Vec<String> = method
                 .params
                 .iter()
@@ -492,11 +493,11 @@ fn render_method_signature(method: &MethodDef, lang: Language) -> String {
                 })
                 .collect();
             if method.error_type.is_some() {
-                format!("func (o *Object) {}({}) ({}, error)", name, params.join(", "), ret)
+                format!("func ({receiver}) {}({}) ({}, error)", name, params.join(", "), ret)
             } else if ret.is_empty() {
-                format!("func (o *Object) {}({})", name, params.join(", "))
+                format!("func ({receiver}) {}({})", name, params.join(", "))
             } else {
-                format!("func (o *Object) {}({}) {}", name, params.join(", "), ret)
+                format!("func ({receiver}) {}({}) {}", name, params.join(", "), ret)
             }
         }
         Language::Java => {
@@ -777,21 +778,39 @@ pub fn doc_type(ty: &TypeRef, lang: Language) -> String {
             }
         }
         TypeRef::Vec(inner) => {
-            let inner_ty = doc_type(inner, lang);
             match lang {
-                Language::Python => format!("list[{inner_ty}]"),
-                Language::Node | Language::Wasm => format!("Array<{inner_ty}>"),
-                Language::Go => format!("[]{inner_ty}"),
-                Language::Java => format!("List<{inner_ty}>"),
-                Language::Csharp => format!("List<{inner_ty}>"),
-                Language::Ruby => format!("Array<{inner_ty}>"),
-                Language::Php => format!("array<{inner_ty}>"),
-                Language::Elixir => format!("list({inner_ty})"),
-                Language::R => "list".to_string(),
-                Language::Ffi => format!("{inner_ty}*"),
+                Language::Java => {
+                    // Java generics can't use primitives — box them
+                    let inner_ty = java_boxed_type(inner);
+                    format!("List<{inner_ty}>")
+                }
+                Language::Csharp => {
+                    let inner_ty = doc_type(inner, lang);
+                    format!("List<{inner_ty}>")
+                }
+                _ => {
+                    let inner_ty = doc_type(inner, lang);
+                    match lang {
+                        Language::Python => format!("list[{inner_ty}]"),
+                        Language::Node | Language::Wasm => format!("Array<{inner_ty}>"),
+                        Language::Go => format!("[]{inner_ty}"),
+                        Language::Ruby => format!("Array<{inner_ty}>"),
+                        Language::Php => format!("array<{inner_ty}>"),
+                        Language::Elixir => format!("list({inner_ty})"),
+                        Language::R => "list".to_string(),
+                        Language::Ffi => format!("{inner_ty}*"),
+                        Language::Java | Language::Csharp => unreachable!(),
+                    }
+                }
             }
         }
         TypeRef::Map(k, v) => {
+            if lang == Language::Java {
+                // Java generics require boxed types
+                let kty = java_boxed_type(k);
+                let vty = java_boxed_type(v);
+                return format!("Map<{kty}, {vty}>");
+            }
             let kty = doc_type(k, lang);
             let vty = doc_type(v, lang);
             match lang {
@@ -945,6 +964,26 @@ fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
             PrimitiveType::F32 => "float".to_string(),
             PrimitiveType::F64 => "double".to_string(),
         },
+    }
+}
+
+/// Return the boxed (object) type for Java generics.
+///
+/// Java generics cannot use primitive types (`int`, `long`, etc.); they require
+/// the corresponding wrapper classes (`Integer`, `Long`, etc.).
+fn java_boxed_type(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "Boolean".to_string(),
+            PrimitiveType::U8 | PrimitiveType::I8 => "Byte".to_string(),
+            PrimitiveType::U16 | PrimitiveType::I16 => "Short".to_string(),
+            PrimitiveType::U32 | PrimitiveType::I32 => "Integer".to_string(),
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "Long".to_string(),
+            PrimitiveType::F32 => "Float".to_string(),
+            PrimitiveType::F64 => "Double".to_string(),
+        },
+        // Non-primitive types are already reference types in Java
+        _ => doc_type(ty, Language::Java),
     }
 }
 
@@ -1294,6 +1333,9 @@ fn clean_doc(doc: &str, _lang: Language) -> String {
     // Convert Rust path syntax `Foo::bar()` → `Foo.bar()` in prose
     let doc = rust_paths_to_dot_notation(&doc);
 
+    // Replace Rust-centric terminology
+    let doc = replace_rust_terminology(&doc, _lang);
+
     doc.trim().to_string()
 }
 
@@ -1326,6 +1368,17 @@ fn convert_doc_headings_to_bold(doc: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Replace Rust-centric terminology with language-neutral equivalents.
+fn replace_rust_terminology(doc: &str, _lang: Language) -> String {
+    doc.replace("this crate", "this library")
+        .replace("in this crate", "in this library")
+        .replace("for this crate", "for this library")
+        .replace(
+            "Panic caught during conversion to prevent unwinding across FFI boundaries",
+            "Internal error caught during conversion",
+        )
 }
 
 /// Replace Rust `Foo::bar()` path notation with `Foo.bar()` in prose (outside code blocks).
