@@ -472,8 +472,13 @@ fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str) -> String
 
     // Magnus requires Clone for TryConvert on owned types
     struct_builder.add_derive("Clone");
-    // serde::Deserialize allows accepting Ruby hashes via serde_magnus
+    struct_builder.add_derive("Debug");
+    // serde derives allow accepting Ruby hashes via serde_magnus and serializing back
+    struct_builder.add_derive("serde::Serialize");
     struct_builder.add_derive("serde::Deserialize");
+    if typ.has_default {
+        struct_builder.add_attr("serde(default)");
+    }
 
     for field in &typ.fields {
         let field_type = if field.optional {
@@ -696,25 +701,136 @@ fn pascal_to_snake(name: &str) -> String {
 
 /// Generate a Magnus enum definition with IntoValue and TryConvert impls.
 /// Unit-variant enums are represented as Ruby Symbols for ergonomic Ruby usage.
+/// Map a field type to a Rust type suitable for serde deserialization in data enums.
+fn field_type_for_serde(field: &FieldDef) -> String {
+    use alef_core::ir::PrimitiveType;
+    let base = match &field.ty {
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "String".to_string(),
+        TypeRef::Primitive(PrimitiveType::Bool) => "bool".to_string(),
+        TypeRef::Primitive(PrimitiveType::U8) => "u8".to_string(),
+        TypeRef::Primitive(PrimitiveType::U16) => "u16".to_string(),
+        TypeRef::Primitive(PrimitiveType::U32) => "u32".to_string(),
+        TypeRef::Primitive(PrimitiveType::U64) => "u64".to_string(),
+        TypeRef::Primitive(PrimitiveType::Usize) => "usize".to_string(),
+        TypeRef::Primitive(PrimitiveType::I8) => "i8".to_string(),
+        TypeRef::Primitive(PrimitiveType::I16) => "i16".to_string(),
+        TypeRef::Primitive(PrimitiveType::I32) => "i32".to_string(),
+        TypeRef::Primitive(PrimitiveType::I64) => "i64".to_string(),
+        TypeRef::Primitive(PrimitiveType::Isize) => "isize".to_string(),
+        TypeRef::Primitive(PrimitiveType::F32) => "f32".to_string(),
+        TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
+        TypeRef::Duration => "u64".to_string(),
+        TypeRef::Named(n) => n.clone(),
+        _ => "String".to_string(),
+    };
+    if field.optional {
+        format!("Option<{base}>")
+    } else {
+        base
+    }
+}
+
 fn gen_enum(enum_def: &EnumDef) -> String {
     let name = &enum_def.name;
     let mut out = String::with_capacity(512);
 
+    let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+
     // Enum definition
-    writeln!(out, "#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize)]").ok();
+    if has_data {
+        // Data enum: can't be Copy, include serde tag attribute
+        writeln!(out, "#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]").ok();
+        if let Some(tag) = &enum_def.serde_tag {
+            writeln!(out, r#"#[serde(tag = "{tag}")]"#).ok();
+        }
+    } else {
+        writeln!(
+            out,
+            "#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]"
+        )
+        .ok();
+    }
     writeln!(out, "pub enum {name} {{").ok();
     for variant in &enum_def.variants {
-        writeln!(out, "    {},", variant.name).ok();
+        if let Some(rename) = &variant.serde_rename {
+            writeln!(out, r#"    #[serde(rename = "{rename}")]"#).ok();
+        }
+        if variant.fields.is_empty() {
+            writeln!(out, "    {},", variant.name).ok();
+        } else {
+            // Data variant with named fields
+            let fields: Vec<String> = variant
+                .fields
+                .iter()
+                .map(|f| format!("{}: {}", f.name, field_type_for_serde(f)))
+                .collect();
+            writeln!(out, "    {} {{ {} }},", variant.name, fields.join(", ")).ok();
+        }
     }
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
     // Default impl for config constructor unwrap_or_default()
     if let Some(first) = enum_def.variants.first() {
-        writeln!(out, "impl Default for {name} {{").ok();
-        writeln!(out, "    fn default() -> Self {{ Self::{} }}", first.name).ok();
+        if has_data && !first.fields.is_empty() {
+            // Data variant default: use Default::default() for each field
+            let field_defaults: Vec<String> = first
+                .fields
+                .iter()
+                .map(|f| format!("{}: Default::default()", f.name))
+                .collect();
+            writeln!(out, "impl Default for {name} {{").ok();
+            writeln!(
+                out,
+                "    fn default() -> Self {{ Self::{} {{ {} }} }}",
+                first.name,
+                field_defaults.join(", ")
+            )
+            .ok();
+            writeln!(out, "}}").ok();
+        } else {
+            writeln!(out, "impl Default for {name} {{").ok();
+            writeln!(out, "    fn default() -> Self {{ Self::{} }}", first.name).ok();
+            writeln!(out, "}}").ok();
+        }
+        writeln!(out).ok();
+    }
+
+    // For data enums, implement IntoValue via serde_magnus serialization
+    // and TryConvert via serde_magnus deserialization.
+    if has_data {
+        writeln!(out, "impl magnus::IntoValue for {name} {{").ok();
+        writeln!(out, "    fn into_value_with(self, handle: &Ruby) -> magnus::Value {{").ok();
+        writeln!(
+            out,
+            "        serde_magnus::serialize(handle, &self).unwrap_or_else(|_| handle.qnil().into_value_with(handle))"
+        )
+        .ok();
+        writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
+        writeln!(out, "impl magnus::TryConvert for {name} {{").ok();
+        writeln!(
+            out,
+            "    fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {{"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        serde_magnus::deserialize(&magnus::Ruby::get().unwrap(), val)"
+        )
+        .ok();
+        writeln!(
+            out,
+            "            .map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))"
+        )
+        .ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+        writeln!(out).ok();
+        writeln!(out, "unsafe impl IntoValueFromNative for {name} {{}}").ok();
+        writeln!(out, "unsafe impl TryConvertOwned for {name} {{}}").ok();
+        return out;
     }
 
     // IntoValue: convert enum variant to Ruby Symbol

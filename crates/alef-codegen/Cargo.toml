@@ -11,5 +11,5 @@ readme = "README.md"
 [dependencies]
 ahash = { workspace = true }
 alef-core = { workspace = true }
-heck = "0.5"
+heck = { workspace = true }
 minijinja = { workspace = true }

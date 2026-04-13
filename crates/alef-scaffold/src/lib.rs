@@ -1226,7 +1226,7 @@ mod tests {
         assert!(content.contains("serde"));
         assert!(content.contains("serde_json"));
         // Should have core_import as dependency
-        assert!(content.contains("my_lib ="));
+        assert!(content.contains("my-lib ="));
     }
 
     #[test]

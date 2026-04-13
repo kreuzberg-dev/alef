@@ -719,7 +719,7 @@ fn test_gen_call_args_string_param() {
     let opaque_types = AHashSet::new();
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
-    assert_eq!(result, "&input");
+    assert_eq!(result, "input");
 }
 
 #[test]
@@ -840,7 +840,7 @@ fn test_gen_call_args_multiple_params() {
     ];
 
     let result = binding_helpers::gen_call_args(&params, &opaque_types);
-    assert_eq!(result, "&name, count");
+    assert_eq!(result, "name, count");
 }
 
 #[test]

@@ -161,6 +161,12 @@ jobs:
           publish_crate alef-adapters
           sleep 30
 
+          publish_crate alef-docs
+          sleep 30
+
+          publish_crate alef-e2e
+          sleep 30
+
           publish_crate alef-readme
           sleep 30
 

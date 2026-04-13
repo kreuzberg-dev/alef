@@ -12,7 +12,7 @@ readme = "README.md"
 alef-core = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }
-jsonschema = "0.46"
+jsonschema = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

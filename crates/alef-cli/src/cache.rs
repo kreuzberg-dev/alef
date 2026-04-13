@@ -70,6 +70,65 @@ pub fn write_lang_hash(lang: &str, lang_hash: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Compute hash for a generation stage (stubs, docs, readme, scaffold, e2e).
+/// `extra` allows including additional content (e.g., fixture files for e2e).
+pub fn compute_stage_hash(ir_json: &str, stage: &str, config_toml: &str, extra: &[u8]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(ir_json.as_bytes());
+    hasher.update(stage.as_bytes());
+    hasher.update(config_toml.as_bytes());
+    if !extra.is_empty() {
+        hasher.update(extra);
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+/// Check if a stage's output is cached.
+pub fn is_stage_cached(stage: &str, stage_hash: &str) -> bool {
+    let hash_path = Path::new(CACHE_DIR).join("hashes").join(format!("{stage}.hash"));
+    match fs::read_to_string(&hash_path) {
+        Ok(cached) => cached.trim() == stage_hash,
+        Err(_) => false,
+    }
+}
+
+/// Write stage hash.
+pub fn write_stage_hash(stage: &str, stage_hash: &str) -> anyhow::Result<()> {
+    let hashes_dir = Path::new(CACHE_DIR).join("hashes");
+    fs::create_dir_all(&hashes_dir)?;
+    fs::write(hashes_dir.join(format!("{stage}.hash")), stage_hash)?;
+    Ok(())
+}
+
+/// Hash all files in a directory recursively (for e2e fixture hashing).
+pub fn hash_directory(dir: &Path) -> anyhow::Result<Vec<u8>> {
+    let mut hasher = blake3::Hasher::new();
+    if dir.exists() {
+        let mut entries: Vec<_> = walkdir(dir)?;
+        entries.sort();
+        for path in entries {
+            let content = fs::read(&path)?;
+            hasher.update(path.to_string_lossy().as_bytes());
+            hasher.update(&content);
+        }
+    }
+    Ok(hasher.finalize().as_bytes().to_vec())
+}
+
+fn walkdir(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            files.extend(walkdir(&path)?);
+        } else {
+            files.push(path);
+        }
+    }
+    Ok(files)
+}
+
 /// Clear cache.
 pub fn clear_cache() -> anyhow::Result<()> {
     let cache_dir = Path::new(CACHE_DIR);

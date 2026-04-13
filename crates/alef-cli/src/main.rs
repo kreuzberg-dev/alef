@@ -224,44 +224,76 @@ fn main() -> Result<()> {
         Commands::Stubs { lang } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
-            eprintln!("Generating type stubs for: {}", format_languages(&languages));
+            let config_toml = std::fs::read_to_string(config_path)?;
             let api = pipeline::extract(&config, config_path, false)?;
+            let ir_json = serde_json::to_string(&api)?;
+            let stage_hash = cache::compute_stage_hash(&ir_json, "stubs", &config_toml, &[]);
+            if cache::is_stage_cached("stubs", &stage_hash) {
+                println!("Stubs up to date (cached)");
+                return Ok(());
+            }
+            eprintln!("Generating type stubs for: {}", format_languages(&languages));
             let files = pipeline::generate_stubs(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
             let count = pipeline::write_files(&files, &base_dir)?;
+            cache::write_stage_hash("stubs", &stage_hash)?;
             println!("Generated {count} stub files");
             Ok(())
         }
         Commands::Scaffold { lang } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
-            eprintln!("Generating scaffolding for: {}", format_languages(&languages));
+            let config_toml = std::fs::read_to_string(config_path)?;
             let api = pipeline::extract(&config, config_path, false)?;
+            let ir_json = serde_json::to_string(&api)?;
+            let stage_hash = cache::compute_stage_hash(&ir_json, "scaffold", &config_toml, &[]);
+            if cache::is_stage_cached("scaffold", &stage_hash) {
+                println!("Scaffold up to date (cached)");
+                return Ok(());
+            }
+            eprintln!("Generating scaffolding for: {}", format_languages(&languages));
             let files = pipeline::scaffold(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
             let count = pipeline::write_scaffold_files(&files, &base_dir)?;
+            cache::write_stage_hash("scaffold", &stage_hash)?;
             println!("Generated {count} scaffold files");
             Ok(())
         }
         Commands::Readme { lang } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
-            eprintln!("Generating READMEs for: {}", format_languages(&languages));
+            let config_toml = std::fs::read_to_string(config_path)?;
             let api = pipeline::extract(&config, config_path, false)?;
+            let ir_json = serde_json::to_string(&api)?;
+            let stage_hash = cache::compute_stage_hash(&ir_json, "readme", &config_toml, &[]);
+            if cache::is_stage_cached("readme", &stage_hash) {
+                println!("READMEs up to date (cached)");
+                return Ok(());
+            }
+            eprintln!("Generating READMEs for: {}", format_languages(&languages));
             let files = pipeline::readme(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
             let count = pipeline::write_scaffold_files(&files, &base_dir)?;
+            cache::write_stage_hash("readme", &stage_hash)?;
             println!("Generated {count} README files");
             Ok(())
         }
         Commands::Docs { lang, output } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
-            eprintln!("Generating API docs for: {}", format_languages(&languages));
+            let config_toml = std::fs::read_to_string(config_path)?;
             let api = pipeline::extract(&config, config_path, false)?;
+            let ir_json = serde_json::to_string(&api)?;
+            let stage_hash = cache::compute_stage_hash(&ir_json, "docs", &config_toml, &[]);
+            if cache::is_stage_cached("docs", &stage_hash) {
+                println!("API docs up to date (cached)");
+                return Ok(());
+            }
+            eprintln!("Generating API docs for: {}", format_languages(&languages));
             let files = alef_docs::generate_docs(&api, &config, &languages, &output)?;
             let base_dir = std::env::current_dir()?;
             let count = pipeline::write_scaffold_files(&files, &base_dir)?;
+            cache::write_stage_hash("docs", &stage_hash)?;
             println!("Generated {count} API doc files");
             Ok(())
         }
@@ -416,6 +448,16 @@ fn main() -> Result<()> {
             let e2e_config = config.e2e.as_ref().context("no [e2e] section in alef.toml")?;
             match action {
                 E2eAction::Generate { lang } => {
+                    let config_toml = std::fs::read_to_string(config_path)?;
+                    let fixtures_dir = std::path::Path::new(&e2e_config.fixtures);
+                    let fixture_hash = cache::hash_directory(fixtures_dir).unwrap_or_default();
+                    let api = pipeline::extract(&config, config_path, false)?;
+                    let ir_json = serde_json::to_string(&api)?;
+                    let stage_hash = cache::compute_stage_hash(&ir_json, "e2e", &config_toml, &fixture_hash);
+                    if cache::is_stage_cached("e2e", &stage_hash) {
+                        println!("E2E tests up to date (cached)");
+                        return Ok(());
+                    }
                     let languages = lang.as_deref();
                     eprintln!("Generating e2e test suites...");
                     let files = alef_e2e::generate_e2e(&config, e2e_config, languages)?;
@@ -425,6 +467,7 @@ fn main() -> Result<()> {
                     // Run per-language formatters
                     alef_e2e::format::run_formatters(&files, e2e_config);
 
+                    cache::write_stage_hash("e2e", &stage_hash)?;
                     println!("Generated {count} e2e files");
                     Ok(())
                 }
