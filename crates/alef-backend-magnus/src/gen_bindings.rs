@@ -174,7 +174,7 @@ impl Backend for MagnusBackend {
         let output_dir = resolve_output_dir(
             config.output.ruby.as_ref(),
             &config.crate_config.name,
-            "packages/ruby/ext/{name}_rb/native/src/",
+            "packages/ruby/ext/{name}_rb/src/",
         );
 
         Ok(vec![GeneratedFile {
@@ -768,7 +768,31 @@ fn gen_function(
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&func.params, opaque_types);
         let core_call = format!("{core_import}::{}({call_args})", func.name);
-        if func.error_type.is_some() {
+        if func.is_async {
+            // Async core function: wrap in tokio runtime block_on
+            let wrap = generators::wrap_return(
+                "result",
+                &func.return_type,
+                "",
+                opaque_types,
+                false,
+                func.returns_ref,
+                false,
+            );
+            if func.error_type.is_some() {
+                format!(
+                    "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                     let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                     Ok({wrap})"
+                )
+            } else {
+                format!(
+                    "let rt = tokio::runtime::Runtime::new().unwrap();\n    \
+                     let result = rt.block_on(async {{ {core_call}.await }});\n    \
+                     {wrap}"
+                )
+            }
+        } else if func.error_type.is_some() {
             let wrap = generators::wrap_return(
                 "result",
                 &func.return_type,
@@ -835,7 +859,7 @@ fn gen_async_function(
             )
         } else {
             format!(
-                "let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n    \
+                "let rt = tokio::runtime::Runtime::new().unwrap();\n    \
                  let result = rt.block_on(async {{ {core_call}.await }});\n    \
                  {result_wrap}"
             )

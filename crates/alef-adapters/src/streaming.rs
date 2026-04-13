@@ -236,7 +236,7 @@ fn gen_wasm_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Opti
 // ---------------------------------------------------------------------------
 
 fn gen_ffi_body(adapter: &AdapterConfig) -> (String, Option<String>) {
-    let body = format!("todo!(\"streaming not supported via FFI: {}\")", adapter.name,);
+    let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }
 
@@ -245,7 +245,7 @@ fn gen_ffi_body(adapter: &AdapterConfig) -> (String, Option<String>) {
 // ---------------------------------------------------------------------------
 
 fn gen_go_body(adapter: &AdapterConfig) -> (String, Option<String>) {
-    let body = format!("todo!(\"streaming not supported via FFI: {}\")", adapter.name,);
+    let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }
 
@@ -254,7 +254,7 @@ fn gen_go_body(adapter: &AdapterConfig) -> (String, Option<String>) {
 // ---------------------------------------------------------------------------
 
 fn gen_java_body(adapter: &AdapterConfig) -> (String, Option<String>) {
-    let body = format!("todo!(\"streaming not supported via FFI: {}\")", adapter.name,);
+    let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }
 
@@ -263,7 +263,7 @@ fn gen_java_body(adapter: &AdapterConfig) -> (String, Option<String>) {
 // ---------------------------------------------------------------------------
 
 fn gen_csharp_body(adapter: &AdapterConfig) -> (String, Option<String>) {
-    let body = format!("todo!(\"streaming not supported via FFI: {}\")", adapter.name,);
+    let body = format!("compile_error!(\"streaming not supported via FFI: {}\")", adapter.name);
     (body, None)
 }
 

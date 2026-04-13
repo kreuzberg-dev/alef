@@ -52,7 +52,10 @@ pub fn build_adapter_bodies(config: &AlefConfig, language: Language) -> anyhow::
                 continue; // Don't insert into the normal body map
             }
             AdapterPattern::ServerLifecycle => {
-                let body = format!("todo!(\"adapter pattern not yet implemented: {}\")", adapter.name);
+                let body = format!(
+                    "compile_error!(\"adapter pattern not yet implemented: {}\")",
+                    adapter.name
+                );
                 bodies.insert(key, body);
             }
         }

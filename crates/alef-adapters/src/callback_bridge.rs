@@ -207,7 +207,7 @@ fn gen_node_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Stri
                      .map_err(|e| {error}::from(e.to_string()))?;\n\
          \n        \
                  // TODO: deserialize JS result to {returns}\n        \
-                 todo!(\"convert JS result to {returns}\")\n    \
+                 compile_error!(\"callback bridge JS result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );
@@ -263,7 +263,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Stri
                  .map_err(|e| {error}::from(e.to_string()))??;\n\
          \n        \
                  let _ = result;\n        \
-                 todo!(\"convert Ruby result to {returns}\")\n    \
+                 compile_error!(\"callback bridge Ruby result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );
@@ -309,7 +309,7 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Strin
          \n        \
                  let _ = result;\n        \
                  // TODO: convert PHP result to {returns}\n        \
-                 todo!(\"convert PHP result to {returns}\")\n    \
+                 compile_error!(\"callback bridge PHP result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );
@@ -352,7 +352,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, St
                  let _ = ({args});\n        \
                  let _ = self.callback;\n        \
                  // TODO: invoke callback via Erlang NIF scheduler\n        \
-                 todo!(\"convert Elixir result to {returns}\")\n    \
+                 compile_error!(\"callback bridge Elixir result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );
@@ -404,7 +404,7 @@ fn gen_wasm_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Stri
          \n        \
                  let _ = resolved;\n        \
                  // TODO: convert JsValue result to {returns}\n        \
-                 todo!(\"convert WASM result to {returns}\")\n    \
+                 compile_error!(\"callback bridge WASM result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );
@@ -470,7 +470,7 @@ fn gen_ffi_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, String
          \n        \
                  let _ = result;\n        \
                  // TODO: deserialize JSON result to {returns}\n        \
-                 todo!(\"convert FFI result to {returns}\")\n    \
+                 compile_error!(\"callback bridge FFI result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );
@@ -532,7 +532,7 @@ fn gen_go_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, String)
                  .map_err(|e| {error}::from(e.to_string()))??;\n\
          \n        \
                  let _ = result;\n        \
-                 todo!(\"convert Go FFI result to {returns}\")\n    \
+                 compile_error!(\"callback bridge Go FFI result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );
@@ -594,7 +594,7 @@ fn gen_java_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Strin
                  .map_err(|e| {error}::from(e.to_string()))??;\n\
          \n        \
                  let _ = result;\n        \
-                 todo!(\"convert Java FFI result to {returns}\")\n    \
+                 compile_error!(\"callback bridge Java FFI result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );
@@ -656,7 +656,7 @@ fn gen_csharp_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Str
                  .map_err(|e| {error}::from(e.to_string()))??;\n\
          \n        \
                  let _ = result;\n        \
-                 todo!(\"convert C# FFI result to {returns}\")\n    \
+                 compile_error!(\"callback bridge C# FFI result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );
@@ -702,7 +702,7 @@ fn gen_r_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, String)
          \n        \
                  let _ = result;\n        \
                  // TODO: convert R result to {returns}\n        \
-                 todo!(\"convert R result to {returns}\")\n    \
+                 compile_error!(\"callback bridge R result conversion not yet implemented for {returns}\")\n    \
              }}\n\
          }}"
     );

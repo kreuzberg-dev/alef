@@ -13,7 +13,15 @@ pub(crate) fn core_prim_str(p: &PrimitiveType) -> &'static str {
         PrimitiveType::Usize => "usize",
         PrimitiveType::Isize => "isize",
         PrimitiveType::F32 => "f32",
-        _ => unreachable!(),
+        PrimitiveType::Bool => "bool",
+        PrimitiveType::U8 => "u8",
+        PrimitiveType::U16 => "u16",
+        PrimitiveType::U32 => "u32",
+        PrimitiveType::I8 => "i8",
+        PrimitiveType::I16 => "i16",
+        PrimitiveType::I32 => "i32",
+        PrimitiveType::I64 => "i64",
+        PrimitiveType::F64 => "f64",
     }
 }
 
@@ -21,7 +29,12 @@ pub(crate) fn core_prim_str(p: &PrimitiveType) -> &'static str {
 pub(crate) fn binding_prim_str(p: &PrimitiveType) -> &'static str {
     match p {
         PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "i64",
-        _ => unreachable!(),
+        PrimitiveType::F32 => "f64",
+        PrimitiveType::Bool => "bool",
+        PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 => "i32",
+        PrimitiveType::I8 | PrimitiveType::I16 | PrimitiveType::I32 => "i32",
+        PrimitiveType::I64 => "i64",
+        PrimitiveType::F64 => "f64",
     }
 }
 
