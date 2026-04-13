@@ -442,21 +442,31 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let elixir_val = json_to_elixir(expected);
-                let _ = writeln!(out, "      assert String.contains?({field_expr}, {elixir_val})");
+                // Use to_string() to handle atoms (enums) as well as strings
+                let _ = writeln!(
+                    out,
+                    "      assert String.contains?(to_string({field_expr}), {elixir_val})"
+                );
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
                 for val in values {
                     let elixir_val = json_to_elixir(val);
-                    let _ = writeln!(out, "      assert String.contains?({field_expr}, {elixir_val})");
+                    let _ = writeln!(
+                        out,
+                        "      assert String.contains?(to_string({field_expr}), {elixir_val})"
+                    );
                 }
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let elixir_val = json_to_elixir(expected);
-                let _ = writeln!(out, "      refute String.contains?({field_expr}, {elixir_val})");
+                let _ = writeln!(
+                    out,
+                    "      refute String.contains?(to_string({field_expr}), {elixir_val})"
+                );
             }
         }
         "not_empty" => {
@@ -467,7 +477,8 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
                 // length(...) == 0
                 let _ = writeln!(out, "      assert {field_expr} == 0");
             } else {
-                let _ = writeln!(out, "      assert {trimmed_field_expr} == \"\"");
+                // Handle nil (None) as empty
+                let _ = writeln!(out, "      assert is_nil({field_expr}) or {trimmed_field_expr} == \"\"");
             }
         }
         "contains_any" => {
@@ -476,7 +487,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
                 let list_str = items.join(", ");
                 let _ = writeln!(
                     out,
-                    "      assert Enum.any?([{list_str}], fn v -> String.contains?({field_expr}, v) end)"
+                    "      assert Enum.any?([{list_str}], fn v -> String.contains?(to_string({field_expr}), v) end)"
                 );
             }
         }
