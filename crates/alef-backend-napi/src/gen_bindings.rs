@@ -680,7 +680,7 @@ fn gen_enum(enum_def: &EnumDef) -> String {
 
 /// Generate a tagged enum as a flattened `#[napi(object)]` struct.
 /// E.g. `AuthConfig { Basic { username, password }, Bearer { token } }` becomes:
-/// ```rust
+/// ```rust,ignore
 /// #[napi(object)]
 /// struct JsAuthConfig {
 ///     #[napi(js_name = "type")]
