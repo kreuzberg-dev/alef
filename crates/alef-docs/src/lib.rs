@@ -150,7 +150,12 @@ fn render_function(func: &FunctionDef, lang: Language, _config: &AlefConfig, api
             let required = if param.optional { "No" } else { "Yes" };
             let pdoc = param_docs
                 .get(param.name.as_str())
-                .map(|s| s.replace('|', "\\|"))
+                .map(|s| {
+                    let s = s.replace('|', "\\|");
+                    // Clean Rust syntax from param descriptions
+                    let s = s.replace("::", ".");
+                    s.replace("ConversionOptions.default()", "default options")
+                })
                 .unwrap_or_default();
             out.push_str(&format!("| `{pname}` | `{pty}` | {required} | {pdoc} |\n"));
         }
