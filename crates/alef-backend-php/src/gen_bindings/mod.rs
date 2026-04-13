@@ -271,8 +271,17 @@ impl Backend for PhpBackend {
             ));
         }
 
-        // PHP module entry point — required for ext-php-rs to register the extension
-        builder.add_item("#[php_module]\npub fn get_module(module: ModuleBuilder) -> ModuleBuilder {\n    module\n}");
+        // PHP module entry point — explicit class registration required because
+        // `inventory` crate auto-registration doesn't work in cdylib on macOS.
+        let mut class_registrations = String::new();
+        for typ in &api.types {
+            class_registrations.push_str(&format!("\n    .class::<{}>()", typ.name));
+        }
+        // Note: enums are represented as PHP string-backed enums, not Rust structs,
+        // so they don't need .class::<T>() registration.
+        builder.add_item(&format!(
+            "#[php_module]\npub fn get_module(module: ModuleBuilder) -> ModuleBuilder {{\n    module{class_registrations}\n}}"
+        ));
 
         let content = builder.build();
 
