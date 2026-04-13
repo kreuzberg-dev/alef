@@ -92,6 +92,17 @@ impl Backend for MagnusBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Check if any function has non-opaque Named params (needs serde_magnus)
+        let needs_serde_magnus = api.functions.iter().any(|f| {
+            f.params
+                .iter()
+                .any(|p| matches!(&p.ty, TypeRef::Named(name) if !opaque_types.contains(name.as_str())))
+        });
+        if needs_serde_magnus {
+            // serde_magnus is used but doesn't need a top-level import —
+            // it's called as serde_magnus::deserialize() inline.
+        }
+
         for typ in &api.types {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_struct(typ, &core_import, &module_name));
@@ -461,6 +472,8 @@ fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str) -> String
 
     // Magnus requires Clone for TryConvert on owned types
     struct_builder.add_derive("Clone");
+    // serde::Deserialize allows accepting Ruby hashes via serde_magnus
+    struct_builder.add_derive("serde::Deserialize");
 
     for field in &typ.fields {
         let field_type = if field.optional {
@@ -688,7 +701,7 @@ fn gen_enum(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(512);
 
     // Enum definition
-    writeln!(out, "#[derive(Clone, Copy, PartialEq, Eq, Debug)]").ok();
+    writeln!(out, "#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize)]").ok();
     writeln!(out, "pub enum {name} {{").ok();
     for variant in &enum_def.variants {
         writeln!(out, "    {},", variant.name).ok();
@@ -759,9 +772,42 @@ fn gen_function(
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    let params = function_params(&func.params, &|ty| mapper.map_type(ty));
+    // For non-opaque Named params, use magnus::Value and serde_magnus deserialization
+    let params = function_params(&func.params, &|ty| {
+        if let TypeRef::Named(name) = ty {
+            if !opaque_types.contains(name.as_str()) {
+                // Accept JSON string for non-opaque Named types (Ruby hashes → JSON → deserialize)
+                return "String".to_string();
+            }
+        }
+        mapper.map_type(ty)
+    });
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+
+    // Generate serde_magnus deserialization preamble for non-opaque Named params
+    let mut deser_lines = Vec::new();
+    for p in &func.params {
+        if let TypeRef::Named(name) = &p.ty {
+            if !opaque_types.contains(name.as_str()) {
+                let binding_ty = &p.name;
+                if p.optional {
+                    deser_lines.push(format!(
+                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| serde_json::from_str(s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))).transpose()?;"
+                    ));
+                } else {
+                    deser_lines.push(format!(
+                        "let {binding_ty}: {name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?;"
+                    ));
+                }
+            }
+        }
+    }
+    let deser_preamble = if deser_lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", deser_lines.join("\n    "))
+    };
 
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
 
@@ -821,7 +867,7 @@ fn gen_function(
     };
     format!(
         "fn {}({params}) -> {return_annotation} {{\n    \
-         {body}\n}}",
+         {deser_preamble}{body}\n}}",
         func.name
     )
 }
@@ -833,9 +879,42 @@ fn gen_async_function(
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    let params = function_params(&func.params, &|ty| mapper.map_type(ty));
+    // For non-opaque Named params, use magnus::Value and serde_magnus deserialization
+    let params = function_params(&func.params, &|ty| {
+        if let TypeRef::Named(name) = ty {
+            if !opaque_types.contains(name.as_str()) {
+                // Accept JSON string for non-opaque Named types (Ruby hashes → JSON → deserialize)
+                return "String".to_string();
+            }
+        }
+        mapper.map_type(ty)
+    });
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+
+    // Generate serde_magnus deserialization preamble for non-opaque Named params
+    let mut deser_lines = Vec::new();
+    for p in &func.params {
+        if let TypeRef::Named(name) = &p.ty {
+            if !opaque_types.contains(name.as_str()) {
+                let binding_ty = &p.name;
+                if p.optional {
+                    deser_lines.push(format!(
+                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| serde_json::from_str(s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))).transpose()?;"
+                    ));
+                } else {
+                    deser_lines.push(format!(
+                        "let {binding_ty}: {name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))?;"
+                    ));
+                }
+            }
+        }
+    }
+    let deser_preamble = if deser_lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", deser_lines.join("\n    "))
+    };
 
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
 
@@ -873,7 +952,7 @@ fn gen_async_function(
     };
     format!(
         "fn {}_async({params}) -> {return_annotation} {{\n    \
-         {body}\n\
+         {deser_preamble}{body}\n\
          }}",
         func.name
     )
@@ -980,18 +1059,26 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
         if is_reserved_fn(&func.name) {
             continue;
         }
-        let func_name = if func.is_async {
-            format!("{}_async", func.name)
-        } else {
-            func.name.clone()
-        };
         let param_count = func.params.len();
-        lines.push(format!(
-            r#"    module.define_module_function("{name}", function!({fn_name}, {count}))?;"#,
-            name = func_name,
-            fn_name = func_name,
-            count = param_count
-        ));
+        if func.is_async {
+            // Register both sync (blocking) and async variants
+            lines.push(format!(
+                r#"    module.define_module_function("{name}", function!({name}, {count}))?;"#,
+                name = func.name,
+                count = param_count
+            ));
+            lines.push(format!(
+                r#"    module.define_module_function("{name}_async", function!({name}_async, {count}))?;"#,
+                name = func.name,
+                count = param_count
+            ));
+        } else {
+            lines.push(format!(
+                r#"    module.define_module_function("{name}", function!({name}, {count}))?;"#,
+                name = func.name,
+                count = param_count
+            ));
+        }
     }
 
     lines.push("".to_string());

@@ -46,7 +46,7 @@ fn generate_readme(api: &ApiSurface, config: &AlefConfig, lang: Language) -> any
 }
 
 /// Attempt to render a README using a minijinja template. Returns `None` when no
-/// language-specific template entry is found in the YAML config (signals caller to fall back).
+/// language-specific template entry is found in the config (signals caller to fall back).
 fn try_template_readme(
     api: &ApiSurface,
     config: &AlefConfig,
@@ -57,30 +57,41 @@ fn try_template_readme(
 ) -> anyhow::Result<Option<GeneratedFile>> {
     let lang_code = lang_code(lang);
 
-    // Load YAML config if present
-    let yaml_config: serde_yaml::Value = if let Some(config_path) = &readme_cfg.config {
+    // Resolve per-language JSON value. Prefer inline `languages` map in alef.toml;
+    // fall back to the deprecated external YAML file when `config` is set.
+    let lang_json: Option<serde_json::Value> = if !readme_cfg.languages.is_empty() {
+        readme_cfg.languages.get(lang_code).cloned()
+    } else if let Some(config_path) = &readme_cfg.config {
         let abs_config = workspace_root.join(config_path);
         if abs_config.exists() {
             let content = fs::read_to_string(&abs_config)
                 .map_err(|e| anyhow::anyhow!("Failed to read readme config {:?}: {}", abs_config, e))?;
-            serde_yaml::from_str(&content).map_err(|e| anyhow::anyhow!("Failed to parse readme config YAML: {}", e))?
+            let yaml: serde_yaml::Value = serde_yaml::from_str(&content)
+                .map_err(|e| anyhow::anyhow!("Failed to parse readme config YAML: {}", e))?;
+            // Convert the YAML value to JSON so the rest of the function can use a single type.
+            let as_json = serde_json::to_value(&yaml)
+                .map_err(|e| anyhow::anyhow!("Failed to convert readme YAML to JSON: {}", e))?;
+            as_json.get("languages").and_then(|l| l.get(lang_code)).cloned()
         } else {
-            serde_yaml::Value::Null
+            None
         }
     } else {
-        serde_yaml::Value::Null
+        None
     };
 
-    // Look up per-language config block
-    let lang_yaml = yaml_config.get("languages").and_then(|l| l.get(lang_code));
-
-    let Some(lang_yaml) = lang_yaml else {
+    let Some(lang_json) = lang_json else {
         // No entry for this language — signal caller to fall back
         return Ok(None);
     };
 
+    // Resolve top-level discord_url / banner_url. Prefer inline fields; fall back to
+    // what may have been loaded from the external YAML (not re-loaded here — callers
+    // using the deprecated path still get the values injected via the JSON block).
+    let discord_url = readme_cfg.discord_url.as_deref().unwrap_or("").to_string();
+    let banner_url = readme_cfg.banner_url.as_deref().unwrap_or("").to_string();
+
     // Determine template name: prefer lang config, then default
-    let template_name = lang_yaml
+    let template_name = lang_json
         .get("template")
         .and_then(|v| v.as_str())
         .unwrap_or("language_package.md")
@@ -153,21 +164,6 @@ fn try_template_readme(
         .and_then(|s| s.license.clone())
         .unwrap_or_else(|| "MIT".to_string());
 
-    // Top-level YAML values
-    let discord_url = yaml_config
-        .get("discord_url")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let banner_url = yaml_config
-        .get("banner_url")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    // Convert lang config to minijinja Value
-    let _lang_value = yaml_to_minijinja_value(lang_yaml);
-
     let mut ctx: HashMap<&str, Value> = HashMap::new();
     ctx.insert("version", Value::from(api.version.clone()));
     ctx.insert("name", Value::from(name.clone()));
@@ -178,18 +174,16 @@ fn try_template_readme(
     ctx.insert("banner_url", Value::from(banner_url));
     ctx.insert("language", Value::from(lang_code.to_string()));
 
-    // Flatten per-language YAML fields into top-level context
+    // Flatten per-language config fields into top-level context
     // (templates expect snippets, features, performance, etc. at top level)
-    if let serde_yaml::Value::Mapping(map) = lang_yaml {
-        for (k, v) in map {
-            if let serde_yaml::Value::String(key) = k {
-                ctx.insert(
-                    // SAFETY: we leak the string to get a &'static str for the HashMap key.
-                    // This is fine since readmes are generated once per run.
-                    Box::leak(key.clone().into_boxed_str()),
-                    yaml_to_minijinja_value(v),
-                );
-            }
+    if let serde_json::Value::Object(map) = &lang_json {
+        for (key, val) in map {
+            ctx.insert(
+                // SAFETY: we leak the string to get a &'static str for the HashMap key.
+                // This is fine since readmes are generated once per run.
+                Box::leak(key.clone().into_boxed_str()),
+                json_to_minijinja_value(val),
+            );
         }
     }
 
@@ -202,7 +196,7 @@ fn try_template_readme(
         .map_err(|e| anyhow::anyhow!("Failed to render template '{}': {}", template_name, e))?;
 
     // Determine output path
-    let path = readme_output_path(config, lang, readme_cfg, lang_yaml);
+    let path = readme_output_path(config, lang, readme_cfg, &lang_json);
 
     Ok(Some(GeneratedFile {
         path,
@@ -216,10 +210,14 @@ fn readme_output_path(
     config: &AlefConfig,
     lang: Language,
     readme_cfg: &alef_core::config::ReadmeConfig,
-    lang_yaml: &serde_yaml::Value,
+    lang_json: &serde_json::Value,
 ) -> PathBuf {
-    // Check for explicit output in per-language YAML config
-    if let Some(output) = lang_yaml.get("output").and_then(|v| v.as_str()) {
+    // Check for explicit output_path in per-language config
+    if let Some(output) = lang_json
+        .get("output_path")
+        .or_else(|| lang_json.get("output"))
+        .and_then(|v| v.as_str())
+    {
         return PathBuf::from(output);
     }
 
@@ -369,9 +367,9 @@ fn render_performance_table(benchmarks: &Value) -> String {
     table
 }
 
-/// Convert a `serde_yaml::Value` into a `minijinja::Value` via serde serialization.
-fn yaml_to_minijinja_value(yaml: &serde_yaml::Value) -> Value {
-    Value::from_serialize(yaml)
+/// Convert a `serde_json::Value` into a `minijinja::Value` via serde serialization.
+fn json_to_minijinja_value(json: &serde_json::Value) -> Value {
+    Value::from_serialize(json)
 }
 
 // ---------------------------------------------------------------------------
@@ -683,9 +681,9 @@ mod tests {
     }
 
     #[test]
-    fn test_yaml_to_minijinja_value_primitives() {
-        let yaml: serde_yaml::Value = serde_yaml::from_str("key: value\nnum: 42\nflag: true").unwrap();
-        let mj = yaml_to_minijinja_value(&yaml);
+    fn test_json_to_minijinja_value_primitives() {
+        let json: serde_json::Value = serde_json::from_str(r#"{"key": "value", "num": 42, "flag": true}"#).unwrap();
+        let mj = json_to_minijinja_value(&json);
         // The value should be an object accessible by attribute
         assert!(mj.get_attr("key").is_ok());
     }
