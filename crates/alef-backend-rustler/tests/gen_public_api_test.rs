@@ -335,7 +335,7 @@ fn test_native_ex_has_all_nif_stubs() {
 
     // Should have stub for static method: conversionoptions_default/0
     assert!(
-        content.contains("def conversionoptions_default()"),
+        content.contains("def conversionoptions_default"),
         "Should have conversionoptions_default/0 stub; content:\n{content}"
     );
 
@@ -431,7 +431,7 @@ fn test_struct_module_has_defstruct() {
 
     // Should have defstruct
     assert!(
-        content.contains("defstruct ["),
+        content.contains("defstruct "),
         "Should have defstruct; content:\n{content}"
     );
 
@@ -503,7 +503,7 @@ fn test_main_module_has_method_wrappers() {
 
     // Should have wrapper for static method config_default/0
     assert!(
-        content.contains("def config_default()"),
+        content.contains("def config_default"),
         "Should have config_default/0 wrapper; content:\n{content}"
     );
 

@@ -344,7 +344,7 @@ license = "{license}"
 crate-type = ["cdylib"]
 
 [dependencies]
-{crate_name} = {{ path = "../../../../../crates/{core_crate_dir}"{features} }}
+{crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
 magnus = "0.8"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
@@ -358,7 +358,7 @@ tokio = {{ version = "1", features = ["full"] }}
     );
 
     Ok(vec![GeneratedFile {
-        path: PathBuf::from(format!("packages/ruby/ext/{}_rb/native/Cargo.toml", core_crate_dir)),
+        path: PathBuf::from(format!("packages/ruby/ext/{}_rb/Cargo.toml", core_crate_dir)),
         content,
         generated_header: true,
     }])
@@ -527,7 +527,6 @@ default_profile = ENV.fetch('CARGO_PROFILE', 'release')
 
 create_rust_makefile('{ext_name}') do |config|
   config.profile = default_profile.to_sym
-  config.ext_dir = 'native'
 end
 "#,
         ext_name = ext_name,
@@ -1281,10 +1280,7 @@ mod tests {
         assert!(files[4].content.contains("create_rust_makefile"));
         assert!(files[4].content.contains("rb_sys/mkmf"));
         // Check for Cargo.toml generation
-        assert_eq!(
-            files[5].path,
-            PathBuf::from("packages/ruby/ext/my-lib_rb/native/Cargo.toml")
-        );
+        assert_eq!(files[5].path, PathBuf::from("packages/ruby/ext/my-lib_rb/Cargo.toml"));
         assert!(files[5].content.contains("magnus"));
     }
 }

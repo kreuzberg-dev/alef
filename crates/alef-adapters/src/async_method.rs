@@ -423,7 +423,7 @@ fn to_snake_case(s: &str) -> String {
             if i > 0 {
                 result.push('_');
             }
-            result.push(ch.to_lowercase().next().unwrap());
+            result.extend(ch.to_lowercase());
         } else {
             result.push(ch);
         }

@@ -882,9 +882,9 @@ fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> S
             }
             TypeRef::Duration => {
                 if p.optional {
-                    format!("{}.map(|v| std::time::Duration::from_millis(v as u64))", p.name)
+                    format!("{}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))", p.name)
                 } else {
-                    format!("std::time::Duration::from_millis({} as u64)", p.name)
+                    format!("std::time::Duration::from_millis({}.max(0) as u64)", p.name)
                 }
             }
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {

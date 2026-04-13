@@ -747,8 +747,11 @@ pub fn gen_unimplemented_body(
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Duration => "0".to_string(),
             TypeRef::Named(_) | TypeRef::Json => {
-                // Named return without error type: can't return Err. Generate compilable panic.
-                format!("panic!(\"alef: {fn_name} not auto-delegatable\")")
+                // Named return without error type: can't return Err.
+                // Emit compile_error so this is caught at build time rather than panicking at runtime.
+                format!(
+                    "compile_error!(\"alef: {fn_name} returns a Named/Json type but has no error variant — cannot auto-delegate\")"
+                )
             }
         }
     };

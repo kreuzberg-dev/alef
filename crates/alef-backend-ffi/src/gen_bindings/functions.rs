@@ -129,9 +129,18 @@ pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str
         writeln!(out, "    }}").ok();
 
         let deref = match method.receiver.as_ref().unwrap_or(&ReceiverKind::Ref) {
-            ReceiverKind::Ref => "let obj = unsafe { &*this };".to_string(),
-            ReceiverKind::RefMut => "let obj = unsafe { &mut *this };".to_string(),
-            ReceiverKind::Owned => "let obj = unsafe { *Box::from_raw(this) };".to_string(),
+            ReceiverKind::Ref => {
+                "// SAFETY: null check above guarantees this is a valid pointer.\n    let obj = unsafe { &*this };"
+                    .to_string()
+            }
+            ReceiverKind::RefMut => {
+                "// SAFETY: null check above guarantees this is a valid pointer; caller ensures exclusive access.\n    let obj = unsafe { &mut *this };"
+                    .to_string()
+            }
+            ReceiverKind::Owned => {
+                "// SAFETY: null check above guarantees this is a valid pointer originally from Box::into_raw.\n    let obj = unsafe { *Box::from_raw(this) };"
+                    .to_string()
+            }
         };
         writeln!(out, "    {deref}").ok();
     }
