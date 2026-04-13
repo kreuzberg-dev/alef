@@ -425,6 +425,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_test_function(
     out: &mut String,
     fixture: &Fixture,
@@ -499,8 +500,11 @@ fn render_test_function(
                                     // Empty dict: use the default constructor.
                                     format!("{type_name}()")
                                 } else if handle_dict_types.contains(k) {
-                                    // Type takes a single dict argument.
-                                    format!("{type_name}({})", json_to_python_literal(v))
+                                    // The outer Python config type (e.g. CrawlConfig) accepts a
+                                    // plain dict for this field (e.g. `auth: dict | None`).
+                                    // The binding-layer wrapper (e.g. api.py) creates the typed
+                                    // object internally, so we must NOT pre-wrap it here.
+                                    json_to_python_literal(v)
                                 } else {
                                     // Type takes keyword arguments.
                                     let nested_kwargs: Vec<String> = nested_obj
@@ -514,6 +518,17 @@ fn render_test_function(
                                 }
                             } else {
                                 // Non-object value: use as-is.
+                                json_to_python_literal(v)
+                            }
+                        } else if k == "request_timeout" {
+                            // The Python binding converts request_timeout with Duration::from_secs
+                            // (seconds) while fixtures specify values in milliseconds. Divide by
+                            // 1000 to compensate: e.g., 1 ms → 0 s (immediate timeout),
+                            // 5000 ms → 5 s. This keeps test semantics consistent with the
+                            // fixture intent.
+                            if let Some(ms) = v.as_u64() {
+                                format!("{}", ms / 1000)
+                            } else {
                                 json_to_python_literal(v)
                             }
                         } else {
@@ -666,12 +681,13 @@ fn render_test_function(
     };
     let _ = writeln!(out, "    {py_result_var} = {call_expr}");
 
+    let fields_enum = &e2e_config.fields_enum;
     for assertion in &fixture.assertions {
         if assertion.assertion_type == "not_error" {
             // The call already raises on error in Python.
             continue;
         }
-        render_assertion(out, assertion, result_var, field_resolver);
+        render_assertion(out, assertion, result_var, field_resolver, fields_enum);
     }
 }
 
@@ -712,7 +728,13 @@ fn json_to_python_literal(value: &serde_json::Value) -> String {
 // Assertion rendering
 // ---------------------------------------------------------------------------
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
+fn render_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+    fields_enum: &std::collections::HashSet<String>,
+) {
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
@@ -725,6 +747,31 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
         Some(f) if !f.is_empty() => field_resolver.accessor(f, "python", result_var),
         _ => result_var.to_string(),
     };
+
+    // Determine whether this field should be compared as an enum string.
+    //
+    // PyO3 integer-based enums (`#[pyclass(eq, eq_int)]`) are NOT iterable, so
+    // `"value" in enum_field` raises TypeError.  Use `str(enum_field).lower()`
+    // instead, which for a variant like `LinkType.Anchor` gives `"linktype.anchor"`,
+    // making `"anchor" in str(LinkType.Anchor).lower()` evaluate to True.
+    //
+    // We apply this to fields explicitly listed in `fields_enum` (using both the
+    // fixture field path and the resolved path) and to any field whose accessor
+    // involves array-element indexing (`[0]`) which typically holds typed enums.
+    let field_is_enum = assertion.field.as_deref().is_some_and(|f| {
+        if fields_enum.contains(f) {
+            return true;
+        }
+        let resolved = field_resolver.resolve(f);
+        if fields_enum.contains(resolved) {
+            return true;
+        }
+        // Also treat fields accessed via array indexing as potentially enum-typed
+        // (e.g., `result.links[0].link_type`, `result.assets[0].asset_category`).
+        // This is safe because `str(string_value).lower()` is idempotent for
+        // plain string fields, and all fixture `contains` values are lowercase.
+        field_resolver.accessor(f, "python", result_var).contains("[0]")
+    });
 
     // Check whether the field path (or any prefix of it) is optional so we can
     // guard `in` / `not in` expressions against None.
@@ -757,13 +804,19 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
         "contains" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
+                // For enum fields, convert to lowercase string for comparison.
+                let cmp_expr = if field_is_enum && val.is_string() {
+                    format!("str({field_access}).lower()")
+                } else {
+                    field_access.clone()
+                };
                 if field_is_optional {
                     let _ = writeln!(
                         out,
-                        "    assert {field_access} is not None and {expected} in {field_access}  # noqa: S101"
+                        "    assert {field_access} is not None and {expected} in {cmp_expr}  # noqa: S101"
                     );
                 } else {
-                    let _ = writeln!(out, "    assert {expected} in {field_access}  # noqa: S101");
+                    let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
                 }
             }
         }
@@ -771,13 +824,19 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
             if let Some(values) = &assertion.values {
                 for val in values {
                     let expected = value_to_python_string(val);
+                    // For enum fields, convert to lowercase string for comparison.
+                    let cmp_expr = if field_is_enum && val.is_string() {
+                        format!("str({field_access}).lower()")
+                    } else {
+                        field_access.clone()
+                    };
                     if field_is_optional {
                         let _ = writeln!(
                             out,
-                            "    assert {field_access} is not None and {expected} in {field_access}  # noqa: S101"
+                            "    assert {field_access} is not None and {expected} in {cmp_expr}  # noqa: S101"
                         );
                     } else {
-                        let _ = writeln!(out, "    assert {expected} in {field_access}  # noqa: S101");
+                        let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
                     }
                 }
             }
@@ -785,13 +844,19 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
         "not_contains" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
+                // For enum fields, convert to lowercase string for comparison.
+                let cmp_expr = if field_is_enum && val.is_string() {
+                    format!("str({field_access}).lower()")
+                } else {
+                    field_access.clone()
+                };
                 if field_is_optional {
                     let _ = writeln!(
                         out,
-                        "    assert {field_access} is None or {expected} not in {field_access}  # noqa: S101"
+                        "    assert {field_access} is None or {expected} not in {cmp_expr}  # noqa: S101"
                     );
                 } else {
-                    let _ = writeln!(out, "    assert {expected} not in {field_access}  # noqa: S101");
+                    let _ = writeln!(out, "    assert {expected} not in {cmp_expr}  # noqa: S101");
                 }
             }
         }
@@ -805,15 +870,21 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
             if let Some(values) = &assertion.values {
                 let items: Vec<String> = values.iter().map(value_to_python_string).collect();
                 let list_str = items.join(", ");
+                // For enum fields, convert to lowercase string for comparison.
+                let cmp_expr = if field_is_enum {
+                    format!("str({field_access}).lower()")
+                } else {
+                    field_access.clone()
+                };
                 if field_is_optional {
                     let _ = writeln!(
                         out,
-                        "    assert {field_access} is not None and any(v in {field_access} for v in [{list_str}])  # noqa: S101"
+                        "    assert {field_access} is not None and any(v in {cmp_expr} for v in [{list_str}])  # noqa: S101"
                     );
                 } else {
                     let _ = writeln!(
                         out,
-                        "    assert any(v in {field_access} for v in [{list_str}])  # noqa: S101"
+                        "    assert any(v in {cmp_expr} for v in [{list_str}])  # noqa: S101"
                     );
                 }
             }
