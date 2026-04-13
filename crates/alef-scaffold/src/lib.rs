@@ -401,6 +401,8 @@ fn scaffold_ruby(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
   spec.files         = Dir.glob(["lib/**/*", "ext/**/*"])
   spec.require_paths = ["lib"]
   spec.extensions    = ["ext/{ext_name}/extconf.rb"]
+
+  spec.add_dependency "rb_sys", "~> 0.9"
 end
 "#,
         gem_name = gem_name,
