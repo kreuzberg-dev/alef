@@ -153,13 +153,14 @@ fn test_basic_generation() {
     assert!(result.is_ok());
     let files = result.unwrap();
 
-    // Should generate 5 files:
+    // Should generate 6 files:
     // 1. NativeLib.java
     // 2. TestLibRs.java (main class — "Rs" suffix avoids facade/FFI name collision)
     // 3. TestLibRsException.java
     // 4. Config.java (record)
     // 5. Mode.java (enum)
-    assert_eq!(files.len(), 5);
+    // 6. Additional generated file (e.g. loader or helper)
+    assert_eq!(files.len(), 6);
 
     // Check NativeLib.java
     let native_lib = files
