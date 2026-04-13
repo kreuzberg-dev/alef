@@ -348,6 +348,7 @@ crate-type = ["cdylib"]
 magnus = "0.8"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
+serde_magnus = "0.11"
 tokio = {{ version = "1", features = ["full"] }}
 "#,
         core_crate_dir = core_crate_dir,

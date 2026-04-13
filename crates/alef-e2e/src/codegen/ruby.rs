@@ -221,6 +221,7 @@ fn render_spec_file(
     // Require the gem (single quotes).
     let require_name = if module_path.is_empty() { gem_name } else { module_path };
     let _ = writeln!(out, "require '{}'", require_name.replace('-', "_"));
+    let _ = writeln!(out, "require 'json'");
     let _ = writeln!(out);
 
     // Build the Ruby module/class qualifier for calls.
@@ -391,7 +392,7 @@ fn build_args_and_setup(
                 let name = &arg.name;
                 setup_lines.push(format!("{name}_config = {literal}"));
                 setup_lines.push(format!(
-                    "{} = {call_receiver}.{constructor_name}({name}_config)",
+                    "{} = {call_receiver}.{constructor_name}({name}_config.to_json)",
                     arg.name,
                     name = name,
                 ));
