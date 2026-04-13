@@ -305,32 +305,94 @@ pub fn binding_to_core_match_arm(binding_prefix: &str, variant_name: &str, field
     if fields.is_empty() {
         format!("{binding_prefix}::{variant_name} => Self::{variant_name},")
     } else if is_tuple_variant(fields) {
-        let defaults: Vec<&str> = fields.iter().map(|_| "Default::default()").collect();
-        format!(
-            "{binding_prefix}::{variant_name} => Self::{variant_name}({}),",
-            defaults.join(", ")
-        )
-    } else {
-        let defaults: Vec<String> = fields
+        // Binding uses struct syntax with _0, _1 etc., core uses tuple syntax
+        let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+        let binding_pattern = field_names.join(", ");
+        // Wrap boxed fields with Box::new() and convert Named types with .into()
+        let core_args: Vec<String> = fields
             .iter()
-            .map(|f| format!("{}: Default::default()", f.name))
+            .map(|f| {
+                let name = &f.name;
+                let expr = if matches!(&f.ty, TypeRef::Named(_)) {
+                    format!("{name}.into()")
+                } else {
+                    name.clone()
+                };
+                if f.is_boxed { format!("Box::new({expr})") } else { expr }
+            })
             .collect();
         format!(
-            "{binding_prefix}::{variant_name} => Self::{variant_name} {{ {} }},",
-            defaults.join(", ")
+            "{binding_prefix}::{variant_name} {{ {binding_pattern} }} => Self::{variant_name}({}),",
+            core_args.join(", ")
+        )
+    } else {
+        // Destructure binding named fields and pass to core, with .into() for Named types
+        let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+        let pattern = field_names.join(", ");
+        let core_fields: Vec<String> = fields
+            .iter()
+            .map(|f| {
+                if matches!(&f.ty, TypeRef::Named(_)) {
+                    format!("{}: {}.into()", f.name, f.name)
+                } else {
+                    format!("{0}: {0}", f.name)
+                }
+            })
+            .collect();
+        format!(
+            "{binding_prefix}::{variant_name} {{ {pattern} }} => Self::{variant_name} {{ {} }},",
+            core_fields.join(", ")
         )
     }
 }
 
 /// Generate a match arm for core -> binding direction.
-/// Core enums may have data variants; binding enums are always unit-variant-only.
-/// For data variants: `CoreEnum::Variant(..) => Self::Variant`
+/// When the binding also has data variants, destructure and forward fields.
+/// When the binding is unit-variant-only, discard core data with `..`.
 pub fn core_to_binding_match_arm(core_prefix: &str, variant_name: &str, fields: &[FieldDef]) -> String {
     if fields.is_empty() {
         format!("{core_prefix}::{variant_name} => Self::{variant_name},")
     } else if is_tuple_variant(fields) {
-        format!("{core_prefix}::{variant_name}(..) => Self::{variant_name},")
+        // Core uses tuple syntax, binding uses struct syntax with _0, _1 etc.
+        let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+        let core_pattern = field_names.join(", ");
+        // Unbox and convert Named types with .into()
+        let binding_fields: Vec<String> = fields
+            .iter()
+            .map(|f| {
+                let name = &f.name;
+                let expr = if f.is_boxed && matches!(&f.ty, TypeRef::Named(_)) {
+                    format!("(*{name}).into()")
+                } else if f.is_boxed {
+                    format!("*{name}")
+                } else if matches!(&f.ty, TypeRef::Named(_)) {
+                    format!("{name}.into()")
+                } else {
+                    name.clone()
+                };
+                format!("{name}: {expr}")
+            })
+            .collect();
+        format!(
+            "{core_prefix}::{variant_name}({core_pattern}) => Self::{variant_name} {{ {} }},",
+            binding_fields.join(", ")
+        )
     } else {
-        format!("{core_prefix}::{variant_name} {{ .. }} => Self::{variant_name},")
+        let field_names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
+        let pattern = field_names.join(", ");
+        let binding_fields: Vec<String> = fields
+            .iter()
+            .map(|f| {
+                if matches!(&f.ty, TypeRef::Named(_)) {
+                    format!("{}: {}.into()", f.name, f.name)
+                } else {
+                    format!("{0}: {0}", f.name)
+                }
+            })
+            .collect();
+        format!(
+            "{core_prefix}::{variant_name} {{ {pattern} }} => Self::{variant_name} {{ {} }},",
+            binding_fields.join(", ")
+        )
     }
 }

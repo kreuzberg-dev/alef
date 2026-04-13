@@ -1,0 +1,15 @@
+- id: alef-verify
+  name: alef verify
+  language: system
+  entry: alef verify --exit-code
+  files: '\.(rs|toml)$'
+  pass_filenames: false
+  description: "Check that all alef-generated bindings, stubs, docs, and scaffolding are up to date"
+
+- id: alef-generate
+  name: alef generate
+  language: system
+  entry: alef all
+  files: '\.(rs|toml)$'
+  pass_filenames: false
+  description: "Regenerate all alef output (bindings, stubs, docs, readme, scaffold)"
