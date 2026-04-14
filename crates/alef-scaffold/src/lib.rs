@@ -617,7 +617,12 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
   "license": "{license}",
   "type": "php-ext",
   "require": {{
-    "php": ">=8.1"
+    "php": ">=8.2"
+  }},
+  "require-dev": {{
+    "phpstan/phpstan": "^2.1",
+    "friendsofphp/php-cs-fixer": "^3.95",
+    "phpunit/phpunit": "^11.0"
   }},
   "extra": {{
     "ext-name": "{ext_name}"
@@ -706,7 +711,8 @@ fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
 
   defp deps do
     [
-      {{:rustler, "~> 0.34"}}
+      {{:rustler, "~> 0.34"}},
+      {{:credo, "~> 1.7", only: [:dev, :test], runtime: false}}
     ]
   end
 end
