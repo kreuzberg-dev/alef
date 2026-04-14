@@ -231,7 +231,6 @@ crate-type = ["cdylib"]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
 napi = {{ version = "3", features = ["async"] }}
 napi-derive = "3"
-serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 
 [build-dependencies]
@@ -931,7 +930,6 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}
 
