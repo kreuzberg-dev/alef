@@ -133,6 +133,7 @@ fn render_cargo_toml(crate_name: &str, dep_name: &str, crate_path: &str, needs_s
 name = "{e2e_name}"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 publish = false
 
 [dependencies]

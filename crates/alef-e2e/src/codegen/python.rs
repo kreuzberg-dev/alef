@@ -811,10 +811,8 @@ fn render_assertion(
                     field_access.clone()
                 };
                 if field_is_optional {
-                    let _ = writeln!(
-                        out,
-                        "    assert {field_access} is not None and {expected} in {cmp_expr}  # noqa: S101"
-                    );
+                    let _ = writeln!(out, "    assert {field_access} is not None  # noqa: S101");
+                    let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
                 } else {
                     let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
                 }
@@ -831,10 +829,8 @@ fn render_assertion(
                         field_access.clone()
                     };
                     if field_is_optional {
-                        let _ = writeln!(
-                            out,
-                            "    assert {field_access} is not None and {expected} in {cmp_expr}  # noqa: S101"
-                        );
+                        let _ = writeln!(out, "    assert {field_access} is not None  # noqa: S101");
+                        let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
                     } else {
                         let _ = writeln!(out, "    assert {expected} in {cmp_expr}  # noqa: S101");
                     }
@@ -877,9 +873,10 @@ fn render_assertion(
                     field_access.clone()
                 };
                 if field_is_optional {
+                    let _ = writeln!(out, "    assert {field_access} is not None  # noqa: S101");
                     let _ = writeln!(
                         out,
-                        "    assert {field_access} is not None and any(v in {cmp_expr} for v in [{list_str}])  # noqa: S101"
+                        "    assert any(v in {cmp_expr} for v in [{list_str}])  # noqa: S101"
                     );
                 } else {
                     let _ = writeln!(
