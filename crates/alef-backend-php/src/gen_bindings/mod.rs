@@ -133,6 +133,10 @@ impl Backend for PhpBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Enum names for PHP property classification — enums are mapped as String,
+        // so Named(enum) fields should be treated as scalar props not getters.
+        let enum_names: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+
         // Compute the PHP namespace for namespaced class registration.
         // Uses the same logic as `generate_public_api` / `generate_type_stubs`.
         let extension_name = config.php_extension_name();
@@ -159,13 +163,14 @@ impl Backend for PhpBackend {
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&gen_php_struct(typ, &mapper, &cfg, Some(&php_namespace)));
+                builder.add_item(&gen_php_struct(typ, &mapper, &cfg, Some(&php_namespace), &enum_names));
                 builder.add_item(&gen_struct_methods(
                     typ,
                     &mapper,
                     has_serde,
                     &core_import,
                     &opaque_types,
+                    &enum_names,
                 ));
             }
         }
