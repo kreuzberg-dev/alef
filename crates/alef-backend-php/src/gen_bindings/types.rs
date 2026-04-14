@@ -18,10 +18,20 @@ use super::functions::{
 ///   Vec<primitive> (the `Vec<T: IntoZval>` blanket impl).
 /// Anything containing a Named struct, Map, nested Vec, Json, or Bytes requires a getter.
 fn is_php_prop_scalar(ty: &TypeRef) -> bool {
+    is_php_prop_scalar_with_enums(ty, &AHashSet::new())
+}
+
+/// Check if a type is scalar-compatible for PHP properties, considering enum names.
+/// Enums are mapped as String in the PHP binding, so they count as scalar.
+fn is_php_prop_scalar_with_enums(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char | TypeRef::Duration | TypeRef::Path => true,
-        TypeRef::Optional(inner) => is_php_prop_scalar(inner),
-        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char),
+        TypeRef::Optional(inner) => is_php_prop_scalar_with_enums(inner, enum_names),
+        TypeRef::Vec(inner) => {
+            matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char)
+                || matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n))
+        }
+        TypeRef::Named(n) if enum_names.contains(n) => true,
         TypeRef::Named(_) | TypeRef::Map(_, _) | TypeRef::Json | TypeRef::Bytes | TypeRef::Unit => false,
     }
 }
@@ -77,6 +87,7 @@ pub(crate) fn gen_php_struct(
     mapper: &PhpMapper,
     cfg: &RustBindingConfig<'_>,
     php_namespace: Option<&str>,
+    enum_names: &AHashSet<String>,
 ) -> String {
     // Build the php_class attributes: with namespace → plain #[php_class] + #[php(name = "Ns\\ClassName")],
     // without → use the config's struct_attrs unchanged.
@@ -96,7 +107,7 @@ pub(crate) fn gen_php_struct(
     // no automatic attribute; instead a `#[php(getter)]` method is generated separately in
     // `gen_struct_methods`.
     let field_attrs_fn = |field: &FieldDef| -> Vec<String> {
-        if is_php_prop_scalar(&field.ty) {
+        if is_php_prop_scalar_with_enums(&field.ty, enum_names) {
             // Use php(rename) to keep snake_case naming consistent with getter properties.
             // Without this, ext-php-rs auto-converts to camelCase for #[php(prop)] fields.
             vec![format!("php(prop, name = \"{}\")", field.name)]
@@ -158,6 +169,7 @@ pub(crate) fn gen_struct_methods(
     has_serde: bool,
     core_import: &str,
     opaque_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -207,7 +219,7 @@ pub(crate) fn gen_struct_methods(
             continue;
         }
         let effective_ty = &field.ty;
-        if !is_php_prop_scalar(effective_ty) {
+        if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {
             let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
             let rust_return_type = if field.optional {
                 mapper.optional(&mapper.map_type(&field.ty))
