@@ -713,7 +713,8 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     let ext_name = config.php_extension_name();
     let name = &config.crate_config.name;
     // PSR-4 namespace derived from the extension name (e.g. html_to_markdown_rs -> Html\To\Markdown\Rs).
-    let php_namespace = config.php_autoload_namespace();
+    // Double backslashes for JSON string literal output.
+    let php_namespace = config.php_autoload_namespace().replace('\\', "\\\\");
 
     let keywords_json = if meta.keywords.is_empty() {
         String::new()
