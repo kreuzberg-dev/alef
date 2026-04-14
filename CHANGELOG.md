@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-04-14
+
+### Added
+
+- Distributable Claude Code skill for alef consumers
+
+### Fixed
+
+- PHP 100% coverage — `createEngineFromJson`, JSON config e2e support
+- PHP snake_case properties, enum scalars, serde casing, camelCase facade
+- PHP class registration, property access, per-field attributes
+- PHP setters documented, enum serde casing via `serde_json`
+- PHP tests updated for `Api` class pattern (no more standalone `#[php_function]`)
+- Correct DTO style naming (`typed-dict` not `typeddict`), add `serde_rename_all` to config docs
+- Add Credo to Elixir scaffold, PHPStan + PHP-CS-Fixer to PHP scaffold
+- Drop unused `tokio` from Python scaffold, add e2e license, split assertions
+- PHP and Rustler miscellaneous fixes
+
 ## [0.3.2] - 2026-04-13
 
 ### Fixed

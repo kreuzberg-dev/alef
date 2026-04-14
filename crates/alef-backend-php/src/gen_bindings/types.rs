@@ -12,16 +12,12 @@ use super::functions::{
 };
 
 /// Returns true if the type is "scalar-compatible" — i.e. ext-php-rs can handle it as a
+/// Check if a type is scalar-compatible for PHP properties, considering enum names.
 /// `#[php(prop)]` without needing a manual getter.  Scalar-compatible means the mapped Rust
 /// type implements `IntoZval` + `FromZval` automatically:
 ///   primitives, String, bool, Duration (→ u64), Path (→ String), Option<scalar>,
 ///   Vec<primitive> (the `Vec<T: IntoZval>` blanket impl).
 /// Anything containing a Named struct, Map, nested Vec, Json, or Bytes requires a getter.
-fn is_php_prop_scalar(ty: &TypeRef) -> bool {
-    is_php_prop_scalar_with_enums(ty, &AHashSet::new())
-}
-
-/// Check if a type is scalar-compatible for PHP properties, considering enum names.
 /// Enums are mapped as String in the PHP binding, so they count as scalar.
 fn is_php_prop_scalar_with_enums(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
     match ty {
