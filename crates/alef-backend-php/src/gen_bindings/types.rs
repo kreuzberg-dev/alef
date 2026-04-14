@@ -97,7 +97,9 @@ pub(crate) fn gen_php_struct(
     // `gen_struct_methods`.
     let field_attrs_fn = |field: &FieldDef| -> Vec<String> {
         if is_php_prop_scalar(&field.ty) {
-            vec!["php(prop)".to_string()]
+            // Use php(rename) to keep snake_case naming consistent with getter properties.
+            // Without this, ext-php-rs auto-converts to camelCase for #[php(prop)] fields.
+            vec![format!("php(prop, name = \"{}\")", field.name)]
         } else {
             vec![]
         }

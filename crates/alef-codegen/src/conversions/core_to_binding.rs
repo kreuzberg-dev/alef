@@ -383,24 +383,36 @@ pub fn field_conversion_from_core_cfg(
         }
         // Enum-to-String Named types (PHP pattern)
         TypeRef::Named(n) if is_enum_string(n) => {
+            // Use serde serialization to get the correct serde(rename) value, not Debug format.
+            // serde_json::to_value gives Value::String("auto") which we extract.
             if optional {
-                format!("{name}: val.{name}.as_ref().map(|v| format!(\"{{:?}}\", v))")
+                format!(
+                    "{name}: val.{name}.as_ref().map(|v| serde_json::to_value(v).ok().and_then(|s| s.as_str().map(String::from)).unwrap_or_default())"
+                )
             } else {
-                format!("{name}: format!(\"{{:?}}\", val.{name})")
+                format!(
+                    "{name}: serde_json::to_value(&val.{name}).ok().and_then(|s| s.as_str().map(String::from)).unwrap_or_default()"
+                )
             }
         }
-        // Vec<Enum-to-String> Named types (PHP pattern): element-wise format!("{:?}")
+        // Vec<Enum-to-String> Named types: element-wise serde serialization
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if is_enum_string(n)) => {
             if optional {
-                format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|x| format!(\"{{:?}}\", x)).collect())")
+                format!(
+                    "{name}: val.{name}.as_ref().map(|v| v.iter().map(|x| serde_json::to_value(x).ok().and_then(|s| s.as_str().map(String::from)).unwrap_or_default()).collect())"
+                )
             } else {
-                format!("{name}: val.{name}.iter().map(|v| format!(\"{{:?}}\", v)).collect()")
+                format!(
+                    "{name}: val.{name}.iter().map(|v| serde_json::to_value(v).ok().and_then(|s| s.as_str().map(String::from)).unwrap_or_default()).collect()"
+                )
             }
         }
         // Optional(Vec<Enum-to-String>) Named types (PHP pattern)
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(n) if is_enum_string(n))) =>
         {
-            format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|x| format!(\"{{:?}}\", x)).collect())")
+            format!(
+                "{name}: val.{name}.as_ref().map(|v| v.iter().map(|x| serde_json::to_value(x).ok().and_then(|s| s.as_str().map(String::from)).unwrap_or_default()).collect())"
+            )
         }
         // Vec<f32> needs element-wise cast to f64 when f32→f64 mapping is active
         TypeRef::Vec(inner)

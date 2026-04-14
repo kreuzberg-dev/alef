@@ -745,7 +745,9 @@ fn gen_nif_async_function(
         .join(", ");
 
     let return_type = map_return_type(&func.return_type, mapper, opaque_types);
-    let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    // Async NIFs always return Result because Runtime::new() can fail, even when the core
+    // function itself has no error type.
+    let return_annotation = mapper.wrap_return(&return_type, true);
 
     let has_default_params = func
         .params
@@ -805,18 +807,15 @@ fn gen_nif_async_function(
                  Ok({result_wrap})"
             )
         } else {
+            // No error type, but Runtime::new() can still fail — use map_err and Ok().
             format!(
-                "{preamble}let rt = tokio::runtime::Runtime::new().unwrap();\n    \
+                "{preamble}let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
                  let result = rt.block_on(async {{ {core_call}.await }});\n    \
-                 {result_wrap}"
+                 Ok({result_wrap})"
             )
         }
     } else {
-        gen_rustler_unimplemented_body(
-            &func.return_type,
-            &format!("{}_async", func.name),
-            func.error_type.is_some(),
-        )
+        gen_rustler_unimplemented_body(&func.return_type, &format!("{}_async", func.name), true)
     };
     format!(
         "#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn {}_async({params_str}) -> {return_annotation} {{\n    \
@@ -940,7 +939,9 @@ fn gen_nif_async_method(
     }
 
     let return_type = map_return_type(&method.return_type, mapper, opaque_types);
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+    // Async NIFs always return Result because Runtime::new() can fail, even when the core
+    // method itself has no error type.
+    let return_annotation = mapper.wrap_return(&return_type, true);
 
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
@@ -971,14 +972,15 @@ fn gen_nif_async_method(
                  Ok({result_wrap})"
             )
         } else {
+            // No error type, but Runtime::new() can still fail — use map_err and Ok().
             format!(
-                "let rt = tokio::runtime::Runtime::new().unwrap();\n    \
+                "let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
                  let result = rt.block_on(async {{ {core_call}.await }});\n    \
-                 {result_wrap}"
+                 Ok({result_wrap})"
             )
         }
     } else {
-        gen_rustler_unimplemented_body(&method.return_type, &method_fn_name, method.error_type.is_some())
+        gen_rustler_unimplemented_body(&method.return_type, &method_fn_name, true)
     };
     format!(
         "#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn {}({}) -> {} {{\n    \

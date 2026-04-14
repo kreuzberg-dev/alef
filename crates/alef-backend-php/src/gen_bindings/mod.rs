@@ -15,7 +15,7 @@ use alef_core::ir::{PrimitiveType, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
 use std::path::PathBuf;
 
-use functions::{gen_async_function, gen_function};
+use functions::{gen_async_function_as_static_method, gen_function_as_static_method};
 use helpers::{
     gen_enum_tainted_from_binding_to_core, gen_serde_bridge_from, gen_tokio_runtime, has_enum_named_field,
     references_named_type,
@@ -174,12 +174,57 @@ impl Backend for PhpBackend {
             builder.add_item(&gen_enum_constants(enum_def));
         }
 
-        for func in &api.functions {
-            if func.is_async {
-                builder.add_item(&gen_async_function(func, &mapper, &opaque_types, &core_import));
-            } else {
-                builder.add_item(&gen_function(func, &mapper, &opaque_types, &core_import));
+        // Generate free functions as static methods on a facade class rather than standalone
+        // `#[php_function]` items. Standalone functions rely on the `inventory` crate for
+        // auto-registration, which does not work in cdylib builds on macOS. Classes registered
+        // via `.class::<T>()` in the module builder DO work on all platforms.
+        if !api.functions.is_empty() {
+            let facade_class_name = extension_name.to_pascal_case();
+            // Build each static method body (no #[php_function] attribute — they live inside
+            // a #[php_impl] block which handles registration via the class machinery).
+            let mut method_items: Vec<String> = Vec::new();
+            for func in &api.functions {
+                if func.is_async {
+                    method_items.push(gen_async_function_as_static_method(
+                        func,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                    ));
+                } else {
+                    method_items.push(gen_function_as_static_method(
+                        func,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                    ));
+                }
             }
+            let methods_joined = method_items
+                .iter()
+                .map(|m| {
+                    // Indent each line of each method by 4 spaces
+                    m.lines()
+                        .map(|l| {
+                            if l.is_empty() {
+                                String::new()
+                            } else {
+                                format!("    {l}")
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            // The PHP-visible class name gets an "Api" suffix to avoid collision with the
+            // PHP facade class (e.g. `Kreuzcrawl\Kreuzcrawl`) that Composer autoloads.
+            let php_api_class_name = format!("{facade_class_name}Api");
+            let php_name_attr = format!("php(name = \"{}\\\\{}\")", php_namespace, php_api_class_name);
+            let facade_struct = format!(
+                "#[php_class]\n#[{php_name_attr}]\npub struct {facade_class_name}Api;\n\n#[php_impl]\nimpl {facade_class_name}Api {{\n{methods_joined}\n}}"
+            );
+            builder.add_item(&facade_struct);
         }
 
         let convertible = alef_codegen::conversions::convertible_types(api);
@@ -277,6 +322,11 @@ impl Backend for PhpBackend {
         for typ in &api.types {
             class_registrations.push_str(&format!("\n    .class::<{}>()", typ.name));
         }
+        // Register the facade class that wraps free functions as static methods.
+        if !api.functions.is_empty() {
+            let facade_class_name = extension_name.to_pascal_case();
+            class_registrations.push_str(&format!("\n    .class::<{facade_class_name}Api>()"));
+        }
         // Note: enums are represented as PHP string-backed enums, not Rust structs,
         // so they don't need .class::<T>() registration.
         builder.add_item(&format!(
@@ -364,14 +414,18 @@ impl Backend for PhpBackend {
             content.push_str("    {\n");
             // Async functions are registered in the extension with an `_async` suffix
             // (see gen_async_function which generates `pub fn {name}_async`).
-            let ext_func_name = if func.is_async {
-                format!("{}_async", func.name)
+            // Delegate to the native extension class (registered as `{namespace}\{class_name}Api`).
+            // ext-php-rs auto-converts Rust snake_case to PHP camelCase
+            let ext_method_name = if func.is_async {
+                format!("{}_async", func.name).to_lower_camel_case()
             } else {
-                func.name.clone()
+                func.name.to_lower_camel_case()
             };
             content.push_str(&format!(
-                "        return \\{}({}); // delegate to extension function\n",
-                ext_func_name,
+                "        return \\{}\\{}Api::{}({}); // delegate to native extension class\n",
+                namespace,
+                class_name,
+                ext_method_name,
                 func.params
                     .iter()
                     .map(|p| format!("${}", p.name))
@@ -538,52 +592,60 @@ impl Backend for PhpBackend {
             content.push_str("}\n\n");
         }
 
-        // Close the namespaced block
-        content.push_str("} // end namespace\n\n");
-
-        // Extension function stubs (global namespace).
-        // The facade class delegates to these via `\func_name(...)`.
-        content.push_str("namespace {\n\n");
-
-        for func in &api.functions {
-            let return_type = php_type_fq(&func.return_type, &namespace);
-            let return_phpdoc = php_phpdoc_type_fq(&func.return_type, &namespace);
-            content.push_str("/**\n");
-            // PHPDoc params with fully-qualified types
-            for p in &func.params {
-                let ptype = php_phpdoc_type_fq(&p.ty, &namespace);
-                let nullable_prefix = if p.optional { "?" } else { "" };
-                content.push_str(&format!(" * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
-            }
-            content.push_str(&format!(" * @return {}\n */\n", return_phpdoc));
-
-            let params: Vec<String> = func
-                .params
-                .iter()
-                .map(|p| {
-                    let ptype = php_type_fq(&p.ty, &namespace);
-                    if p.optional {
-                        format!("?{} ${} = null", ptype, p.name)
-                    } else {
-                        format!("{} ${}", ptype, p.name)
+        // Extension function stubs — generated as a native `{ClassName}Api` class with static
+        // methods. The PHP facade (`{ClassName}`) delegates to `{ClassName}Api::method()`.
+        // Using a class instead of global functions avoids the `inventory` crate registration
+        // issue on macOS (cdylib builds do not collect `#[php_function]` entries there).
+        if !api.functions.is_empty() {
+            content.push_str(&format!("class {}Api\n{{\n", class_name));
+            for func in &api.functions {
+                let return_type = php_type_fq(&func.return_type, &namespace);
+                let return_phpdoc = php_phpdoc_type_fq(&func.return_type, &namespace);
+                // PHPDoc block
+                let has_array_params = func
+                    .params
+                    .iter()
+                    .any(|p| matches!(&p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)));
+                if has_array_params {
+                    content.push_str("    /**\n");
+                    for p in &func.params {
+                        let ptype = php_phpdoc_type_fq(&p.ty, &namespace);
+                        let nullable_prefix = if p.optional { "?" } else { "" };
+                        content.push_str(&format!("     * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
                     }
-                })
-                .collect();
-            // Async functions are registered in the extension with an `_async` suffix.
-            let stub_func_name = if func.is_async {
-                format!("{}_async", func.name)
-            } else {
-                func.name.clone()
-            };
-            content.push_str(&format!(
-                "function {}({}): {} {{ }}\n\n",
-                stub_func_name,
-                params.join(", "),
-                return_type
-            ));
+                    content.push_str(&format!("     * @return {}\n", return_phpdoc));
+                    content.push_str("     */\n");
+                }
+                let params: Vec<String> = func
+                    .params
+                    .iter()
+                    .map(|p| {
+                        let ptype = php_type_fq(&p.ty, &namespace);
+                        if p.optional {
+                            format!("?{} ${} = null", ptype, p.name)
+                        } else {
+                            format!("{} ${}", ptype, p.name)
+                        }
+                    })
+                    .collect();
+                // Async functions use an `_async` suffix.
+                let stub_method_name = if func.is_async {
+                    format!("{}_async", func.name)
+                } else {
+                    func.name.clone()
+                };
+                content.push_str(&format!(
+                    "    public static function {}({}): {} {{ }}\n",
+                    stub_method_name,
+                    params.join(", "),
+                    return_type
+                ));
+            }
+            content.push_str("}\n\n");
         }
 
-        content.push_str("}\n");
+        // Close the namespaced block
+        content.push_str("} // end namespace\n");
 
         // Use stubs output path if configured, otherwise packages/php/stubs/
         let output_dir = config

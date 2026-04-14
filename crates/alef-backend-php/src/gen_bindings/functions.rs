@@ -258,20 +258,40 @@ pub(crate) fn gen_static_method(
     }
 }
 
-/// Generate a free function binding.
-pub(crate) fn gen_function(
+/// Generate a free function binding as a static method body (no `#[php_function]` attribute).
+/// Used when functions are placed inside a `#[php_impl]` facade class.
+pub(crate) fn gen_function_as_static_method(
     func: &FunctionDef,
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
+    let body = gen_function_body(func, opaque_types, core_import);
     let params = gen_php_function_params(&func.params, mapper, opaque_types);
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+    if params.is_empty() {
+        format!(
+            "pub fn {}() -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            func.name
+        )
+    } else {
+        format!(
+            "pub fn {}({params}) -> {return_annotation} {{\n    \
+             {body}\n\
+             }}",
+            func.name
+        )
+    }
+}
 
-    let body = if can_delegate {
+/// Shared body generation for sync free functions.
+fn gen_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, core_import: &str) -> String {
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+    if can_delegate {
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
         let call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
         let core_call = format!("{core_import}::{}({call_args})", func.name);
@@ -304,18 +324,32 @@ pub(crate) fn gen_function(
         }
     } else {
         gen_php_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
-    };
+    }
+}
+
+/// Generate an async free function binding as a static method body (no `#[php_function]` attribute).
+/// Used when functions are placed inside a `#[php_impl]` facade class.
+pub(crate) fn gen_async_function_as_static_method(
+    func: &FunctionDef,
+    mapper: &PhpMapper,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let body = gen_async_function_body(func, opaque_types, core_import);
+    let params = gen_php_function_params(&func.params, mapper, opaque_types);
+    let return_type = mapper.map_type(&func.return_type);
+    let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
     if params.is_empty() {
         format!(
-            "#[php_function]\npub fn {}() -> {return_annotation} {{\n    \
+            "pub fn {}_async() -> {return_annotation} {{\n    \
              {body}\n\
              }}",
             func.name
         )
     } else {
         format!(
-            "#[php_function]\npub fn {}({params}) -> {return_annotation} {{\n    \
+            "pub fn {}_async({params}) -> {return_annotation} {{\n    \
              {body}\n\
              }}",
             func.name
@@ -323,20 +357,10 @@ pub(crate) fn gen_function(
     }
 }
 
-/// Generate an async free function binding for PHP (block on runtime).
-pub(crate) fn gen_async_function(
-    func: &FunctionDef,
-    mapper: &PhpMapper,
-    opaque_types: &AHashSet<String>,
-    core_import: &str,
-) -> String {
-    let params = gen_php_function_params(&func.params, mapper, opaque_types);
-    let return_type = mapper.map_type(&func.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
-
+/// Shared body generation for async free functions (block_on variant).
+fn gen_async_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, core_import: &str) -> String {
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
-
-    let body = if can_delegate {
+    if can_delegate {
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
         let call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
         let core_call = format!("{core_import}::{}({call_args})", func.name);
@@ -365,22 +389,6 @@ pub(crate) fn gen_async_function(
             &func.return_type,
             &format!("{}_async", func.name),
             func.error_type.is_some(),
-        )
-    };
-
-    if params.is_empty() {
-        format!(
-            "#[php_function]\npub fn {}_async() -> {return_annotation} {{\n    \
-             {body}\n\
-             }}",
-            func.name
-        )
-    } else {
-        format!(
-            "#[php_function]\npub fn {}_async({params}) -> {return_annotation} {{\n    \
-             {body}\n\
-             }}",
-            func.name
         )
     }
 }
