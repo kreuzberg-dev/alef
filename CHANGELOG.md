@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Correct DTO style naming (`typed-dict` not `typeddict`), add `serde_rename_all` to config docs
 - Add Credo to Elixir scaffold, PHPStan + PHP-CS-Fixer to PHP scaffold
 - Drop unused `tokio` from Python scaffold, add e2e license, split assertions
+- Remove unused `serde` dep from Node.js and FFI scaffolds
 - PHP and Rustler miscellaneous fixes
 
 ## [0.3.2] - 2026-04-13
