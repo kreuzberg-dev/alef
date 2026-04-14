@@ -187,10 +187,10 @@ fn test_basic_generation() {
         "Should contain #[php_class] marker for classes"
     );
 
-    // Should contain #[php_function] for functions
+    // Functions are generated as static methods in a *Api class (avoids inventory crate issue on macOS)
     assert!(
-        lib_rs.content.contains("#[php_function]"),
-        "Should contain #[php_function] marker for functions"
+        lib_rs.content.contains("Api") && lib_rs.content.contains("#[php_impl]"),
+        "Should contain Api class with #[php_impl] for functions"
     );
 
     // Should contain ext_php_rs imports
@@ -517,10 +517,10 @@ fn test_error_types() {
         "Should reference error type or function with error"
     );
 
-    // Function with error_type should generate fallible signature
+    // Function with error_type should generate static method in Api class
     assert!(
-        content.contains("#[php_function]") && content.contains("risky_operation"),
-        "Should generate #[php_function] for function with error"
+        content.contains("risky_operation"),
+        "Should generate method for function with error"
     );
 }
 
@@ -591,10 +591,10 @@ fn test_async_function() {
         "Should contain async runtime support or _async function"
     );
 
-    // #[php_function] should still be present
+    // Functions are generated as static methods in Api class
     assert!(
-        content.contains("#[php_function]"),
-        "Should contain #[php_function] for async function"
+        content.contains("Api") && content.contains("#[php_impl]"),
+        "Should contain Api class with #[php_impl] for async function"
     );
 }
 
