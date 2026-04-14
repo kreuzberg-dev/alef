@@ -226,8 +226,26 @@ impl Backend for PhpBackend {
             // PHP facade class (e.g. `Kreuzcrawl\Kreuzcrawl`) that Composer autoloads.
             let php_api_class_name = format!("{facade_class_name}Api");
             let php_name_attr = format!("php(name = \"{}\\\\{}\")", php_namespace, php_api_class_name);
+            // Add a create_engine_from_json helper that takes a JSON string and
+            // deserializes via core serde (bypassing the binding type's serde which
+            // maps enums as String and loses nested object structure).
+            let has_config_param = api.functions.iter().any(|f| {
+                f.params
+                    .iter()
+                    .any(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
+            });
+            let json_helper = if has_config_param {
+                format!(
+                    "\n\n    pub fn create_engine_from_json(json: Option<String>) -> PhpResult<CrawlEngineHandle> {{\n        \
+                     let config: Option<{core_import}::CrawlConfig> = json.map(|s| serde_json::from_str(&s).map_err(|e| PhpException::default(e.to_string()))).transpose()?;\n        \
+                     let result = {core_import}::create_engine(config).map_err(|e| PhpException::default(e.to_string()))?;\n        \
+                     Ok(CrawlEngineHandle {{ inner: Arc::new(result) }})\n    }}"
+                )
+            } else {
+                String::new()
+            };
             let facade_struct = format!(
-                "#[php_class]\n#[{php_name_attr}]\npub struct {facade_class_name}Api;\n\n#[php_impl]\nimpl {facade_class_name}Api {{\n{methods_joined}\n}}"
+                "#[php_class]\n#[{php_name_attr}]\npub struct {facade_class_name}Api;\n\n#[php_impl]\nimpl {facade_class_name}Api {{\n{methods_joined}{json_helper}\n}}"
             );
             builder.add_item(&facade_struct);
         }
@@ -439,6 +457,13 @@ impl Backend for PhpBackend {
             ));
             content.push_str("    }\n\n");
         }
+
+        // Add createEngineFromJson helper for configs with complex fields
+        content.push_str(&format!(
+            "    /**\n     * Create engine from JSON config string (handles complex nested config).\n     *\n     * @param ?string $json\n     * @return CrawlEngineHandle\n     */\n    public static function createEngineFromJson(?string $json = null): CrawlEngineHandle\n    {{\n        return \\{namespace}\\{class_name}Api::createEngineFromJson($json);\n    }}\n\n",
+            namespace = namespace,
+            class_name = class_name,
+        ));
 
         content.push_str("}\n");
 

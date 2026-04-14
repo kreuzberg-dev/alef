@@ -348,18 +348,33 @@ fn build_args_and_setup(
                 setup_lines.push(format!("${} = {class_name}::{constructor_name}(null);", arg.name,));
             } else {
                 let name = &arg.name;
-                setup_lines.push(format!("${name}_config = CrawlConfig::default();"));
-                if let Some(obj) = config_value.as_object() {
-                    for (key, val) in obj {
-                        let php_val = json_to_php(val);
-                        setup_lines.push(format!("${name}_config->{key} = {php_val};"));
+                // Check if config has complex fields (objects/maps) that can't be
+                // set via PHP property assignment. If so, use createEngineFromJson
+                // which deserializes via core serde (handles auth, browser, proxy etc.).
+                let has_complex = config_value
+                    .as_object()
+                    .is_some_and(|obj| obj.values().any(|v| v.is_object() || v.is_array()));
+                if has_complex {
+                    let json_str = serde_json::to_string(config_value).unwrap_or_default();
+                    let escaped = json_str.replace('\'', "\\'");
+                    setup_lines.push(format!(
+                        "${} = {class_name}::createEngineFromJson('{escaped}');",
+                        arg.name,
+                    ));
+                } else {
+                    setup_lines.push(format!("${name}_config = CrawlConfig::default();"));
+                    if let Some(obj) = config_value.as_object() {
+                        for (key, val) in obj {
+                            let php_val = json_to_php(val);
+                            setup_lines.push(format!("${name}_config->{key} = {php_val};"));
+                        }
                     }
+                    setup_lines.push(format!(
+                        "${} = {class_name}::{constructor_name}(${name}_config);",
+                        arg.name,
+                        name = name,
+                    ));
                 }
-                setup_lines.push(format!(
-                    "${} = {class_name}::{constructor_name}(${name}_config);",
-                    arg.name,
-                    name = name,
-                ));
             }
             parts.push(format!("${}", arg.name));
             continue;
