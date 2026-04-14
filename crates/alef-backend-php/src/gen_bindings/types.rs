@@ -232,6 +232,10 @@ pub(crate) fn gen_struct_methods(
                 ret = rust_return_type,
             );
             impl_builder.add_method(&getter_method);
+
+            // Note: setters for Named/Vec/Map fields are not generated because
+            // ext-php-rs doesn't support &T: FromZval for #[php(setter)] parameters.
+            // Config types with complex fields should be constructed via fromJson().
         }
     }
 
