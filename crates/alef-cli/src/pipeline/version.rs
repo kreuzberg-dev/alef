@@ -165,20 +165,35 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
         }
     }
 
-    // C#: *.csproj
-    if let Ok(entries) = std::fs::read_dir("packages/csharp") {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "csproj") {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Some(new_content) =
-                        replace_version_pattern(&content, r#"<Version>[^<]*</Version>"#, &version)
-                    {
-                        std::fs::write(&path, &new_content)?;
-                        updated.push(path.to_string_lossy().to_string());
-                    }
-                }
+    // C#: *.csproj (recursive under packages/csharp)
+    for entry in glob::glob("packages/csharp/**/*.csproj")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        if let Ok(content) = std::fs::read_to_string(&entry) {
+            if let Some(new_content) = replace_version_pattern(&content, r#"<Version>[^<]*</Version>"#, &version) {
+                std::fs::write(&entry, &new_content)?;
+                updated.push(entry.to_string_lossy().to_string());
             }
+        }
+    }
+
+    // WASM: package.json
+    for wasm_pkg in glob::glob("crates/*-wasm/package.json").into_iter().flatten().flatten() {
+        if let Ok(content) = std::fs::read_to_string(&wasm_pkg) {
+            if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
+                std::fs::write(&wasm_pkg, &new_content)?;
+                updated.push(wasm_pkg.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // Root composer.json (if present)
+    if let Ok(content) = std::fs::read_to_string("composer.json") {
+        if let Some(new_content) = replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version) {
+            std::fs::write("composer.json", &new_content)?;
+            updated.push("composer.json".to_string());
         }
     }
 
@@ -285,11 +300,15 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
             .output
             .ffi
             .as_ref()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .map(|s| s.replace("src", "").trim_end_matches('/').to_string())
+            .and_then(|p| {
+                // Output path is like "crates/html-to-markdown-ffi/src/" — get the crate dir name
+                let p = p.to_string_lossy();
+                let trimmed = p.trim_end_matches('/');
+                let trimmed = trimmed.strip_suffix("/src").unwrap_or(trimmed);
+                trimmed.rsplit('/').next().map(|s| s.to_string())
+            })
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("{}-ffi", config.crate_config.name));
+            .unwrap_or_else(|| format!("{}-ffi", config.core_crate_dir()));
         info!("Rebuilding FFI ({ffi_crate}) to refresh C headers...");
         let _ = run_command(&format!("cargo build -p {ffi_crate}"));
     }
