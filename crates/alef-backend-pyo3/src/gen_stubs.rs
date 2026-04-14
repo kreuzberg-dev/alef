@@ -17,6 +17,53 @@ fn python_safe_name(name: &str) -> String {
     }
 }
 
+/// Check if a parameter name shadows a Python builtin (triggers ruff A002).
+fn is_python_builtin_name(name: &str) -> bool {
+    const BUILTINS: &[&str] = &[
+        "id",
+        "type",
+        "input",
+        "hash",
+        "format",
+        "dir",
+        "help",
+        "list",
+        "map",
+        "filter",
+        "range",
+        "set",
+        "dict",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "bytes",
+        "tuple",
+        "len",
+        "max",
+        "min",
+        "sum",
+        "abs",
+        "all",
+        "any",
+        "print",
+        "open",
+        "next",
+        "iter",
+        "vars",
+        "zip",
+        "object",
+        "property",
+        "super",
+        "staticmethod",
+        "classmethod",
+        "compile",
+        "exec",
+        "eval",
+    ];
+    BUILTINS.contains(&name)
+}
+
 /// For constructor parameters, use the enum type name for enum fields.
 /// The enum stub has `__init__(self, value: int | str)` so callers can pass
 /// either a raw string/int or an enum instance.
@@ -177,14 +224,27 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
         format!("{}: {} = None", f.name, param_type)
     }));
 
-    let single_line = format!("    def __init__(self, {}) -> None: ...", params.join(", "));
+    // Add noqa comments for parameters that shadow Python builtins
+    let noqa_params: Vec<String> = params
+        .iter()
+        .map(|p| {
+            let name = p.split(':').next().unwrap_or("").trim();
+            if is_python_builtin_name(name) {
+                format!("{}  # noqa: A002", p)
+            } else {
+                p.clone()
+            }
+        })
+        .collect();
+
+    let single_line = format!("    def __init__(self, {}) -> None: ...", noqa_params.join(", "));
     if single_line.len() <= 100 {
         single_line
     } else {
         // Wrap parameters across multiple lines to stay within 100 chars
         let mut wrapped = String::from("    def __init__(\n");
         wrapped.push_str("        self,\n");
-        for param in &params {
+        for param in &noqa_params {
             wrapped.push_str(&format!("        {},\n", param));
         }
         wrapped.push_str("    ) -> None: ...");
