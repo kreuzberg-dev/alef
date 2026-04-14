@@ -91,7 +91,11 @@ pub(crate) fn gen_php_struct(
     let php_name_attr: String;
     let struct_attrs_override: Vec<&str>;
     let effective_struct_attrs: &[&str] = if let Some(ns) = php_namespace {
-        php_name_attr = format!("php(name = \"{}\\\\{}\")", ns, typ.name);
+        // In the generated Rust source file, backslashes in string literals must be escaped.
+        // The namespace string contains literal '\' separators (e.g. "Html\To\Markdown\Rs"),
+        // so we double them so the generated code compiles: "Html\\To\\Markdown\\Rs\\ClassName".
+        let ns_escaped = ns.replace('\\', "\\\\");
+        php_name_attr = format!("php(name = \"{}\\\\{}\")", ns_escaped, typ.name);
         struct_attrs_override = vec!["php_class", php_name_attr.as_str()];
         &struct_attrs_override
     } else {

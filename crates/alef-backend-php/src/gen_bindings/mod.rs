@@ -152,7 +152,9 @@ impl Backend for PhpBackend {
             if typ.is_opaque {
                 // Generate the opaque struct with separate #[php_class] and
                 // #[php(name = "Ns\\Type")] attributes (ext-php-rs 0.15+ syntax).
-                let php_name_attr = format!("php(name = \"{}\\\\{}\")", php_namespace, typ.name);
+                // Escape '\' in the namespace so the generated Rust string literal is valid.
+                let ns_escaped = php_namespace.replace('\\', "\\\\");
+                let php_name_attr = format!("php(name = \"{}\\\\{}\")", ns_escaped, typ.name);
                 let opaque_attr_arr = ["php_class", php_name_attr.as_str()];
                 let opaque_cfg = RustBindingConfig {
                     struct_attrs: &opaque_attr_arr,
@@ -225,7 +227,9 @@ impl Backend for PhpBackend {
             // The PHP-visible class name gets an "Api" suffix to avoid collision with the
             // PHP facade class (e.g. `Kreuzcrawl\Kreuzcrawl`) that Composer autoloads.
             let php_api_class_name = format!("{facade_class_name}Api");
-            let php_name_attr = format!("php(name = \"{}\\\\{}\")", php_namespace, php_api_class_name);
+            // Escape '\' so the generated Rust string literal is valid (e.g. "Ns\\ClassName").
+            let ns_escaped_facade = php_namespace.replace('\\', "\\\\");
+            let php_name_attr = format!("php(name = \"{}\\\\{}\")", ns_escaped_facade, php_api_class_name);
             // Add a create_engine_from_json helper only when the API uses the opaque-handle
             // pattern (i.e. there are opaque types like EngineHandle that can't be constructed
             // directly from PHP). The helper deserializes config via core serde, bypassing
