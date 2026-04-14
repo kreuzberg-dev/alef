@@ -226,21 +226,28 @@ impl Backend for PhpBackend {
             // PHP facade class (e.g. `Kreuzcrawl\Kreuzcrawl`) that Composer autoloads.
             let php_api_class_name = format!("{facade_class_name}Api");
             let php_name_attr = format!("php(name = \"{}\\\\{}\")", php_namespace, php_api_class_name);
-            // Add a create_engine_from_json helper that takes a JSON string and
-            // deserializes via core serde (bypassing the binding type's serde which
-            // maps enums as String and loses nested object structure).
-            let has_config_param = api.functions.iter().any(|f| {
-                f.params
-                    .iter()
-                    .any(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
-            });
-            let json_helper = if has_config_param {
-                format!(
-                    "\n\n    pub fn create_engine_from_json(json: Option<String>) -> PhpResult<CrawlEngineHandle> {{\n        \
-                     let config: Option<{core_import}::CrawlConfig> = json.map(|s| serde_json::from_str(&s).map_err(|e| PhpException::default(e.to_string()))).transpose()?;\n        \
-                     let result = {core_import}::create_engine(config).map_err(|e| PhpException::default(e.to_string()))?;\n        \
-                     Ok(CrawlEngineHandle {{ inner: Arc::new(result) }})\n    }}"
-                )
+            // Add a create_engine_from_json helper only when the API uses the opaque-handle
+            // pattern (i.e. there are opaque types like EngineHandle that can't be constructed
+            // directly from PHP). The helper deserializes config via core serde, bypassing
+            // the binding serde which maps enums as String and loses nested object structure.
+            // For APIs that only have plain struct params (e.g. html-to-markdown), no helper
+            // is needed and generating one would reference non-existent core types.
+            let json_helper = if !opaque_types.is_empty() {
+                let has_config_param = api.functions.iter().any(|f| {
+                    f.params
+                        .iter()
+                        .any(|p| matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
+                });
+                if has_config_param {
+                    format!(
+                        "\n\n    pub fn create_engine_from_json(json: Option<String>) -> PhpResult<CrawlEngineHandle> {{\n        \
+                         let config: Option<{core_import}::CrawlConfig> = json.map(|s| serde_json::from_str(&s).map_err(|e| PhpException::default(e.to_string()))).transpose()?;\n        \
+                         let result = {core_import}::create_engine(config).map_err(|e| PhpException::default(e.to_string()))?;\n        \
+                         Ok(CrawlEngineHandle {{ inner: Arc::new(result) }})\n    }}"
+                    )
+                } else {
+                    String::new()
+                }
             } else {
                 String::new()
             };
@@ -458,12 +465,17 @@ impl Backend for PhpBackend {
             content.push_str("    }\n\n");
         }
 
-        // Add createEngineFromJson helper for configs with complex fields
-        content.push_str(&format!(
-            "    /**\n     * Create engine from JSON config string (handles complex nested config).\n     *\n     * @param ?string $json\n     * @return CrawlEngineHandle\n     */\n    public static function createEngineFromJson(?string $json = null): CrawlEngineHandle\n    {{\n        return \\{namespace}\\{class_name}Api::createEngineFromJson($json);\n    }}\n\n",
-            namespace = namespace,
-            class_name = class_name,
-        ));
+        // Add createEngineFromJson helper only for APIs that use the opaque-handle pattern
+        // (i.e. have opaque types like EngineHandle). For plain struct APIs (e.g. html-to-markdown)
+        // this helper would reference non-existent types and must not be generated.
+        let has_opaque = api.types.iter().any(|t| t.is_opaque);
+        if has_opaque {
+            content.push_str(&format!(
+                "    /**\n     * Create engine from JSON config string (handles complex nested config).\n     *\n     * @param ?string $json\n     * @return CrawlEngineHandle\n     */\n    public static function createEngineFromJson(?string $json = null): CrawlEngineHandle\n    {{\n        return \\{namespace}\\{class_name}Api::createEngineFromJson($json);\n    }}\n\n",
+                namespace = namespace,
+                class_name = class_name,
+            ));
+        }
 
         content.push_str("}\n");
 
@@ -671,8 +683,13 @@ impl Backend for PhpBackend {
                     return_type
                 ));
             }
-            // Add createEngineFromJson stub
-            content.push_str("    public static function createEngineFromJson(?string $json = null): \\Kreuzcrawl\\CrawlEngineHandle {}\n");
+            // Add createEngineFromJson stub only for APIs with the opaque-handle pattern.
+            // For plain struct APIs (e.g. html-to-markdown), this would reference types that
+            // don't exist (CrawlEngineHandle) and must not be generated.
+            let has_opaque_types = api.types.iter().any(|t| t.is_opaque);
+            if has_opaque_types {
+                content.push_str("    public static function createEngineFromJson(?string $json = null): \\Kreuzcrawl\\CrawlEngineHandle {}\n");
+            }
             content.push_str("}\n\n");
         }
 
