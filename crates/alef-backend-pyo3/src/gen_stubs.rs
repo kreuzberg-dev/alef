@@ -117,7 +117,11 @@ fn gen_type_stub(typ: &TypeDef, api: &ApiSurface) -> String {
     // Add field type annotations
     for field in &typ.fields {
         let type_str = python_type(&field.ty);
-        let field_type = if field.optional && !type_str.contains("| None") {
+        // Duration fields on has_default types are Option<u64> in PyO3, so annotate as int | None
+        let is_optional_duration = typ.has_default && matches!(field.ty, TypeRef::Duration) && !field.optional;
+        let field_type = if is_optional_duration && !type_str.contains("| None") {
+            format!("{} | None", type_str)
+        } else if field.optional && !type_str.contains("| None") {
             format!("{} | None", type_str)
         } else {
             type_str
@@ -147,8 +151,13 @@ fn gen_type_stub(typ: &TypeDef, api: &ApiSurface) -> String {
 
 /// Generate __init__ signature stub for a struct.
 fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
-    // Partition fields into required (non-optional) and optional
-    let (required, optional): (Vec<_>, Vec<_>) = typ.fields.iter().partition(|f| !f.optional);
+    // Partition fields into required (non-optional) and optional.
+    // Duration fields on has_default types are Option<u64> in PyO3 and must go in the optional
+    // partition (the binding accepts `None` and applies its own default).
+    let (required, optional): (Vec<_>, Vec<_>) = typ.fields.iter().partition(|f| {
+        let is_optional_duration = typ.has_default && matches!(f.ty, TypeRef::Duration) && !f.optional;
+        !f.optional && !is_optional_duration
+    });
 
     // Generate required params first, then optional params
     // For constructor params, use str instead of enum types (PyO3 accepts any string)

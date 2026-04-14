@@ -552,7 +552,7 @@ fn gen_main_class(api: &ApiSurface, _config: &AlefConfig, package: &str, class_n
     }
 
     // Add helper methods only if they are referenced in the body
-    gen_helper_methods(&mut body);
+    gen_helper_methods(&mut body, prefix, class_name);
 
     writeln!(body, "}}").ok();
 
@@ -716,31 +716,7 @@ fn gen_sync_function_method(
         .ok();
         emit_ffi_ptr_cleanup(out);
         writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
-        writeln!(
-            out,
-            "                int errCode = (int) NativeLib.{}_LAST_ERROR_CODE.invoke();",
-            prefix.to_uppercase()
-        )
-        .ok();
-        writeln!(out, "                if (errCode != 0) {{").ok();
-        writeln!(
-            out,
-            "                    var ctxPtr = (MemorySegment) NativeLib.{}_LAST_ERROR_CONTEXT.invoke();",
-            prefix.to_uppercase()
-        )
-        .ok();
-        writeln!(
-            out,
-            "                    String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-        )
-        .ok();
-        writeln!(
-            out,
-            "                    throw new {}Exception(errCode, msg);",
-            class_name
-        )
-        .ok();
-        writeln!(out, "                }}").ok();
+        writeln!(out, "                checkLastError();").ok();
         writeln!(out, "                return null;").ok();
         writeln!(out, "            }}").ok();
         writeln!(
@@ -775,31 +751,7 @@ fn gen_sync_function_method(
         .ok();
         emit_ffi_ptr_cleanup(out);
         writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
-        writeln!(
-            out,
-            "                int errCode = (int) NativeLib.{}_LAST_ERROR_CODE.invoke();",
-            prefix.to_uppercase()
-        )
-        .ok();
-        writeln!(out, "                if (errCode != 0) {{").ok();
-        writeln!(
-            out,
-            "                    var ctxPtr = (MemorySegment) NativeLib.{}_LAST_ERROR_CONTEXT.invoke();",
-            prefix.to_uppercase()
-        )
-        .ok();
-        writeln!(
-            out,
-            "                    String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-        )
-        .ok();
-        writeln!(
-            out,
-            "                    throw new {}Exception(errCode, msg);",
-            class_name
-        )
-        .ok();
-        writeln!(out, "                }}").ok();
+        writeln!(out, "                checkLastError();").ok();
         writeln!(out, "                return null;").ok();
         writeln!(out, "            }}").ok();
 
@@ -824,31 +776,7 @@ fn gen_sync_function_method(
             .ok();
             writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
             writeln!(out, "            if (jsonPtr.equals(MemorySegment.NULL)) {{").ok();
-            writeln!(
-                out,
-                "                int errCode = (int) NativeLib.{}_LAST_ERROR_CODE.invoke();",
-                prefix.to_uppercase()
-            )
-            .ok();
-            writeln!(out, "                if (errCode != 0) {{").ok();
-            writeln!(
-                out,
-                "                    var ctxPtr = (MemorySegment) NativeLib.{}_LAST_ERROR_CONTEXT.invoke();",
-                prefix.to_uppercase()
-            )
-            .ok();
-            writeln!(
-                out,
-                "                    String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-            )
-            .ok();
-            writeln!(
-                out,
-                "                    throw new {}Exception(errCode, msg);",
-                class_name
-            )
-            .ok();
-            writeln!(out, "                }}").ok();
+            writeln!(out, "                checkLastError();").ok();
             writeln!(out, "                return null;").ok();
             writeln!(out, "            }}").ok();
             writeln!(
@@ -1756,18 +1684,52 @@ fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
     }
 }
 
-fn gen_helper_methods(out: &mut String) {
+fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &str) {
     // Only emit helper methods that are actually called in the generated body.
+    let needs_check_last_error = out.contains("checkLastError()");
     let needs_read_cstring = out.contains("readCString(");
     let needs_read_bytes = out.contains("readBytes(");
     let needs_create_object_mapper = out.contains("createObjectMapper()");
 
-    if !needs_read_cstring && !needs_read_bytes && !needs_create_object_mapper {
+    if !needs_check_last_error && !needs_read_cstring && !needs_read_bytes && !needs_create_object_mapper {
         return;
     }
 
     writeln!(out, "    // Helper methods for FFI marshalling").ok();
     writeln!(out).ok();
+
+    if needs_check_last_error {
+        // Reads the last FFI error code and, if non-zero, reads the error message and throws.
+        // Called immediately after a null-pointer return from an FFI call.
+        writeln!(
+            out,
+            "    private static void checkLastError() throws {}Exception {{",
+            class_name
+        )
+        .ok();
+        writeln!(
+            out,
+            "        int errCode = (int) NativeLib.{}_LAST_ERROR_CODE.invoke();",
+            prefix.to_uppercase()
+        )
+        .ok();
+        writeln!(out, "        if (errCode != 0) {{").ok();
+        writeln!(
+            out,
+            "            var ctxPtr = (MemorySegment) NativeLib.{}_LAST_ERROR_CONTEXT.invoke();",
+            prefix.to_uppercase()
+        )
+        .ok();
+        writeln!(
+            out,
+            "            String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        )
+        .ok();
+        writeln!(out, "            throw new {}Exception(errCode, msg);", class_name).ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
+    }
 
     if needs_create_object_mapper {
         // Emit a configured ObjectMapper factory:

@@ -543,7 +543,10 @@ fn gen_struct(typ: &TypeDef, mapper: &WasmMapper) -> String {
         if field.cfg.is_some() {
             continue;
         }
-        let field_type = if field.optional {
+        // On has_default types, non-optional Duration fields are stored as Option<u64> so the
+        // wasm constructor can omit them and the From conversion falls back to the core default.
+        let force_optional = typ.has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
+        let field_type = if field.optional || force_optional {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
             mapper.map_type(&field.ty)
@@ -578,8 +581,8 @@ fn gen_struct_methods(
     let enum_names: AHashSet<String> = api_enums.iter().map(|e| e.name.clone()).collect();
 
     for field in &typ.fields {
-        impl_builder.add_method(&gen_getter(field, mapper, &enum_names));
-        impl_builder.add_method(&gen_setter(field, mapper));
+        impl_builder.add_method(&gen_getter(field, mapper, &enum_names, typ.has_default));
+        impl_builder.add_method(&gen_setter(field, mapper, typ.has_default));
     }
 
     if !exclude_types.contains(&typ.name) {
@@ -595,9 +598,11 @@ fn gen_struct_methods(
 fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper) -> String {
     let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
 
-    // For types with has_default, generate optional kwargs-style constructor
+    // For types with has_default, generate optional kwargs-style constructor.
+    // Pass option_duration_on_defaults=true so Duration fields are Option<u64> params,
+    // matching the Option<u64> field type emitted by gen_struct for has_default types.
     let (param_list, _, assignments) = if typ.has_default {
-        alef_codegen::shared::config_constructor_parts(&typ.fields, &map_fn)
+        alef_codegen::shared::config_constructor_parts_with_options(&typ.fields, &map_fn, true)
     } else {
         constructor_parts(&typ.fields, &map_fn)
     };
@@ -617,8 +622,10 @@ fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper) -> String {
 }
 
 /// Generate a getter method for a field.
-fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<String>) -> String {
-    let field_type = if field.optional {
+fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<String>, has_default: bool) -> String {
+    // On has_default types, non-optional Duration fields are stored as Option<u64>.
+    let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
+    let field_type = if field.optional || force_optional {
         mapper.optional(&mapper.map_type(&field.ty))
     } else {
         mapper.map_type(&field.ty)
@@ -652,8 +659,10 @@ fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<Strin
 }
 
 /// Generate a setter method for a field.
-fn gen_setter(field: &FieldDef, mapper: &WasmMapper) -> String {
-    let field_type = if field.optional {
+fn gen_setter(field: &FieldDef, mapper: &WasmMapper, has_default: bool) -> String {
+    // On has_default types, non-optional Duration fields are stored as Option<u64>.
+    let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
+    let field_type = if field.optional || force_optional {
         mapper.optional(&mapper.map_type(&field.ty))
     } else {
         mapper.map_type(&field.ty)
