@@ -658,11 +658,11 @@ impl Backend for PhpBackend {
                         }
                     })
                     .collect();
-                // Async functions use an `_async` suffix.
+                // ext-php-rs auto-converts Rust snake_case to PHP camelCase.
                 let stub_method_name = if func.is_async {
-                    format!("{}_async", func.name)
+                    format!("{}_async", func.name).to_lower_camel_case()
                 } else {
-                    func.name.clone()
+                    func.name.to_lower_camel_case()
                 };
                 content.push_str(&format!(
                     "    public static function {}({}): {} {{ }}\n",
@@ -671,6 +671,8 @@ impl Backend for PhpBackend {
                     return_type
                 ));
             }
+            // Add createEngineFromJson stub
+            content.push_str("    public static function createEngineFromJson(?string $json = null): \\Kreuzcrawl\\CrawlEngineHandle {}\n");
             content.push_str("}\n\n");
         }
 
