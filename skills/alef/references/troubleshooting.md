@@ -256,7 +256,7 @@ repos:
 
 ```toml
 [dto]
-python = "dataclass"    # or "typeddict", "pydantic", "msgspec"
+python = "dataclass"    # or "typed-dict", "pydantic", "msgspec"
 node = "interface"      # or "zod"
 ruby = "struct"         # or "dry-struct", "data"
 php = "readonly-class"  # or "array"

@@ -115,7 +115,7 @@ node = "interface"
 
 | Language | Framework | DTO Styles |
 |----------|-----------|------------|
-| Python | PyO3 | `dataclass`, `typeddict`, `pydantic`, `msgspec` |
+| Python | PyO3 | `dataclass`, `typed-dict`, `pydantic`, `msgspec` |
 | TypeScript/Node.js | NAPI-RS | `interface`, `zod` |
 | WebAssembly | wasm-bindgen | -- |
 | Ruby | Magnus | `struct`, `dry-struct`, `data` |
@@ -185,7 +185,7 @@ alef cache clear    # Force full regeneration next run
 
 1. **Missing `ffi` language**: Go, Java, and C# require the C FFI layer. Add `ffi` to `languages` or it's implicitly included.
 2. **Stale bindings after Rust changes**: Run `alef generate` or `alef all` after modifying your Rust source files.
-3. **Wrong DTO style**: Check `[dto]` section. Python `typeddict` is read-only, `dataclass` is mutable. Choose based on usage.
+3. **Wrong DTO style**: Check `[dto]` section. Python `typed-dict` is read-only, `dataclass` is mutable. Choose based on usage.
 4. **Types not appearing**: Check `[exclude]`/`[include]` filters. Use `alef extract -o /dev/stdout | jq` to inspect the IR.
 5. **Version mismatch**: Always use `alef sync-versions` instead of manually editing package manifests.
 6. **Opaque vs transparent types**: Types with private fields or complex generics need `[opaque_types]` config.
