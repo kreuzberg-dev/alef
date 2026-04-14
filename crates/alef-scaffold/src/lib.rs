@@ -233,6 +233,7 @@ crate-type = ["cdylib"]
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
 pyo3 = {{ version = "0.28", features = ["extension-module"] }}
+pyo3-async-runtimes = {{ version = "0.28", features = ["tokio-runtime"] }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 "#,
