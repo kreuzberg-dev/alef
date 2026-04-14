@@ -469,18 +469,6 @@ impl Backend for PhpBackend {
             content.push_str("    }\n\n");
         }
 
-        // Add createEngineFromJson helper only for APIs that use the opaque-handle pattern
-        // (i.e. have opaque types like EngineHandle). For plain struct APIs (e.g. html-to-markdown)
-        // this helper would reference non-existent types and must not be generated.
-        let has_opaque = api.types.iter().any(|t| t.is_opaque);
-        if has_opaque {
-            content.push_str(&format!(
-                "    /**\n     * Create engine from JSON config string (handles complex nested config).\n     *\n     * @param ?string $json\n     * @return CrawlEngineHandle\n     */\n    public static function createEngineFromJson(?string $json = null): CrawlEngineHandle\n    {{\n        return \\{namespace}\\{class_name}Api::createEngineFromJson($json);\n    }}\n\n",
-                namespace = namespace,
-                class_name = class_name,
-            ));
-        }
-
         content.push_str("}\n");
 
         // Use PHP stubs output path if configured, otherwise fall back to packages/php/src/.
@@ -686,13 +674,6 @@ impl Backend for PhpBackend {
                     params.join(", "),
                     return_type
                 ));
-            }
-            // Add createEngineFromJson stub only for APIs with the opaque-handle pattern.
-            // For plain struct APIs (e.g. html-to-markdown), this would reference types that
-            // don't exist (CrawlEngineHandle) and must not be generated.
-            let has_opaque_types = api.types.iter().any(|t| t.is_opaque);
-            if has_opaque_types {
-                content.push_str("    public static function createEngineFromJson(?string $json = null): \\Kreuzcrawl\\CrawlEngineHandle {}\n");
             }
             content.push_str("}\n\n");
         }

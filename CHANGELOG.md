@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - PHP backend: escape backslashes in namespace for generated `#[php(name = "...")]` attributes so Rust string literals compile correctly
+- PHP backend: remove hardcoded `createEngineFromJson` helper from facade and stubs (was kreuzcrawl-specific, incorrectly triggered by any opaque type)
 
 ## [0.3.3] - 2026-04-14
 
