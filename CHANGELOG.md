@@ -13,9 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `alef verify` now checks version consistency across all package manifests
 - `alef-sync-versions` pre-commit hook for automatic version propagation on Cargo.toml changes
 - PEP 440 pre-release conversion for Python (`0.1.0-rc.1` → `0.1.0rc1`)
-
-### Added
-
 - PHP composer.json scaffold: `scripts` section with `phpstan`, `format`, `format:check`, `test`, `lint`, and `lint:fix` commands
 
 ### Fixed

@@ -39,6 +39,7 @@ fn make_config() -> AlefConfig {
         output: Default::default(),
         python: Some(PythonConfig {
             module_name: Some("_test_lib".to_string()),
+            pip_name: None,
             async_runtime: None,
             stubs: None,
             features: None,

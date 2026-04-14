@@ -5,6 +5,124 @@ use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
+/// Fields available via `[workspace.package]` inheritance detected from the root `Cargo.toml`.
+#[derive(Debug, Default)]
+#[allow(dead_code)]
+struct WorkspacePackageInheritance {
+    /// Whether `[workspace]` exists at all (i.e. this is a Cargo workspace).
+    pub is_workspace: bool,
+    /// `version` is declared in `[workspace.package]`.
+    pub version: bool,
+    /// `readme` is declared in `[workspace.package]`.
+    pub readme: bool,
+    /// `keywords` is declared in `[workspace.package]`.
+    pub keywords: bool,
+    /// `categories` is declared in `[workspace.package]`.
+    pub categories: bool,
+    /// `license` is declared in `[workspace.package]`.
+    pub license: bool,
+}
+
+/// Detect which `[workspace.package]` fields are available in the root `Cargo.toml`.
+///
+/// Reads `Cargo.toml` from the current working directory. Returns a default
+/// (all false) struct if the file is absent or cannot be parsed.
+fn detect_workspace_inheritance() -> WorkspacePackageInheritance {
+    let Ok(contents) = std::fs::read_to_string("Cargo.toml") else {
+        return WorkspacePackageInheritance::default();
+    };
+    let Ok(doc) = contents.parse::<toml::Value>() else {
+        return WorkspacePackageInheritance::default();
+    };
+    let Some(workspace) = doc.get("workspace") else {
+        return WorkspacePackageInheritance::default();
+    };
+    let pkg = workspace.get("package");
+    WorkspacePackageInheritance {
+        is_workspace: true,
+        version: pkg.map(|p| p.get("version").is_some()).unwrap_or(false),
+        readme: pkg.map(|p| p.get("readme").is_some()).unwrap_or(false),
+        keywords: pkg.map(|p| p.get("keywords").is_some()).unwrap_or(false),
+        categories: pkg.map(|p| p.get("categories").is_some()).unwrap_or(false),
+        license: pkg.map(|p| p.get("license").is_some()).unwrap_or(false),
+    }
+}
+
+/// Build the `[package]` header fields for a binding crate Cargo.toml.
+///
+/// Uses `*.workspace = true` for any field that is available in `[workspace.package]`,
+/// falling back to explicit values otherwise.
+fn cargo_package_header(
+    name: &str,
+    version: &str,
+    edition: &str,
+    license: &str,
+    ws: &WorkspacePackageInheritance,
+) -> String {
+    let version_line = if ws.version {
+        "version.workspace = true".to_string()
+    } else {
+        format!("version = \"{version}\"")
+    };
+    let edition_line = format!("edition = \"{edition}\"");
+    let license_line = if ws.license {
+        "license.workspace = true".to_string()
+    } else {
+        format!("license = \"{license}\"")
+    };
+    let readme_line = if ws.readme {
+        Some("readme.workspace = true".to_string())
+    } else {
+        None
+    };
+    let keywords_line = if ws.keywords {
+        Some("keywords.workspace = true".to_string())
+    } else {
+        None
+    };
+    let categories_line = if ws.categories {
+        Some("categories.workspace = true".to_string())
+    } else {
+        None
+    };
+
+    let mut lines = vec![
+        "[package]".to_string(),
+        format!("name = \"{name}\""),
+        version_line,
+        edition_line,
+        license_line,
+    ];
+    if let Some(l) = readme_line {
+        lines.push(l);
+    }
+    if let Some(l) = keywords_line {
+        lines.push(l);
+    }
+    if let Some(l) = categories_line {
+        lines.push(l);
+    }
+    lines.join("\n")
+}
+
+/// Convert a semver pre-release version to PEP 440 format for Python/PyPI.
+/// e.g., "0.1.0-rc.1" -> "0.1.0rc1", "0.1.0-alpha.2" -> "0.1.0a2", "0.1.0-beta.3" -> "0.1.0b3"
+/// Non-pre-release versions are returned unchanged.
+fn to_pep440(version: &str) -> String {
+    if let Some((base, pre)) = version.split_once('-') {
+        let pep = pre
+            .replace("alpha.", "a")
+            .replace("alpha", "a")
+            .replace("beta.", "b")
+            .replace("beta", "b")
+            .replace("rc.", "rc")
+            .replace('.', "");
+        format!("{base}{pep}")
+    } else {
+        version.to_string()
+    }
+}
+
 /// Format the features clause for the core crate dependency in generated Cargo.toml files.
 ///
 /// Checks for per-language feature overrides first, then falls back to `[crate] features`.
@@ -102,13 +220,11 @@ fn scaffold_python_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Resul
     let version = &api.version;
     let module_name = config.python_module_name();
     let core_crate_dir = config.core_crate_dir();
+    let ws = detect_workspace_inheritance();
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-py"), version, "2024", &meta.license, &ws);
 
     let content = format!(
-        r#"[package]
-name = "{core_crate_dir}-py"
-version = "{version}"
-edition = "2024"
-license = "{license}"
+        r#"{pkg_header}
 
 [lib]
 name = "{module_name}"
@@ -120,11 +236,10 @@ pyo3 = {{ version = "0.28", features = ["extension-module"] }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 "#,
-        core_crate_dir = core_crate_dir,
-        version = version,
-        license = meta.license,
+        pkg_header = pkg_header,
         module_name = module_name,
         crate_name = &config.crate_config.name,
+        core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Python),
     );
 
@@ -137,10 +252,11 @@ serde_json = "1"
 
 fn scaffold_python(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
-    let name = &config.crate_config.name;
-    let version = &api.version;
+    let pip_name = config.python_pip_name();
+    let version = to_pep440(&api.version);
     let module_name = config.python_module_name();
     let core_crate_dir = config.core_crate_dir();
+    let python_package = pip_name.replace('-', "_");
 
     let authors_toml = if meta.authors.is_empty() {
         String::new()
@@ -172,20 +288,29 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "{name}"
+name = "{pip_name}"
 version = "{version}"
 description = "{description}"
 license = "{license}"
 requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
 {authors}{keywords}{homepage}[project.urls]
 repository = "{repository}"
 
 [tool.maturin]
-module-name = "{name}.{module_name}"
+module-name = "{python_package}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 features = ["pyo3/extension-module"]
+python-packages = ["{python_package}"]
 "#,
-        name = name,
+        pip_name = pip_name,
         version = version,
         description = meta.description,
         license = meta.license,
@@ -193,6 +318,7 @@ features = ["pyo3/extension-module"]
         keywords = keywords_toml,
         homepage = homepage_toml,
         repository = meta.repository,
+        python_package = python_package,
         module_name = module_name,
         crate_dir = core_crate_dir,
     );
@@ -208,13 +334,11 @@ fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
+    let ws = detect_workspace_inheritance();
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-node"), version, "2024", &meta.license, &ws);
 
     let content = format!(
-        r#"[package]
-name = "{core_crate_dir}-node"
-version = "{version}"
-edition = "2024"
-license = "{license}"
+        r#"{pkg_header}
 
 [lib]
 crate-type = ["cdylib"]
@@ -227,10 +351,9 @@ napi-derive = "3"
 [build-dependencies]
 napi-build = "2"
 "#,
-        core_crate_dir = core_crate_dir,
-        version = version,
-        license = meta.license,
+        pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
+        core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Node),
     );
 
@@ -321,13 +444,11 @@ fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
+    let ws = detect_workspace_inheritance();
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-rb"), version, "2024", &meta.license, &ws);
 
     let content = format!(
-        r#"[package]
-name = "{core_crate_dir}-rb"
-version = "{version}"
-edition = "2024"
-license = "{license}"
+        r#"{pkg_header}
 
 [lib]
 crate-type = ["cdylib"]
@@ -340,10 +461,9 @@ serde_json = "1"
 serde_magnus = "0.11"
 tokio = {{ version = "1", features = ["full"] }}
 "#,
-        core_crate_dir = core_crate_dir,
-        version = version,
-        license = meta.license,
+        pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
+        core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ruby),
     );
 
@@ -366,21 +486,23 @@ fn scaffold_ruby(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     let authors_ruby = if meta.authors.is_empty() {
         "[]".to_string()
     } else {
-        let entries: Vec<String> = meta.authors.iter().map(|a| format!("\"{}\"", a)).collect();
+        let entries: Vec<String> = meta.authors.iter().map(|a| format!("'{}'", a)).collect();
         format!("[{}]", entries.join(", "))
     };
 
     let metadata_ruby = if meta.keywords.is_empty() {
         String::new()
     } else {
-        let entries: Vec<String> = meta.keywords.iter().map(|k| format!("\"{}\"", k)).collect();
-        format!("  spec.metadata[\"keywords\"] = [{}].join(\",\")\n", entries.join(", "))
+        let entries: Vec<String> = meta.keywords.iter().map(|k| format!("'{}'", k)).collect();
+        format!("  spec.metadata['keywords'] = [{}].join(',')\n", entries.join(", "))
     };
 
     let content = format!(
-        r#"Gem::Specification.new do |spec|
-  spec.name          = "{gem_name}"
-  spec.version       = "{version}"
+        r#"# frozen_string_literal: true
+
+Gem::Specification.new do |spec|
+  spec.name = '{gem_name}'
+  spec.version = '{version}'
   spec.authors       = {authors}
   spec.summary       = "{description}"
   spec.description   = "{description}"
@@ -555,13 +677,11 @@ fn scaffold_php_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<V
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
+    let ws = detect_workspace_inheritance();
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-php"), version, "2024", &meta.license, &ws);
 
     let content = format!(
-        r#"[package]
-name = "{core_crate_dir}-php"
-version = "{version}"
-edition = "2024"
-license = "{license}"
+        r#"{pkg_header}
 
 [lib]
 crate-type = ["cdylib"]
@@ -572,10 +692,9 @@ ext-php-rs = "0.15"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 "#,
-        core_crate_dir = core_crate_dir,
-        version = version,
-        license = meta.license,
+        pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
+        core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Php),
     );
 
@@ -590,6 +709,8 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     let meta = scaffold_meta(config);
     let ext_name = config.php_extension_name();
     let name = &config.crate_config.name;
+    // PSR-4 namespace derived from the extension name (e.g. html_to_markdown_rs -> Html\To\Markdown\Rs).
+    let php_namespace = config.php_autoload_namespace();
 
     let keywords_json = if meta.keywords.is_empty() {
         String::new()
@@ -612,13 +733,19 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     "friendsofphp/php-cs-fixer": "^3.95",
     "phpunit/phpunit": "^11.0"
   }},
+  "autoload": {{
+    "psr-4": {{
+      "{php_namespace}\\\\": "src/"
+    }},
+    "files": ["src/functions.php"]
+  }},
   "scripts": {{
-    "phpstan": "php -d detect_unicode=0 vendor/bin/phpstan --memory-limit=512M",
-    "format": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix src tests",
-    "format:check": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --dry-run src tests",
+    "phpstan": "php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M",
+    "format": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php src tests",
+    "format:check": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php --dry-run src tests",
     "test": "php vendor/bin/phpunit",
     "lint": "@phpstan",
-    "lint:fix": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix src tests && php -d detect_unicode=0 vendor/bin/phpstan --memory-limit=512M"
+    "lint:fix": "PHP_CS_FIXER_IGNORE_ENV=1 php vendor/bin/php-cs-fixer fix --config php-cs-fixer.php src tests && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
   }},
   "extra": {{
     "ext-name": "{ext_name}"
@@ -628,6 +755,7 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         name = name,
         description = meta.description,
         license = meta.license,
+        php_namespace = php_namespace,
         ext_name = ext_name,
         keywords = keywords_json,
     );
@@ -645,13 +773,11 @@ fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Resul
     let nif_name = format!("{app_name}_nif");
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
+    let ws = detect_workspace_inheritance();
+    let pkg_header = cargo_package_header(&nif_name, version, "2024", &meta.license, &ws);
 
     let content = format!(
-        r#"[package]
-name = "{nif_name}"
-version = "{version}"
-edition = "2024"
-license = "{license}"
+        r#"{pkg_header}
 
 [lib]
 crate-type = ["cdylib"]
@@ -661,9 +787,7 @@ crate-type = ["cdylib"]
 rustler = "0.37"
 serde_json = "1"
 "#,
-        nif_name = nif_name,
-        version = version,
-        license = meta.license,
+        pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Elixir),
@@ -706,7 +830,8 @@ fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
   defp deps do
     [
       {{:rustler, "~> 0.34"}},
-      {{:credo, "~> 1.7", only: [:dev, :test], runtime: false}}
+      {{:credo, "~> 1.7", only: [:dev, :test], runtime: false}},
+      {{:ex_doc, "~> 0.40", only: :dev, runtime: false}}
     ]
   end
 end
@@ -787,17 +912,17 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.18.2</version>
+            <version>2.21.2</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jdk8</artifactId>
-            <version>2.18.2</version>
+            <version>2.21.2</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>5.11.4</version>
+            <version>6.1.0-M1</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -911,14 +1036,12 @@ fn scaffold_ffi(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
+    let ws = detect_workspace_inheritance();
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-ffi"), version, "2021", &meta.license, &ws);
 
     let content = format!(
-        r#"[package]
-name = "{core_crate_dir}-ffi"
-version = "{version}"
-edition = "2021"
+        r#"{pkg_header}
 description = "{description}"
-license = "{license}"
 repository = "{repository}"
 
 [lib]
@@ -931,12 +1054,11 @@ serde_json = "1"
 [build-dependencies]
 cbindgen = "0.28"
 "#,
-        core_crate_dir = core_crate_dir,
-        version = version,
+        pkg_header = pkg_header,
         description = meta.description,
-        license = meta.license,
         repository = meta.repository,
         crate_name = &config.crate_config.name,
+        core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ffi),
     );
 
@@ -951,14 +1073,12 @@ fn scaffold_wasm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
+    let ws = detect_workspace_inheritance();
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-wasm"), version, "2024", &meta.license, &ws);
 
     let content = format!(
-        r#"[package]
-name = "{core_crate_dir}-wasm"
-version = "{version}"
-edition = "2024"
+        r#"{pkg_header}
 description = "{description}"
-license = "{license}"
 repository = "{repository}"
 
 [lib]
@@ -967,14 +1087,17 @@ crate-type = ["cdylib"]
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 serde-wasm-bindgen = "0.6"
+
+[package.metadata.cargo-machete]
+ignored = ["wasm-bindgen-futures"]
 "#,
-        core_crate_dir = core_crate_dir,
-        version = version,
+        pkg_header = pkg_header,
         description = meta.description,
-        license = meta.license,
         repository = meta.repository,
         crate_name = &config.crate_config.name,
+        core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Wasm),
     );
 
@@ -1056,13 +1179,11 @@ fn scaffold_r_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
+    let ws = detect_workspace_inheritance();
+    let pkg_header = cargo_package_header(&format!("{core_crate_dir}-r"), version, "2024", &meta.license, &ws);
 
     let content = format!(
-        r#"[package]
-name = "{core_crate_dir}-r"
-version = "{version}"
-edition = "2024"
-license = "{license}"
+        r#"{pkg_header}
 
 [lib]
 crate-type = ["cdylib"]
@@ -1073,10 +1194,9 @@ extendr-api = {{ version = "0.7", features = ["use-precompiled-bindings"] }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 "#,
-        core_crate_dir = core_crate_dir,
-        version = version,
-        license = meta.license,
+        pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
+        core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::R),
     );
 
@@ -1234,7 +1354,7 @@ mod tests {
         assert_eq!(files.len(), 1);
         let content = &files[0].content;
         assert!(content.contains("go 1.21"));
-        assert!(content.contains("require ("));
+        assert!(!content.contains("require ("));
     }
 
     #[test]

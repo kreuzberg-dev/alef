@@ -455,8 +455,22 @@ fn main() -> Result<()> {
             let readme_files = pipeline::readme(&api, &config, &languages)?;
             let readme_count = pipeline::write_scaffold_files(&readme_files, &base_dir)?;
 
+            // Generate e2e tests if [e2e] section is present in config
+            let mut e2e_count = 0;
+            if let Some(e2e_config) = &config.e2e {
+                eprintln!("Generating e2e test suites...");
+                let files = alef_e2e::generate_e2e(&config, e2e_config, None)?;
+                e2e_count = pipeline::write_scaffold_files(&files, &base_dir)?;
+                alef_e2e::format::run_formatters(&files, e2e_config);
+            }
+
+            // Generate API docs (always — uses default output dir)
+            eprintln!("Generating API docs...");
+            let doc_files = alef_docs::generate_docs(&api, &config, &languages, "docs/reference")?;
+            let doc_count = pipeline::write_scaffold_files(&doc_files, &base_dir)?;
+
             println!(
-                "Done: {binding_count} binding files, {stub_count} stub files, {api_count} API files, {scaffold_count} scaffold files, {readme_count} readme files"
+                "Done: {binding_count} binding files, {stub_count} stub files, {api_count} API files, {scaffold_count} scaffold files, {readme_count} readme files, {e2e_count} e2e files, {doc_count} doc files"
             );
             Ok(())
         }

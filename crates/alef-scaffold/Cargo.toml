@@ -12,3 +12,4 @@ homepage.workspace = true
 [dependencies]
 alef-core = { workspace = true }
 anyhow = { workspace = true }
+toml = { workspace = true }

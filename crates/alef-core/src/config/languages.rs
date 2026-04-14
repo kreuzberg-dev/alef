@@ -9,6 +9,11 @@ pub struct PythonConfig {
     pub module_name: Option<String>,
     pub async_runtime: Option<String>,
     pub stubs: Option<StubsConfig>,
+    /// PyPI package name (e.g. `"html-to-markdown"`). Used as the `[project] name` in
+    /// `pyproject.toml` and to derive the `python-packages` list for maturin.
+    /// Defaults to the crate name.
+    #[serde(default)]
+    pub pip_name: Option<String>,
     /// Per-language feature override. When set, these features are used instead of
     /// `[crate] features` for this language's binding crate.
     #[serde(default)]

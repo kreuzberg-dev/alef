@@ -40,6 +40,7 @@ fn make_config_with_stubs() -> AlefConfig {
         output: Default::default(),
         python: Some(PythonConfig {
             module_name: Some("_test_lib".to_string()),
+            pip_name: None,
             async_runtime: None,
             stubs: Some(StubsConfig {
                 output: PathBuf::from("packages/python/src/"),

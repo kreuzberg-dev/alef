@@ -274,6 +274,34 @@ impl AlefConfig {
             .unwrap_or_else(|| format!("_{}", self.crate_config.name.replace('-', "_")))
     }
 
+    /// Get the PyPI package name used as `[project] name` in `pyproject.toml`.
+    ///
+    /// Returns `[python] pip_name` if set, otherwise falls back to the crate name.
+    pub fn python_pip_name(&self) -> String {
+        self.python
+            .as_ref()
+            .and_then(|p| p.pip_name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| self.crate_config.name.clone())
+    }
+
+    /// Get the PHP Composer autoload namespace derived from the extension name.
+    ///
+    /// Converts the extension name (e.g. `html_to_markdown_rs`) into a
+    /// PSR-4 namespace string (e.g. `Html\\To\\Markdown\\Rs`).
+    pub fn php_autoload_namespace(&self) -> String {
+        use heck::ToPascalCase;
+        let ext = self.php_extension_name();
+        if ext.contains('_') {
+            ext.split('_')
+                .map(|p| p.to_pascal_case())
+                .collect::<Vec<_>>()
+                .join("\\")
+        } else {
+            ext.to_pascal_case()
+        }
+    }
+
     /// Get the Node package name.
     pub fn node_package_name(&self) -> String {
         self.node
