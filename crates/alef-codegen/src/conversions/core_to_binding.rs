@@ -391,7 +391,7 @@ pub fn field_conversion_from_core_cfg(
                 )
             } else {
                 format!(
-                    "{name}: serde_json::to_value(&val.{name}).ok().and_then(|s| s.as_str().map(String::from)).unwrap_or_default()"
+                    "{name}: serde_json::to_value(val.{name}).ok().and_then(|s| s.as_str().map(String::from)).unwrap_or_default()"
                 )
             }
         }
