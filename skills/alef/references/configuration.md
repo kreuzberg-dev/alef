@@ -106,6 +106,7 @@ r = "crates/{name}-extendr/src/"
 | `async_runtime` | string | -- | Async runtime spec for `pyo3_async_runtimes` |
 | `stubs.output` | string | -- | Output directory for `.pyi` stub files |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
 
 ### `[node]`
 
@@ -113,6 +114,7 @@ r = "crates/{name}-extendr/src/"
 |-------|------|---------|-------------|
 | `package_name` | string | `{name}` | npm package name |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"camelCase"` | Override JSON field naming strategy for this language |
 
 ### `[ruby]`
 
@@ -121,6 +123,7 @@ r = "crates/{name}-extendr/src/"
 | `gem_name` | string | `{name}` with `_` | Ruby gem name |
 | `stubs.output` | string | -- | Output directory for `.rbs` type stubs |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
 
 ### `[php]`
 
@@ -130,6 +133,7 @@ r = "crates/{name}-extendr/src/"
 | `feature_gate` | string | `"extension-module"` | Feature gate wrapping all generated code |
 | `stubs.output` | string | -- | Output directory for PHP facades/stubs |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
 
 ### `[elixir]`
 
@@ -137,6 +141,7 @@ r = "crates/{name}-extendr/src/"
 |-------|------|---------|-------------|
 | `app_name` | string | `{name}` with `_` | Elixir application name |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
 
 ### `[wasm]`
 
@@ -146,6 +151,7 @@ r = "crates/{name}-extendr/src/"
 | `exclude_types` | string[] | `[]` | Types to exclude from WASM bindings |
 | `type_overrides` | map | `{}` | Override types (e.g., `{ "DOMNode" = "JsValue" }`) |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"camelCase"` | Override JSON field naming strategy for this language |
 
 ### `[ffi]`
 
@@ -157,6 +163,7 @@ r = "crates/{name}-extendr/src/"
 | `lib_name` | string | `{prefix}_ffi` | Native library name (for Go/Java/C# linking) |
 | `visitor_callbacks` | bool | `false` | Generate visitor/callback FFI support |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
 
 ### `[go]`
 
@@ -165,6 +172,7 @@ r = "crates/{name}-extendr/src/"
 | `module` | string | `github.com/kreuzberg-dev/{name}` | Go module path |
 | `package_name` | string | derived from module path | Go package name |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
 
 ### `[java]`
 
@@ -173,6 +181,7 @@ r = "crates/{name}-extendr/src/"
 | `package` | string | `dev.kreuzberg` | Java package name |
 | `ffi_style` | string | `"panama"` | FFI binding style (Panama Foreign Function & Memory API) |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"camelCase"` | Override JSON field naming strategy for this language |
 
 ### `[csharp]`
 
@@ -181,6 +190,7 @@ r = "crates/{name}-extendr/src/"
 | `namespace` | string | PascalCase of `{name}` | C# namespace |
 | `target_framework` | string | -- | Target framework version |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"camelCase"` | Override JSON field naming strategy for this language |
 
 ### `[r]`
 
@@ -188,6 +198,7 @@ r = "crates/{name}-extendr/src/"
 |-------|------|---------|-------------|
 | `package_name` | string | `{name}` | R package name |
 | `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
 
 ---
 
@@ -197,8 +208,8 @@ Controls how Rust structs are represented in each language's public API. An opti
 
 ```toml
 [dto]
-python = "dataclass"         # dataclass | typeddict | pydantic | msgspec
-python_output = "typeddict"  # separate style for return types (optional)
+python = "dataclass"         # dataclass | typed-dict | pydantic | msgspec
+python_output = "typed-dict" # separate style for return types (optional)
 node = "interface"           # interface | zod
 ruby = "struct"              # struct | dry-struct | data
 php = "readonly-class"       # readonly-class | array
@@ -211,7 +222,7 @@ r = "list"                   # list | r6
 
 | Language | Available Styles |
 |----------|-----------------|
-| Python | `dataclass`, `typeddict`, `pydantic`, `msgspec` |
+| Python | `dataclass`, `typed-dict`, `pydantic`, `msgspec` |
 | Node/TypeScript | `interface`, `zod` |
 | Ruby | `struct`, `dry-struct`, `data` |
 | PHP | `readonly-class`, `array` |

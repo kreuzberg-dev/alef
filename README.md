@@ -46,7 +46,7 @@ Generate fully-typed, lint-clean language bindings for Rust libraries across 11 
 
 | Language | Framework | Package Format | Test Framework | DTO Styles |
 |----------|-----------|----------------|----------------|------------|
-| Python | [PyO3](https://pyo3.rs) | PyPI (.whl) | pytest | `dataclass`, `typeddict`, `pydantic`, `msgspec` |
+| Python | [PyO3](https://pyo3.rs) | PyPI (.whl) | pytest | `dataclass`, `typed-dict`, `pydantic`, `msgspec` |
 | TypeScript/Node.js | [NAPI-RS](https://napi.rs) | npm | vitest | `interface`, `zod` |
 | WebAssembly | [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/) | npm | vitest | -- |
 | Ruby | [Magnus](https://github.com/matsadler/magnus) | RubyGems (.gem) | RSpec | `struct`, `dry-struct`, `data` |
@@ -348,8 +348,8 @@ Controls how Rust structs are represented in each language's public API:
 
 ```toml
 [dto]
-python = "dataclass"         # dataclass | typeddict | pydantic | msgspec
-python_output = "typeddict"  # separate style for return types (optional)
+python = "dataclass"         # dataclass | typed-dict | pydantic | msgspec
+python_output = "typed-dict"  # separate style for return types (optional)
 node = "interface"           # interface | zod
 ruby = "struct"              # struct | dry-struct | data
 php = "readonly-class"       # readonly-class | array
