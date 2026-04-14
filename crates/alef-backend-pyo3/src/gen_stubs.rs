@@ -224,28 +224,21 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
         format!("{}: {} = None", f.name, param_type)
     }));
 
-    // Add noqa comments for parameters that shadow Python builtins
-    let noqa_params: Vec<String> = params
-        .iter()
-        .map(|p| {
-            let name = p.split(':').next().unwrap_or("").trim();
-            if is_python_builtin_name(name) {
-                format!("{}  # noqa: A002", p)
-            } else {
-                p.clone()
-            }
-        })
-        .collect();
-
-    let single_line = format!("    def __init__(self, {}) -> None: ...", noqa_params.join(", "));
+    let single_line = format!("    def __init__(self, {}) -> None: ...", params.join(", "));
     if single_line.len() <= 100 {
         single_line
     } else {
-        // Wrap parameters across multiple lines to stay within 100 chars
+        // Wrap parameters across multiple lines to stay within 100 chars.
+        // For params that shadow Python builtins, append `# noqa: A002` AFTER the comma.
         let mut wrapped = String::from("    def __init__(\n");
         wrapped.push_str("        self,\n");
-        for param in &noqa_params {
-            wrapped.push_str(&format!("        {},\n", param));
+        for param in &params {
+            let name = param.split(':').next().unwrap_or("").trim();
+            if is_python_builtin_name(name) {
+                wrapped.push_str(&format!("        {},  # noqa: A002\n", param));
+            } else {
+                wrapped.push_str(&format!("        {},\n", param));
+            }
         }
         wrapped.push_str("    ) -> None: ...");
         wrapped
