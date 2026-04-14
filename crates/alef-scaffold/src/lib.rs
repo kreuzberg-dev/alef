@@ -185,13 +185,6 @@ repository = "{repository}"
 module-name = "{name}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 features = ["pyo3/extension-module"]
-
-[tool.ruff]
-line-length = 100
-target-version = "py39"
-
-[tool.ruff.lint]
-select = ["E", "F", "W"]
 "#,
         name = name,
         version = version,
@@ -1201,9 +1194,8 @@ mod tests {
         let content = &files[0].content;
         assert!(content.contains("[project.urls]"));
         assert!(content.contains("repository ="));
-        assert!(content.contains("[tool.ruff]"));
-        assert!(content.contains("line-length = 100"));
-        assert!(content.contains("target-version = \"py39\""));
+        // Linter config (ruff, mypy) is NOT generated — consumers configure in root pyproject.toml
+        assert!(!content.contains("[tool.ruff]"));
     }
 
     #[test]
