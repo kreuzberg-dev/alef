@@ -103,6 +103,90 @@ fn to_pep440(version: &str) -> String {
     }
 }
 
+/// Verify that all package manifest versions match the Cargo.toml source of truth.
+/// Returns a list of mismatches (empty = all consistent).
+pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
+    let expected = read_version(&config.crate_config.version_from)?;
+    let expected_pep440 = to_pep440(&expected);
+    let mut mismatches = Vec::new();
+
+    fn extract_version(path: &str, pattern: &str) -> Option<String> {
+        let content = std::fs::read_to_string(path).ok()?;
+        let re = regex::Regex::new(pattern).ok()?;
+        re.captures(&content)?.get(1).map(|m| m.as_str().to_string())
+    }
+
+    // Python (PEP 440 format)
+    if let Some(found) = extract_version("packages/python/pyproject.toml", r#"version\s*=\s*"([^"]*)""#) {
+        if found != expected_pep440 {
+            mismatches.push(format!(
+                "packages/python/pyproject.toml: found {found}, expected {expected_pep440}"
+            ));
+        }
+    }
+
+    // Node
+    if let Some(found) = extract_version("packages/typescript/package.json", r#""version"\s*:\s*"([^"]*)""#) {
+        if found != expected {
+            mismatches.push(format!(
+                "packages/typescript/package.json: found {found}, expected {expected}"
+            ));
+        }
+    }
+
+    // Java
+    if let Some(found) = extract_version("packages/java/pom.xml", r"<version>([^<]*)</version>") {
+        if found != expected {
+            mismatches.push(format!("packages/java/pom.xml: found {found}, expected {expected}"));
+        }
+    }
+
+    // Elixir
+    if let Some(found) = extract_version("packages/elixir/mix.exs", r#"version:\s*"([^"]*)""#) {
+        if found != expected {
+            mismatches.push(format!("packages/elixir/mix.exs: found {found}, expected {expected}"));
+        }
+    }
+
+    // Ruby gemspec
+    if let Ok(entries) = std::fs::read_dir("packages/ruby") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "gemspec") {
+                if let Some(found) = extract_version(
+                    &path.to_string_lossy(),
+                    r"spec\.version\s*=\s*['\x22]([^'\x22]*)['\x22]",
+                ) {
+                    if found != expected {
+                        mismatches.push(format!("{}: found {found}, expected {expected}", path.display()));
+                    }
+                }
+            }
+        }
+    }
+
+    // C# csproj
+    if let Some(found) = extract_version(
+        "packages/csharp/Kreuzcrawl/Kreuzcrawl.csproj",
+        r"<Version>([^<]*)</Version>",
+    ) {
+        if found != expected {
+            mismatches.push(format!("packages/csharp: found {found}, expected {expected}"));
+        }
+    }
+
+    // PHP composer.json
+    if let Some(found) = extract_version("packages/php/composer.json", r#""version"\s*:\s*"([^"]*)""#) {
+        if found != expected {
+            mismatches.push(format!(
+                "packages/php/composer.json: found {found}, expected {expected}"
+            ));
+        }
+    }
+
+    Ok(mismatches)
+}
+
 /// Set an explicit version in the Cargo.toml (supports pre-release versions like 0.1.0-rc.1).
 pub fn set_version(config: &AlefConfig, version: &str) -> anyhow::Result<()> {
     write_version_to_cargo_toml(&config.crate_config.version_from, version)

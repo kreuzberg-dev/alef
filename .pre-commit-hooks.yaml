@@ -13,3 +13,11 @@
   files: '\.(rs|toml)$'
   pass_filenames: false
   description: "Regenerate all alef output (bindings, stubs, docs, readme, scaffold)"
+
+- id: alef-sync-versions
+  name: alef sync versions
+  language: system
+  entry: alef sync-versions
+  files: 'Cargo\.toml$'
+  pass_filenames: false
+  description: "Sync version from Cargo.toml to all package manifests (pyproject.toml, package.json, etc.)"

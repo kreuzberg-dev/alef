@@ -363,14 +363,26 @@ fn main() -> Result<()> {
             let mut all_diffs = pipeline::diff_files(&bindings, &base_dir)?;
             all_diffs.extend(pipeline::diff_files(&stubs, &base_dir)?);
 
-            if all_diffs.is_empty() {
-                println!("All bindings are up to date.");
-            } else {
-                println!("Stale bindings detected:");
-                for diff in &all_diffs {
-                    println!("  {diff}");
+            // Also verify version consistency across all package manifests
+            let version_mismatches = pipeline::verify_versions(&config)?;
+            let has_version_issues = !version_mismatches.is_empty();
+            if has_version_issues {
+                println!("Version mismatches detected:");
+                for mismatch in &version_mismatches {
+                    println!("  {mismatch}");
                 }
-                if exit_code {
+            }
+
+            if all_diffs.is_empty() && !has_version_issues {
+                println!("All bindings and versions are up to date.");
+            } else {
+                if !all_diffs.is_empty() {
+                    println!("Stale bindings detected:");
+                    for diff in &all_diffs {
+                        println!("  {diff}");
+                    }
+                }
+                if exit_code && (!all_diffs.is_empty() || has_version_issues) {
                     process::exit(1);
                 }
             }

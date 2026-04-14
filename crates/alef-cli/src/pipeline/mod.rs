@@ -11,4 +11,4 @@ pub use generate::{
     write_scaffold_files,
 };
 pub use helpers::init;
-pub use version::{set_version, sync_versions};
+pub use version::{set_version, sync_versions, verify_versions};

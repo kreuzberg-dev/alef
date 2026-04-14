@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `alef sync-versions --set <version>` — set an explicit version (supports pre-release like `0.1.0-rc.1`)
+- `alef verify` now checks version consistency across all package manifests
+- `alef-sync-versions` pre-commit hook for automatic version propagation on Cargo.toml changes
+- PEP 440 pre-release conversion for Python (`0.1.0-rc.1` → `0.1.0rc1`)
+
 ### Fixed
 
+- Ruby gemspec version sync: match single-quote `spec.version = '...'` (was only matching double quotes)
+- Python scaffold: removed `[tool.ruff]` section — linter config belongs in root `pyproject.toml`
+- WASM scaffold: added missing `wasm-bindgen-futures` dependency
+- Node/FFI scaffolds: removed unused `serde` dependency
+- Clippy `field_reassign_with_default` suppressed for Duration builder pattern
 - PHP backend: escape backslashes in namespace for generated `#[php(name = "...")]` attributes so Rust string literals compile correctly
 - PHP backend: remove hardcoded `createEngineFromJson` helper from facade and stubs (was kreuzcrawl-specific, incorrectly triggered by any opaque type)
 - Python stubs: add `# noqa: A002` to constructor parameters that shadow Python builtins (e.g. `id`)
