@@ -366,15 +366,22 @@ fn paths_compatible(a: &str, b: &str) -> bool {
     if a == b {
         return true;
     }
+    // Normalize dashes to underscores for crate name comparison
+    // (Cargo uses dashes in package names, Rust uses underscores in crate names)
+    let a_norm = a.replace('-', "_");
+    let b_norm = b.replace('-', "_");
+    if a_norm == b_norm {
+        return true;
+    }
     // Direct suffix match (e.g., "foo::Bar" ends_with "Bar")
-    if a.ends_with(b) || b.ends_with(a) {
+    if a_norm.ends_with(&b_norm) || b_norm.ends_with(&a_norm) {
         return true;
     }
     // Same crate root + same short name → likely a re-export
-    let a_root = a.split("::").next().unwrap_or("");
-    let b_root = b.split("::").next().unwrap_or("");
-    let a_name = a.rsplit("::").next().unwrap_or("");
-    let b_name = b.rsplit("::").next().unwrap_or("");
+    let a_root = a_norm.split("::").next().unwrap_or("");
+    let b_root = b_norm.split("::").next().unwrap_or("");
+    let a_name = a_norm.rsplit("::").next().unwrap_or("");
+    let b_name = b_norm.rsplit("::").next().unwrap_or("");
     a_root == b_root && a_name == b_name
 }
 
