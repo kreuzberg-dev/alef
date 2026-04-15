@@ -60,6 +60,7 @@ dependencies = [
 name = "alef-backend-ffi"
 version = "0.3.3"
 dependencies = [
+ "ahash",
  "alef-adapters",
  "alef-codegen",
  "alef-core",

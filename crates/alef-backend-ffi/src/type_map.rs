@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use ahash::AHashMap;
 use alef_core::ir::{PrimitiveType, TypeRef};
 
 /// Maps a TypeRef to the C FFI parameter type (input position).
@@ -82,4 +83,62 @@ fn c_primitive(prim: &PrimitiveType) -> Cow<'static, str> {
 /// Returns `true` if the return type is void in C.
 pub fn is_void_return(ty: &TypeRef) -> bool {
     matches!(ty, TypeRef::Unit)
+}
+
+/// Like `c_param_type` but uses full rust_path from path_map for Named types.
+pub fn c_param_type_with_paths(
+    ty: &TypeRef,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+) -> Cow<'static, str> {
+    match ty {
+        TypeRef::Named(name) => {
+            let full_path = path_map
+                .get(name.as_str())
+                .map(|s| s.as_str())
+                .unwrap_or_else(|| name.as_str());
+            Cow::Owned(format!("*const {full_path}"))
+        }
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Named(name) = inner.as_ref() {
+                let inner_type = path_map
+                    .get(name.as_str())
+                    .map(|s| s.as_str())
+                    .unwrap_or_else(|| name.as_str());
+                Cow::Owned(format!("*const {inner_type}"))
+            } else {
+                c_param_type(ty, core_import)
+            }
+        }
+        _ => c_param_type(ty, core_import),
+    }
+}
+
+/// Like `c_return_type` but uses full rust_path from path_map for Named types.
+pub fn c_return_type_with_paths(
+    ty: &TypeRef,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+) -> Cow<'static, str> {
+    match ty {
+        TypeRef::Named(name) => {
+            let full_path = path_map
+                .get(name.as_str())
+                .map(|s| s.as_str())
+                .unwrap_or_else(|| name.as_str());
+            Cow::Owned(format!("*mut {full_path}"))
+        }
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Named(name) = inner.as_ref() {
+                let inner_type = path_map
+                    .get(name.as_str())
+                    .map(|s| s.as_str())
+                    .unwrap_or_else(|| name.as_str());
+                Cow::Owned(format!("*mut {inner_type}"))
+            } else {
+                c_return_type(ty, core_import)
+            }
+        }
+        _ => c_return_type(ty, core_import),
+    }
 }

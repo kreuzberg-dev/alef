@@ -97,6 +97,18 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     builder.add_import("std::cell::RefCell");
     let core_import = config.core_import();
 
+    // Build path map: short name -> full rust_path for all types and enums
+    let mut path_map = ahash::AHashMap::new();
+    for t in &api.types {
+        path_map.insert(t.name.clone(), t.rust_path.clone());
+    }
+    for e in &api.enums {
+        path_map.insert(e.name.clone(), e.rust_path.clone());
+    }
+    for err in &api.errors {
+        path_map.insert(err.name.clone(), err.rust_path.clone());
+    }
+
     // Import traits needed for trait method dispatch
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
@@ -173,7 +185,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
 
         // Method wrappers
         for method in &typ.methods {
-            builder.add_item(&gen_method_wrapper(typ, method, prefix, &core_import));
+            builder.add_item(&gen_method_wrapper(typ, method, prefix, &core_import, &path_map));
         }
     }
 
@@ -194,7 +206,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
 
     // Free functions (async functions are wrapped with block_on via the runtime helper)
     for func in &api.functions {
-        builder.add_item(&gen_free_function(func, prefix, &core_import));
+        builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map));
     }
 
     // Build adapter body map (consumed by generators via body substitution)
