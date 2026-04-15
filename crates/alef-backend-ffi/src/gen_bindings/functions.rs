@@ -1,8 +1,9 @@
+use std::fmt::Write;
+
 use ahash::AHashMap;
 use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
-use std::fmt::Write;
 
 use crate::type_map::{c_param_type_with_paths, c_return_type_with_paths, is_void_return};
 
@@ -87,7 +88,11 @@ pub(super) fn gen_method_wrapper(
         } else {
             p.name.clone()
         };
-        params.push(format!("    {}: {}", param_name, c_param_type_with_paths(&p.ty, core_import, path_map)));
+        params.push(format!(
+            "    {}: {}",
+            param_name,
+            c_param_type_with_paths(&p.ty, core_import, path_map)
+        ));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
             let len_param_name = if will_be_unimplemented {
@@ -321,7 +326,7 @@ pub(super) fn gen_free_function(
     let ret_type = if has_error && is_void_return(&func.return_type) {
         "i32".to_string()
     } else {
-        c_return_type(&func.return_type, core_import).into_owned()
+        c_return_type_with_paths(&func.return_type, core_import, path_map).into_owned()
     };
 
     // Check if this function will be unimplemented before building params
@@ -335,7 +340,11 @@ pub(super) fn gen_free_function(
         } else {
             p.name.clone()
         };
-        params.push(format!("    {}: {}", param_name, c_param_type_with_paths(&p.ty, core_import, path_map)));
+        params.push(format!(
+            "    {}: {}",
+            param_name,
+            c_param_type_with_paths(&p.ty, core_import, path_map)
+        ));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
             let len_param_name = if will_be_unimplemented {

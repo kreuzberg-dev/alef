@@ -10,6 +10,7 @@ homepage.workspace = true
 readme = "README.md"
 
 [dependencies]
+ahash = { workspace = true }
 alef-adapters = { workspace = true }
 alef-codegen = { workspace = true }
 alef-core = { workspace = true }
