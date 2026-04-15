@@ -15,5 +15,6 @@ pub fn get_backend(lang: Language) -> Box<dyn Backend> {
         Language::Java => Box::new(alef_backend_java::JavaBackend),
         Language::Csharp => Box::new(alef_backend_csharp::CsharpBackend),
         Language::R => Box::new(alef_backend_extendr::ExtendrBackend),
+        Language::Rust => panic!("Rust is a docs-only language target; it does not have a binding backend"),
     }
 }

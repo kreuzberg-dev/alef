@@ -22,6 +22,7 @@ pub fn generate_body(
         Language::Java => gen_java_body(adapter),
         Language::Csharp => gen_csharp_body(adapter),
         Language::R => gen_r_body(adapter, config),
+        Language::Rust => anyhow::bail!("Rust does not need generated binding adapters"),
     };
     Ok(result)
 }

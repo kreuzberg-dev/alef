@@ -14,6 +14,7 @@ pub fn generate_body(adapter: &AdapterConfig, language: Language, config: &AlefC
         Language::Java => gen_java_body(adapter, config),
         Language::Csharp => gen_csharp_body(adapter, config),
         Language::R => gen_r_body(adapter, config),
+        Language::Rust => anyhow::bail!("Rust does not need generated binding adapters"),
     };
     Ok(body)
 }

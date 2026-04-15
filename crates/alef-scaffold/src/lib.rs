@@ -184,6 +184,7 @@ fn scaffold_language(api: &ApiSurface, config: &AlefConfig, lang: Language) -> a
             files.extend(scaffold_r_cargo(api, config)?);
             Ok(files)
         }
+        Language::Rust => Ok(vec![]), // Rust doesn't need scaffolded binding crates
     }
 }
 

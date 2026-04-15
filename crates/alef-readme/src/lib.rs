@@ -254,6 +254,7 @@ fn lang_dir_name(lang: Language) -> &'static str {
         Language::Ffi => "ffi",
         Language::Wasm => "wasm",
         Language::R => "r",
+        Language::Rust => "rust",
     }
 }
 
@@ -271,6 +272,7 @@ fn lang_code(lang: Language) -> &'static str {
         Language::Ffi => "ffi",
         Language::Wasm => "wasm",
         Language::R => "r",
+        Language::Rust => "rust",
     }
 }
 
@@ -548,6 +550,17 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
                 config.r_package_name()
             ),
             "r",
+        ),
+        Language::Rust => (
+            "Rust",
+            format!(
+                "```bash\ncargo add {name}\n```"
+            ),
+            format!(
+                "```rust\nuse {};\n\n// TODO: add usage example\n```",
+                config.core_import()
+            ),
+            "rust",
         ),
     };
 

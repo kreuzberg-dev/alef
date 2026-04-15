@@ -14,6 +14,7 @@ pub enum Language {
     Java,
     Csharp,
     R,
+    Rust,
 }
 
 impl std::fmt::Display for Language {
@@ -30,6 +31,7 @@ impl std::fmt::Display for Language {
             Self::Java => write!(f, "java"),
             Self::Csharp => write!(f, "csharp"),
             Self::R => write!(f, "r"),
+            Self::Rust => write!(f, "rust"),
         }
     }
 }

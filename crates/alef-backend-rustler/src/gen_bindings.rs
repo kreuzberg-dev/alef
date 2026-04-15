@@ -37,6 +37,7 @@ impl Backend for RustlerBackend {
         let core_import = config.core_import();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
+        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import("rustler::ResourceArc");
 
         // Import traits needed for trait method dispatch

@@ -17,8 +17,8 @@ use std::path::PathBuf;
 
 /// Generate API reference documentation for the given languages.
 ///
-/// Produces one `api-{lang}.md` per language, plus shared `configuration.md`
-/// and `errors.md` files written into `output_dir`.
+/// Produces one `api-{lang}.md` per language, plus shared `configuration.md`,
+/// `types.md`, and `errors.md` files written into `output_dir`.
 pub fn generate_docs(
     api: &ApiSurface,
     config: &AlefConfig,
@@ -26,12 +26,14 @@ pub fn generate_docs(
     output_dir: &str,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
+    let ffi_prefix = &config.ffi_prefix().to_pascal_case();
 
     for &lang in languages {
-        files.push(generate_lang_doc(api, config, lang, output_dir)?);
+        files.push(generate_lang_doc(api, config, lang, output_dir, ffi_prefix)?);
     }
 
     files.push(generate_configuration_doc(api, config, output_dir)?);
+    files.push(generate_types_doc(api, output_dir)?);
     files.push(generate_errors_doc(api, output_dir)?);
 
     Ok(files)
@@ -46,6 +48,7 @@ fn generate_lang_doc(
     config: &AlefConfig,
     lang: Language,
     output_dir: &str,
+    ffi_prefix: &str,
 ) -> anyhow::Result<GeneratedFile> {
     let lang_display = lang_display_name(lang);
     let version = &api.version;
@@ -66,7 +69,7 @@ fn generate_lang_doc(
     if !public_fns.is_empty() {
         out.push_str("## Functions\n\n");
         for func in &public_fns {
-            out.push_str(&render_function(func, lang, config, api));
+            out.push_str(&render_function(func, lang, config, api, ffi_prefix));
             out.push_str("\n---\n\n");
         }
     }
@@ -82,7 +85,7 @@ fn generate_lang_doc(
     if !types_to_doc.is_empty() {
         out.push_str("## Types\n\n");
         for ty in &types_to_doc {
-            out.push_str(&render_type(ty, lang, api));
+            out.push_str(&render_type(ty, lang, api, ffi_prefix));
             out.push_str("\n---\n\n");
         }
     }
@@ -91,7 +94,7 @@ fn generate_lang_doc(
     if !api.enums.is_empty() {
         out.push_str("## Enums\n\n");
         for en in &api.enums {
-            out.push_str(&render_enum(en, lang));
+            out.push_str(&render_enum(en, lang, ffi_prefix));
             out.push_str("\n---\n\n");
         }
     }
@@ -100,7 +103,7 @@ fn generate_lang_doc(
     if !api.errors.is_empty() {
         out.push_str("## Errors\n\n");
         for err in &api.errors {
-            out.push_str(&render_error(err, lang));
+            out.push_str(&render_error(err, lang, ffi_prefix));
             out.push_str("\n---\n\n");
         }
     }
@@ -118,9 +121,9 @@ fn generate_lang_doc(
 // Function rendering
 // ---------------------------------------------------------------------------
 
-fn render_function(func: &FunctionDef, lang: Language, _config: &AlefConfig, api: &ApiSurface) -> String {
+fn render_function(func: &FunctionDef, lang: Language, _config: &AlefConfig, api: &ApiSurface, ffi_prefix: &str) -> String {
     let mut out = String::new();
-    let fn_name = func_name(&func.name, lang);
+    let fn_name = func_name(&func.name, lang, ffi_prefix);
 
     out.push_str(&format!("### {fn_name}()\n\n"));
 
@@ -136,7 +139,7 @@ fn render_function(func: &FunctionDef, lang: Language, _config: &AlefConfig, api
     // Signature
     out.push_str("**Signature:**\n\n");
     let lang_code = lang_code_fence(lang);
-    let sig = render_function_signature(func, lang);
+    let sig = render_function_signature(func, lang, ffi_prefix);
     out.push_str(&format!("```{lang_code}\n{sig}\n```\n\n"));
 
     // Parameters table
@@ -146,7 +149,7 @@ fn render_function(func: &FunctionDef, lang: Language, _config: &AlefConfig, api
         out.push_str("|------|------|----------|-------------|\n");
         for param in &func.params {
             let pname = field_name(&param.name, lang);
-            let pty = doc_type_with_optional(&param.ty, lang, param.optional);
+            let pty = doc_type_with_optional(&param.ty, lang, param.optional, ffi_prefix);
             let required = if param.optional { "No" } else { "Yes" };
             let pdoc = param_docs
                 .get(param.name.as_str())
@@ -163,7 +166,7 @@ fn render_function(func: &FunctionDef, lang: Language, _config: &AlefConfig, api
     }
 
     // Return type
-    let ret_ty = doc_type(&func.return_type, lang);
+    let ret_ty = doc_type(&func.return_type, lang, ffi_prefix);
     out.push_str(&format!("**Returns:** `{ret_ty}`"));
     out.push('\n');
     out.push('\n');
@@ -178,29 +181,30 @@ fn render_function(func: &FunctionDef, lang: Language, _config: &AlefConfig, api
     out
 }
 
-fn render_function_signature(func: &FunctionDef, lang: Language) -> String {
+fn render_function_signature(func: &FunctionDef, lang: Language, ffi_prefix: &str) -> String {
     match lang {
-        Language::Python => render_python_fn_sig(func),
-        Language::Node | Language::Wasm => render_typescript_fn_sig(func),
-        Language::Go => render_go_fn_sig(func),
-        Language::Java => render_java_fn_sig(func),
+        Language::Python => render_python_fn_sig(func, ffi_prefix),
+        Language::Node | Language::Wasm => render_typescript_fn_sig(func, ffi_prefix),
+        Language::Go => render_go_fn_sig(func, ffi_prefix),
+        Language::Java => render_java_fn_sig(func, ffi_prefix),
         Language::Ruby => render_ruby_fn_sig(func),
-        Language::Ffi => render_c_fn_sig(func),
-        Language::Php => render_php_fn_sig(func),
+        Language::Ffi => render_c_fn_sig(func, ffi_prefix),
+        Language::Php => render_php_fn_sig(func, ffi_prefix),
         Language::Elixir => render_elixir_fn_sig(func),
         Language::R => render_r_fn_sig(func),
-        Language::Csharp => render_csharp_fn_sig(func),
+        Language::Csharp => render_csharp_fn_sig(func, ffi_prefix),
+        Language::Rust => render_rust_fn_sig(func, ffi_prefix),
     }
 }
 
-fn render_python_fn_sig(func: &FunctionDef) -> String {
+fn render_python_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = func.name.to_snake_case();
     let params: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             let pname = p.name.to_snake_case();
-            let pty = doc_type(&p.ty, Language::Python);
+            let pty = doc_type(&p.ty, Language::Python, ffi_prefix);
             if p.optional {
                 format!("{pname}: {pty} = None")
             } else {
@@ -208,7 +212,7 @@ fn render_python_fn_sig(func: &FunctionDef) -> String {
             }
         })
         .collect();
-    let ret = doc_type(&func.return_type, Language::Python);
+    let ret = doc_type(&func.return_type, Language::Python, ffi_prefix);
     if func.is_async {
         format!("async def {}({}) -> {}", name, params.join(", "), ret)
     } else {
@@ -216,14 +220,14 @@ fn render_python_fn_sig(func: &FunctionDef) -> String {
     }
 }
 
-fn render_typescript_fn_sig(func: &FunctionDef) -> String {
+fn render_typescript_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = to_camel_case(&func.name);
     let params: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             let pname = to_camel_case(&p.name);
-            let pty = doc_type(&p.ty, Language::Node);
+            let pty = doc_type(&p.ty, Language::Node, ffi_prefix);
             if p.optional {
                 format!("{pname}?: {pty}")
             } else {
@@ -231,7 +235,7 @@ fn render_typescript_fn_sig(func: &FunctionDef) -> String {
             }
         })
         .collect();
-    let ret = doc_type(&func.return_type, Language::Node);
+    let ret = doc_type(&func.return_type, Language::Node, ffi_prefix);
     if func.is_async {
         format!("function {}({}): Promise<{}>", name, params.join(", "), ret)
     } else {
@@ -239,18 +243,18 @@ fn render_typescript_fn_sig(func: &FunctionDef) -> String {
     }
 }
 
-fn render_go_fn_sig(func: &FunctionDef) -> String {
+fn render_go_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = func.name.to_pascal_case();
     let params: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             let pname = to_camel_case(&p.name);
-            let pty = doc_type(&p.ty, Language::Go);
+            let pty = doc_type(&p.ty, Language::Go, ffi_prefix);
             format!("{pname} {pty}")
         })
         .collect();
-    let ret = doc_type(&func.return_type, Language::Go);
+    let ret = doc_type(&func.return_type, Language::Go, ffi_prefix);
     if func.error_type.is_some() {
         format!("func {}({}) ({}, error)", name, params.join(", "), ret)
     } else {
@@ -258,22 +262,22 @@ fn render_go_fn_sig(func: &FunctionDef) -> String {
     }
 }
 
-fn render_java_fn_sig(func: &FunctionDef) -> String {
+fn render_java_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = to_camel_case(&func.name);
-    let ret = doc_type(&func.return_type, Language::Java);
+    let ret = doc_type(&func.return_type, Language::Java, ffi_prefix);
     let params: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             let pname = to_camel_case(&p.name);
-            let pty = doc_type(&p.ty, Language::Java);
+            let pty = doc_type(&p.ty, Language::Java, ffi_prefix);
             format!("{pty} {pname}")
         })
         .collect();
     let throws = func
         .error_type
         .as_ref()
-        .map(|e| format!(" throws {}", type_name(e, Language::Java)))
+        .map(|e| format!(" throws {}", type_name(e, Language::Java, ffi_prefix)))
         .unwrap_or_default();
     format!("public static {} {}({}){}", ret, name, params.join(", "), throws)
 }
@@ -291,30 +295,36 @@ fn render_ruby_fn_sig(func: &FunctionDef) -> String {
     format!("def self.{}({})", name, params.join(", "))
 }
 
-fn render_c_fn_sig(func: &FunctionDef) -> String {
-    let prefix = "htm";
+fn render_c_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+    let prefix = ffi_prefix.to_snake_case();
     let name = format!("{}_{}", prefix, func.name.to_snake_case());
-    let ret = doc_type(&func.return_type, Language::Ffi);
+    let ret = doc_type(&func.return_type, Language::Ffi, ffi_prefix);
     let params: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             let pname = p.name.to_snake_case();
-            let pty = doc_type(&p.ty, Language::Ffi);
+            let pty = doc_type(&p.ty, Language::Ffi, ffi_prefix);
             format!("{pty} {pname}")
         })
         .collect();
-    format!("{}* {}({});", ret, name, params.join(", "))
+    // For Named types (structs), return a pointer; for primitives/strings, return directly
+    let ret_str = match &func.return_type {
+        TypeRef::Named(_) => format!("{}*", ret),
+        TypeRef::Unit => "void".to_string(),
+        _ => ret,
+    };
+    format!("{} {}({});", ret_str, name, params.join(", "))
 }
 
-fn render_php_fn_sig(func: &FunctionDef) -> String {
+fn render_php_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = to_camel_case(&func.name);
     let params: Vec<String> = func
         .params
         .iter()
         .map(|p| {
-            let pname = format!("${}", p.name.to_snake_case());
-            let pty = doc_type(&p.ty, Language::Php);
+            let pname = format!("${}", to_camel_case(&p.name));
+            let pty = doc_type(&p.ty, Language::Php, ffi_prefix);
             if p.optional {
                 format!("?{pty} {pname} = null")
             } else {
@@ -322,7 +332,7 @@ fn render_php_fn_sig(func: &FunctionDef) -> String {
             }
         })
         .collect();
-    let ret = doc_type(&func.return_type, Language::Php);
+    let ret = doc_type(&func.return_type, Language::Php, ffi_prefix);
     format!("public static function {}({}): {}", name, params.join(", "), ret)
 }
 
@@ -351,15 +361,15 @@ fn render_r_fn_sig(func: &FunctionDef) -> String {
     format!("{}({})", name, params.join(", "))
 }
 
-fn render_csharp_fn_sig(func: &FunctionDef) -> String {
+fn render_csharp_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = func.name.to_pascal_case();
-    let ret = doc_type(&func.return_type, Language::Csharp);
+    let ret = doc_type(&func.return_type, Language::Csharp, ffi_prefix);
     let params: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             let pname = to_camel_case(&p.name);
-            let pty = doc_type(&p.ty, Language::Csharp);
+            let pty = doc_type(&p.ty, Language::Csharp, ffi_prefix);
             if p.optional {
                 format!("{pty}? {pname} = null")
             } else {
@@ -378,9 +388,9 @@ fn render_csharp_fn_sig(func: &FunctionDef) -> String {
 // Type rendering
 // ---------------------------------------------------------------------------
 
-fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface) -> String {
+fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {
     let mut out = String::new();
-    let tname = type_name(&ty.name, lang);
+    let tname = type_name(&ty.name, lang, ffi_prefix);
 
     out.push_str(&format!("### {tname}\n\n"));
 
@@ -397,8 +407,8 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface) -> String {
         out.push_str("|-------|------|---------|-------------|\n");
         for field in &ty.fields {
             let fname = field_name(&field.name, lang);
-            let fty = doc_type_with_optional(&field.ty, lang, field.optional);
-            let fdefault = format_field_default(field, lang, api);
+            let fty = doc_type_with_optional(&field.ty, lang, field.optional, ffi_prefix);
+            let fdefault = format_field_default(field, lang, api, ffi_prefix);
             let fdoc = clean_doc_inline(&field.doc);
             out.push_str(&format!("| `{fname}` | `{fty}` | {fdefault} | {fdoc} |\n"));
         }
@@ -414,16 +424,16 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface) -> String {
         };
         out.push_str(&format!("#### {methods_heading}\n\n"));
         for method in &ty.methods {
-            out.push_str(&render_method(method, &ty.name, lang));
+            out.push_str(&render_method(method, &ty.name, lang, ffi_prefix));
         }
     }
 
     out
 }
 
-fn render_method(method: &MethodDef, type_name_str: &str, lang: Language) -> String {
+fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
-    let mname = func_name(&method.name, lang);
+    let mname = func_name(&method.name, lang, ffi_prefix);
 
     out.push_str(&format!("##### {mname}()\n\n"));
 
@@ -435,16 +445,16 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language) -> Str
     }
 
     let lang_code = lang_code_fence(lang);
-    let sig = render_method_signature(method, type_name_str, lang);
+    let sig = render_method_signature(method, type_name_str, lang, ffi_prefix);
     out.push_str("**Signature:**\n\n");
     out.push_str(&format!("```{lang_code}\n{sig}\n```\n\n"));
 
     out
 }
 
-fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Language) -> String {
-    let name = func_name(&method.name, lang);
-    let ret = doc_type(&method.return_type, lang);
+fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Language, ffi_prefix: &str) -> String {
+    let name = func_name(&method.name, lang, ffi_prefix);
+    let ret = doc_type(&method.return_type, lang, ffi_prefix);
 
     match lang {
         Language::Python => {
@@ -453,7 +463,7 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                 .iter()
                 .map(|p| {
                     let pname = field_name(&p.name, lang);
-                    let pty = doc_type(&p.ty, lang);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
                     format!("{pname}: {pty}")
                 })
                 .collect();
@@ -471,7 +481,7 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                 .iter()
                 .map(|p| {
                     let pname = field_name(&p.name, lang);
-                    let pty = doc_type(&p.ty, lang);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
                     format!("{pname}: {pty}")
                 })
                 .collect();
@@ -491,14 +501,14 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
         }
         Language::Go => {
             // Go methods: func (receiver *TypeName) MethodName(params) ReturnType
-            let go_receiver_type = type_name(type_name_str, Language::Go);
+            let go_receiver_type = type_name(type_name_str, Language::Go, ffi_prefix);
             let receiver = format!("o *{go_receiver_type}");
             let params: Vec<String> = method
                 .params
                 .iter()
                 .map(|p| {
                     let pname = to_camel_case(&p.name);
-                    let pty = doc_type(&p.ty, lang);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
                     format!("{pname} {pty}")
                 })
                 .collect();
@@ -522,14 +532,14 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                 .iter()
                 .map(|p| {
                     let pname = to_camel_case(&p.name);
-                    let pty = doc_type(&p.ty, lang);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
                     format!("{pty} {pname}")
                 })
                 .collect();
             let throws = method
                 .error_type
                 .as_ref()
-                .map(|e| format!(" throws {}", type_name(e, lang)))
+                .map(|e| format!(" throws {}", type_name(e, lang, ffi_prefix)))
                 .unwrap_or_default();
             if method.is_static {
                 format!("public static {} {}({}){}", ret, java_name, params.join(", "), throws)
@@ -543,7 +553,7 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                 .iter()
                 .map(|p| {
                     let pname = to_camel_case(&p.name);
-                    let pty = doc_type(&p.ty, lang);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
                     format!("{pty} {pname}")
                 })
                 .collect();
@@ -554,8 +564,8 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                 .params
                 .iter()
                 .map(|p| {
-                    let pname = format!("${}", p.name.to_snake_case());
-                    let pty = doc_type(&p.ty, lang);
+                    let pname = format!("${}", to_camel_case(&p.name));
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
                     format!("{pty} {pname}")
                 })
                 .collect();
@@ -579,7 +589,7 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                 .iter()
                 .map(|p| {
                     let pname = p.name.to_snake_case();
-                    let pty = doc_type(&p.ty, lang);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
                     format!("{pty} {pname}")
                 })
                 .collect();
@@ -592,9 +602,9 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
 // Enum rendering
 // ---------------------------------------------------------------------------
 
-fn render_enum(en: &EnumDef, lang: Language) -> String {
+fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
-    let ename = type_name(&en.name, lang);
+    let ename = type_name(&en.name, lang, ffi_prefix);
 
     out.push_str(&format!("### {ename}\n\n"));
 
@@ -608,7 +618,7 @@ fn render_enum(en: &EnumDef, lang: Language) -> String {
     out.push_str("| Value | Description |\n");
     out.push_str("|-------|-------------|\n");
     for variant in &en.variants {
-        let vname = enum_variant_name(&variant.name, lang);
+        let vname = enum_variant_name(&variant.name, lang, ffi_prefix);
         let vdoc = clean_doc_inline(&variant.doc);
         out.push_str(&format!("| `{vname}` | {vdoc} |\n"));
     }
@@ -621,9 +631,9 @@ fn render_enum(en: &EnumDef, lang: Language) -> String {
 // Error rendering
 // ---------------------------------------------------------------------------
 
-fn render_error(err: &ErrorDef, lang: Language) -> String {
+fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
-    let ename = type_name(&err.name, lang);
+    let ename = type_name(&err.name, lang, ffi_prefix);
 
     out.push_str(&format!("### {ename}\n\n"));
 
@@ -637,7 +647,7 @@ fn render_error(err: &ErrorDef, lang: Language) -> String {
     out.push_str("| Variant | Description |\n");
     out.push_str("|---------|-------------|\n");
     for variant in &err.variants {
-        let vname = enum_variant_name(&variant.name, lang);
+        let vname = enum_variant_name(&variant.name, lang, ffi_prefix);
         let vdoc = if !variant.doc.is_empty() {
             clean_doc_inline(&variant.doc)
         } else if let Some(tmpl) = &variant.message_template {
@@ -667,11 +677,18 @@ fn generate_configuration_doc(
     out.push_str("# Configuration Reference\n\n");
     out.push_str("This page documents all configuration types and their defaults across all languages.\n\n");
 
-    // Collect config-like types (ConversionOptions, PreprocessingOptions, etc.)
+    // Collect config-like types (Config, Options, Settings suffixes, or types with Default)
     let config_types: Vec<&TypeDef> = api
         .types
         .iter()
-        .filter(|t| t.name.ends_with("Options") && !t.is_opaque && !is_update_type(&t.name))
+        .filter(|t| {
+            (t.name.ends_with("Config")
+                || t.name.ends_with("Options")
+                || t.name.ends_with("Settings")
+                || t.has_default)
+                && !t.is_opaque
+                && !is_update_type(&t.name)
+        })
         .collect();
 
     for ty in config_types {
@@ -687,8 +704,8 @@ fn generate_configuration_doc(
             out.push_str("| Field | Type | Default | Description |\n");
             out.push_str("|-------|------|---------|-------------|\n");
             for field in &ty.fields {
-                let fty = doc_type_with_optional(&field.ty, Language::Python, field.optional);
-                let fdefault = format_field_default(field, Language::Python, api);
+                let fty = doc_type_with_optional(&field.ty, Language::Python, field.optional, "");
+                let fdefault = format_field_default(field, Language::Python, api, "");
                 let fdoc = clean_doc_inline(&field.doc);
                 out.push_str(&format!("| `{}` | `{}` | {} | {} |\n", field.name, fty, fdefault, fdoc));
             }
@@ -703,6 +720,177 @@ fn generate_configuration_doc(
         content: out,
         generated_header: false,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Types reference page
+// ---------------------------------------------------------------------------
+
+/// Categorize a type by name/path patterns into a documentation group.
+fn categorize_type(ty: &TypeDef) -> &'static str {
+    let name = &ty.name;
+    if name.ends_with("Result") || name.contains("Result") {
+        "Result Types"
+    } else if name.contains("Metadata") || name.ends_with("Meta") {
+        "Metadata Types"
+    } else if name.ends_with("Config") || name.ends_with("Options") || name.ends_with("Settings") || ty.has_default {
+        "Configuration Types"
+    } else if name.contains("Node") || name.contains("Table") || name.contains("Grid") || name.contains("Document") {
+        "Document Structure"
+    } else if name.contains("Ocr") || name.contains("Tesseract") || name.contains("Paddle") {
+        "OCR Types"
+    } else {
+        "Other Types"
+    }
+}
+
+fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<GeneratedFile> {
+    let mut out = String::new();
+
+    out.push_str("---\ntitle: \"Types Reference\"\n---\n\n");
+    out.push_str("# Types Reference\n\n");
+    out.push_str("All types defined by the library, grouped by category. Types are shown using Rust as the canonical representation.\n\n");
+
+    // Collect non-update types
+    let types_to_doc: Vec<&TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| !is_update_type(&t.name))
+        .collect();
+
+    if types_to_doc.is_empty() {
+        out.push_str("No types defined.\n");
+        return Ok(GeneratedFile {
+            path: PathBuf::from(format!("{output_dir}/types.md")),
+            content: out,
+            generated_header: false,
+        });
+    }
+
+    // Define category order
+    let category_order = [
+        "Result Types",
+        "Configuration Types",
+        "Metadata Types",
+        "Document Structure",
+        "OCR Types",
+        "Other Types",
+    ];
+
+    // Group types by category
+    let mut groups: std::collections::HashMap<&str, Vec<&TypeDef>> = std::collections::HashMap::new();
+    for ty in &types_to_doc {
+        let cat = categorize_type(ty);
+        groups.entry(cat).or_default().push(ty);
+    }
+
+    // Render each category in order
+    for &cat in &category_order {
+        let Some(types) = groups.get(cat) else {
+            continue;
+        };
+        out.push_str(&format!("## {cat}\n\n"));
+
+        if cat == "Configuration Types" {
+            out.push_str("See [Configuration Reference](configuration.md) for detailed defaults and language-specific representations.\n\n");
+        }
+
+        for ty in types {
+            out.push_str(&format!("### {}\n\n", ty.name));
+
+            let doc = clean_doc(&ty.doc, Language::Python);
+            if !doc.is_empty() {
+                out.push_str(&doc);
+                out.push('\n');
+                out.push('\n');
+            }
+
+            if ty.is_opaque {
+                out.push_str("*Opaque type — fields are not directly accessible.*\n\n");
+            } else if !ty.fields.is_empty() {
+                out.push_str("| Field | Type | Default | Description |\n");
+                out.push_str("|-------|------|---------|-------------|\n");
+                for field in &ty.fields {
+                    // Use Rust-style type representation as canonical
+                    let fty = format_type_ref_rust(&field.ty, field.optional);
+                    let fdefault = field
+                        .default
+                        .as_deref()
+                        .filter(|d| !d.is_empty())
+                        .map(|d| format!("`{d}`"))
+                        .unwrap_or_else(|| {
+                            if field.optional {
+                                "`None`".to_string()
+                            } else {
+                                "\u{2014}".to_string()
+                            }
+                        });
+                    let fdoc = clean_doc_inline(&field.doc);
+                    out.push_str(&format!(
+                        "| `{}` | `{}` | {} | {} |\n",
+                        field.name, fty, fdefault, fdoc
+                    ));
+                }
+                out.push('\n');
+            }
+
+            out.push_str("---\n\n");
+        }
+    }
+
+    Ok(GeneratedFile {
+        path: PathBuf::from(format!("{output_dir}/types.md")),
+        content: out,
+        generated_header: false,
+    })
+}
+
+/// Format a TypeRef as a Rust-like canonical type string (language-neutral).
+fn format_type_ref_rust(ty: &TypeRef, optional: bool) -> String {
+    let base = match ty {
+        TypeRef::String | TypeRef::Char => "String".to_string(),
+        TypeRef::Bytes => "Vec<u8>".to_string(),
+        TypeRef::Path => "PathBuf".to_string(),
+        TypeRef::Unit => "()".to_string(),
+        TypeRef::Json => "serde_json::Value".to_string(),
+        TypeRef::Duration => "Duration".to_string(),
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::U8 => "u8".to_string(),
+            PrimitiveType::U16 => "u16".to_string(),
+            PrimitiveType::U32 => "u32".to_string(),
+            PrimitiveType::U64 => "u64".to_string(),
+            PrimitiveType::I8 => "i8".to_string(),
+            PrimitiveType::I16 => "i16".to_string(),
+            PrimitiveType::I32 => "i32".to_string(),
+            PrimitiveType::I64 => "i64".to_string(),
+            PrimitiveType::Usize => "usize".to_string(),
+            PrimitiveType::Isize => "isize".to_string(),
+            PrimitiveType::F32 => "f32".to_string(),
+            PrimitiveType::F64 => "f64".to_string(),
+        },
+        TypeRef::Optional(inner) => {
+            return format!("Option<{}>", format_type_ref_rust(inner, false));
+        }
+        TypeRef::Vec(inner) => {
+            return format!("Vec<{}>", format_type_ref_rust(inner, false));
+        }
+        TypeRef::Map(k, v) => {
+            return format!(
+                "HashMap<{}, {}>",
+                format_type_ref_rust(k, false),
+                format_type_ref_rust(v, false)
+            );
+        }
+        TypeRef::Named(name) => {
+            name.rsplit("::").next().unwrap_or(name).to_string()
+        }
+    };
+    if optional && !matches!(ty, TypeRef::Optional(_)) {
+        format!("Option<{base}>")
+    } else {
+        base
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -749,7 +937,7 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
 // ---------------------------------------------------------------------------
 
 /// Map an IR TypeRef to the idiomatic type string for a given language.
-pub fn doc_type(ty: &TypeRef, lang: Language) -> String {
+pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => match lang {
             Language::Python => "str".to_string(),
@@ -777,7 +965,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language) -> String {
         },
         TypeRef::Primitive(p) => doc_primitive(p, lang),
         TypeRef::Optional(inner) => {
-            let inner_ty = doc_type(inner, lang);
+            let inner_ty = doc_type(inner, lang, ffi_prefix);
             match lang {
                 Language::Python => format!("{inner_ty} | None"),
                 Language::Node | Language::Wasm => format!("{inner_ty} | null"),
@@ -799,11 +987,11 @@ pub fn doc_type(ty: &TypeRef, lang: Language) -> String {
                     format!("List<{inner_ty}>")
                 }
                 Language::Csharp => {
-                    let inner_ty = doc_type(inner, lang);
+                    let inner_ty = doc_type(inner, lang, ffi_prefix);
                     format!("List<{inner_ty}>")
                 }
                 _ => {
-                    let inner_ty = doc_type(inner, lang);
+                    let inner_ty = doc_type(inner, lang, ffi_prefix);
                     match lang {
                         Language::Python => format!("list[{inner_ty}]"),
                         Language::Node | Language::Wasm => format!("Array<{inner_ty}>"),
@@ -825,8 +1013,8 @@ pub fn doc_type(ty: &TypeRef, lang: Language) -> String {
                 let vty = java_boxed_type(v);
                 return format!("Map<{kty}, {vty}>");
             }
-            let kty = doc_type(k, lang);
-            let vty = doc_type(v, lang);
+            let kty = doc_type(k, lang, ffi_prefix);
+            let vty = doc_type(v, lang, ffi_prefix);
             match lang {
                 Language::Python => format!("dict[{kty}, {vty}]"),
                 Language::Node | Language::Wasm => format!("Record<{kty}, {vty}>"),
@@ -840,7 +1028,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language) -> String {
                 Language::Ffi => "void*".to_string(),
             }
         }
-        TypeRef::Named(name) => type_name(name, lang),
+        TypeRef::Named(name) => type_name(name, lang, ffi_prefix),
         TypeRef::Path => match lang {
             Language::Python => "str".to_string(),
             Language::Node | Language::Wasm => "string".to_string(),
@@ -995,7 +1183,7 @@ fn java_boxed_type(ty: &TypeRef) -> String {
             PrimitiveType::F64 => "Double".to_string(),
         },
         // Non-primitive types are already reference types in Java
-        _ => doc_type(ty, Language::Java),
+        _ => doc_type(ty, Language::Java, ""),
     }
 }
 
@@ -1054,7 +1242,7 @@ fn lang_code_fence(lang: Language) -> &'static str {
 }
 
 /// Convert a Rust type name to the idiomatic name for the target language.
-fn type_name(name: &str, lang: Language) -> String {
+fn type_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
     // Strip module path prefix if present
     let short = name.rsplit("::").next().unwrap_or(name);
     match lang {
@@ -1069,19 +1257,19 @@ fn type_name(name: &str, lang: Language) -> String {
         | Language::Elixir
         | Language::R => short.to_pascal_case(),
         Language::Ffi => {
-            // C: prefix with HTM and PascalCase
-            format!("HTM{}", short.to_pascal_case())
+            // C: prefix with configured FFI prefix (PascalCase) and PascalCase type name
+            format!("{}{}", ffi_prefix, short.to_pascal_case())
         }
     }
 }
 
 /// Convert a Rust function name to the idiomatic name for the target language.
-fn func_name(name: &str, lang: Language) -> String {
+fn func_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
     let base = match lang {
         Language::Python | Language::Ruby | Language::Elixir | Language::R => name.to_snake_case(),
         Language::Node | Language::Wasm | Language::Java | Language::Php => to_camel_case(name),
         Language::Csharp | Language::Go => name.to_pascal_case(),
-        Language::Ffi => format!("htm_{}", name.to_snake_case()),
+        Language::Ffi => format!("{}_{}", ffi_prefix.to_snake_case(), name.to_snake_case()),
     };
     // Handle reserved keywords
     match (lang, base.as_str()) {
@@ -1102,7 +1290,7 @@ fn field_name(name: &str, lang: Language) -> String {
 }
 
 /// Convert a Rust enum variant name to the idiomatic name for the target language.
-fn enum_variant_name(name: &str, lang: Language) -> String {
+fn enum_variant_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
     match lang {
         Language::Python => {
             // Python: UPPER_SNAKE_CASE
@@ -1116,7 +1304,11 @@ fn enum_variant_name(name: &str, lang: Language) -> String {
             name.to_pascal_case()
         }
         Language::R => name.to_snake_case(),
-        Language::Ffi => format!("HTM_{}", name.to_snake_case().to_uppercase()),
+        Language::Ffi => format!(
+            "{}_{}",
+            ffi_prefix.to_shouty_snake_case(),
+            name.to_snake_case().to_uppercase()
+        ),
     }
 }
 
@@ -1134,9 +1326,9 @@ fn to_camel_case(s: &str) -> String {
 // Default value formatting
 // ---------------------------------------------------------------------------
 
-fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface) -> String {
+fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {
     if let Some(typed) = &field.typed_default {
-        return format_typed_default(typed, &field.ty, lang, api);
+        return format_typed_default(typed, &field.ty, lang, api, ffi_prefix);
     }
     if let Some(raw) = &field.default {
         if !raw.is_empty() {
@@ -1160,7 +1352,7 @@ fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface) -> S
     "—".to_string()
 }
 
-fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, api: &ApiSurface) -> String {
+fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {
     match val {
         DefaultValue::BoolLiteral(b) => match lang {
             Language::Python => format!("`{}`", if *b { "True" } else { "False" }),
@@ -1173,9 +1365,9 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
             // v is something like "HeadingStyle::Atx" or just "Atx"
             let parts: Vec<&str> = v.splitn(2, "::").collect();
             if parts.len() == 2 {
-                let enum_type = type_name(parts[0], lang);
-                let variant = enum_variant_name(parts[1], lang);
-                format!("`{}`", format_enum_variant_ref(&enum_type, &variant, lang))
+                let enum_type = type_name(parts[0], lang, ffi_prefix);
+                let variant = enum_variant_name(parts[1], lang, ffi_prefix);
+                format!("`{}`", format_enum_variant_ref(&enum_type, &variant, lang, ffi_prefix))
             } else {
                 // Bare variant name — resolve the enum type from the field type
                 let enum_type_name_str = match field_ty {
@@ -1190,9 +1382,9 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
                     _ => None,
                 };
                 if let Some(type_str) = enum_type_name_str {
-                    let etype = type_name(type_str, lang);
-                    let variant = enum_variant_name(v, lang);
-                    format!("`{}`", format_enum_variant_ref(&etype, &variant, lang))
+                    let etype = type_name(type_str, lang, ffi_prefix);
+                    let variant = enum_variant_name(v, lang, ffi_prefix);
+                    format!("`{}`", format_enum_variant_ref(&etype, &variant, lang, ffi_prefix))
                 } else {
                     format!("`{v}`")
                 }
@@ -1208,9 +1400,9 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
                         .find(|v| v.is_default)
                         .or_else(|| enum_def.variants.first());
                     if let Some(v) = variant {
-                        let etype = type_name(type_name_str, lang);
-                        let vname = enum_variant_name(&v.name, lang);
-                        return format!("`{}`", format_enum_variant_ref(&etype, &vname, lang));
+                        let etype = type_name(type_name_str, lang, ffi_prefix);
+                        let vname = enum_variant_name(&v.name, lang, ffi_prefix);
+                        return format!("`{}`", format_enum_variant_ref(&etype, &vname, lang, ffi_prefix));
                     }
                 }
             }
@@ -1228,7 +1420,7 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
                     Language::Java => "`Collections.emptyList()`".to_string(),
                     Language::Csharp => {
                         let elem_ty = if let TypeRef::Vec(elem) = inner_ty {
-                            doc_type(elem, lang)
+                            doc_type(elem, lang, ffi_prefix)
                         } else {
                             String::new()
                         };
@@ -1249,8 +1441,8 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
                     Language::Java => "`Collections.emptyMap()`".to_string(),
                     Language::Csharp => {
                         if let TypeRef::Map(k, v) = inner_ty {
-                            let kty = doc_type(k, lang);
-                            let vty = doc_type(v, lang);
+                            let kty = doc_type(k, lang, ffi_prefix);
+                            let vty = doc_type(v, lang, ffi_prefix);
                             format!("`new Dictionary<{kty}, {vty}>()`")
                         } else {
                             "`new Dictionary<>()`".to_string()
@@ -1290,7 +1482,7 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
 }
 
 /// Format an enum variant reference: `TypeName.VARIANT` or `:atom` style per language.
-fn format_enum_variant_ref(enum_type: &str, variant: &str, lang: Language) -> String {
+fn format_enum_variant_ref(enum_type: &str, variant: &str, lang: Language, ffi_prefix: &str) -> String {
     match lang {
         Language::Python => format!("{enum_type}.{variant}"),
         Language::Node | Language::Wasm => format!("{enum_type}.{variant}"),
@@ -1301,7 +1493,11 @@ fn format_enum_variant_ref(enum_type: &str, variant: &str, lang: Language) -> St
         Language::Php => format!("{enum_type}::{variant}"),
         Language::Elixir => format!(":{variant}"),
         Language::R => format!("\"{variant}\""),
-        Language::Ffi => format!("HTM_{}", variant.to_shouty_snake_case()),
+        Language::Ffi => format!(
+            "{}_{}",
+            ffi_prefix.to_shouty_snake_case(),
+            variant.to_shouty_snake_case()
+        ),
     }
 }
 
@@ -1341,10 +1537,10 @@ fn format_error_phrase(error_type: &str, lang: Language) -> String {
 }
 
 /// Like `doc_type` but wraps in the nullable form when `optional` is true.
-fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: bool) -> String {
+fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: bool, ffi_prefix: &str) -> String {
     // If the type is already Optional<T>, don't double-wrap
     if optional && !matches!(ty, TypeRef::Optional(_)) {
-        let inner = doc_type(ty, lang);
+        let inner = doc_type(ty, lang, ffi_prefix);
         return match lang {
             Language::Python => format!("{inner} | None"),
             Language::Node | Language::Wasm => format!("{inner} | null"),
@@ -1358,7 +1554,7 @@ fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: bool) -> Strin
             Language::Ffi => format!("{inner}*"),
         };
     }
-    doc_type(ty, lang)
+    doc_type(ty, lang, ffi_prefix)
 }
 
 // ---------------------------------------------------------------------------
@@ -1739,70 +1935,88 @@ mod tests {
     use super::*;
     use alef_core::ir::PrimitiveType;
 
+    const TEST_PREFIX: &str = "Htm";
+
     #[test]
     fn test_doc_type_string() {
-        assert_eq!(doc_type(&TypeRef::String, Language::Python), "str");
-        assert_eq!(doc_type(&TypeRef::String, Language::Node), "string");
-        assert_eq!(doc_type(&TypeRef::String, Language::Java), "String");
-        assert_eq!(doc_type(&TypeRef::String, Language::Ffi), "const char*");
+        assert_eq!(doc_type(&TypeRef::String, Language::Python, TEST_PREFIX), "str");
+        assert_eq!(doc_type(&TypeRef::String, Language::Node, TEST_PREFIX), "string");
+        assert_eq!(doc_type(&TypeRef::String, Language::Java, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::String, Language::Ffi, TEST_PREFIX), "const char*");
     }
 
     #[test]
     fn test_doc_type_optional() {
         let ty = TypeRef::Optional(Box::new(TypeRef::String));
-        assert_eq!(doc_type(&ty, Language::Python), "str | None");
-        assert_eq!(doc_type(&ty, Language::Node), "string | null");
-        assert_eq!(doc_type(&ty, Language::Go), "*string");
-        assert_eq!(doc_type(&ty, Language::Csharp), "string?");
+        assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "str | None");
+        assert_eq!(doc_type(&ty, Language::Node, TEST_PREFIX), "string | null");
+        assert_eq!(doc_type(&ty, Language::Go, TEST_PREFIX), "*string");
+        assert_eq!(doc_type(&ty, Language::Csharp, TEST_PREFIX), "string?");
     }
 
     #[test]
     fn test_doc_type_vec() {
         let ty = TypeRef::Vec(Box::new(TypeRef::String));
-        assert_eq!(doc_type(&ty, Language::Python), "list[str]");
-        assert_eq!(doc_type(&ty, Language::Node), "Array<string>");
-        assert_eq!(doc_type(&ty, Language::Go), "[]string");
-        assert_eq!(doc_type(&ty, Language::Java), "List<String>");
+        assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "list[str]");
+        assert_eq!(doc_type(&ty, Language::Node, TEST_PREFIX), "Array<string>");
+        assert_eq!(doc_type(&ty, Language::Go, TEST_PREFIX), "[]string");
+        assert_eq!(doc_type(&ty, Language::Java, TEST_PREFIX), "List<String>");
     }
 
     #[test]
     fn test_doc_type_primitives() {
         assert_eq!(
-            doc_type(&TypeRef::Primitive(PrimitiveType::Bool), Language::Python),
+            doc_type(&TypeRef::Primitive(PrimitiveType::Bool), Language::Python, TEST_PREFIX),
             "bool"
         );
         assert_eq!(
-            doc_type(&TypeRef::Primitive(PrimitiveType::Bool), Language::Node),
+            doc_type(&TypeRef::Primitive(PrimitiveType::Bool), Language::Node, TEST_PREFIX),
             "boolean"
         );
         assert_eq!(
-            doc_type(&TypeRef::Primitive(PrimitiveType::U64), Language::Node),
+            doc_type(&TypeRef::Primitive(PrimitiveType::U64), Language::Node, TEST_PREFIX),
             "number"
         );
         assert_eq!(
-            doc_type(&TypeRef::Primitive(PrimitiveType::F64), Language::Python),
+            doc_type(&TypeRef::Primitive(PrimitiveType::F64), Language::Python, TEST_PREFIX),
             "float"
         );
         assert_eq!(
-            doc_type(&TypeRef::Primitive(PrimitiveType::U32), Language::Ffi),
+            doc_type(&TypeRef::Primitive(PrimitiveType::U32), Language::Ffi, TEST_PREFIX),
             "uint32_t"
         );
     }
 
     #[test]
     fn test_enum_variant_name_python() {
-        assert_eq!(enum_variant_name("Atx", Language::Python), "ATX");
-        assert_eq!(enum_variant_name("SnakeCase", Language::Python), "SNAKE_CASE");
+        assert_eq!(enum_variant_name("Atx", Language::Python, TEST_PREFIX), "ATX");
+        assert_eq!(enum_variant_name("SnakeCase", Language::Python, TEST_PREFIX), "SNAKE_CASE");
     }
 
     #[test]
     fn test_enum_variant_name_java() {
-        assert_eq!(enum_variant_name("Atx", Language::Java), "Atx");
+        assert_eq!(enum_variant_name("Atx", Language::Java, TEST_PREFIX), "Atx");
     }
 
     #[test]
     fn test_enum_variant_name_ffi() {
-        assert_eq!(enum_variant_name("Atx", Language::Ffi), "HTM_ATX");
+        assert_eq!(enum_variant_name("Atx", Language::Ffi, TEST_PREFIX), "HTM_ATX");
+    }
+
+    #[test]
+    fn test_type_name_ffi_uses_prefix() {
+        assert_eq!(type_name("ConversionOptions", Language::Ffi, "Kreuzberg"), "KreuzbergConversionOptions");
+        assert_eq!(type_name("ConversionResult", Language::Ffi, "Kreuzberg"), "KreuzbergConversionResult");
+    }
+
+    #[test]
+    fn test_func_name_ffi_uses_prefix() {
+        assert_eq!(func_name("convert", Language::Ffi, "Kreuzberg"), "kreuzberg_convert");
+    }
+
+    #[test]
+    fn test_enum_variant_name_ffi_uses_prefix() {
+        assert_eq!(enum_variant_name("Atx", Language::Ffi, "Kreuzberg"), "KREUZBERG_ATX");
     }
 
     #[test]
@@ -1869,16 +2083,16 @@ mod tests {
 
     #[test]
     fn test_func_name_conventions() {
-        assert_eq!(func_name("convert", Language::Python), "convert");
-        assert_eq!(func_name("convert_html", Language::Node), "convertHtml");
-        assert_eq!(func_name("convert_html", Language::Go), "ConvertHtml");
-        assert_eq!(func_name("convert", Language::Ffi), "htm_convert");
+        assert_eq!(func_name("convert", Language::Python, TEST_PREFIX), "convert");
+        assert_eq!(func_name("convert_html", Language::Node, TEST_PREFIX), "convertHtml");
+        assert_eq!(func_name("convert_html", Language::Go, TEST_PREFIX), "ConvertHtml");
+        assert_eq!(func_name("convert", Language::Ffi, TEST_PREFIX), "htm_convert");
     }
 
     #[test]
     fn test_type_name_ffi_prefix() {
-        assert_eq!(type_name("ConversionOptions", Language::Ffi), "HTMConversionOptions");
-        assert_eq!(type_name("ConversionResult", Language::Ffi), "HTMConversionResult");
+        assert_eq!(type_name("ConversionOptions", Language::Ffi, TEST_PREFIX), "HtmConversionOptions");
+        assert_eq!(type_name("ConversionResult", Language::Ffi, TEST_PREFIX), "HtmConversionResult");
     }
 
     #[test]
@@ -1935,8 +2149,8 @@ mod tests {
         };
 
         let files = generate_docs(&api, &config, &[Language::Python], "docs").unwrap();
-        // 1 lang + configuration.md + errors.md
-        assert_eq!(files.len(), 3);
+        // 1 lang + configuration.md + types.md + errors.md
+        assert_eq!(files.len(), 4);
         let lang_file = files
             .iter()
             .find(|f| f.path.to_str().unwrap().contains("api-python"))

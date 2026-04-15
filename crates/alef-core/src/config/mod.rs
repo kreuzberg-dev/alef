@@ -195,6 +195,7 @@ impl AlefConfig {
             extras::Language::Java => self.java.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::R => self.r.as_ref().and_then(|c| c.features.as_deref()),
+            extras::Language::Rust => None, // Rust doesn't have binding-specific features
         };
         override_features.unwrap_or(&self.crate_config.features)
     }
@@ -457,6 +458,7 @@ impl AlefConfig {
             extras::Language::Java => self.java.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::R => self.r.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Rust => None, // Rust uses native naming (snake_case)
         };
 
         if let Some(val) = override_val {
@@ -474,7 +476,8 @@ impl AlefConfig {
             | extras::Language::Go
             | extras::Language::Ffi
             | extras::Language::Elixir
-            | extras::Language::R => "snake_case".to_string(),
+            | extras::Language::R
+            | extras::Language::Rust => "snake_case".to_string(),
         }
     }
 
