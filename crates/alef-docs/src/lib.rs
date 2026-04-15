@@ -576,7 +576,11 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                 })
                 .collect();
             if method.error_type.is_some() {
-                format!("func ({receiver}) {}({}) ({}, error)", name, params.join(", "), ret)
+                if ret.is_empty() {
+                    format!("func ({receiver}) {}({}) error", name, params.join(", "))
+                } else {
+                    format!("func ({receiver}) {}({}) ({}, error)", name, params.join(", "), ret)
+                }
             } else if ret.is_empty() {
                 format!("func ({receiver}) {}({})", name, params.join(", "))
             } else {
