@@ -281,19 +281,37 @@ fn field_has_path_mismatch(
 
     if let Some(field_path) = &field.type_rust_path {
         if let Some(enum_path) = enum_rust_paths.get(name) {
-            if !field_path.ends_with(enum_path) && !enum_path.ends_with(field_path.as_str()) && field_path != *enum_path
-            {
+            if !paths_compatible(field_path, enum_path) {
                 return true;
             }
         }
         if let Some(type_path) = type_rust_paths.get(name) {
-            if !field_path.ends_with(type_path) && !type_path.ends_with(field_path.as_str()) && field_path != *type_path
-            {
+            if !paths_compatible(field_path, type_path) {
                 return true;
             }
         }
     }
     false
+}
+
+/// Check if two rust paths refer to the same type.
+///
+/// Handles re-exports: `crate::module::Type` and `crate::Type` are compatible
+/// when they share the same crate root and type name (the type is re-exported).
+fn paths_compatible(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    // Direct suffix match (e.g., "foo::Bar" ends_with "Bar")
+    if a.ends_with(b) || b.ends_with(a) {
+        return true;
+    }
+    // Same crate root + same short name → likely a re-export
+    let a_root = a.split("::").next().unwrap_or("");
+    let b_root = b.split("::").next().unwrap_or("");
+    let a_name = a.rsplit("::").next().unwrap_or("");
+    let b_name = b.rsplit("::").next().unwrap_or("");
+    a_root == b_root && a_name == b_name
 }
 
 /// Build maps of name -> rust_path for enums and types in the API surface.

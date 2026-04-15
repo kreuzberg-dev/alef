@@ -79,9 +79,11 @@ impl E2eCodegen for CSharpCodegen {
             .cloned()
             .unwrap_or_else(|| "0.1.0".to_string());
 
-        // Generate E2eTests.csproj.
+        // Generate the .csproj using a unique name derived from the package name so
+        // it does not conflict with any hand-written project files in the same directory.
+        let csproj_name = format!("{pkg_name}.E2eTests.csproj");
         files.push(GeneratedFile {
-            path: output_base.join("E2eTests.csproj"),
+            path: output_base.join(&csproj_name),
             content: render_csproj(&pkg_name, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });

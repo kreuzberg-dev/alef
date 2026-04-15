@@ -107,6 +107,7 @@ impl E2eCodegen for TypeScriptCodegen {
                 &group.category,
                 &active,
                 &module_path,
+                &pkg_name,
                 &function_name,
                 result_var,
                 is_async,
@@ -192,6 +193,7 @@ fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
     module_path: &str,
+    pkg_name: &str,
     function_name: &str,
     result_var: &str,
     is_async: bool,
@@ -224,13 +226,17 @@ fn render_test_file(
         }
     }
 
+    // Use pkg_name (the npm package name, e.g. "@kreuzberg/html-to-markdown-node") for
+    // the import specifier so that registry builds resolve the published package name.
+    // module_path is kept for internal/override use but is not the npm package name.
+    let _ = module_path; // retained in signature for potential future use
     if let (true, Some(opts_type)) = (needs_options_import, options_type) {
         imports.push(format!("type {opts_type}"));
         let imports_str = imports.join(", ");
-        let _ = writeln!(out, "import {{ {imports_str} }} from '{module_path}';");
+        let _ = writeln!(out, "import {{ {imports_str} }} from '{pkg_name}';");
     } else {
         let imports_str = imports.join(", ");
-        let _ = writeln!(out, "import {{ {imports_str} }} from '{module_path}';");
+        let _ = writeln!(out, "import {{ {imports_str} }} from '{pkg_name}';");
     }
     let _ = writeln!(out);
     let _ = writeln!(out, "describe('{category}', () => {{");
