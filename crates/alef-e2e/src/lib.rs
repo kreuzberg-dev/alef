@@ -15,6 +15,7 @@ pub mod validate;
 
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
+use alef_core::config::e2e::DependencyMode;
 use anyhow::{Context, Result};
 use config::E2eConfig;
 use fixture::{group_fixtures, load_fixtures};
@@ -36,7 +37,20 @@ pub fn generate_e2e(
 
     info!("Loaded {} fixture(s) from {}", fixtures.len(), e2e_config.fixtures);
 
-    let groups = group_fixtures(&fixtures);
+    let all_groups = group_fixtures(&fixtures);
+
+    // In registry mode with a non-empty category filter, keep only the listed
+    // categories so the generated test apps contain a curated subset.
+    let groups: Vec<_> = if e2e_config.dep_mode == DependencyMode::Registry && !e2e_config.registry.categories.is_empty()
+    {
+        let allowed = &e2e_config.registry.categories;
+        all_groups
+            .into_iter()
+            .filter(|g| allowed.iter().any(|c| c == &g.category))
+            .collect()
+    } else {
+        all_groups
+    };
 
     let generators = if let Some(langs) = languages {
         codegen::generators_for(langs)

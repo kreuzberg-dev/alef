@@ -26,7 +26,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
         _alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
-        let output_base = PathBuf::from(&e2e_config.output).join("python");
+        let output_base = PathBuf::from(e2e_config.effective_output()).join("python");
 
         // conftest.py
         files.push(GeneratedFile {
@@ -50,19 +50,22 @@ impl super::E2eCodegen for PythonE2eCodegen {
         });
 
         // pyproject.toml for standalone uv resolution
-        let pkg_name = e2e_config
-            .packages
-            .get("python")
+        let python_pkg = e2e_config.resolve_package("python");
+        let pkg_name = python_pkg
+            .as_ref()
             .and_then(|p| p.name.as_deref())
             .unwrap_or("kreuzcrawl");
-        let pkg_path = e2e_config
-            .packages
-            .get("python")
+        let pkg_path = python_pkg
+            .as_ref()
             .and_then(|p| p.path.as_deref())
             .unwrap_or("../../packages/python");
+        let pkg_version = python_pkg
+            .as_ref()
+            .and_then(|p| p.version.as_deref())
+            .unwrap_or("0.1.0");
         files.push(GeneratedFile {
             path: output_base.join("pyproject.toml"),
-            content: render_pyproject(pkg_name, pkg_path),
+            content: render_pyproject(pkg_name, pkg_path, pkg_version, e2e_config.dep_mode),
             generated_header: true,
         });
 
@@ -96,7 +99,28 @@ impl super::E2eCodegen for PythonE2eCodegen {
 // pyproject.toml
 // ---------------------------------------------------------------------------
 
-fn render_pyproject(pkg_name: &str, pkg_path: &str) -> String {
+fn render_pyproject(
+    pkg_name: &str,
+    pkg_path: &str,
+    pkg_version: &str,
+    dep_mode: crate::config::DependencyMode,
+) -> String {
+    let dep_spec = match dep_mode {
+        crate::config::DependencyMode::Registry => {
+            format!(
+                "dependencies = [\"{pkg_name}>={pkg_version}\", \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\"]\n"
+            )
+        }
+        crate::config::DependencyMode::Local => {
+            format!(
+                "dependencies = [\"{pkg_name}\", \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\"]\n\
+                 \n\
+                 [tool.uv.sources]\n\
+                 {pkg_name} = {{ path = \"{pkg_path}\", editable = true }}\n"
+            )
+        }
+    };
+
     format!(
         r#"[build-system]
 build-backend = "setuptools.build_meta"
@@ -107,11 +131,7 @@ name = "{pkg_name}-e2e-tests"
 version = "0.0.0"
 description = "End-to-end tests"
 requires-python = ">=3.10"
-dependencies = ["{pkg_name}", "pytest>=7.4", "pytest-asyncio>=0.23", "pytest-timeout>=2.1"]
-
-[tool.uv.sources]
-{pkg_name} = {{ path = "{pkg_path}", editable = true }}
-
+{dep_spec}
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

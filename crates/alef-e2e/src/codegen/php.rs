@@ -29,7 +29,7 @@ impl E2eCodegen for PhpCodegen {
         alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        let output_base = PathBuf::from(&e2e_config.output).join(lang);
+        let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
 
         let mut files = Vec::new();
 
@@ -57,20 +57,27 @@ impl E2eCodegen for PhpCodegen {
         let result_var = &call.result_var;
 
         // Resolve package config.
-        let php_pkg = e2e_config.packages.get("php");
+        let php_pkg = e2e_config.resolve_package("php");
         let pkg_name = php_pkg
+            .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| format!("kreuzberg/{}", call.module.replace('_', "-")));
         let pkg_path = php_pkg
+            .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
             .unwrap_or_else(|| "../../packages/php".to_string());
+        let pkg_version = php_pkg
+            .as_ref()
+            .and_then(|p| p.version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate composer.json.
         files.push(GeneratedFile {
             path: output_base.join("composer.json"),
-            content: render_composer_json(&pkg_name, &pkg_path),
+            content: render_composer_json(&pkg_name, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
@@ -142,22 +149,45 @@ impl E2eCodegen for PhpCodegen {
 // Rendering
 // ---------------------------------------------------------------------------
 
-fn render_composer_json(_pkg_name: &str, _pkg_path: &str) -> String {
-    r#"{
+fn render_composer_json(
+    pkg_name: &str,
+    _pkg_path: &str,
+    pkg_version: &str,
+    dep_mode: crate::config::DependencyMode,
+) -> String {
+    let require_section = match dep_mode {
+        crate::config::DependencyMode::Registry => {
+            format!(
+                r#"  "require": {{
+    "{pkg_name}": ">={pkg_version}"
+  }},
+  "require-dev": {{
+    "phpunit/phpunit": "^11.0"
+  }},"#
+            )
+        }
+        crate::config::DependencyMode::Local => {
+            r#"  "require-dev": {
+    "phpunit/phpunit": "^11.0"
+  },"#
+                .to_string()
+        }
+    };
+
+    format!(
+        r#"{{
   "name": "kreuzberg/e2e-php",
   "description": "E2e tests for PHP bindings",
   "type": "project",
-  "require-dev": {
-    "phpunit/phpunit": "^11.0"
-  },
-  "autoload-dev": {
-    "psr-4": {
+{require_section}
+  "autoload-dev": {{
+    "psr-4": {{
       "Kreuzberg\\E2e\\": "tests/"
-    }
-  }
-}
+    }}
+  }}
+}}
 "#
-    .to_string()
+    )
 }
 
 fn render_phpunit_xml() -> String {

@@ -23,7 +23,7 @@ impl E2eCodegen for TypeScriptCodegen {
         e2e_config: &E2eConfig,
         _alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
-        let output_base = PathBuf::from(&e2e_config.output).join(self.language_name());
+        let output_base = PathBuf::from(e2e_config.effective_output()).join(self.language_name());
         let tests_base = output_base.join("tests");
 
         let mut files = Vec::new();
@@ -43,20 +43,27 @@ impl E2eCodegen for TypeScriptCodegen {
         let is_async = call.r#async;
 
         // Resolve package config.
-        let node_pkg = e2e_config.packages.get("node");
+        let node_pkg = e2e_config.resolve_package("node");
         let pkg_path = node_pkg
+            .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
             .unwrap_or_else(|| "../../packages/typescript".to_string());
         let pkg_name = node_pkg
+            .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| module_path.clone());
+        let pkg_version = node_pkg
+            .as_ref()
+            .and_then(|p| p.version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate package.json.
         files.push(GeneratedFile {
             path: output_base.join("package.json"),
-            content: render_package_json(&pkg_name, &pkg_path),
+            content: render_package_json(&pkg_name, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
@@ -122,7 +129,16 @@ impl E2eCodegen for TypeScriptCodegen {
     }
 }
 
-fn render_package_json(pkg_name: &str, pkg_path: &str) -> String {
+fn render_package_json(
+    pkg_name: &str,
+    pkg_path: &str,
+    pkg_version: &str,
+    dep_mode: crate::config::DependencyMode,
+) -> String {
+    let dep_value = match dep_mode {
+        crate::config::DependencyMode::Registry => format!("^{pkg_version}"),
+        crate::config::DependencyMode::Local => format!("file:{pkg_path}"),
+    };
     format!(
         r#"{{
   "name": "{pkg_name}-e2e-typescript",
@@ -133,7 +149,7 @@ fn render_package_json(pkg_name: &str, pkg_path: &str) -> String {
     "test": "vitest run"
   }},
   "devDependencies": {{
-    "{pkg_name}": "file:{pkg_path}",
+    "{pkg_name}": "{dep_value}",
     "vitest": "^3.0.0"
   }}
 }}

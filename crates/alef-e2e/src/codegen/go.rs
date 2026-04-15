@@ -24,7 +24,7 @@ impl E2eCodegen for GoCodegen {
         _alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        let output_base = PathBuf::from(&e2e_config.output).join(lang);
+        let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
 
         let mut files = Vec::new();
 
@@ -46,13 +46,15 @@ impl E2eCodegen for GoCodegen {
         let result_var = &call.result_var;
 
         // Resolve package config.
-        let go_pkg = e2e_config.packages.get("go");
+        let go_pkg = e2e_config.resolve_package("go");
         let go_module_path = go_pkg
+            .as_ref()
             .and_then(|p| p.module.as_ref())
             .cloned()
             .unwrap_or_else(|| module_path.clone());
-        let replace_path = go_pkg.and_then(|p| p.path.as_ref()).cloned();
+        let replace_path = go_pkg.as_ref().and_then(|p| p.path.as_ref()).cloned();
         let go_version = go_pkg
+            .as_ref()
             .and_then(|p| p.version.as_ref())
             .cloned()
             .unwrap_or_else(|| "v0.0.0".to_string());
@@ -63,10 +65,15 @@ impl E2eCodegen for GoCodegen {
             &e2e_config.fields_array,
         );
 
-        // Generate go.mod.
+        // Generate go.mod. In registry mode, omit the `replace` directive so the
+        // module is fetched from the Go module proxy.
+        let effective_replace = match e2e_config.dep_mode {
+            crate::config::DependencyMode::Registry => None,
+            crate::config::DependencyMode::Local => replace_path.as_deref().map(String::from),
+        };
         files.push(GeneratedFile {
             path: output_base.join("go.mod"),
-            content: render_go_mod(&go_module_path, replace_path.as_deref(), &go_version),
+            content: render_go_mod(&go_module_path, effective_replace.as_deref(), &go_version),
             generated_header: false,
         });
 

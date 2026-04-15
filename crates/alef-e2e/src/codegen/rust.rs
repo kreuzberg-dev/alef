@@ -24,7 +24,7 @@ impl super::E2eCodegen for RustE2eCodegen {
         alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
-        let output_base = PathBuf::from(&e2e_config.output).join("rust");
+        let output_base = PathBuf::from(e2e_config.effective_output()).join("rust");
 
         // Resolve crate name and path from config.
         let crate_name = resolve_crate_name(e2e_config, alef_config);
@@ -38,9 +38,17 @@ impl super::E2eCodegen for RustE2eCodegen {
             .args
             .iter()
             .any(|a| a.arg_type == "json_object" || a.arg_type == "handle");
+        let crate_version = resolve_crate_version(e2e_config);
         files.push(GeneratedFile {
             path: output_base.join("Cargo.toml"),
-            content: render_cargo_toml(&crate_name, &dep_name, &crate_path, needs_serde_json),
+            content: render_cargo_toml(
+                &crate_name,
+                &dep_name,
+                &crate_path,
+                needs_serde_json,
+                e2e_config.dep_mode,
+                crate_version.as_deref(),
+            ),
             generated_header: true,
         });
 
@@ -83,10 +91,15 @@ fn resolve_crate_name(_e2e_config: &E2eConfig, alef_config: &AlefConfig) -> Stri
 
 fn resolve_crate_path(e2e_config: &E2eConfig, crate_name: &str) -> String {
     e2e_config
-        .packages
-        .get("rust")
+        .resolve_package("rust")
         .and_then(|p| p.path.clone())
         .unwrap_or_else(|| format!("../../crates/{crate_name}"))
+}
+
+fn resolve_crate_version(e2e_config: &E2eConfig) -> Option<String> {
+    e2e_config
+        .resolve_package("rust")
+        .and_then(|p| p.version.clone())
 }
 
 fn resolve_function_name(e2e_config: &E2eConfig) -> String {
@@ -116,14 +129,33 @@ fn is_skipped(fixture: &Fixture, language: &str) -> bool {
 // Rendering
 // ---------------------------------------------------------------------------
 
-fn render_cargo_toml(crate_name: &str, dep_name: &str, crate_path: &str, needs_serde_json: bool) -> String {
+fn render_cargo_toml(
+    crate_name: &str,
+    dep_name: &str,
+    crate_path: &str,
+    needs_serde_json: bool,
+    dep_mode: crate::config::DependencyMode,
+    version: Option<&str>,
+) -> String {
     let e2e_name = format!("{dep_name}-e2e-rust");
-    // When the crate name has hyphens, Cargo needs `package = "name-with-hyphens"`
-    // because the dep key uses underscores (Rust identifier).
-    let dep_spec = if crate_name != dep_name {
-        format!("{dep_name} = {{ package = \"{crate_name}\", path = \"{crate_path}\" }}")
-    } else {
-        format!("{dep_name} = {{ path = \"{crate_path}\" }}")
+    let dep_spec = match dep_mode {
+        crate::config::DependencyMode::Registry => {
+            let ver = version.unwrap_or("0.1.0");
+            if crate_name != dep_name {
+                format!("{dep_name} = {{ package = \"{crate_name}\", version = \"{ver}\" }}")
+            } else {
+                format!("{dep_name} = \"{ver}\"")
+            }
+        }
+        crate::config::DependencyMode::Local => {
+            // When the crate name has hyphens, Cargo needs `package = "name-with-hyphens"`
+            // because the dep key uses underscores (Rust identifier).
+            if crate_name != dep_name {
+                format!("{dep_name} = {{ package = \"{crate_name}\", path = \"{crate_path}\" }}")
+            } else {
+                format!("{dep_name} = {{ path = \"{crate_path}\" }}")
+            }
+        }
     };
     let serde_line = if needs_serde_json { "\nserde_json = \"1\"" } else { "" };
     format!(

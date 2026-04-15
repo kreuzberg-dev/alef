@@ -3,6 +3,50 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+/// Controls whether generated e2e test projects reference the package under
+/// test via a local path (for development) or a registry version string
+/// (for standalone `test_apps` that consumers can run without the monorepo).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DependencyMode {
+    /// Local path dependency (default) — used during normal e2e development.
+    #[default]
+    Local,
+    /// Registry dependency — generates standalone test apps that pull the
+    /// package from its published registry (PyPI, npm, crates.io, etc.).
+    Registry,
+}
+
+/// Configuration for registry-mode e2e generation (`alef e2e generate --registry`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryConfig {
+    /// Output directory for registry-mode test apps (default: "test_apps").
+    #[serde(default = "default_test_apps_dir")]
+    pub output: String,
+    /// Per-language package overrides used only in registry mode.
+    /// Merged on top of the base `[e2e.packages]` entries.
+    #[serde(default)]
+    pub packages: HashMap<String, PackageRef>,
+    /// When non-empty, only fixture categories in this list are included in
+    /// registry-mode generation (useful for shipping a curated subset).
+    #[serde(default)]
+    pub categories: Vec<String>,
+}
+
+impl Default for RegistryConfig {
+    fn default() -> Self {
+        Self {
+            output: default_test_apps_dir(),
+            packages: HashMap::new(),
+            categories: Vec::new(),
+        }
+    }
+}
+
+fn default_test_apps_dir() -> String {
+    "test_apps".to_string()
+}
+
 /// Root e2e configuration from `[e2e]` section of alef.toml.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct E2eConfig {
@@ -85,6 +129,13 @@ pub struct E2eConfig {
     /// ```
     #[serde(default)]
     pub fields_enum: HashSet<String>,
+    /// Dependency mode: `Local` (default) or `Registry`.
+    /// Set at runtime via `--registry` CLI flag; not serialized from TOML.
+    #[serde(skip)]
+    pub dep_mode: DependencyMode,
+    /// Registry-mode configuration from `[e2e.registry]`.
+    #[serde(default)]
+    pub registry: RegistryConfig,
 }
 
 impl E2eConfig {
@@ -94,6 +145,41 @@ impl E2eConfig {
         match call_name {
             Some(name) => self.calls.get(name).unwrap_or(&self.call),
             None => &self.call,
+        }
+    }
+
+    /// Resolve the effective package reference for a language.
+    ///
+    /// In registry mode, entries from `[e2e.registry.packages]` are merged on
+    /// top of the base `[e2e.packages]` — registry overrides win for any field
+    /// that is `Some`.
+    pub fn resolve_package(&self, lang: &str) -> Option<PackageRef> {
+        let base = self.packages.get(lang);
+        if self.dep_mode == DependencyMode::Registry {
+            let reg = self.registry.packages.get(lang);
+            match (base, reg) {
+                (Some(b), Some(r)) => Some(PackageRef {
+                    name: r.name.clone().or_else(|| b.name.clone()),
+                    path: r.path.clone().or_else(|| b.path.clone()),
+                    module: r.module.clone().or_else(|| b.module.clone()),
+                    version: r.version.clone().or_else(|| b.version.clone()),
+                }),
+                (None, Some(r)) => Some(r.clone()),
+                (Some(b), None) => Some(b.clone()),
+                (None, None) => None,
+            }
+        } else {
+            base.cloned()
+        }
+    }
+
+    /// Return the effective output directory: `registry.output` in registry
+    /// mode, `output` otherwise.
+    pub fn effective_output(&self) -> &str {
+        if self.dep_mode == DependencyMode::Registry {
+            &self.registry.output
+        } else {
+            &self.output
         }
     }
 }

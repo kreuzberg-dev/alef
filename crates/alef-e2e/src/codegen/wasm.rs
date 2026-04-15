@@ -28,7 +28,7 @@ impl E2eCodegen for WasmCodegen {
         _alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        let output_base = PathBuf::from(&e2e_config.output).join(lang);
+        let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
         let tests_base = output_base.join("tests");
 
         let mut files = Vec::new();
@@ -51,20 +51,27 @@ impl E2eCodegen for WasmCodegen {
         let is_async = call.r#async;
 
         // Resolve package config.
-        let wasm_pkg = e2e_config.packages.get("wasm");
+        let wasm_pkg = e2e_config.resolve_package("wasm");
         let pkg_path = wasm_pkg
+            .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
             .unwrap_or_else(|| "../../crates/html-to-markdown-wasm/pkg".to_string());
         let pkg_name = wasm_pkg
+            .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| module_path.clone());
+        let pkg_version = wasm_pkg
+            .as_ref()
+            .and_then(|p| p.version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate package.json.
         files.push(GeneratedFile {
             path: output_base.join("package.json"),
-            content: render_package_json(&pkg_name, &pkg_path),
+            content: render_package_json(&pkg_name, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
@@ -121,7 +128,16 @@ impl E2eCodegen for WasmCodegen {
     }
 }
 
-fn render_package_json(pkg_name: &str, pkg_path: &str) -> String {
+fn render_package_json(
+    pkg_name: &str,
+    pkg_path: &str,
+    pkg_version: &str,
+    dep_mode: crate::config::DependencyMode,
+) -> String {
+    let dep_value = match dep_mode {
+        crate::config::DependencyMode::Registry => format!("^{pkg_version}"),
+        crate::config::DependencyMode::Local => format!("file:{pkg_path}"),
+    };
     format!(
         r#"{{
   "name": "{pkg_name}-e2e-wasm",
@@ -132,7 +148,7 @@ fn render_package_json(pkg_name: &str, pkg_path: &str) -> String {
     "test": "vitest run"
   }},
   "devDependencies": {{
-    "{pkg_name}": "file:{pkg_path}",
+    "{pkg_name}": "{dep_value}",
     "vite-plugin-top-level-await": "^1.4.0",
     "vite-plugin-wasm": "^3.4.0",
     "vitest": "^3.0.0"

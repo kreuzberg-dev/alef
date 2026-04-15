@@ -28,7 +28,7 @@ impl E2eCodegen for JavaCodegen {
         alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        let output_base = PathBuf::from(&e2e_config.output).join(lang);
+        let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
 
         let mut files = Vec::new();
 
@@ -51,8 +51,9 @@ impl E2eCodegen for JavaCodegen {
         let result_var = &call.result_var;
 
         // Resolve package config.
-        let java_pkg = e2e_config.packages.get("java");
+        let java_pkg = e2e_config.resolve_package("java");
         let pkg_name = java_pkg
+            .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| alef_config.crate_config.name.clone());
@@ -64,7 +65,7 @@ impl E2eCodegen for JavaCodegen {
         // Generate pom.xml.
         files.push(GeneratedFile {
             path: output_base.join("pom.xml"),
-            content: render_pom_xml(&pkg_name, &java_group_id, &pkg_version),
+            content: render_pom_xml(&pkg_name, &java_group_id, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
@@ -129,8 +130,35 @@ impl E2eCodegen for JavaCodegen {
 // Rendering
 // ---------------------------------------------------------------------------
 
-fn render_pom_xml(pkg_name: &str, java_group_id: &str, pkg_version: &str) -> String {
+fn render_pom_xml(
+    pkg_name: &str,
+    java_group_id: &str,
+    pkg_version: &str,
+    dep_mode: crate::config::DependencyMode,
+) -> String {
     let artifact_id = format!("{pkg_name}-e2e-java");
+    let dep_block = match dep_mode {
+        crate::config::DependencyMode::Registry => {
+            format!(
+                r#"        <dependency>
+            <groupId>{java_group_id}</groupId>
+            <artifactId>{pkg_name}</artifactId>
+            <version>{pkg_version}</version>
+        </dependency>"#
+            )
+        }
+        crate::config::DependencyMode::Local => {
+            format!(
+                r#"        <dependency>
+            <groupId>{java_group_id}</groupId>
+            <artifactId>{pkg_name}</artifactId>
+            <version>{pkg_version}</version>
+            <scope>system</scope>
+            <systemPath>${{project.basedir}}/../../packages/java/target/{pkg_name}-{pkg_version}.jar</systemPath>
+        </dependency>"#
+            )
+        }
+    };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -150,13 +178,7 @@ fn render_pom_xml(pkg_name: &str, java_group_id: &str, pkg_version: &str) -> Str
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>{java_group_id}</groupId>
-            <artifactId>{pkg_name}</artifactId>
-            <version>{pkg_version}</version>
-            <scope>system</scope>
-            <systemPath>${{project.basedir}}/../../packages/java/target/{pkg_name}-{pkg_version}.jar</systemPath>
-        </dependency>
+{dep_block}
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>

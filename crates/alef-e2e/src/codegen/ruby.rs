@@ -28,7 +28,7 @@ impl E2eCodegen for RubyCodegen {
         alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        let output_base = PathBuf::from(&e2e_config.output).join(lang);
+        let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
 
         let mut files = Vec::new();
 
@@ -51,20 +51,27 @@ impl E2eCodegen for RubyCodegen {
         let result_var = &call.result_var;
 
         // Resolve package config.
-        let ruby_pkg = e2e_config.packages.get("ruby");
+        let ruby_pkg = e2e_config.resolve_package("ruby");
         let gem_name = ruby_pkg
+            .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| alef_config.crate_config.name.replace('-', "_"));
         let gem_path = ruby_pkg
+            .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
             .unwrap_or_else(|| "../../packages/ruby".to_string());
+        let gem_version = ruby_pkg
+            .as_ref()
+            .and_then(|p| p.version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate Gemfile.
         files.push(GeneratedFile {
             path: output_base.join("Gemfile"),
-            content: render_gemfile(&gem_name, &gem_path),
+            content: render_gemfile(&gem_name, &gem_path, &gem_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
@@ -144,13 +151,22 @@ impl E2eCodegen for RubyCodegen {
 // Rendering
 // ---------------------------------------------------------------------------
 
-fn render_gemfile(gem_name: &str, gem_path: &str) -> String {
+fn render_gemfile(
+    gem_name: &str,
+    gem_path: &str,
+    gem_version: &str,
+    dep_mode: crate::config::DependencyMode,
+) -> String {
+    let gem_line = match dep_mode {
+        crate::config::DependencyMode::Registry => format!("gem '{gem_name}', '~> {gem_version}'"),
+        crate::config::DependencyMode::Local => format!("gem '{gem_name}', path: '{gem_path}'"),
+    };
     format!(
         "# frozen_string_literal: true\n\
          \n\
          source 'https://rubygems.org'\n\
          \n\
-         gem '{gem_name}', path: '{gem_path}'\n\
+         {gem_line}\n\
          gem 'rspec', '~> 3.13'\n\
          gem 'rubocop', '~> 1.86'\n\
          gem 'rubocop-rspec', '~> 3.9'\n"

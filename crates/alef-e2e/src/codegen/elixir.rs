@@ -25,7 +25,7 @@ impl E2eCodegen for ElixirCodegen {
         _alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        let output_base = PathBuf::from(&e2e_config.output).join(lang);
+        let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
 
         let mut files = Vec::new();
 
@@ -67,22 +67,29 @@ impl E2eCodegen for ElixirCodegen {
         let result_var = &call.result_var;
 
         // Resolve package config.
-        let elixir_pkg = e2e_config.packages.get("elixir");
+        let elixir_pkg = e2e_config.resolve_package("elixir");
         let pkg_path = elixir_pkg
+            .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
             .unwrap_or_else(|| "../../packages/elixir".to_string());
         // The dep atom must be a valid snake_case Elixir atom (e.g., :html_to_markdown),
         // derived from the call module name, not the PascalCase module path.
         let dep_atom = elixir_pkg
+            .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| raw_module.to_snake_case());
+        let dep_version = elixir_pkg
+            .as_ref()
+            .and_then(|p| p.version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate mix.exs.
         files.push(GeneratedFile {
             path: output_base.join("mix.exs"),
-            content: render_mix_exs(&dep_atom, &pkg_path),
+            content: render_mix_exs(&dep_atom, &pkg_path, &dep_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
@@ -148,7 +155,12 @@ impl E2eCodegen for ElixirCodegen {
     }
 }
 
-fn render_mix_exs(dep_atom: &str, pkg_path: &str) -> String {
+fn render_mix_exs(
+    dep_atom: &str,
+    pkg_path: &str,
+    dep_version: &str,
+    dep_mode: crate::config::DependencyMode,
+) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "defmodule E2eElixir.MixProject do");
     let _ = writeln!(out, "  use Mix.Project");
@@ -165,7 +177,14 @@ fn render_mix_exs(dep_atom: &str, pkg_path: &str) -> String {
     let _ = writeln!(out, "  defp deps do");
     let _ = writeln!(out, "    [");
     // Use a bare atom for the dep name (e.g., :html_to_markdown), not a quoted atom.
-    let dep_line = format!("      {{:{dep_atom}, path: \"{pkg_path}\"}}");
+    let dep_line = match dep_mode {
+        crate::config::DependencyMode::Registry => {
+            format!("      {{:{dep_atom}, \"~> {dep_version}\"}}")
+        }
+        crate::config::DependencyMode::Local => {
+            format!("      {{:{dep_atom}, path: \"{pkg_path}\"}}")
+        }
+    };
     let _ = writeln!(out, "{dep_line}");
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  end");

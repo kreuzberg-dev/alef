@@ -147,6 +147,10 @@ enum E2eAction {
         /// Comma-separated list of languages.
         #[arg(long, value_delimiter = ',')]
         lang: Option<Vec<String>>,
+        /// Generate standalone test apps using registry (published) package
+        /// versions instead of local path dependencies.
+        #[arg(long)]
+        registry: bool,
     },
     /// Initialize fixture directory with schema and example.
     Init,
@@ -487,28 +491,42 @@ fn main() -> Result<()> {
             let config = load_config(config_path)?;
             let e2e_config = config.e2e.as_ref().context("no [e2e] section in alef.toml")?;
             match action {
-                E2eAction::Generate { lang } => {
+                E2eAction::Generate { lang, registry } => {
                     let config_toml = std::fs::read_to_string(config_path)?;
                     let fixtures_dir = std::path::Path::new(&e2e_config.fixtures);
                     let fixture_hash = cache::hash_directory(fixtures_dir).unwrap_or_default();
                     let api = pipeline::extract(&config, config_path, false)?;
                     let ir_json = serde_json::to_string(&api)?;
-                    let stage_hash = cache::compute_stage_hash(&ir_json, "e2e", &config_toml, &fixture_hash);
-                    if cache::is_stage_cached("e2e", &stage_hash) {
+                    let cache_key = if registry { "e2e-registry" } else { "e2e" };
+                    let stage_hash = cache::compute_stage_hash(&ir_json, cache_key, &config_toml, &fixture_hash);
+                    if cache::is_stage_cached(cache_key, &stage_hash) {
                         println!("E2E tests up to date (cached)");
                         return Ok(());
                     }
+                    // When --registry is set, clone the e2e config and switch to
+                    // registry dependency mode so generators emit version-based
+                    // dependencies instead of local paths.
+                    let effective_e2e_config;
+                    let e2e_ref = if registry {
+                        let mut cloned = e2e_config.clone();
+                        cloned.dep_mode = alef_core::config::e2e::DependencyMode::Registry;
+                        effective_e2e_config = cloned;
+                        eprintln!("Generating e2e test apps (registry mode)...");
+                        &effective_e2e_config
+                    } else {
+                        eprintln!("Generating e2e test suites...");
+                        e2e_config
+                    };
                     let languages = lang.as_deref();
-                    eprintln!("Generating e2e test suites...");
-                    let files = alef_e2e::generate_e2e(&config, e2e_config, languages)?;
+                    let files = alef_e2e::generate_e2e(&config, e2e_ref, languages)?;
                     let base_dir = std::env::current_dir()?;
                     let count = pipeline::write_scaffold_files(&files, &base_dir)?;
 
                     // Run per-language formatters
-                    alef_e2e::format::run_formatters(&files, e2e_config);
+                    alef_e2e::format::run_formatters(&files, e2e_ref);
 
                     let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
-                    cache::write_stage_hash("e2e", &stage_hash, &output_paths)?;
+                    cache::write_stage_hash(cache_key, &stage_hash, &output_paths)?;
                     println!("Generated {count} e2e files");
                     Ok(())
                 }

@@ -28,7 +28,7 @@ impl E2eCodegen for CSharpCodegen {
         alef_config: &AlefConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
-        let output_base = PathBuf::from(&e2e_config.output).join(lang);
+        let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
 
         let mut files = Vec::new();
 
@@ -57,22 +57,32 @@ impl E2eCodegen for CSharpCodegen {
         let is_async = call.r#async;
 
         // Resolve package config.
-        let cs_pkg = e2e_config.packages.get("csharp");
+        let cs_pkg = e2e_config.resolve_package("csharp");
         let pkg_name = cs_pkg
+            .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| alef_config.crate_config.name.to_upper_camel_case());
         // The project reference path uses the crate name (with hyphens) for the directory
         // and the PascalCase name for the .csproj file.
-        let pkg_path = cs_pkg.and_then(|p| p.path.as_ref()).cloned().unwrap_or_else(|| {
-            let dir_name = &alef_config.crate_config.name;
-            format!("../../packages/csharp/{dir_name}/{pkg_name}.csproj")
-        });
+        let pkg_path = cs_pkg
+            .as_ref()
+            .and_then(|p| p.path.as_ref())
+            .cloned()
+            .unwrap_or_else(|| {
+                let dir_name = &alef_config.crate_config.name;
+                format!("../../packages/csharp/{dir_name}/{pkg_name}.csproj")
+            });
+        let pkg_version = cs_pkg
+            .as_ref()
+            .and_then(|p| p.version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate E2eTests.csproj.
         files.push(GeneratedFile {
             path: output_base.join("E2eTests.csproj"),
-            content: render_csproj(&pkg_name, &pkg_path),
+            content: render_csproj(&pkg_name, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
@@ -137,7 +147,20 @@ impl E2eCodegen for CSharpCodegen {
 // Rendering
 // ---------------------------------------------------------------------------
 
-fn render_csproj(_pkg_name: &str, pkg_path: &str) -> String {
+fn render_csproj(
+    pkg_name: &str,
+    pkg_path: &str,
+    pkg_version: &str,
+    dep_mode: crate::config::DependencyMode,
+) -> String {
+    let pkg_ref = match dep_mode {
+        crate::config::DependencyMode::Registry => {
+            format!("    <PackageReference Include=\"{pkg_name}\" Version=\"{pkg_version}\" />")
+        }
+        crate::config::DependencyMode::Local => {
+            format!("    <ProjectReference Include=\"{pkg_path}\" />")
+        }
+    };
     format!(
         r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -155,7 +178,7 @@ fn render_csproj(_pkg_name: &str, pkg_path: &str) -> String {
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="{pkg_path}" />
+{pkg_ref}
   </ItemGroup>
 </Project>
 "#
