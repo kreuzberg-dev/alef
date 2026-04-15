@@ -421,6 +421,17 @@ fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
   }},
   "devDependencies": {{
     "@napi-rs/cli": "^3.0.0"
+  }},
+  "optionalDependencies": {{
+    "{package_name}-darwin-arm64": "{version}",
+    "{package_name}-darwin-x64": "{version}",
+    "{package_name}-linux-arm64-gnu": "{version}",
+    "{package_name}-linux-arm64-musl": "{version}",
+    "{package_name}-linux-x64-gnu": "{version}",
+    "{package_name}-linux-x64-musl": "{version}",
+    "{package_name}-linux-arm-gnueabihf": "{version}",
+    "{package_name}-win32-x64-msvc": "{version}",
+    "{package_name}-win32-arm64-msvc": "{version}"
   }}
 }}
 "#,
@@ -901,18 +912,19 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
+        <gpg.skip>true</gpg.skip>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.18.2</version>
+            <version>2.21.2</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jdk8</artifactId>
-            <version>2.18.2</version>
+            <version>2.21.2</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -964,17 +976,6 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         </plugins>
     </build>
 
-    <distributionManagement>
-        <snapshotRepository>
-            <id>ossrh</id>
-            <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
-        </snapshotRepository>
-        <repository>
-            <id>ossrh</id>
-            <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-        </repository>
-    </distributionManagement>
-
     <profiles>
         <profile>
             <id>publish</id>
@@ -982,8 +983,15 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-deploy-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
-                        <version>3.2.7</version>
+                        <version>3.2.8</version>
                         <executions>
                             <execution>
                                 <id>sign-artifacts</id>
@@ -992,23 +1000,26 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                                     <goal>sign</goal>
                                 </goals>
                                 <configuration>
+                                    <passphraseEnvName>MAVEN_GPG_PASSPHRASE</passphraseEnvName>
                                     <gpgArguments>
-                                        <arg>--pinentry-mode</arg>
-                                        <arg>loopback</arg>
+                                        <arg>--batch</arg>
+                                        <arg>--yes</arg>
+                                        <arg>--pinentry-mode=loopback</arg>
                                     </gpgArguments>
                                 </configuration>
                             </execution>
                         </executions>
                     </plugin>
                     <plugin>
-                        <groupId>org.sonatype.plugins</groupId>
-                        <artifactId>nexus-staging-maven-plugin</artifactId>
-                        <version>1.7.0</version>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.10.0</version>
                         <extensions>true</extensions>
                         <configuration>
-                            <serverId>ossrh</serverId>
-                            <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
-                            <autoReleaseAfterClose>true</autoReleaseAfterClose>
+                            <publishingServerId>ossrh</publishingServerId>
+                            <autoPublish>true</autoPublish>
+                            <waitUntil>published</waitUntil>
+                            <waitMaxTime>7200</waitMaxTime>
                         </configuration>
                     </plugin>
                 </plugins>

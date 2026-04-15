@@ -1,4 +1,5 @@
 use crate::type_map::c_return_type;
+use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{EnumDef, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
@@ -12,7 +13,7 @@ use super::helpers::{gen_value_to_c, null_return_value};
 pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
-    let qualified = format!("{core_import}::{type_name}");
+    let qualified = core_type_path(typ, core_import);
     let mut out = String::with_capacity(2048);
 
     writeln!(
@@ -68,7 +69,7 @@ pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str)
 pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
-    let qualified = format!("{core_import}::{type_name}");
+    let qualified = core_type_path(typ, core_import);
     let mut out = String::with_capacity(2048);
 
     writeln!(
@@ -120,7 +121,7 @@ pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -
 pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
-    let qualified = format!("{core_import}::{type_name}");
+    let qualified = core_type_path(typ, core_import);
     let mut out = String::with_capacity(2048);
 
     writeln!(out, "/// Free a `{type_name}` handle.").ok();
@@ -147,7 +148,7 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
 pub(super) fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, core_import: &str) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
-    let qualified = format!("{core_import}::{type_name}");
+    let qualified = core_type_path(typ, core_import);
     let field_name = &field.name;
 
     let effective_ty = if field.optional {

@@ -39,23 +39,62 @@ pub fn extract(
 
     let mut visited = Vec::<PathBuf>::new();
 
+    // Determine the crate source root directory from the first source (typically lib.rs).
+    // This enables deriving correct module_path for other source files in the hierarchy.
+    let crate_src_dir = sources.first().and_then(|s| s.parent()).map(|p| p.to_path_buf());
+
     for source in sources {
         let canonical = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+
+        // Skip source files already visited via `pub mod` traversal from an earlier
+        // source (typically lib.rs). Re-processing them with module_path="" would
+        // produce incorrect rust_paths (e.g. `kreuzberg::CustomProperties` instead
+        // of `kreuzberg::extraction::CustomProperties`).
+        if visited.contains(&canonical) {
+            continue;
+        }
         visited.push(canonical);
 
         let content = std::fs::read_to_string(source)
             .with_context(|| format!("Failed to read source file: {}", source.display()))?;
         let file =
             syn::parse_file(&content).with_context(|| format!("Failed to parse source file: {}", source.display()))?;
+
+        // Derive module_path from the source file's location relative to the crate
+        // source root. For example, `src/cache/core.rs` relative to `src/` gives
+        // module_path `cache::core`. This ensures types get correct rust_paths even
+        // when they're listed as explicit sources rather than discovered via `pub mod`.
+        let module_path = derive_module_path(source, crate_src_dir.as_deref());
+
+        let types_before = surface.types.len();
+        let enums_before = surface.enums.len();
+        let fns_before = surface.functions.len();
+
         extract_items(
             &file.items,
             source,
             crate_name,
-            "",
+            &module_path,
             &mut surface,
             workspace_root,
             &mut visited,
         )?;
+
+        // For non-root source files, apply re-export shortening from the parent module.
+        // When `cache/core.rs` is processed with module_path="cache::core", items get
+        // paths like `kreuzberg::cache::core::GenericCache`. If the parent `cache/mod.rs`
+        // has `pub use core::{GenericCache, ...}`, we shorten to `kreuzberg::cache::GenericCache`.
+        if !module_path.is_empty() {
+            apply_parent_reexport_shortening(
+                source,
+                crate_name,
+                &module_path,
+                &mut surface,
+                types_before,
+                enums_before,
+                fns_before,
+            );
+        }
     }
 
     // Post-processing: resolve newtype wrappers.
@@ -86,6 +125,187 @@ pub fn extract(
     }
 
     Ok(surface)
+}
+
+/// Apply named re-export shortening from the parent module file.
+///
+/// When a source file like `cache/core.rs` produces items with paths like
+/// `kreuzberg::cache::core::GenericCache`, and the parent `cache/mod.rs` has
+/// `pub use core::{GenericCache, ...}`, this shortens the path to
+/// `kreuzberg::cache::GenericCache`.
+fn apply_parent_reexport_shortening(
+    source: &Path,
+    crate_name: &str,
+    module_path: &str,
+    surface: &mut ApiSurface,
+    types_before: usize,
+    enums_before: usize,
+    fns_before: usize,
+) {
+    use self::helpers::collect_reexport_map;
+    use self::reexports::collect_use_names;
+
+    // Find the parent module file (mod.rs in parent directory, or parent.rs)
+    let parent_dir = match source.parent() {
+        Some(p) => p,
+        None => return,
+    };
+
+    // Check if there's a mod.rs in the same directory (for files like cache/core.rs,
+    // the parent module is cache/mod.rs)
+    let parent_mod = parent_dir.join("mod.rs");
+    let parent_content = if parent_mod.exists() && parent_mod != source {
+        std::fs::read_to_string(&parent_mod).ok()
+    } else {
+        None
+    };
+
+    let Some(content) = parent_content else {
+        return;
+    };
+
+    let Ok(parent_file) = syn::parse_file(&content) else {
+        return;
+    };
+
+    // Get the module name of the source file (e.g., "core" for cache/core.rs)
+    let mod_name = source.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    if mod_name.is_empty() || mod_name == "mod" {
+        return;
+    }
+
+    // Collect re-exports from the parent module
+    let reexport_map = collect_reexport_map(&parent_file.items);
+
+    // Also check for `pub use mod_name::{A, B}` statements directly
+    let mut reexported_names = std::collections::HashSet::new();
+    for item in &parent_file.items {
+        if let syn::Item::Use(item_use) = item {
+            if helpers::is_pub(&item_use.vis) {
+                if let syn::UseTree::Path(use_path) = &item_use.tree {
+                    if use_path.ident == mod_name {
+                        match collect_use_names(&use_path.tree) {
+                            reexports::UseFilter::All => {
+                                // Glob re-export — all items are re-exported
+                                // Shorten all items to parent path
+                                let parent_module_path = module_path.rsplit_once("::").map(|(p, _)| p).unwrap_or("");
+                                let parent_prefix = if parent_module_path.is_empty() {
+                                    crate_name.to_string()
+                                } else {
+                                    format!("{crate_name}::{parent_module_path}")
+                                };
+                                for ty in &mut surface.types[types_before..] {
+                                    ty.rust_path = format!("{parent_prefix}::{}", ty.name);
+                                }
+                                for en in &mut surface.enums[enums_before..] {
+                                    en.rust_path = format!("{parent_prefix}::{}", en.name);
+                                }
+                                for func in &mut surface.functions[fns_before..] {
+                                    func.rust_path = format!("{parent_prefix}::{}", func.name);
+                                }
+                                return;
+                            }
+                            reexports::UseFilter::Names(names) => {
+                                reexported_names.extend(names);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Also include names from the reexport_map
+    if let Some(helpers::ReexportKind::Names(names)) = reexport_map.get(mod_name) {
+        reexported_names.extend(names.iter().cloned());
+    } else if matches!(reexport_map.get(mod_name), Some(helpers::ReexportKind::Glob)) {
+        // Glob — shorten all
+        let parent_module_path = module_path.rsplit_once("::").map(|(p, _)| p).unwrap_or("");
+        let parent_prefix = if parent_module_path.is_empty() {
+            crate_name.to_string()
+        } else {
+            format!("{crate_name}::{parent_module_path}")
+        };
+        for ty in &mut surface.types[types_before..] {
+            ty.rust_path = format!("{parent_prefix}::{}", ty.name);
+        }
+        for en in &mut surface.enums[enums_before..] {
+            en.rust_path = format!("{parent_prefix}::{}", en.name);
+        }
+        for func in &mut surface.functions[fns_before..] {
+            func.rust_path = format!("{parent_prefix}::{}", func.name);
+        }
+        return;
+    }
+
+    if reexported_names.is_empty() {
+        return;
+    }
+
+    // Apply shortening for named re-exports
+    let parent_module_path = module_path.rsplit_once("::").map(|(p, _)| p).unwrap_or("");
+    let parent_prefix = if parent_module_path.is_empty() {
+        crate_name.to_string()
+    } else {
+        format!("{crate_name}::{parent_module_path}")
+    };
+
+    for ty in &mut surface.types[types_before..] {
+        if reexported_names.contains(&ty.name) {
+            ty.rust_path = format!("{parent_prefix}::{}", ty.name);
+        }
+    }
+    for en in &mut surface.enums[enums_before..] {
+        if reexported_names.contains(&en.name) {
+            en.rust_path = format!("{parent_prefix}::{}", en.name);
+        }
+    }
+    for func in &mut surface.functions[fns_before..] {
+        if reexported_names.contains(&func.name) {
+            func.rust_path = format!("{parent_prefix}::{}", func.name);
+        }
+    }
+}
+
+/// Derive the module path from a source file's location relative to the crate source root.
+///
+/// For `lib.rs` (the root), returns `""`.
+/// For `src/cache/core.rs` relative to `src/`, returns `"cache::core"`.
+/// For `src/types/mod.rs` relative to `src/`, returns `"types"`.
+/// Falls back to `""` if the path can't be derived (e.g. file is outside the crate tree).
+fn derive_module_path(source: &Path, crate_src_dir: Option<&Path>) -> String {
+    let Some(root) = crate_src_dir else {
+        return String::new();
+    };
+
+    // Canonicalize both paths for reliable comparison
+    let root_canonical = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let source_canonical = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+
+    let Ok(relative) = source_canonical.strip_prefix(&root_canonical) else {
+        return String::new();
+    };
+
+    // Convert path components to module segments.
+    // `lib.rs` → "" (root), `cache/core.rs` → "cache::core", `types/mod.rs` → "types"
+    let mut segments = Vec::new();
+    for component in relative.iter() {
+        let s = component.to_string_lossy();
+        if s == "lib.rs" || s == "main.rs" {
+            // Root file — no module path
+            return String::new();
+        } else if s == "mod.rs" {
+            // mod.rs doesn't add a segment (the parent directory is the module name)
+            continue;
+        } else if let Some(stem) = s.strip_suffix(".rs") {
+            segments.push(stem.to_string());
+        } else {
+            // Directory component
+            segments.push(s.to_string());
+        }
+    }
+
+    segments.join("::")
 }
 
 /// Returns `true` if the type is a simple leaf type (primitive, String, Bytes, Path, etc.)

@@ -1,4 +1,5 @@
 use crate::type_map::{c_param_type, c_return_type, is_void_return};
+use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
@@ -38,7 +39,7 @@ pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str
     }
     writeln!(out, "#[unsafe(no_mangle)]").ok();
 
-    let qualified = format!("{core_import}::{type_name}");
+    let qualified = core_type_path(typ, core_import);
 
     // Return type
     let has_error = method.error_type.is_some();
