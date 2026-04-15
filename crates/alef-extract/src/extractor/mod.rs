@@ -97,6 +97,12 @@ pub fn extract(
         }
     }
 
+    // Post-processing: resolve unresolved trait sources.
+    // When a file containing `impl Trait for Type` is processed before the file defining
+    // the Trait, the `trait_source` on methods will be `None`. Now that all files are
+    // processed we can retroactively resolve them against the complete trait type list.
+    resolve_trait_sources(&mut surface);
+
     // Post-processing: resolve newtype wrappers.
     // Single-field tuple structs like `pub struct Foo(String)` are detected by having
     // exactly one field named `_0`. We replace all `TypeRef::Named("Foo")` references
@@ -445,6 +451,76 @@ fn resolve_typeref(newtype_map: &AHashMap<String, TypeRef>, ty: &mut TypeRef) {
             resolve_typeref(newtype_map, v);
         }
         _ => {}
+    }
+}
+
+/// Resolve unresolved `trait_source` on methods after all source files have been processed.
+///
+/// When `impl Trait for Type` is encountered before the trait definition has been extracted
+/// (e.g., `pub mod extractors` comes before `pub mod plugins` in lib.rs), the single-segment
+/// trait name lookup fails because the trait `TypeDef` doesn't exist yet. This pass retroactively
+/// resolves those methods by matching method names against trait types' method lists.
+fn resolve_trait_sources(surface: &mut ApiSurface) {
+    // Build a map of trait method names -> trait rust_path for all known trait types.
+    let mut trait_method_map: AHashMap<String, Vec<(String, String)>> = AHashMap::new();
+    // Also build a map of trait_name -> set of method names, for disambiguation.
+    let mut trait_methods_set: AHashMap<String, Vec<String>> = AHashMap::new();
+
+    for typ in &surface.types {
+        if !typ.is_trait {
+            continue;
+        }
+        let method_names: Vec<String> = typ.methods.iter().map(|m| m.name.clone()).collect();
+        trait_methods_set.insert(typ.name.clone(), method_names.clone());
+        for method_name in &method_names {
+            trait_method_map
+                .entry(method_name.clone())
+                .or_default()
+                .push((typ.name.clone(), typ.rust_path.replace('-', "_")));
+        }
+    }
+
+    if trait_method_map.is_empty() {
+        return;
+    }
+
+    // For each non-trait type, collect unresolved method names first, then resolve.
+    for typ in &mut surface.types {
+        if typ.is_trait {
+            continue;
+        }
+
+        // Collect the names of all unresolved methods on this type (for disambiguation).
+        let unresolved_names: Vec<String> = typ
+            .methods
+            .iter()
+            .filter(|m| m.trait_source.is_none())
+            .map(|m| m.name.clone())
+            .collect();
+
+        for method in &mut typ.methods {
+            if method.trait_source.is_some() {
+                continue;
+            }
+            let Some(candidates) = trait_method_map.get(&method.name) else {
+                continue;
+            };
+
+            if candidates.len() == 1 {
+                method.trait_source = Some(candidates[0].1.clone());
+            } else {
+                // Pick the trait whose method set has the most overlap with this type's unresolved methods.
+                let best = candidates.iter().max_by_key(|(trait_name, _)| {
+                    trait_methods_set
+                        .get(trait_name)
+                        .map(|trait_ms| trait_ms.iter().filter(|m| unresolved_names.contains(m)).count())
+                        .unwrap_or(0)
+                });
+                if let Some((_, rust_path)) = best {
+                    method.trait_source = Some(rust_path.clone());
+                }
+            }
+        }
     }
 }
 
