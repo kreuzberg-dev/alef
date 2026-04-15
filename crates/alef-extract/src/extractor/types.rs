@@ -86,8 +86,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
 
     let is_clone = has_derive(item.attrs.as_slice(), "Clone");
     let has_default = has_derive(item.attrs.as_slice(), "Default");
-    let has_serde = has_derive(item.attrs.as_slice(), "Serialize")
-        && has_derive(item.attrs.as_slice(), "Deserialize");
+    let has_serde = has_derive(item.attrs.as_slice(), "Serialize") && has_derive(item.attrs.as_slice(), "Deserialize");
     let serde_rename_all = extract_serde_rename_all(&item.attrs);
     let doc = extract_doc_comments(&item.attrs);
     let is_opaque = fields.is_empty();

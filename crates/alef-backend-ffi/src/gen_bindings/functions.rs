@@ -192,7 +192,7 @@ pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str
         if method.is_static {
             writeln!(
                 out,
-                "    let result = get_ffi_runtime().block_on(async {{ {core_import}::{type_name}::{method_name}({call_args}).await }});"
+                "    let result = get_ffi_runtime().block_on(async {{ {qualified}::{method_name}({call_args}).await }});"
             )
             .ok();
         } else {
@@ -203,11 +203,7 @@ pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str
             .ok();
         }
     } else if method.is_static {
-        writeln!(
-            out,
-            "    let result = {core_import}::{type_name}::{method_name}({call_args});"
-        )
-        .ok();
+        writeln!(out, "    let result = {qualified}::{method_name}({call_args});").ok();
     } else {
         writeln!(out, "    let result = obj.{method_name}({call_args});").ok();
     }
@@ -276,6 +272,15 @@ pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str
 pub(super) fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> String {
     let fn_name_snake = func.name.to_snake_case();
     let ffi_name = format!("{prefix}_{fn_name_snake}");
+    // Use the full rust_path for correct module path resolution
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
     let func_name = &func.name;
 
     let mut out = String::with_capacity(2048);
@@ -393,11 +398,11 @@ pub(super) fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &
     if func.is_async {
         writeln!(
             out,
-            "    let result = get_ffi_runtime().block_on(async {{ {core_import}::{func_name}({call_args}).await }});"
+            "    let result = get_ffi_runtime().block_on(async {{ {core_fn_path}({call_args}).await }});"
         )
         .ok();
     } else {
-        writeln!(out, "    let result = {core_import}::{func_name}({call_args});").ok();
+        writeln!(out, "    let result = {core_fn_path}({call_args});").ok();
     }
 
     // Handle return
@@ -507,11 +512,7 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
                 writeln!(out, "        None").ok();
                 writeln!(out, "    }} else {{").ok();
-                writeln!(
-                    out,
-                    "        Some(unsafe {{ &*{name} }}.clone())"
-                )
-                .ok();
+                writeln!(out, "        Some(unsafe {{ &*{name} }}.clone())").ok();
                 writeln!(out, "    }};").ok();
             }
             TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool) => {

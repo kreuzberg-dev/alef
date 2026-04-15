@@ -126,7 +126,8 @@ pub(crate) fn extract_impl_block(
             is_return_type: false,
             doc: String::new(),
             cfg: None,
-            serde_rename_all: None, has_serde: false,
+            serde_rename_all: None,
+            has_serde: false,
         });
     }
 }

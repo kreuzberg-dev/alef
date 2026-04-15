@@ -699,7 +699,15 @@ fn gen_nif_function(
             format!("{}\n    ", deser_lines.join("\n    "))
         };
 
-        let core_call = format!("{core_import}::{}({})", func.name, call_args.join(", "));
+        let core_fn_path = {
+            let path = func.rust_path.replace('-', "_");
+            if path.starts_with(core_import) {
+                path
+            } else {
+                format!("{core_import}::{}", func.name)
+            }
+        };
+        let core_call = format!("{core_fn_path}({})", call_args.join(", "));
         if func.error_type.is_some() {
             let wrap = gen_rustler_wrap_return("result", &func.return_type, "", opaque_types, func.returns_ref);
             format!("{preamble}let result = {core_call}.map_err(|e| e.to_string())?;\n    Ok({wrap})")
@@ -802,7 +810,15 @@ fn gen_nif_async_function(
             format!("{}\n    ", deser_lines.join("\n    "))
         };
 
-        let core_call = format!("{core_import}::{}({})", func.name, call_args.join(", "));
+        let core_fn_path = {
+            let path = func.rust_path.replace('-', "_");
+            if path.starts_with(core_import) {
+                path
+            } else {
+                format!("{core_import}::{}", func.name)
+            }
+        };
+        let core_call = format!("{core_fn_path}({})", call_args.join(", "));
         let result_wrap = gen_rustler_wrap_return("result", &func.return_type, "", opaque_types, func.returns_ref);
         if func.error_type.is_some() {
             format!(

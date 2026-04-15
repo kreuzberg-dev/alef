@@ -29,8 +29,8 @@ impl NapiBackend {
             signature_suffix: "",
             core_import,
             async_pattern: AsyncPattern::NapiNativeAsync,
-            // NAPI napi(object) structs don't derive Serialize — disable serde bridge
             has_serde: false,
+            // NAPI napi(object) structs don't derive Serialize — disable serde bridge
             type_name_prefix: "Js",
             option_duration_on_defaults: true,
         }
@@ -1269,36 +1269,50 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str) -> Str
         if variant.fields.is_empty() {
             writeln!(out, "            \"{tag_value}\" => Self::{},", variant.name).ok();
         } else {
-            let field_inits: Vec<String> = variant
+            let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
+            let field_exprs: Vec<String> = variant
                 .fields
                 .iter()
                 .map(|f| {
                     if f.optional {
-                        // Core field is Option<T>; binding also has Option<T> — pass through.
-                        format!("{}: val.{}", f.name, f.name)
+                        format!("val.{}", f.name)
                     } else if f.sanitized {
-                        // Sanitized fields can't be faithfully round-tripped; use Default.
-                        format!("{}: Default::default()", f.name)
+                        "Default::default()".to_string()
                     } else {
                         match &f.ty {
                             TypeRef::Named(_) => {
-                                // Named types need .into() to convert Js* → core type.
-                                format!("{}: val.{}.unwrap_or_default().into()", f.name, f.name)
+                                format!("val.{}.unwrap_or_default().into()", f.name)
                             }
                             _ => {
-                                format!("{}: val.{}.unwrap_or_default()", f.name, f.name)
+                                format!("val.{}.unwrap_or_default()", f.name)
                             }
                         }
                     }
                 })
                 .collect();
-            writeln!(
-                out,
-                "            \"{tag_value}\" => Self::{} {{ {} }},",
-                variant.name,
-                field_inits.join(", ")
-            )
-            .ok();
+            if is_tuple {
+                writeln!(
+                    out,
+                    "            \"{tag_value}\" => Self::{}({}),",
+                    variant.name,
+                    field_exprs.join(", ")
+                )
+                .ok();
+            } else {
+                let field_inits: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .zip(field_exprs.iter())
+                    .map(|(f, expr)| format!("{}: {expr}", f.name))
+                    .collect();
+                writeln!(
+                    out,
+                    "            \"{tag_value}\" => Self::{} {{ {} }},",
+                    variant.name,
+                    field_inits.join(", ")
+                )
+                .ok();
+            }
         }
     }
 
@@ -1307,18 +1321,24 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str) -> Str
         if first.fields.is_empty() {
             writeln!(out, "            _ => Self::{},", first.name).ok();
         } else {
-            let defaults: Vec<String> = first
-                .fields
-                .iter()
-                .map(|f| format!("{}: Default::default()", f.name))
-                .collect();
-            writeln!(
-                out,
-                "            _ => Self::{} {{ {} }},",
-                first.name,
-                defaults.join(", ")
-            )
-            .ok();
+            let is_tuple = alef_codegen::conversions::is_tuple_variant(&first.fields);
+            if is_tuple {
+                let defaults: Vec<&str> = first.fields.iter().map(|_| "Default::default()").collect();
+                writeln!(out, "            _ => Self::{}({}),", first.name, defaults.join(", ")).ok();
+            } else {
+                let defaults: Vec<String> = first
+                    .fields
+                    .iter()
+                    .map(|f| format!("{}: Default::default()", f.name))
+                    .collect();
+                writeln!(
+                    out,
+                    "            _ => Self::{} {{ {} }},",
+                    first.name,
+                    defaults.join(", ")
+                )
+                .ok();
+            }
         }
     }
 
@@ -1371,17 +1391,19 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str) -> Str
             .ok();
         } else {
             use alef_core::ir::TypeRef;
-            // Build a lookup map so we can access field metadata when generating inits.
+            let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
             let variant_field_map: std::collections::BTreeMap<&str, &alef_core::ir::FieldDef> =
                 variant.fields.iter().map(|f| (f.name.as_str(), f)).collect();
-            // Prefix sanitized field names with `_` in the destructure pattern so the compiler
-            // does not warn about unused variables (sanitized fields are always mapped to None).
             let destructured: Vec<String> = variant
                 .fields
                 .iter()
                 .map(|f| {
                     if f.sanitized {
-                        format!("{}: _{}", f.name, f.name)
+                        if is_tuple {
+                            format!("_{}", f.name)
+                        } else {
+                            format!("{}: _{}", f.name, f.name)
+                        }
                     } else {
                         f.name.clone()
                     }
@@ -1392,22 +1414,13 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str) -> Str
                 .map(|f| {
                     if let Some(field) = variant_field_map.get(f.as_str()) {
                         if field.optional {
-                            // Core field is already Option<T>; destructured variable is Option<T>.
-                            // Pass through directly — no Some() wrapping needed.
                             format!("{f}: {f}")
                         } else if field.sanitized {
-                            // Sanitized fields can't be faithfully converted to binding.
-                            // Use None to signal absence (lossy but type-correct).
                             format!("{f}: None")
                         } else {
                             match &field.ty {
-                                TypeRef::Named(_) => {
-                                    // Named types need .into() to convert core → Js* type.
-                                    format!("{f}: Some({f}.into())")
-                                }
-                                _ => {
-                                    format!("{f}: Some({f})")
-                                }
+                                TypeRef::Named(_) => format!("{f}: Some({f}.into())"),
+                                _ => format!("{f}: Some({f})"),
                             }
                         }
                     } else {
@@ -1415,14 +1428,25 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str) -> Str
                     }
                 })
                 .collect();
-            writeln!(
-                out,
-                "            {core_path}::{} {{ {} }} => Self {{ {tag_field}_tag: \"{tag_value}\".to_string(), {} }},",
-                variant.name,
-                destructured.join(", "),
-                field_inits.join(", ")
-            )
-            .ok();
+            if is_tuple {
+                writeln!(
+                    out,
+                    "            {core_path}::{}({}) => Self {{ {tag_field}_tag: \"{tag_value}\".to_string(), {} }},",
+                    variant.name,
+                    destructured.join(", "),
+                    field_inits.join(", ")
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "            {core_path}::{} {{ {} }} => Self {{ {tag_field}_tag: \"{tag_value}\".to_string(), {} }},",
+                    variant.name,
+                    destructured.join(", "),
+                    field_inits.join(", ")
+                )
+                .ok();
+            }
         }
     }
 

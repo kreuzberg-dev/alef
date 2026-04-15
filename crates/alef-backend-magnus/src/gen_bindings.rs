@@ -964,7 +964,15 @@ fn gen_function(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&func.params, opaque_types);
-        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let core_fn_path = {
+            let path = func.rust_path.replace('-', "_");
+            if path.starts_with(core_import) {
+                path
+            } else {
+                format!("{core_import}::{}", func.name)
+            }
+        };
+        let core_call = format!("{core_fn_path}({call_args})");
         if func.is_async {
             // Async core function: wrap in tokio runtime block_on.
             // Runtime::new() can fail, so always use map_err and return Ok(...).
@@ -1074,7 +1082,15 @@ fn gen_async_function(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&func.params, opaque_types);
-        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let core_fn_path = {
+            let path = func.rust_path.replace('-', "_");
+            if path.starts_with(core_import) {
+                path
+            } else {
+                format!("{core_import}::{}", func.name)
+            }
+        };
+        let core_call = format!("{core_fn_path}({call_args})");
         let result_wrap = generators::wrap_return(
             "result",
             &func.return_type,

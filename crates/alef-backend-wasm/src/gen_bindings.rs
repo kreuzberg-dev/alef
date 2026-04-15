@@ -925,9 +925,18 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaq
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
 
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+
     if func.is_async {
         let call_args = generators::gen_call_args(&func.params, opaque_types);
-        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let core_call = format!("{core_fn_path}({call_args})");
         // Build the return expression: handle Vec<Named> with collect pattern (turbofish),
         // plain Named with From::from, and everything else as passthrough.
         let return_expr = match &func.return_type {
@@ -975,7 +984,7 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaq
         )
     } else if can_delegate {
         let call_args = generators::gen_call_args(&func.params, opaque_types);
-        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let core_call = format!("{core_fn_path}({call_args})");
         let body = if func.error_type.is_some() {
             let wrap = wasm_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref);
             format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")

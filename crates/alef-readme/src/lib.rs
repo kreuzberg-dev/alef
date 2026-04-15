@@ -184,9 +184,7 @@ fn try_template_readme(
         for (key, val) in map {
             let rendered_val = if let serde_json::Value::String(s) = val {
                 if s.contains("{{") {
-                    let rendered = env
-                        .render_str(s, &ctx)
-                        .unwrap_or_else(|_| s.clone());
+                    let rendered = env.render_str(s, &ctx).unwrap_or_else(|_| s.clone());
                     Value::from(rendered)
                 } else {
                     json_to_minijinja_value(val)

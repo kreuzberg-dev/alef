@@ -269,7 +269,8 @@ mod tests {
                 has_default: false,
                 has_stripped_cfg_fields: false,
                 is_return_type: false,
-                serde_rename_all: None, has_serde: false,
+                serde_rename_all: None,
+                has_serde: true,
                 doc: "Configuration struct.".to_string(),
                 cfg: None,
             }],
@@ -317,7 +318,7 @@ mod tests {
                 doc: "Output format.".to_string(),
                 cfg: None,
                 serde_tag: None,
-                serde_rename_all: None, has_serde: false,
+                serde_rename_all: None,
             }],
             errors: vec![],
         }

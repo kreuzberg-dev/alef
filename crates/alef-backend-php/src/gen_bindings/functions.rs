@@ -295,7 +295,15 @@ fn gen_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, core_i
     if can_delegate {
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
         let call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
-        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let core_fn_path = {
+            let path = func.rust_path.replace('-', "_");
+            if path.starts_with(core_import) {
+                path
+            } else {
+                format!("{core_import}::{}", func.name)
+            }
+        };
+        let core_call = format!("{core_fn_path}({call_args})");
         if func.error_type.is_some() {
             let wrap = generators::wrap_return(
                 "result",
@@ -364,7 +372,15 @@ fn gen_async_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, 
     if can_delegate {
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
         let call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
-        let core_call = format!("{core_import}::{}({call_args})", func.name);
+        let core_fn_path = {
+            let path = func.rust_path.replace('-', "_");
+            if path.starts_with(core_import) {
+                path
+            } else {
+                format!("{core_import}::{}", func.name)
+            }
+        };
+        let core_call = format!("{core_fn_path}({call_args})");
         let result_wrap = generators::wrap_return(
             "result",
             &func.return_type,
