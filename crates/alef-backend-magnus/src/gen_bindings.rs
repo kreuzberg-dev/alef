@@ -92,15 +92,39 @@ impl Backend for MagnusBackend {
             builder.add_import("std::sync::Arc");
         }
 
-        // Check if any function has non-opaque Named params (needs serde_magnus)
-        let needs_serde_magnus = api.functions.iter().any(|f| {
-            f.params
-                .iter()
-                .any(|p| matches!(&p.ty, TypeRef::Named(name) if !opaque_types.contains(name.as_str())))
-        });
-        if needs_serde_magnus {
-            // serde_magnus is used but doesn't need a top-level import —
-            // it's called as serde_magnus::deserialize() inline.
+        // Check if any data enum exists (needs json_to_ruby helper)
+        let has_data_enum = api.enums.iter().any(|e| e.variants.iter().any(|v| !v.fields.is_empty()));
+        if has_data_enum {
+            // Add json_to_ruby helper for converting serde_json::Value to Magnus values
+            builder.add_item(
+                "fn json_to_ruby(handle: &Ruby, val: serde_json::Value) -> magnus::Value {\n\
+                 \x20   use magnus::IntoValue;\n\
+                 \x20   match val {\n\
+                 \x20       serde_json::Value::Null => handle.qnil().into_value_with(handle),\n\
+                 \x20       serde_json::Value::Bool(b) => b.into_value_with(handle),\n\
+                 \x20       serde_json::Value::Number(n) => {\n\
+                 \x20           if let Some(i) = n.as_i64() { i.into_value_with(handle) }\n\
+                 \x20           else if let Some(f) = n.as_f64() { f.into_value_with(handle) }\n\
+                 \x20           else { handle.qnil().into_value_with(handle) }\n\
+                 \x20       }\n\
+                 \x20       serde_json::Value::String(s) => s.into_value_with(handle),\n\
+                 \x20       serde_json::Value::Array(arr) => {\n\
+                 \x20           let ruby_arr = handle.ary_new_capa(arr.len());\n\
+                 \x20           for item in arr { let _ = ruby_arr.push(json_to_ruby(handle, item)); }\n\
+                 \x20           ruby_arr.into_value_with(handle)\n\
+                 \x20       }\n\
+                 \x20       serde_json::Value::Object(map) => {\n\
+                 \x20           let hash = handle.hash_new();\n\
+                 \x20           for (k, v) in map {\n\
+                 \x20               let key = handle.to_symbol(&k);\n\
+                 \x20               let val = json_to_ruby(handle, v);\n\
+                 \x20               let _ = hash.aset(key, val);\n\
+                 \x20           }\n\
+                 \x20           hash.into_value_with(handle)\n\
+                 \x20       }\n\
+                 \x20   }\n\
+                 }"
+            );
         }
 
         for typ in &api.types {
@@ -803,16 +827,16 @@ fn gen_enum(enum_def: &EnumDef) -> String {
         writeln!(out).ok();
     }
 
-    // For data enums, implement IntoValue via serde_magnus serialization
-    // and TryConvert via serde_magnus deserialization.
+    // For data enums, implement IntoValue via serde_json serialization
+    // and TryConvert via serde_json deserialization.
+    // Uses a json_to_ruby helper to convert serde_json::Value to Magnus values.
     if has_data {
         writeln!(out, "impl magnus::IntoValue for {name} {{").ok();
         writeln!(out, "    fn into_value_with(self, handle: &Ruby) -> magnus::Value {{").ok();
-        writeln!(
-            out,
-            "        serde_magnus::serialize(handle, &self).unwrap_or_else(|_| handle.qnil().into_value_with(handle))"
-        )
-        .ok();
+        writeln!(out, "        match serde_json::to_value(&self) {{").ok();
+        writeln!(out, "            Ok(v) => json_to_ruby(handle, v),").ok();
+        writeln!(out, "            Err(_) => handle.qnil().into_value_with(handle),").ok();
+        writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
@@ -822,14 +846,10 @@ fn gen_enum(enum_def: &EnumDef) -> String {
             "    fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {{"
         )
         .ok();
+        writeln!(out, "        let s: String = magnus::TryConvert::try_convert(val)?;").ok();
         writeln!(
             out,
-            "        serde_magnus::deserialize(&magnus::Ruby::get().unwrap(), val)"
-        )
-        .ok();
-        writeln!(
-            out,
-            "            .map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))"
+            "        serde_json::from_str(&s).map_err(|e| magnus::Error::new(magnus::exception::type_error(), e.to_string()))"
         )
         .ok();
         writeln!(out, "    }}").ok();
