@@ -723,7 +723,11 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
     out.push_str("|-------|-------------|\n");
     for variant in &en.variants {
         let vname = enum_variant_name(&variant.name, lang, ffi_prefix);
-        let vdoc = clean_doc_inline(&variant.doc);
+        let vdoc = if !variant.doc.is_empty() {
+            clean_doc_inline(&variant.doc)
+        } else {
+            generate_enum_variant_description(&variant.name)
+        };
         out.push_str(&format!("| `{vname}` | {vdoc} |\n"));
     }
     out.push('\n');
@@ -2085,6 +2089,148 @@ fn is_update_type(name: &str) -> bool {
     name.ends_with("Update")
 }
 
+/// Generate a human-readable description for an enum variant from its name.
+///
+/// Handles both PascalCase (`SingleColumn` → "Single column") and
+/// SCREAMING_CASE (`CODE_BLOCK` → "Code block element") variant names.
+fn generate_enum_variant_description(variant_name: &str) -> String {
+    if variant_name.is_empty() {
+        return String::new();
+    }
+
+    // Well-known variant names with specific descriptions
+    match variant_name {
+        "TEXT" => return "Text format".to_string(),
+        "MARKDOWN" => return "Markdown format".to_string(),
+        "HTML" => return "HTML format".to_string(),
+        "JSON" => return "JSON format".to_string(),
+        "CSV" => return "CSV format".to_string(),
+        "XML" => return "XML format".to_string(),
+        "PDF" => return "PDF format".to_string(),
+        "PLAIN" => return "Plain text format".to_string(),
+        _ => {}
+    }
+
+    // Detect SCREAMING_CASE: all uppercase/underscores/digits
+    let is_screaming = variant_name
+        .chars()
+        .all(|c| c.is_uppercase() || c == '_' || c.is_ascii_digit());
+
+    let words: Vec<String> = if is_screaming {
+        // SCREAMING_CASE: split on underscores and lowercase
+        variant_name
+            .split('_')
+            .filter(|s| !s.is_empty())
+            .map(|w| w.to_lowercase())
+            .collect()
+    } else {
+        // PascalCase: split on uppercase boundaries
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let chars: Vec<char> = variant_name.chars().collect();
+        for (i, &c) in chars.iter().enumerate() {
+            if c.is_uppercase() && !current.is_empty() {
+                // Check for acronym runs (e.g., "OSD" in "AutoOsd" stays together
+                // only if next char is also uppercase or we're at the end)
+                let next_is_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
+                if next_is_lower && current.len() > 1 && current.chars().all(|ch| ch.is_uppercase()) {
+                    // End of acronym run: split off all but last char
+                    let last = current.pop().expect("current is non-empty");
+                    if !current.is_empty() {
+                        parts.push(current);
+                    }
+                    current = String::new();
+                    current.push(last);
+                } else {
+                    parts.push(current);
+                    current = String::new();
+                }
+            }
+            current.push(c);
+        }
+        if !current.is_empty() {
+            parts.push(current);
+        }
+        parts.into_iter().map(|w| w.to_lowercase()).collect()
+    };
+
+    if words.is_empty() {
+        return String::new();
+    }
+
+    // Determine suffix based on category heuristics
+    let joined = words.join(" ");
+    let suffix = determine_enum_variant_suffix(&joined, is_screaming);
+
+    // Capitalize first letter
+    let mut chars = joined.chars();
+    match chars.next() {
+        Some(first) => {
+            let capitalized = first.to_uppercase().to_string() + chars.as_str();
+            if suffix.is_empty() {
+                capitalized
+            } else {
+                format!("{capitalized} {suffix}")
+            }
+        }
+        None => String::new(),
+    }
+}
+
+/// Determine an appropriate suffix for an enum variant description.
+fn determine_enum_variant_suffix(readable: &str, is_screaming: bool) -> &'static str {
+    // Format-like variants
+    let format_words = [
+        "text", "markdown", "html", "json", "csv", "xml", "pdf", "yaml", "toml", "docx", "xlsx", "pptx", "rtf",
+        "latex", "rst", "asciidoc", "epub",
+    ];
+    for w in &format_words {
+        if readable == *w {
+            return "format";
+        }
+    }
+
+    // Element-like variants (common in SCREAMING_CASE block-level names)
+    let element_words = [
+        "heading",
+        "paragraph",
+        "blockquote",
+        "table",
+        "figure",
+        "caption",
+        "footnote",
+        "header",
+        "footer",
+        "section",
+        "title",
+        "subtitle",
+        "image",
+    ];
+    for w in &element_words {
+        if readable == *w {
+            return "element";
+        }
+    }
+
+    // If it already ends with a category word, no suffix needed
+    let no_suffix_endings = [
+        "format", "mode", "type", "level", "style", "strategy", "method", "state", "status", "error", "element",
+        "block", "list", "model",
+    ];
+    for ending in &no_suffix_endings {
+        if readable.ends_with(ending) {
+            return "";
+        }
+    }
+
+    // SCREAMING_CASE compound names ending in list/block often describe elements
+    if is_screaming && (readable.contains("list") || readable.contains("block") || readable.contains("item")) {
+        return "";
+    }
+
+    ""
+}
+
 /// Generate a human-readable description for an error variant from its PascalCase name.
 ///
 /// Splits PascalCase into words and forms a sentence like "IO errors" or "Parsing errors".
@@ -2560,5 +2706,34 @@ mod tests {
         assert_eq!(snake_to_readable("column_types"), "Column types");
         assert_eq!(snake_to_readable("x"), "X");
         assert_eq!(snake_to_readable(""), "");
+    }
+
+    #[test]
+    fn test_generate_enum_variant_description_well_known() {
+        assert_eq!(generate_enum_variant_description("TEXT"), "Text format");
+        assert_eq!(generate_enum_variant_description("MARKDOWN"), "Markdown format");
+        assert_eq!(generate_enum_variant_description("HTML"), "HTML format");
+        assert_eq!(generate_enum_variant_description("JSON"), "JSON format");
+        assert_eq!(generate_enum_variant_description("PDF"), "PDF format");
+        assert_eq!(generate_enum_variant_description("PLAIN"), "Plain text format");
+    }
+
+    #[test]
+    fn test_generate_enum_variant_description_screaming_case() {
+        assert_eq!(generate_enum_variant_description("CODE_BLOCK"), "Code block");
+        assert_eq!(generate_enum_variant_description("ORDERED_LIST"), "Ordered list");
+        assert_eq!(generate_enum_variant_description("BULLET_LIST"), "Bullet list");
+        assert_eq!(generate_enum_variant_description("HEADING"), "Heading element");
+    }
+
+    #[test]
+    fn test_generate_enum_variant_description_pascal_case() {
+        assert_eq!(generate_enum_variant_description("SingleColumn"), "Single column");
+        assert_eq!(generate_enum_variant_description("AutoOsd"), "Auto osd");
+    }
+
+    #[test]
+    fn test_generate_enum_variant_description_empty() {
+        assert_eq!(generate_enum_variant_description(""), "");
     }
 }
