@@ -158,7 +158,7 @@ fn render_gemfile(
     dep_mode: crate::config::DependencyMode,
 ) -> String {
     let gem_line = match dep_mode {
-        crate::config::DependencyMode::Registry => format!("gem '{gem_name}', '~> {gem_version}'"),
+        crate::config::DependencyMode::Registry => format!("gem '{gem_name}', '{gem_version}'"),
         crate::config::DependencyMode::Local => format!("gem '{gem_name}', path: '{gem_path}'"),
     };
     format!(

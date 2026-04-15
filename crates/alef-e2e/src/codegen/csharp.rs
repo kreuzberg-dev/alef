@@ -147,12 +147,7 @@ impl E2eCodegen for CSharpCodegen {
 // Rendering
 // ---------------------------------------------------------------------------
 
-fn render_csproj(
-    pkg_name: &str,
-    pkg_path: &str,
-    pkg_version: &str,
-    dep_mode: crate::config::DependencyMode,
-) -> String {
+fn render_csproj(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: crate::config::DependencyMode) -> String {
     let pkg_ref = match dep_mode {
         crate::config::DependencyMode::Registry => {
             format!("    <PackageReference Include=\"{pkg_name}\" Version=\"{pkg_version}\" />")

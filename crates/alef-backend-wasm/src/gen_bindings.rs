@@ -73,7 +73,6 @@ impl Backend for WasmBackend {
         // Note: custom modules and registrations handled below after builder creation
 
         let mut builder = RustFileBuilder::new().with_generated_header();
-        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import("wasm_bindgen::prelude::*");
 
         // Import traits needed for trait method dispatch

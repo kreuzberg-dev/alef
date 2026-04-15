@@ -83,7 +83,6 @@ impl Backend for PhpBackend {
 
         // Build the inner module content (types, methods, conversions)
         let mut builder = RustFileBuilder::new();
-        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import("ext_php_rs::prelude::*");
 
         // Import serde_json when available (needed for serde-based param conversion)

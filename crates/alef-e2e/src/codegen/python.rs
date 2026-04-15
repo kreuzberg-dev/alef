@@ -108,7 +108,7 @@ fn render_pyproject(
     let dep_spec = match dep_mode {
         crate::config::DependencyMode::Registry => {
             format!(
-                "dependencies = [\"{pkg_name}>={pkg_version}\", \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\"]\n"
+                "dependencies = [\"{pkg_name}{pkg_version}\", \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\"]\n"
             )
         }
         crate::config::DependencyMode::Local => {

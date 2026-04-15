@@ -94,8 +94,7 @@ impl Backend for Pyo3Backend {
         // by Python stubs (.pyi), and the numeric casts are intentional FFI conversions.
         builder.add_inner_attribute("allow(missing_docs)");
         // PyO3 0.22+ deprecates auto-derived FromPyObject; silence until upstream stabilises.
-        // The error converter fn may be unused when all API methods use inline map_err.
-        builder.add_inner_attribute("allow(deprecated, dead_code)");
+        builder.add_inner_attribute("allow(deprecated)");
         builder.add_inner_attribute(
             "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss)",
         );

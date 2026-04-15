@@ -179,7 +179,7 @@ fn render_mix_exs(
     // Use a bare atom for the dep name (e.g., :html_to_markdown), not a quoted atom.
     let dep_line = match dep_mode {
         crate::config::DependencyMode::Registry => {
-            format!("      {{:{dep_atom}, \"~> {dep_version}\"}}")
+            format!("      {{:{dep_atom}, \"{dep_version}\"}}")
         }
         crate::config::DependencyMode::Local => {
             format!("      {{:{dep_atom}, path: \"{pkg_path}\"}}")

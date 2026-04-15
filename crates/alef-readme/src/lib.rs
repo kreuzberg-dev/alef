@@ -553,9 +553,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         ),
         Language::Rust => (
             "Rust",
-            format!(
-                "```bash\ncargo add {name}\n```"
-            ),
+            format!("```bash\ncargo add {name}\n```"),
             format!(
                 "```rust\nuse {};\n\n// TODO: add usage example\n```",
                 config.core_import()

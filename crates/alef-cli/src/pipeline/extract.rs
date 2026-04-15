@@ -163,7 +163,7 @@ pub fn extract_unfiltered(config: &AlefConfig, config_path: &Path) -> anyhow::Re
 }
 
 /// Shared raw extraction logic: parse sources, produce raw `ApiSurface`.
-fn extract_raw(config: &AlefConfig, config_path: &Path) -> anyhow::Result<ApiSurface> {
+fn extract_raw(config: &AlefConfig, _config_path: &Path) -> anyhow::Result<ApiSurface> {
     info!("Extracting API surface from Rust source...");
     let sources: Vec<&Path> = config.crate_config.sources.iter().map(|p| p.as_path()).collect();
 

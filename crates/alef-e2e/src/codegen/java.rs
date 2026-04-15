@@ -136,13 +136,19 @@ fn render_pom_xml(
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
 ) -> String {
-    let artifact_id = format!("{pkg_name}-e2e-java");
+    // pkg_name may be in "groupId:artifactId" Maven format; split accordingly.
+    let (dep_group_id, dep_artifact_id) = if let Some((g, a)) = pkg_name.split_once(':') {
+        (g, a)
+    } else {
+        (java_group_id, pkg_name)
+    };
+    let artifact_id = format!("{dep_artifact_id}-e2e-java");
     let dep_block = match dep_mode {
         crate::config::DependencyMode::Registry => {
             format!(
                 r#"        <dependency>
-            <groupId>{java_group_id}</groupId>
-            <artifactId>{pkg_name}</artifactId>
+            <groupId>{dep_group_id}</groupId>
+            <artifactId>{dep_artifact_id}</artifactId>
             <version>{pkg_version}</version>
         </dependency>"#
             )
@@ -150,11 +156,11 @@ fn render_pom_xml(
         crate::config::DependencyMode::Local => {
             format!(
                 r#"        <dependency>
-            <groupId>{java_group_id}</groupId>
-            <artifactId>{pkg_name}</artifactId>
+            <groupId>{dep_group_id}</groupId>
+            <artifactId>{dep_artifact_id}</artifactId>
             <version>{pkg_version}</version>
             <scope>system</scope>
-            <systemPath>${{project.basedir}}/../../packages/java/target/{pkg_name}-{pkg_version}.jar</systemPath>
+            <systemPath>${{project.basedir}}/../../packages/java/target/{dep_artifact_id}-{pkg_version}.jar</systemPath>
         </dependency>"#
             )
         }

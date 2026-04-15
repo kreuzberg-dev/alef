@@ -97,9 +97,7 @@ fn resolve_crate_path(e2e_config: &E2eConfig, crate_name: &str) -> String {
 }
 
 fn resolve_crate_version(e2e_config: &E2eConfig) -> Option<String> {
-    e2e_config
-        .resolve_package("rust")
-        .and_then(|p| p.version.clone())
+    e2e_config.resolve_package("rust").and_then(|p| p.version.clone())
 }
 
 fn resolve_function_name(e2e_config: &E2eConfig) -> String {

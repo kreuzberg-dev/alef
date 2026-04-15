@@ -159,19 +159,17 @@ fn render_composer_json(
         crate::config::DependencyMode::Registry => {
             format!(
                 r#"  "require": {{
-    "{pkg_name}": ">={pkg_version}"
+    "{pkg_name}": "{pkg_version}"
   }},
   "require-dev": {{
     "phpunit/phpunit": "^11.0"
   }},"#
             )
         }
-        crate::config::DependencyMode::Local => {
-            r#"  "require-dev": {
+        crate::config::DependencyMode::Local => r#"  "require-dev": {
     "phpunit/phpunit": "^11.0"
   },"#
-                .to_string()
-        }
+        .to_string(),
     };
 
     format!(

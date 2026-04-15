@@ -156,14 +156,8 @@ fn render_makefile(
     let _ = writeln!(out, "CC = gcc");
     match dep_mode {
         crate::config::DependencyMode::Registry => {
-            let _ = writeln!(
-                out,
-                "CFLAGS = -Wall -Wextra $(shell pkg-config --cflags {lib_name})"
-            );
-            let _ = writeln!(
-                out,
-                "LDFLAGS = $(shell pkg-config --libs {lib_name})"
-            );
+            let _ = writeln!(out, "CFLAGS = -Wall -Wextra $(shell pkg-config --cflags {lib_name})");
+            let _ = writeln!(out, "LDFLAGS = $(shell pkg-config --libs {lib_name})");
         }
         crate::config::DependencyMode::Local => {
             let _ = writeln!(out, "CFLAGS = -Wall -Wextra -I{include_path}");

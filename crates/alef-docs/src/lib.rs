@@ -121,7 +121,13 @@ fn generate_lang_doc(
 // Function rendering
 // ---------------------------------------------------------------------------
 
-fn render_function(func: &FunctionDef, lang: Language, _config: &AlefConfig, api: &ApiSurface, ffi_prefix: &str) -> String {
+fn render_function(
+    func: &FunctionDef,
+    lang: Language,
+    _config: &AlefConfig,
+    api: &ApiSurface,
+    ffi_prefix: &str,
+) -> String {
     let mut out = String::new();
     let fn_name = func_name(&func.name, lang, ffi_prefix);
 
@@ -752,10 +758,7 @@ fn generate_configuration_doc(
         .types
         .iter()
         .filter(|t| {
-            (t.name.ends_with("Config")
-                || t.name.ends_with("Options")
-                || t.name.ends_with("Settings")
-                || t.has_default)
+            (t.name.ends_with("Config") || t.name.ends_with("Options") || t.name.ends_with("Settings") || t.has_default)
                 && !t.is_opaque
                 && !is_update_type(&t.name)
         })
@@ -822,11 +825,7 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
     out.push_str("All types defined by the library, grouped by category. Types are shown using Rust as the canonical representation.\n\n");
 
     // Collect non-update types
-    let types_to_doc: Vec<&TypeDef> = api
-        .types
-        .iter()
-        .filter(|t| !is_update_type(&t.name))
-        .collect();
+    let types_to_doc: Vec<&TypeDef> = api.types.iter().filter(|t| !is_update_type(&t.name)).collect();
 
     if types_to_doc.is_empty() {
         out.push_str("No types defined.\n");
@@ -896,10 +895,7 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
                             }
                         });
                     let fdoc = clean_doc_inline(&field.doc);
-                    out.push_str(&format!(
-                        "| `{}` | `{}` | {} | {} |\n",
-                        field.name, fty, fdefault, fdoc
-                    ));
+                    out.push_str(&format!("| `{}` | `{}` | {} | {} |\n", field.name, fty, fdefault, fdoc));
                 }
                 out.push('\n');
             }
@@ -952,9 +948,7 @@ fn format_type_ref_rust(ty: &TypeRef, optional: bool) -> String {
                 format_type_ref_rust(v, false)
             );
         }
-        TypeRef::Named(name) => {
-            name.rsplit("::").next().unwrap_or(name).to_string()
-        }
+        TypeRef::Named(name) => name.rsplit("::").next().unwrap_or(name).to_string(),
     };
     if optional && !matches!(ty, TypeRef::Optional(_)) {
         format!("Option<{base}>")
@@ -1455,7 +1449,13 @@ fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface, ffi_
     "—".to_string()
 }
 
-fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {
+fn format_typed_default(
+    val: &DefaultValue,
+    field_ty: &TypeRef,
+    lang: Language,
+    api: &ApiSurface,
+    ffi_prefix: &str,
+) -> String {
     match val {
         DefaultValue::BoolLiteral(b) => match lang {
             Language::Python => format!("`{}`", if *b { "True" } else { "False" }),
@@ -2103,7 +2103,10 @@ mod tests {
     #[test]
     fn test_enum_variant_name_python() {
         assert_eq!(enum_variant_name("Atx", Language::Python, TEST_PREFIX), "ATX");
-        assert_eq!(enum_variant_name("SnakeCase", Language::Python, TEST_PREFIX), "SNAKE_CASE");
+        assert_eq!(
+            enum_variant_name("SnakeCase", Language::Python, TEST_PREFIX),
+            "SNAKE_CASE"
+        );
     }
 
     #[test]
@@ -2118,8 +2121,14 @@ mod tests {
 
     #[test]
     fn test_type_name_ffi_uses_prefix() {
-        assert_eq!(type_name("ConversionOptions", Language::Ffi, "Kreuzberg"), "KreuzbergConversionOptions");
-        assert_eq!(type_name("ConversionResult", Language::Ffi, "Kreuzberg"), "KreuzbergConversionResult");
+        assert_eq!(
+            type_name("ConversionOptions", Language::Ffi, "Kreuzberg"),
+            "KreuzbergConversionOptions"
+        );
+        assert_eq!(
+            type_name("ConversionResult", Language::Ffi, "Kreuzberg"),
+            "KreuzbergConversionResult"
+        );
     }
 
     #[test]
@@ -2204,8 +2213,14 @@ mod tests {
 
     #[test]
     fn test_type_name_ffi_prefix() {
-        assert_eq!(type_name("ConversionOptions", Language::Ffi, TEST_PREFIX), "HtmConversionOptions");
-        assert_eq!(type_name("ConversionResult", Language::Ffi, TEST_PREFIX), "HtmConversionResult");
+        assert_eq!(
+            type_name("ConversionOptions", Language::Ffi, TEST_PREFIX),
+            "HtmConversionOptions"
+        );
+        assert_eq!(
+            type_name("ConversionResult", Language::Ffi, TEST_PREFIX),
+            "HtmConversionResult"
+        );
     }
 
     #[test]

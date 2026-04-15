@@ -135,7 +135,7 @@ fn render_package_json(
     dep_mode: crate::config::DependencyMode,
 ) -> String {
     let dep_value = match dep_mode {
-        crate::config::DependencyMode::Registry => format!("^{pkg_version}"),
+        crate::config::DependencyMode::Registry => pkg_version.to_string(),
         crate::config::DependencyMode::Local => format!("file:{pkg_path}"),
     };
     format!(

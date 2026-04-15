@@ -63,7 +63,6 @@ impl Backend for NapiBackend {
         let cfg = Self::binding_config(&core_import);
 
         let mut builder = RustFileBuilder::new().with_generated_header();
-        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import("napi::*");
         builder.add_import("napi_derive::napi");
 
