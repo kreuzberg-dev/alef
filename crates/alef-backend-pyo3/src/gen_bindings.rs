@@ -112,6 +112,9 @@ impl Backend for Pyo3Backend {
         for trait_path in generators::collect_trait_imports(api) {
             builder.add_import(&trait_path);
         }
+        if generators::has_unresolved_trait_methods(api) {
+            builder.add_import(&format!("{core_import}::*"));
+        }
 
         // Check if we have non-sanitized async functions (sanitized async methods produce stubs, not async code)
         let has_async = api.functions.iter().any(|f| f.is_async && !f.sanitized)

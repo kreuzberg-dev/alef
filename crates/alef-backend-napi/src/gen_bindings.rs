@@ -251,17 +251,21 @@ impl Backend for NapiBackend {
             "".to_string(),
         ];
 
-        // Single export block: value exports (functions + enums) + inline type exports (structs)
-        let mut all_exports: Vec<String> = Vec::new();
-        for name in &function_exports {
-            all_exports.push(format!("  {name},"));
-        }
-        for name in &type_exports {
-            all_exports.push(format!("  type {name},"));
-        }
-        if !all_exports.is_empty() {
+        // Separate value and type exports for isolatedModules compatibility.
+        // Value exports (functions + enums) in one block, type exports (structs) in another.
+        if !function_exports.is_empty() {
             lines.push("export {".to_string());
-            lines.extend(all_exports);
+            for name in &function_exports {
+                lines.push(format!("  {name},"));
+            }
+            lines.push(format!("}} from '{}';", config.node_package_name()));
+            lines.push("".to_string());
+        }
+        if !type_exports.is_empty() {
+            lines.push("export type {".to_string());
+            for name in &type_exports {
+                lines.push(format!("  {name},"));
+            }
             lines.push(format!("}} from '{}';", config.node_package_name()));
         }
 

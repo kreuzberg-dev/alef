@@ -7,26 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-04-15
+
 ### Added
 
 - `alef sync-versions --set <version>` — set an explicit version (supports pre-release like `0.1.0-rc.1`)
 - `alef verify` now checks version consistency across all package manifests
 - `alef-sync-versions` pre-commit hook for automatic version propagation on Cargo.toml changes
 - PEP 440 pre-release conversion for Python (`0.1.0-rc.1` → `0.1.0rc1`)
+- `reverse_conversions` config flag to gate binding-to-core `From` impls
+- E2E registry mode for test_apps generation across all 12 languages
+- `alef-docs` fallback description generator for struct fields and enum variants
+- `alef all` now includes e2e and docs generation; scaffold reads workspace version
+- Elixir `ex_doc` support in scaffold
+- Java scaffold: switch to `central-publishing-maven-plugin`; Node scaffold: `optionalDependencies`
+- Enriched PHP/Python/Java scaffolds for CI and publishing
 - PHP composer.json scaffold: `scripts` section with `phpstan`, `format`, `format:check`, `test`, `lint`, and `lint:fix` commands
 
 ### Fixed
 
+- Docs generator: critical type, default value, enum, and error generation fixes across Go, C#, Rust
+- Go doc signatures with empty return type; C# double `Async` suffix removed
+- FFI codegen cast corrections; README version template rendering
+- PHP scaffold autoload and backslash escaping in `composer.json` PSR-4 namespace
 - PHP stubs: generate public property declarations on classes (ext-php-rs exposes fields as properties, PHPStan needs them declared)
-- Ruby gemspec version sync: match single-quote `spec.version = '...'` (was only matching double quotes)
-- Python scaffold: removed `[tool.ruff]` section — linter config belongs in root `pyproject.toml`
-- WASM scaffold: added missing `wasm-bindgen-futures` dependency
-- Node/FFI scaffolds: removed unused `serde` dependency
-- Clippy `field_reassign_with_default` suppressed for Duration builder pattern
-- PHP backend: escape backslashes in namespace for generated `#[php(name = "...")]` attributes so Rust string literals compile correctly
-- PHP backend: remove hardcoded `createEngineFromJson` helper from facade and stubs (was kreuzcrawl-specific, incorrectly triggered by any opaque type)
+- PHP stubs: camelCase naming; remove hardcoded `createEngineFromJson` from facade and stubs
+- PHP codegen: remove needless borrow in `serde_json::to_value` calls (clippy fix)
 - Python stubs: add `# noqa: A002` to constructor parameters that shadow Python builtins (e.g. `id`)
-- PHP codegen: remove needless borrow in `serde_json::to_value` calls for enum-string fields (fixes clippy `needless_borrows_for_generic_args`)
+- Python stubs: place `noqa` comment after comma in multi-line `__init__` params
+- Python scaffold: removed `[tool.ruff]` section — linter config belongs in root `pyproject.toml`
+- Python duration stubs: correct mypy annotations
+- Ruby: replace `serde_magnus` with `serde_json`, handle sanitized fields in `From` impls
+- Ruby gemspec version sync: match single-quote `spec.version = '...'` (was only matching double quotes)
+- Java: `checkLastError` throws `Throwable`; correct Jackson version to 2.19.0
+- WASM: `option_duration` handling; added missing `wasm-bindgen-futures` dependency
+- WASM codegen: remove unused `HashMap` import
+- Node/FFI scaffolds: removed unused `serde` dependency
+- Node scaffold: removed unused `serde_json` dependency
+- Rustler backend: output path uses `_nif` suffix instead of `_rustler`
+- Version sync: recursive `.csproj` scanning, WASM/root `composer.json`, FFI crate name
+- Only generate binding-to-core `From` impls for input types, not output-only types
+- `path_mismatch` false positive on re-exported types (same crate root + name)
+- Add `Language::Rust` to all match arms across codebase
+- Rust e2e: `assert!(bool)` for clippy, `is_empty` for len comparisons, unqualified imports
+- E2e: add `setuptools packages=[]` to Python registry `pyproject.toml`
+- Clippy `field_reassign_with_default` suppressed for Duration builder pattern
 - Scaffold Cargo.toml templates: removed unused deps — `pyo3-async-runtimes` (Python), `serde_json` (Node), `tokio` (PHP, FFI), `wasm-bindgen-futures` (WASM), `serde`+`tokio` (Elixir/Rustler) — only include what generated binding code actually uses
 
 ## [0.3.3] - 2026-04-14
