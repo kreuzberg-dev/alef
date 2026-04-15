@@ -1,7 +1,7 @@
 use crate::generators::binding_helpers::{
-    gen_async_body, gen_call_args, gen_call_args_with_let_bindings, gen_lossy_binding_to_core_fields,
-    gen_lossy_binding_to_core_fields_mut, gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
-    is_simple_non_opaque_param, wrap_return,
+    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_with_let_bindings,
+    gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_serde_let_bindings,
+    gen_unimplemented_body, has_named_params, is_simple_non_opaque_param, wrap_return,
 };
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::shared::{constructor_parts, function_params, function_sig_defaults, partition_methods};
@@ -120,9 +120,10 @@ pub fn gen_method(
     //   - Named(self) → Self { inner: Arc::new(result) }
     //   - Named(other) → OtherType::from(result)
     //   - primitives/String/Vec/Unit → pass through
+    let result_expr = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
     let async_result_wrap = if is_opaque {
         wrap_return(
-            "result",
+            &result_expr,
             &method.return_type,
             type_name,
             opaque_types,
@@ -134,8 +135,8 @@ pub fn gen_method(
         // For non-opaque types, only use From conversion if the return type is simple
         // enough. Named return types may not have a From impl.
         match &method.return_type {
-            TypeRef::Named(_) | TypeRef::Json => "result.into()".to_string(),
-            _ => "result".to_string(),
+            TypeRef::Named(_) | TypeRef::Json => format!("{result_expr}.into()"),
+            _ => result_expr.clone(),
         }
     };
 
@@ -197,6 +198,11 @@ pub fn gen_method(
                 gen_lossy_binding_to_core_fields(typ, cfg.core_import)
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
+            let newtype_suffix = if method.return_newtype_wrapper.is_some() {
+                ".0"
+            } else {
+                ""
+            };
             let result_wrap = match &method.return_type {
                 // When returns_cow=true the core returns Cow<'_, T>: call .into_owned() to
                 // obtain an owned T before the binding→core From conversion.
@@ -243,9 +249,11 @@ pub fn gen_method(
                     AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
                     _ => ".map_err(|e| e.to_string())",
                 };
-                format!("{field_conversions}let result = {core_call}{err_conv}?;\n        Ok(result{result_wrap})")
+                format!(
+                    "{field_conversions}let result = {core_call}{err_conv}?;\n        Ok(result{newtype_suffix}{result_wrap})"
+                )
             } else {
-                format!("{field_conversions}{core_call}{result_wrap}")
+                format!("{field_conversions}{core_call}{newtype_suffix}{result_wrap}")
             }
         } else {
             gen_unimplemented_body(
@@ -292,7 +300,7 @@ pub fn gen_method(
                     format!("{core_call}{err_conv}?;\n        Ok(())")
                 } else {
                     let wrap = wrap_return(
-                        "result",
+                        &result_expr,
                         &method.return_type,
                         type_name,
                         opaque_types,
@@ -306,8 +314,9 @@ pub fn gen_method(
                 format!("{core_call}{err_conv}")
             }
         } else if is_opaque {
+            let unwrapped_call = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
             wrap_return(
-                &core_call,
+                &unwrapped_call,
                 &method.return_type,
                 type_name,
                 opaque_types,
@@ -459,8 +468,9 @@ pub fn gen_static_method(
                 _ => ".map_err(|e| e.to_string())",
             };
             // Wrap the Ok value if the return type needs conversion (e.g. PathBuf→String)
+            let val_expr = apply_return_newtype_unwrap("val", &method.return_newtype_wrapper);
             let wrapped = wrap_return(
-                "val",
+                &val_expr,
                 &method.return_type,
                 type_name,
                 opaque_types,
@@ -468,15 +478,16 @@ pub fn gen_static_method(
                 method.returns_ref,
                 method.returns_cow,
             );
-            if wrapped == "val" {
+            if wrapped == val_expr {
                 format!("{core_call}{err_conv}")
             } else {
                 format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }
         } else {
             // Wrap return value for non-error case too (e.g. PathBuf→String)
+            let unwrapped_call = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
             wrap_return(
-                &core_call,
+                &unwrapped_call,
                 &method.return_type,
                 type_name,
                 opaque_types,

@@ -1,5 +1,19 @@
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, PrimitiveType, TypeDef, TypeRef};
+
+/// Check if a TypeRef references a Named type that is in the exclude list.
+/// Used to skip fields whose types were excluded from binding generation,
+/// preventing references to non-existent wrapper types (e.g. Js* in WASM).
+pub fn field_references_excluded_type(ty: &TypeRef, exclude_types: &[String]) -> bool {
+    match ty {
+        TypeRef::Named(name) => exclude_types.iter().any(|e| e == name),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => field_references_excluded_type(inner, exclude_types),
+        TypeRef::Map(k, v) => {
+            field_references_excluded_type(k, exclude_types) || field_references_excluded_type(v, exclude_types)
+        }
+        _ => false,
+    }
+}
 
 /// Returns true if a primitive type needs i64 casting (NAPI/PHP — JS/PHP lack native u64).
 pub(crate) fn needs_i64_cast(p: &PrimitiveType) -> bool {
@@ -56,6 +70,9 @@ pub fn core_to_binding_convertible_types(surface: &ApiSurface) -> AHashSet<Strin
         .map(|t| t.name.as_str())
         .collect();
 
+    // Build rust_path maps for detecting type_rust_path mismatches.
+    let (enum_paths, type_paths) = build_rust_path_maps(surface);
+
     // All non-opaque types are candidates (sanitized fields use format!("{:?}"))
     let mut convertible: AHashSet<String> = surface
         .types
@@ -73,10 +90,15 @@ pub fn core_to_binding_convertible_types(surface: &ApiSurface) -> AHashSet<Strin
         let mut to_remove = Vec::new();
         for type_name in &snapshot {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
-                let ok = typ
-                    .fields
-                    .iter()
-                    .all(|f| f.sanitized || is_field_convertible(&f.ty, &convertible_enums, &known));
+                let ok = typ.fields.iter().all(|f| {
+                    if f.sanitized {
+                        true
+                    } else if field_has_path_mismatch(f, &enum_paths, &type_paths) {
+                        false
+                    } else {
+                        is_field_convertible(&f.ty, &convertible_enums, &known)
+                    }
+                });
                 if !ok {
                     to_remove.push(type_name.clone());
                 }
@@ -136,6 +158,9 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
         .map(|t| t.name.as_str())
         .collect();
 
+    // Build rust_path maps for detecting type_rust_path mismatches.
+    let (enum_paths, type_paths) = build_rust_path_maps(surface);
+
     // Iteratively remove types whose fields reference non-convertible Named types.
     // We check against `convertible ∪ opaque_types` so that types referencing
     // excluded types (e.g. types with sanitized fields) are transitively removed,
@@ -151,9 +176,9 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
                 let ok = typ.fields.iter().all(|f| {
                     if f.sanitized {
-                        // Sanitized fields use Default::default() in the generated From impl.
-                        // If the field type is a Named type without Default, the impl won't compile.
                         sanitized_field_has_default(&f.ty, &default_type_names)
+                    } else if field_has_path_mismatch(f, &enum_paths, &type_paths) {
+                        false
                     } else {
                         is_field_convertible(&f.ty, &convertible_enums, &known)
                     }
@@ -233,6 +258,57 @@ pub(crate) fn is_field_convertible(
         // Unit-variant enums and known types (including opaques, which use Arc wrap/unwrap) are convertible.
         TypeRef::Named(name) => convertible_enums.contains(name.as_str()) || known_types.contains(name.as_str()),
     }
+}
+
+/// Check if a field's `type_rust_path` is compatible with the known type/enum rust_paths.
+///
+/// When a struct field has a `type_rust_path` that differs from the `rust_path` of the
+/// enum or type with the same short name, the `.into()` conversion will fail because
+/// the `From` impl targets a different type. This detects such mismatches.
+fn field_has_path_mismatch(
+    field: &FieldDef,
+    enum_rust_paths: &AHashMap<&str, &str>,
+    type_rust_paths: &AHashMap<&str, &str>,
+) -> bool {
+    let name = match &field.ty {
+        TypeRef::Named(n) => n.as_str(),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => n.as_str(),
+            _ => return false,
+        },
+        _ => return false,
+    };
+
+    if let Some(field_path) = &field.type_rust_path {
+        if let Some(enum_path) = enum_rust_paths.get(name) {
+            if !field_path.ends_with(enum_path) && !enum_path.ends_with(field_path.as_str()) && field_path != *enum_path
+            {
+                return true;
+            }
+        }
+        if let Some(type_path) = type_rust_paths.get(name) {
+            if !field_path.ends_with(type_path) && !type_path.ends_with(field_path.as_str()) && field_path != *type_path
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Build maps of name -> rust_path for enums and types in the API surface.
+fn build_rust_path_maps(surface: &ApiSurface) -> (AHashMap<&str, &str>, AHashMap<&str, &str>) {
+    let enum_paths: AHashMap<&str, &str> = surface
+        .enums
+        .iter()
+        .map(|e| (e.name.as_str(), e.rust_path.as_str()))
+        .collect();
+    let type_paths: AHashMap<&str, &str> = surface
+        .types
+        .iter()
+        .map(|t| (t.name.as_str(), t.rust_path.as_str()))
+        .collect();
+    (enum_paths, type_paths)
 }
 
 /// Check if an enum can have From/Into safely generated (both directions).

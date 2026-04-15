@@ -62,11 +62,17 @@ pub(crate) fn gen_php_function_params(
         .map(|p| {
             let base_ty = mapper.map_type(&p.ty);
             let ty = match &p.ty {
-                TypeRef::Named(_name) => {
-                    // All php_class types (opaque and non-opaque) must use &T for
-                    // ext-php-rs compatibility: owned php_class types don't implement
-                    // FromZvalMut, only &T and &mut T do.
-                    if p.optional {
+                TypeRef::Named(name) => {
+                    // Enum types are mapped to String in PHP — use owned String, not &String.
+                    // Only php_class struct types need &T (ext-php-rs only provides
+                    // FromZvalMut for &T/&mut T, not owned T, for php_class types).
+                    if mapper.enum_names.contains(name.as_str()) {
+                        if p.optional {
+                            format!("Option<{base_ty}>")
+                        } else {
+                            base_ty
+                        }
+                    } else if p.optional {
                         format!("Option<&{base_ty}>")
                     } else {
                         format!("&{base_ty}")
@@ -120,7 +126,13 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                     format!("&{}", p.name)
                 }
             }
-            TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
+            TypeRef::Path => {
+                if p.optional {
+                    format!("{}.map(std::path::PathBuf::from)", p.name)
+                } else {
+                    format!("std::path::PathBuf::from({})", p.name)
+                }
+            }
             TypeRef::Bytes => {
                 if p.optional {
                     if p.is_ref {
@@ -201,7 +213,13 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     format!("&{}", p.name)
                 }
             }
-            TypeRef::Path => format!("std::path::PathBuf::from({})", p.name),
+            TypeRef::Path => {
+                if p.optional {
+                    format!("{}.map(std::path::PathBuf::from)", p.name)
+                } else {
+                    format!("std::path::PathBuf::from({})", p.name)
+                }
+            }
             TypeRef::Bytes => {
                 if p.optional {
                     if p.is_ref {
@@ -237,7 +255,12 @@ fn core_prim_str(p: &PrimitiveType) -> &'static str {
 
 /// PHP-specific lossy binding->core struct literal.
 /// Like `gen_lossy_binding_to_core_fields` but adds i64->usize casts for large-int primitives.
-pub(crate) fn gen_php_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str) -> String {
+pub(crate) fn gen_php_lossy_binding_to_core_fields(
+    typ: &TypeDef,
+    core_import: &str,
+    enum_names: &AHashSet<String>,
+    enums: &[EnumDef],
+) -> String {
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
     let mut out = format!("let core_self = {core_path} {{\n");
     for field in &typ.fields {
@@ -245,81 +268,94 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &
         if field.sanitized {
             writeln!(out, "            {name}: Default::default(),").ok();
         } else {
-            let expr = match &field.ty {
-                TypeRef::Primitive(p) if needs_i64_cast(p) => {
-                    let core_ty = core_prim_str(p);
-                    if field.optional {
-                        format!("self.{name}.map(|v| v as {core_ty})")
-                    } else {
-                        format!("self.{name} as {core_ty}")
-                    }
+            // Check if this Named field is an enum (PHP maps enums to String).
+            // If so, use string->enum parsing instead of .into().
+            let expr = if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
+                gen_string_to_enum_expr(&format!("self.{name}"), &enum_name, field.optional, enums, core_import)
+            } else if let Some(enum_name) = get_vec_enum_named(&field.ty, enum_names) {
+                let elem_conv = gen_string_to_enum_expr("s", &enum_name, false, enums, core_import);
+                if field.optional {
+                    format!("self.{name}.clone().map(|v| v.into_iter().map(|s| {elem_conv}).collect())")
+                } else {
+                    format!("self.{name}.clone().into_iter().map(|s| {elem_conv}).collect()")
                 }
-                TypeRef::Primitive(_) => format!("self.{name}"),
-                TypeRef::Duration => {
-                    if field.optional {
-                        format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
-                    } else {
-                        format!("std::time::Duration::from_millis(self.{name} as u64)")
-                    }
-                }
-                TypeRef::String | TypeRef::Char | TypeRef::Bytes => format!("self.{name}.clone()"),
-                TypeRef::Path => {
-                    if field.optional {
-                        format!("self.{name}.clone().map(Into::into)")
-                    } else {
-                        format!("self.{name}.clone().into()")
-                    }
-                }
-                TypeRef::Named(_) => {
-                    if field.optional {
-                        format!("self.{name}.clone().map(Into::into)")
-                    } else {
-                        format!("self.{name}.clone().into()")
-                    }
-                }
-                TypeRef::Vec(inner) => match inner.as_ref() {
-                    TypeRef::Named(_) => {
-                        if field.optional {
-                            format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
-                        } else {
-                            format!("self.{name}.clone().into_iter().map(Into::into).collect()")
-                        }
-                    }
+            } else {
+                match &field.ty {
                     TypeRef::Primitive(p) if needs_i64_cast(p) => {
                         let core_ty = core_prim_str(p);
                         if field.optional {
-                            format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+                            format!("self.{name}.map(|v| v as {core_ty})")
                         } else {
-                            format!("self.{name}.clone().into_iter().map(|v| v as {core_ty}).collect()")
+                            format!("self.{name} as {core_ty}")
                         }
                     }
-                    _ => format!("self.{name}.clone()"),
-                },
-                TypeRef::Optional(inner) => match inner.as_ref() {
-                    TypeRef::Primitive(p) if needs_i64_cast(p) => {
-                        let core_ty = core_prim_str(p);
-                        format!("self.{name}.map(|v| v as {core_ty})")
+                    TypeRef::Primitive(_) => format!("self.{name}"),
+                    TypeRef::Duration => {
+                        if field.optional {
+                            format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
+                        } else {
+                            format!("std::time::Duration::from_millis(self.{name} as u64)")
+                        }
+                    }
+                    TypeRef::String | TypeRef::Char | TypeRef::Bytes => format!("self.{name}.clone()"),
+                    TypeRef::Path => {
+                        if field.optional {
+                            format!("self.{name}.clone().map(Into::into)")
+                        } else {
+                            format!("self.{name}.clone().into()")
+                        }
                     }
                     TypeRef::Named(_) => {
-                        format!("self.{name}.clone().map(Into::into)")
+                        if field.optional {
+                            format!("self.{name}.clone().map(Into::into)")
+                        } else {
+                            format!("self.{name}.clone().into()")
+                        }
                     }
-                    TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
-                        format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
-                    }
-                    TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) => {
-                        if let TypeRef::Primitive(p) = vi.as_ref() {
+                    TypeRef::Vec(inner) => match inner.as_ref() {
+                        TypeRef::Named(_) => {
+                            if field.optional {
+                                format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
+                            } else {
+                                format!("self.{name}.clone().into_iter().map(Into::into).collect()")
+                            }
+                        }
+                        TypeRef::Primitive(p) if needs_i64_cast(p) => {
                             let core_ty = core_prim_str(p);
-                            format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
-                        } else {
-                            format!("self.{name}.clone()")
+                            if field.optional {
+                                format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+                            } else {
+                                format!("self.{name}.clone().into_iter().map(|v| v as {core_ty}).collect()")
+                            }
                         }
-                    }
-                    _ => format!("self.{name}.clone()"),
-                },
-                TypeRef::Map(_, _) => format!("self.{name}.clone()"),
-                TypeRef::Unit => format!("self.{name}.clone()"),
-                // Json maps to String in PHP -- can't directly assign to serde_json::Value
-                TypeRef::Json => "Default::default()".to_string(),
+                        _ => format!("self.{name}.clone()"),
+                    },
+                    TypeRef::Optional(inner) => match inner.as_ref() {
+                        TypeRef::Primitive(p) if needs_i64_cast(p) => {
+                            let core_ty = core_prim_str(p);
+                            format!("self.{name}.map(|v| v as {core_ty})")
+                        }
+                        TypeRef::Named(_) => {
+                            format!("self.{name}.clone().map(Into::into)")
+                        }
+                        TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
+                            format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
+                        }
+                        TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) => {
+                            if let TypeRef::Primitive(p) = vi.as_ref() {
+                                let core_ty = core_prim_str(p);
+                                format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+                            } else {
+                                format!("self.{name}.clone()")
+                            }
+                        }
+                        _ => format!("self.{name}.clone()"),
+                    },
+                    TypeRef::Map(_, _) => format!("self.{name}.clone()"),
+                    TypeRef::Unit => format!("self.{name}.clone()"),
+                    // Json maps to String in PHP -- can't directly assign to serde_json::Value
+                    TypeRef::Json => "Default::default()".to_string(),
+                }
             };
             writeln!(out, "            {name}: {expr},").ok();
         }

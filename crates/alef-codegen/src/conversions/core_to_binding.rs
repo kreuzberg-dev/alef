@@ -43,6 +43,12 @@ pub fn gen_from_core_to_binding_cfg(
     let optionalized = config.optionalize_defaults && typ.has_default;
     writeln!(out, "        Self {{").ok();
     for field in &typ.fields {
+        // Fields referencing excluded types are not present in the binding struct — skip
+        if !config.exclude_types.is_empty()
+            && super::helpers::field_references_excluded_type(&field.ty, config.exclude_types)
+        {
+            continue;
+        }
         let base_conversion = field_conversion_from_core_cfg(
             &field.name,
             &field.ty,

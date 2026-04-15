@@ -170,6 +170,7 @@ pub(crate) fn gen_struct_methods(
     core_import: &str,
     opaque_types: &AHashSet<String>,
     enum_names: &AHashSet<String>,
+    enums: &[EnumDef],
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -257,6 +258,7 @@ pub(crate) fn gen_struct_methods(
                 typ,
                 core_import,
                 opaque_types,
+                enums,
             ));
         }
     }
