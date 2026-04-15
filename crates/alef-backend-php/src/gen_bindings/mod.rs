@@ -83,6 +83,7 @@ impl Backend for PhpBackend {
 
         // Build the inner module content (types, methods, conversions)
         let mut builder = RustFileBuilder::new();
+        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import("ext_php_rs::prelude::*");
 
         // Import serde_json when available (needed for serde-based param conversion)
@@ -239,6 +240,7 @@ impl Backend for PhpBackend {
 
         let convertible = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
+        let input_types = alef_codegen::conversions::input_type_names(api);
         // From/Into conversions with PHP-specific i64 casts.
         // Types with enum Named fields (or that reference such types transitively) can't
         // have binding->core From impls because PHP maps enums to String and there's no
@@ -273,8 +275,9 @@ impl Backend for PhpBackend {
             }
         }
         for typ in &api.types {
-            // binding->core: only when not enum-tainted
-            if !enum_tainted.contains(&typ.name)
+            // binding->core: only when not enum-tainted and type is used as input
+            if input_types.contains(&typ.name)
+                && !enum_tainted.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &convertible)
             {
                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
@@ -282,11 +285,11 @@ impl Backend for PhpBackend {
                     &core_import,
                     &php_conv_config,
                 ));
-            } else if enum_tainted.contains(&typ.name) && has_serde {
+            } else if input_types.contains(&typ.name) && enum_tainted.contains(&typ.name) && has_serde {
                 // Enum-tainted types can't use field-by-field From (no From<String> for core enum),
                 // but when serde is available we bridge via JSON serialization round-trip.
                 builder.add_item(&gen_serde_bridge_from(typ, &core_import));
-            } else if enum_tainted.contains(&typ.name) {
+            } else if input_types.contains(&typ.name) && enum_tainted.contains(&typ.name) {
                 // Enum-tainted types: generate From with string->enum parsing for enum-Named
                 // fields, using first variant as fallback. Data-variant enum fields fill
                 // data fields with Default::default().

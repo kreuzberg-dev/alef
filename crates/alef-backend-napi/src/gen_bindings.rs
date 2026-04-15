@@ -63,6 +63,7 @@ impl Backend for NapiBackend {
         let cfg = Self::binding_config(&core_import);
 
         let mut builder = RustFileBuilder::new().with_generated_header();
+        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import("napi::*");
         builder.add_import("napi_derive::napi");
 
@@ -131,6 +132,7 @@ impl Backend for NapiBackend {
 
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
+        let input_types = alef_codegen::conversions::input_type_names(api);
         let napi_conv_config = alef_codegen::conversions::ConversionConfig {
             type_name_prefix: "Js",
             cast_large_ints_to_i64: true,
@@ -145,7 +147,7 @@ impl Backend for NapiBackend {
         };
         // From/Into conversions using shared parameterized generators
         for typ in &api.types {
-            if config.generate.reverse_conversions
+            if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
@@ -170,7 +172,7 @@ impl Backend for NapiBackend {
                 builder.add_item(&gen_tagged_enum_binding_to_core(e, &core_import));
                 builder.add_item(&gen_tagged_enum_core_to_binding(e, &core_import));
             } else {
-                if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
+                if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
                     builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
                         e,
                         &core_import,

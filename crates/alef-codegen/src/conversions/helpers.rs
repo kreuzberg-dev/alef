@@ -1,6 +1,70 @@
 use ahash::{AHashMap, AHashSet};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
+/// Collect all Named type names that appear as function/method input parameters.
+/// These are types that flow from the binding layer INTO the core — they need
+/// binding→core `From` impls. Types that only appear as return values do NOT
+/// need reverse conversions.
+///
+/// The result includes transitive dependencies: if `CrawlConfig` is an input
+/// and it has a field `browser: BrowserConfig`, then `BrowserConfig` is also
+/// included.
+pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
+    let mut names = AHashSet::new();
+
+    // Collect Named types from function params
+    for func in &surface.functions {
+        for param in &func.params {
+            collect_named_types(&param.ty, &mut names);
+        }
+    }
+    // Collect Named types from method params
+    for typ in &surface.types {
+        for method in &typ.methods {
+            for param in &method.params {
+                collect_named_types(&param.ty, &mut names);
+            }
+        }
+    }
+
+    // Transitive closure: if type A is an input and has field of type B, B is also an input
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let snapshot: Vec<String> = names.iter().cloned().collect();
+        for name in &snapshot {
+            if let Some(typ) = surface.types.iter().find(|t| t.name == *name) {
+                for field in &typ.fields {
+                    let mut field_names = AHashSet::new();
+                    collect_named_types(&field.ty, &mut field_names);
+                    for n in field_names {
+                        if names.insert(n) {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    names
+}
+
+/// Recursively collect all `Named(name)` from a TypeRef.
+fn collect_named_types(ty: &TypeRef, out: &mut AHashSet<String>) {
+    match ty {
+        TypeRef::Named(name) => {
+            out.insert(name.clone());
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named_types(inner, out),
+        TypeRef::Map(k, v) => {
+            collect_named_types(k, out);
+            collect_named_types(v, out);
+        }
+        _ => {}
+    }
+}
+
 /// Check if a TypeRef references a Named type that is in the exclude list.
 /// Used to skip fields whose types were excluded from binding generation,
 /// preventing references to non-existent wrapper types (e.g. Js* in WASM).

@@ -294,6 +294,16 @@ pub(crate) fn extract_module(
         let mut found = false;
         for candidate in &candidates {
             if candidate.exists() {
+                // Track this file as visited to prevent duplicate processing
+                // when the same file appears both as a `pub mod` submodule and
+                // as a top-level source in alef.toml.
+                let canonical_candidate = std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
+                if visited.contains(&canonical_candidate) {
+                    found = true;
+                    break;
+                }
+                visited.push(canonical_candidate);
+
                 let content = std::fs::read_to_string(candidate)
                     .with_context(|| format!("Failed to read module file: {}", candidate.display()))?;
                 let file = syn::parse_file(&content)
