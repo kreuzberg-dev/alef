@@ -130,6 +130,17 @@ pub fn wrap_return(
     }
 }
 
+/// Unwrap a newtype return value when `return_newtype_wrapper` is set.
+///
+/// Core function returns a newtype (e.g. `NodeIndex(u32)`), but the binding return type
+/// is the inner type (e.g. `u32`). Access `.0` to unwrap the newtype.
+pub fn apply_return_newtype_unwrap(expr: &str, return_newtype_wrapper: &Option<String>) -> String {
+    match return_newtype_wrapper {
+        Some(_) => format!("({expr}).0"),
+        None => expr.to_string(),
+    }
+}
+
 /// Build call argument expressions from parameters.
 /// - Opaque Named types: unwrap Arc wrapper via `(*param.inner).clone()`
 /// - Non-opaque Named types: `.into()` for From conversion
@@ -201,10 +212,16 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                         p.name.clone()
                     }
                 }
-                // Path → PathBuf for core function calls (core expects PathBuf, binding has String)
+                // Path → PathBuf/&Path for core function calls
                 TypeRef::Path => {
-                    if promoted {
+                    if p.optional && p.is_ref {
+                        format!("{}.as_deref().map(std::path::Path::new)", p.name)
+                    } else if p.optional {
+                        format!("{}.map(std::path::PathBuf::from)", p.name)
+                    } else if promoted {
                         format!("std::path::PathBuf::from({}{})", p.name, unwrap_suffix)
+                    } else if p.is_ref {
+                        format!("std::path::Path::new(&{})", p.name)
                     } else {
                         format!("std::path::PathBuf::from({})", p.name)
                     }
@@ -222,9 +239,11 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                         format!("&{}", p.name)
                     }
                 }
-                // Duration: binding uses u64 (secs), core uses std::time::Duration
+                // Duration: binding uses u64 (millis), core uses std::time::Duration
                 TypeRef::Duration => {
-                    if promoted {
+                    if p.optional {
+                        format!("{}.map(std::time::Duration::from_millis)", p.name)
+                    } else if promoted {
                         format!("std::time::Duration::from_millis({}{})", p.name, unwrap_suffix)
                     } else {
                         format!("std::time::Duration::from_millis({})", p.name)
@@ -304,6 +323,12 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                 TypeRef::Path => {
                     if promoted {
                         format!("std::path::PathBuf::from({}{})", p.name, unwrap_suffix)
+                    } else if p.optional && p.is_ref {
+                        format!("{}.as_deref().map(std::path::Path::new)", p.name)
+                    } else if p.optional {
+                        format!("{}.map(std::path::PathBuf::from)", p.name)
+                    } else if p.is_ref {
+                        format!("std::path::Path::new(&{})", p.name)
                     } else {
                         format!("std::path::PathBuf::from({})", p.name)
                     }
@@ -322,7 +347,9 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                     }
                 }
                 TypeRef::Duration => {
-                    if promoted {
+                    if p.optional {
+                        format!("{}.map(std::time::Duration::from_millis)", p.name)
+                    } else if promoted {
                         format!("std::time::Duration::from_millis({}{})", p.name, unwrap_suffix)
                     } else {
                         format!("std::time::Duration::from_millis({})", p.name)
@@ -521,7 +548,14 @@ fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, need
                             )
                         }
                     }
-                    _ => format!("self.{name}.clone()"),
+                    // Collect to handle HashMap↔BTreeMap conversion
+                    _ => {
+                        if field.optional {
+                            format!("self.{name}.clone().map(|m| m.into_iter().collect())")
+                        } else {
+                            format!("self.{name}.clone().into_iter().collect()")
+                        }
+                    }
                 },
                 TypeRef::Unit => format!("self.{name}.clone()"),
                 TypeRef::Json => {

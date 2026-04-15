@@ -1367,10 +1367,22 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str) -> Str
             .ok();
         } else {
             use alef_core::ir::TypeRef;
-            let destructured: Vec<String> = variant.fields.iter().map(|f| f.name.clone()).collect();
             // Build a lookup map so we can access field metadata when generating inits.
             let variant_field_map: std::collections::BTreeMap<&str, &alef_core::ir::FieldDef> =
                 variant.fields.iter().map(|f| (f.name.as_str(), f)).collect();
+            // Prefix sanitized field names with `_` in the destructure pattern so the compiler
+            // does not warn about unused variables (sanitized fields are always mapped to None).
+            let destructured: Vec<String> = variant
+                .fields
+                .iter()
+                .map(|f| {
+                    if f.sanitized {
+                        format!("{}: _{}", f.name, f.name)
+                    } else {
+                        f.name.clone()
+                    }
+                })
+                .collect();
             let field_inits: Vec<String> = all_fields
                 .iter()
                 .map(|f| {

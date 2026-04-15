@@ -15,7 +15,7 @@ pub fn enum_has_data_variants(enum_def: &EnumDef) -> bool {
 /// serializes it to JSON, and deserializes into the core Rust type via serde.
 pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     let name = &enum_def.name;
-    let core_path = format!("{core_import}::{name}");
+    let core_path = crate::conversions::core_enum_path(enum_def, core_import);
     let mut out = String::with_capacity(512);
 
     writeln!(out, "#[derive(Clone)]").ok();

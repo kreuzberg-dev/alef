@@ -1140,6 +1140,9 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 serde-wasm-bindgen = "0.6"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [package.metadata.cargo-machete]
 ignored = ["wasm-bindgen-futures"]
 "#,

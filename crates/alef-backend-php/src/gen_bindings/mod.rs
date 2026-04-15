@@ -173,6 +173,7 @@ impl Backend for PhpBackend {
                     &core_import,
                     &opaque_types,
                     &enum_names,
+                    &api.enums,
                 ));
             }
         }
