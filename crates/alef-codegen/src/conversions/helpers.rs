@@ -508,6 +508,8 @@ pub fn core_to_binding_match_arm_ext(
                     format!("*{name}")
                 } else if matches!(&f.ty, TypeRef::Named(_)) {
                     format!("{name}.into()")
+                } else if f.sanitized {
+                    format!("serde_json::to_string(&{name}).unwrap_or_default()")
                 } else {
                     name.clone()
                 };
@@ -526,6 +528,11 @@ pub fn core_to_binding_match_arm_ext(
             .map(|f| {
                 if matches!(&f.ty, TypeRef::Named(_)) {
                     format!("{}: {}.into()", f.name, f.name)
+                } else if f.sanitized {
+                    // Sanitized fields have a simplified type in the binding (e.g. String)
+                    // but the core type is complex (e.g. Vec<(String,String)>).
+                    // Serialize to JSON string for the conversion.
+                    format!("{}: serde_json::to_string(&{}).unwrap_or_default()", f.name, f.name)
                 } else {
                     format!("{0}: {0}", f.name)
                 }
