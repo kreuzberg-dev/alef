@@ -68,6 +68,12 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 // sanitized fields keep the default value — skip
                 continue;
             }
+            // Fields referencing excluded types keep their default value — skip
+            if !config.exclude_types.is_empty()
+                && super::helpers::field_references_excluded_type(&field.ty, config.exclude_types)
+            {
+                continue;
+            }
             // Duration field stored as Option<u64/i64>: only override when Some
             if !field.optional && matches!(field.ty, TypeRef::Duration) {
                 let cast = if config.cast_large_ints_to_i64 { " as u64" } else { "" };
@@ -98,7 +104,13 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     writeln!(out, "        Self {{").ok();
     let optionalized = config.optionalize_defaults && typ.has_default;
     for field in &typ.fields {
-        let conversion = if field.sanitized {
+        // Fields referencing excluded types don't exist in the binding struct;
+        // use Default::default() to fill them in the core type.
+        // Sanitized fields also use Default::default() (lossy but functional).
+        let conversion = if field.sanitized
+            || (!config.exclude_types.is_empty()
+                && super::helpers::field_references_excluded_type(&field.ty, config.exclude_types))
+        {
             format!("{}: Default::default()", field.name)
         } else if optionalized && !field.optional {
             // Field was wrapped in Option<T> for JS ergonomics but core expects T.

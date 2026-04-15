@@ -11,6 +11,20 @@ use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeD
 use std::fmt::Write;
 use std::path::PathBuf;
 
+/// Check if a TypeRef references a Named type that is in the exclude set.
+/// Used to skip fields whose types were excluded from WASM generation,
+/// preventing references to non-existent Js* wrapper types.
+fn field_references_excluded_type(ty: &TypeRef, exclude_types: &[String]) -> bool {
+    match ty {
+        TypeRef::Named(name) => exclude_types.iter().any(|e| e == name),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => field_references_excluded_type(inner, exclude_types),
+        TypeRef::Map(k, v) => {
+            field_references_excluded_type(k, exclude_types) || field_references_excluded_type(v, exclude_types)
+        }
+        _ => false,
+    }
+}
+
 /// Check if a TypeRef is a Copy type that shouldn't be cloned.
 /// `enum_names` contains the set of enum type names that derive Copy.
 fn is_copy_type(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
@@ -66,18 +80,10 @@ impl Backend for WasmBackend {
             builder.add_import(&trait_path);
         }
 
-        // Only import HashMap when Map-typed fields or returns are present
-        let has_maps = api
-            .types
-            .iter()
-            .any(|t| t.fields.iter().any(|f| matches!(&f.ty, TypeRef::Map(_, _))))
-            || api
-                .functions
-                .iter()
-                .any(|f| matches!(&f.return_type, TypeRef::Map(_, _)));
-        if has_maps {
-            builder.add_import("std::collections::HashMap");
-        }
+        // Note: HashMap is intentionally not imported here.
+        // The WasmMapper always converts Map types to JsValue (wasm-bindgen cannot
+        // pass HashMap<K, V> across the JS boundary), so HashMap is never referenced
+        // in the generated WASM binding code.
 
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Wasm);
@@ -106,7 +112,7 @@ impl Backend for WasmBackend {
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&gen_struct(typ, &mapper));
+                builder.add_item(&gen_struct(typ, &mapper, &exclude_types));
                 builder.add_item(&gen_struct_methods(
                     typ,
                     &mapper,
@@ -134,6 +140,7 @@ impl Backend for WasmBackend {
             type_name_prefix: "Js",
             map_uses_jsvalue: true,
             option_duration_on_defaults: true,
+            exclude_types: &exclude_types,
             ..Default::default()
         };
         let convertible = alef_codegen::conversions::convertible_types(api);
@@ -527,7 +534,7 @@ fn gen_opaque_static_method(
 }
 
 /// Generate a wasm-bindgen struct definition with private fields.
-fn gen_struct(typ: &TypeDef, mapper: &WasmMapper) -> String {
+fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String]) -> String {
     let js_name = format!("Js{}", typ.name);
     let mut out = String::with_capacity(512);
     if typ.has_default {
@@ -541,6 +548,10 @@ fn gen_struct(typ: &TypeDef, mapper: &WasmMapper) -> String {
     for field in &typ.fields {
         // Skip cfg-gated fields — they depend on features that may not be enabled
         if field.cfg.is_some() {
+            continue;
+        }
+        // Skip fields whose type references an excluded type (the Js* wrapper won't exist)
+        if field_references_excluded_type(&field.ty, exclude_types) {
             continue;
         }
         // On has_default types, non-optional Duration fields are stored as Option<u64> so the
@@ -573,7 +584,7 @@ fn gen_struct_methods(
     impl_builder.add_attr("wasm_bindgen");
 
     if !typ.fields.is_empty() {
-        impl_builder.add_method(&gen_new_method(typ, mapper));
+        impl_builder.add_method(&gen_new_method(typ, mapper, exclude_types));
     }
 
     // Collect enum names for Copy detection in getters.
@@ -581,6 +592,10 @@ fn gen_struct_methods(
     let enum_names: AHashSet<String> = api_enums.iter().map(|e| e.name.clone()).collect();
 
     for field in &typ.fields {
+        // Skip fields whose type references an excluded type (the Js* wrapper won't exist)
+        if field_references_excluded_type(&field.ty, exclude_types) {
+            continue;
+        }
         impl_builder.add_method(&gen_getter(field, mapper, &enum_names, typ.has_default));
         impl_builder.add_method(&gen_setter(field, mapper, typ.has_default));
     }
@@ -595,20 +610,28 @@ fn gen_struct_methods(
 }
 
 /// Generate a constructor method.
-fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper) -> String {
+fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String]) -> String {
     let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
+
+    // Filter out fields whose types reference excluded types
+    let filtered_fields: Vec<_> = typ
+        .fields
+        .iter()
+        .filter(|f| !field_references_excluded_type(&f.ty, exclude_types))
+        .cloned()
+        .collect();
 
     // For types with has_default, generate optional kwargs-style constructor.
     // Pass option_duration_on_defaults=true so Duration fields are Option<u64> params,
     // matching the Option<u64> field type emitted by gen_struct for has_default types.
     let (param_list, _, assignments) = if typ.has_default {
-        alef_codegen::shared::config_constructor_parts_with_options(&typ.fields, &map_fn, true)
+        alef_codegen::shared::config_constructor_parts_with_options(&filtered_fields, &map_fn, true)
     } else {
-        constructor_parts(&typ.fields, &map_fn)
+        constructor_parts(&filtered_fields, &map_fn)
     };
 
     // Suppress too_many_arguments when the constructor has >7 params
-    let field_count = typ.fields.iter().filter(|f| f.cfg.is_none()).count();
+    let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();
     let allow_attr = if field_count > 7 {
         "#[allow(clippy::too_many_arguments)]\n"
     } else {

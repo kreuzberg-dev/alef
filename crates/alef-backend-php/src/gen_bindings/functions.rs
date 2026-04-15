@@ -3,7 +3,7 @@ use ahash::AHashSet;
 use alef_codegen::generators;
 use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::ir::{FunctionDef, MethodDef, TypeDef, TypeRef};
+use alef_core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
 use super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params,
@@ -101,6 +101,7 @@ pub(crate) fn gen_instance_method_non_opaque(
     typ: &TypeDef,
     core_import: &str,
     opaque_types: &AHashSet<String>,
+    enums: &[EnumDef],
 ) -> String {
     let params = gen_php_function_params(&method.params, mapper, opaque_types);
     let return_type = mapper.map_type(&method.return_type);
@@ -117,7 +118,7 @@ pub(crate) fn gen_instance_method_non_opaque(
 
     let body = if can_delegate {
         let call_args = gen_php_call_args(&method.params, opaque_types);
-        let field_conversions = gen_php_lossy_binding_to_core_fields(typ, core_import);
+        let field_conversions = gen_php_lossy_binding_to_core_fields(typ, core_import, &mapper.enum_names, enums);
         let core_call = format!("core_self.{}({})", method.name, call_args);
         let result_wrap = match &method.return_type {
             TypeRef::Named(n) if mapper.enum_names.contains(n.as_str()) => {
