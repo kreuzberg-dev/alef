@@ -132,6 +132,9 @@ version = "0.0.0"
 description = "End-to-end tests"
 requires-python = ">=3.10"
 {dep_spec}
+[tool.setuptools]
+packages = []
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
