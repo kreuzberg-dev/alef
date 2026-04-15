@@ -37,6 +37,7 @@ impl Backend for RustlerBackend {
         let core_import = config.core_import();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
+        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import("rustler::ResourceArc");
 
         // Import traits needed for trait method dispatch
@@ -150,9 +151,10 @@ impl Backend for RustlerBackend {
 
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
+        let input_types = alef_codegen::conversions::input_type_names(api);
         // From/Into conversions
         for typ in &api.types {
-            if config.generate.reverse_conversions
+            if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
@@ -166,7 +168,7 @@ impl Backend for RustlerBackend {
             }
         }
         for e in &api.enums {
-            if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
+            if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
                 builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
                     e,
                     &core_import,

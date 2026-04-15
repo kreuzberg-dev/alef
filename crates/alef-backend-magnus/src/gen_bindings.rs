@@ -50,6 +50,7 @@ impl Backend for MagnusBackend {
         let core_import = config.core_import();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
+        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import(
             "magnus::{function, method, prelude::*, Error, Ruby, IntoValueFromNative, try_convert::TryConvertOwned}",
         );
@@ -93,7 +94,10 @@ impl Backend for MagnusBackend {
         }
 
         // Check if any data enum exists (needs json_to_ruby helper)
-        let has_data_enum = api.enums.iter().any(|e| e.variants.iter().any(|v| !v.fields.is_empty()));
+        let has_data_enum = api
+            .enums
+            .iter()
+            .any(|e| e.variants.iter().any(|v| !v.fields.is_empty()));
         if has_data_enum {
             // Add json_to_ruby helper for converting serde_json::Value to Magnus values
             builder.add_item(
@@ -123,7 +127,7 @@ impl Backend for MagnusBackend {
                  \x20           hash.into_value_with(handle)\n\
                  \x20       }\n\
                  \x20   }\n\
-                 }"
+                 }",
             );
         }
 
@@ -159,13 +163,14 @@ impl Backend for MagnusBackend {
         // for delegation. Generate both directions where possible.
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
+        let input_types = alef_codegen::conversions::input_type_names(api);
         for typ in &api.types {
             if typ.is_opaque {
                 continue;
             }
             let is_strict = alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core);
             let is_relaxed = alef_codegen::conversions::can_generate_conversion(typ, &core_to_binding);
-            if is_strict && config.generate.reverse_conversions {
+            if is_strict && input_types.contains(&typ.name) {
                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
             }
             if is_relaxed {
@@ -182,7 +187,7 @@ impl Backend for MagnusBackend {
             ..Default::default()
         };
         for e in &api.enums {
-            if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
+            if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
                 builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
                     e,
                     &core_import,

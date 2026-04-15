@@ -73,6 +73,7 @@ impl Backend for WasmBackend {
         // Note: custom modules and registrations handled below after builder creation
 
         let mut builder = RustFileBuilder::new().with_generated_header();
+        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import("wasm_bindgen::prelude::*");
 
         // Import traits needed for trait method dispatch
@@ -145,6 +146,7 @@ impl Backend for WasmBackend {
         };
         let convertible = alef_codegen::conversions::convertible_types(api);
         let core_to_binding_convertible = alef_codegen::conversions::core_to_binding_convertible_types(api);
+        let input_types = alef_codegen::conversions::input_type_names(api);
         // From/Into conversions using shared parameterized generators
         for typ in &api.types {
             if exclude_types.contains(&typ.name) {
@@ -154,7 +156,7 @@ impl Backend for WasmBackend {
             let is_relaxed = alef_codegen::conversions::can_generate_conversion(typ, &core_to_binding_convertible);
             if is_strict {
                 // Both directions
-                if config.generate.reverse_conversions {
+                if input_types.contains(&typ.name) {
                     builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
                         typ,
                         &core_import,
@@ -179,7 +181,7 @@ impl Backend for WasmBackend {
         }
         for e in &api.enums {
             if !exclude_types.contains(&e.name) {
-                if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
+                if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
                     builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
                         e,
                         &core_import,

@@ -94,7 +94,7 @@ impl Backend for Pyo3Backend {
         // by Python stubs (.pyi), and the numeric casts are intentional FFI conversions.
         builder.add_inner_attribute("allow(missing_docs)");
         // PyO3 0.22+ deprecates auto-derived FromPyObject; silence until upstream stabilises.
-        builder.add_inner_attribute("allow(deprecated)");
+        builder.add_inner_attribute("allow(deprecated, dead_code)");
         builder.add_inner_attribute(
             "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss)",
         );
@@ -234,6 +234,7 @@ impl Backend for Pyo3Backend {
 
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
+        let input_types = alef_codegen::conversions::input_type_names(api);
         let pyo3_conversion_cfg = alef_codegen::conversions::ConversionConfig {
             option_duration_on_defaults: true,
             ..Default::default()
@@ -241,7 +242,7 @@ impl Backend for Pyo3Backend {
         // From/Into conversions — separate sets for each direction
         for typ in &api.types {
             // binding→core: strict (no sanitized fields)
-            if config.generate.reverse_conversions
+            if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
@@ -266,7 +267,7 @@ impl Backend for Pyo3Backend {
                 continue;
             }
             // Binding→core: only for enums with simple fields (Default::default() must work)
-            if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
+            if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
                 builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
                     e,
                     &core_import,

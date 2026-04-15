@@ -717,7 +717,8 @@ fn render_assertion(
                     );
                 } else if val.as_u64() == Some(0) {
                     // Clippy prefers !is_empty() over len() > 0
-                    let _ = writeln!(out, "    assert!(!{field_access}.is_empty(), \"expected > 0\");");
+                    let base = field_access.strip_suffix(".len()").unwrap_or(&field_access);
+                    let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected > 0\");");
                 } else {
                     let lit = numeric_literal(val);
                     let _ = writeln!(out, "    assert!({field_access} > {lit}, \"expected > {lit}\");");
@@ -734,7 +735,8 @@ fn render_assertion(
             if let Some(val) = &assertion.value {
                 if val.as_u64() == Some(1) {
                     // Clippy prefers !is_empty() over len() >= 1
-                    let _ = writeln!(out, "    assert!(!{field_access}.is_empty(), \"expected >= 1\");");
+                    let base = field_access.strip_suffix(".len()").unwrap_or(&field_access);
+                    let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected >= 1\");");
                 } else {
                     let lit = numeric_literal(val);
                     let _ = writeln!(out, "    assert!({field_access} >= {lit}, \"expected >= {lit}\");");
@@ -790,7 +792,8 @@ fn render_assertion(
                 if let Some(n) = val.as_u64() {
                     if n <= 1 {
                         // Clippy prefers !is_empty() over len() >= 1
-                        let _ = writeln!(out, "    assert!(!{field_access}.is_empty(), \"expected >= {n}\");");
+                        let base = field_access.strip_suffix(".len()").unwrap_or(&field_access);
+                        let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected >= {n}\");");
                     } else {
                         let _ = writeln!(
                             out,
