@@ -50,6 +50,7 @@ impl Backend for MagnusBackend {
         let core_import = config.core_import();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
+        builder.add_inner_attribute("allow(dead_code)");
         builder.add_import(
             "magnus::{function, method, prelude::*, Error, Ruby, IntoValueFromNative, try_convert::TryConvertOwned}",
         );
