@@ -199,7 +199,11 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
 
     let _ = writeln!(out, "use {module}::{function_name};");
 
-    // Import handle constructor functions.
+    // Import handle constructor functions and the config type they use.
+    let has_handle_args = e2e_config.call.args.iter().any(|a| a.arg_type == "handle");
+    if has_handle_args {
+        let _ = writeln!(out, "use {module}::CrawlConfig;");
+    }
     for arg in &e2e_config.call.args {
         if arg.arg_type == "handle" {
             use heck::ToSnakeCase;
@@ -397,17 +401,17 @@ fn render_rust_arg(
         let mut lines = Vec::new();
         if value.is_null() || value.is_object() && value.as_object().unwrap().is_empty() {
             lines.push(format!(
-                "let {name} = {module}::{constructor_name}(None).expect(\"handle creation should succeed\");"
+                "let {name} = {constructor_name}(None).expect(\"handle creation should succeed\");"
             ));
         } else {
             // Serialize the config JSON and deserialize at runtime.
             let json_literal = serde_json::to_string(value).unwrap_or_default();
             let escaped = json_literal.replace('\\', "\\\\").replace('"', "\\\"");
             lines.push(format!(
-                "let {name}_config: {module}::CrawlConfig = serde_json::from_str(\"{escaped}\").expect(\"config should parse\");"
+                "let {name}_config: CrawlConfig = serde_json::from_str(\"{escaped}\").expect(\"config should parse\");"
             ));
             lines.push(format!(
-                "let {name} = {module}::{constructor_name}(Some({name}_config)).expect(\"handle creation should succeed\");"
+                "let {name} = {constructor_name}(Some({name}_config)).expect(\"handle creation should succeed\");"
             ));
         }
         return (lines, format!("&{name}"));
