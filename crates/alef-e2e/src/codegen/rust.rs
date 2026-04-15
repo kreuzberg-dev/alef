@@ -595,6 +595,13 @@ fn render_assertion(
                         out,
                         "    assert_eq!({field_access}.trim(), {expected}, \"equals assertion failed\");"
                     );
+                } else if val.is_boolean() {
+                    // Use assert!/assert!(!...) for booleans — clippy prefers this over assert_eq!(_, true/false).
+                    if val.as_bool() == Some(true) {
+                        let _ = writeln!(out, "    assert!({field_access}, \"equals assertion failed\");");
+                    } else {
+                        let _ = writeln!(out, "    assert!(!{field_access}, \"equals assertion failed\");");
+                    }
                 } else {
                     // Wrap expected value in Some() for optional fields.
                     let is_opt = assertion.field.as_ref().is_some_and(|f| {
@@ -708,6 +715,9 @@ fn render_assertion(
                         out,
                         "    // skipped: greater_than with negative value is always true for unsigned types"
                     );
+                } else if val.as_u64() == Some(0) {
+                    // Clippy prefers !is_empty() over len() > 0
+                    let _ = writeln!(out, "    assert!(!{field_access}.is_empty(), \"expected > 0\");");
                 } else {
                     let lit = numeric_literal(val);
                     let _ = writeln!(out, "    assert!({field_access} > {lit}, \"expected > {lit}\");");
@@ -722,8 +732,13 @@ fn render_assertion(
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
-                let lit = numeric_literal(val);
-                let _ = writeln!(out, "    assert!({field_access} >= {lit}, \"expected >= {lit}\");");
+                if val.as_u64() == Some(1) {
+                    // Clippy prefers !is_empty() over len() >= 1
+                    let _ = writeln!(out, "    assert!(!{field_access}.is_empty(), \"expected >= 1\");");
+                } else {
+                    let lit = numeric_literal(val);
+                    let _ = writeln!(out, "    assert!({field_access} >= {lit}, \"expected >= {lit}\");");
+                }
             }
         }
         "less_than_or_equal" => {
@@ -773,10 +788,15 @@ fn render_assertion(
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    assert!({field_access}.len() >= {n}, \"expected at least {n} elements, got {{}}\", {field_access}.len());"
-                    );
+                    if n <= 1 {
+                        // Clippy prefers !is_empty() over len() >= 1
+                        let _ = writeln!(out, "    assert!(!{field_access}.is_empty(), \"expected >= {n}\");");
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({field_access}.len() >= {n}, \"expected at least {n} elements, got {{}}\", {field_access}.len());"
+                        );
+                    }
                 }
             }
         }
