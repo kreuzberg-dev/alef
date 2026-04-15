@@ -472,7 +472,14 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
             let fname = field_name(&field.name, lang);
             let fty = doc_type_with_optional(&field.ty, lang, field.optional, ffi_prefix);
             let fdefault = format_field_default(field, lang, api, ffi_prefix);
-            let fdoc = clean_doc_inline(&field.doc);
+            let fdoc = {
+                let raw = clean_doc_inline(&field.doc);
+                if raw.is_empty() {
+                    generate_field_description(&field.name, &field.ty)
+                } else {
+                    raw
+                }
+            };
             out.push_str(&format!("| `{fname}` | `{fty}` | {fdefault} | {fdoc} |\n"));
         }
         out.push('\n');
@@ -800,7 +807,14 @@ fn generate_configuration_doc(
             for field in &ty.fields {
                 let fty = doc_type_with_optional(&field.ty, Language::Python, field.optional, "");
                 let fdefault = format_field_default(field, Language::Python, api, "");
-                let fdoc = clean_doc_inline(&field.doc);
+                let fdoc = {
+                    let raw = clean_doc_inline(&field.doc);
+                    if raw.is_empty() {
+                        generate_field_description(&field.name, &field.ty)
+                    } else {
+                        raw
+                    }
+                };
                 out.push_str(&format!("| `{}` | `{}` | {} | {} |\n", field.name, fty, fdefault, fdoc));
             }
             out.push('\n');
@@ -915,7 +929,14 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
                                 "\u{2014}".to_string()
                             }
                         });
-                    let fdoc = clean_doc_inline(&field.doc);
+                    let fdoc = {
+                        let raw = clean_doc_inline(&field.doc);
+                        if raw.is_empty() {
+                            generate_field_description(&field.name, &field.ty)
+                        } else {
+                            raw
+                        }
+                    };
                     out.push_str(&format!("| `{}` | `{}` | {} | {} |\n", field.name, fty, fdefault, fdoc));
                 }
                 out.push('\n');
@@ -2099,6 +2120,85 @@ fn generate_error_variant_description(variant_name: &str) -> String {
     }
 }
 
+/// Generate a human-readable field description from its name and type
+/// when no explicit doc comment exists on a struct field.
+fn generate_field_description(field_name: &str, type_ref: &TypeRef) -> String {
+    // Well-known field names with specific descriptions
+    match field_name {
+        "content" => return "The extracted text content".to_string(),
+        "mime_type" => return "The detected MIME type".to_string(),
+        "metadata" => return "Document metadata".to_string(),
+        "tables" => return "Tables extracted from the document".to_string(),
+        "images" => return "Images extracted from the document".to_string(),
+        "pages" => return "Per-page content".to_string(),
+        "chunks" => return "Text chunks for chunking/embedding".to_string(),
+        "elements" => return "Semantic document elements".to_string(),
+        "name" => return "The name".to_string(),
+        "path" => return "File path".to_string(),
+        "description" => return "Human-readable description".to_string(),
+        "version" => return "Version string".to_string(),
+        "id" => return "Unique identifier".to_string(),
+        "enabled" => return "Whether this feature is enabled".to_string(),
+        "size" => return "Size in bytes".to_string(),
+        "count" => return "Number of items".to_string(),
+        _ => {}
+    }
+
+    // Prefix-based patterns
+    if let Some(rest) = field_name.strip_suffix("_count") {
+        let readable = rest.replace('_', " ");
+        return format!("Number of {readable}");
+    }
+    if let Some(rest) = field_name.strip_prefix("is_") {
+        let readable = rest.replace('_', " ");
+        return format!("Whether {readable}");
+    }
+    if let Some(rest) = field_name.strip_prefix("has_") {
+        let readable = rest.replace('_', " ");
+        return format!("Whether {readable}");
+    }
+    if let Some(rest) = field_name.strip_prefix("max_") {
+        let readable = rest.replace('_', " ");
+        return format!("Maximum {readable}");
+    }
+    if let Some(rest) = field_name.strip_prefix("min_") {
+        let readable = rest.replace('_', " ");
+        return format!("Minimum {readable}");
+    }
+
+    // For named types, use the type name for extra context
+    if let TypeRef::Named(type_name) = type_ref {
+        let readable_type = type_name.chars().enumerate().fold(String::new(), |mut acc, (i, c)| {
+            if c.is_uppercase() && i > 0 {
+                acc.push(' ');
+                acc.push(c.to_ascii_lowercase());
+            } else if i == 0 {
+                acc.push(c.to_ascii_lowercase());
+            } else {
+                acc.push(c);
+            }
+            acc
+        });
+        // If the field name matches the type (e.g. field "metadata" of type "Metadata"),
+        // we already handled it above, so this provides context for other combos.
+        let readable_name = snake_to_readable(field_name);
+        return format!("{readable_name} ({readable_type})");
+    }
+
+    // Default: convert snake_case to readable text
+    snake_to_readable(field_name)
+}
+
+/// Convert a `snake_case` identifier to `Readable text` (capitalize first letter).
+fn snake_to_readable(name: &str) -> String {
+    let readable = name.replace('_', " ");
+    let mut chars = readable.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 /// Generate a human-readable parameter description from its name and type
 /// when no explicit doc comment or `# Arguments` entry exists.
 fn generate_param_description(name: &str, ty: &TypeRef) -> String {
@@ -2389,5 +2489,76 @@ mod tests {
             .unwrap();
         assert!(lang_file.content.contains("Python API Reference"));
         assert!(lang_file.content.contains("v0.1.0"));
+    }
+
+    #[test]
+    fn test_generate_field_description_known_names() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("content", &ty), "The extracted text content");
+        assert_eq!(generate_field_description("mime_type", &ty), "The detected MIME type");
+        assert_eq!(generate_field_description("metadata", &ty), "Document metadata");
+        assert_eq!(
+            generate_field_description("tables", &ty),
+            "Tables extracted from the document"
+        );
+        assert_eq!(
+            generate_field_description("images", &ty),
+            "Images extracted from the document"
+        );
+        assert_eq!(generate_field_description("pages", &ty), "Per-page content");
+        assert_eq!(
+            generate_field_description("chunks", &ty),
+            "Text chunks for chunking/embedding"
+        );
+        assert_eq!(
+            generate_field_description("elements", &ty),
+            "Semantic document elements"
+        );
+        assert_eq!(generate_field_description("name", &ty), "The name");
+        assert_eq!(generate_field_description("path", &ty), "File path");
+        assert_eq!(
+            generate_field_description("description", &ty),
+            "Human-readable description"
+        );
+        assert_eq!(generate_field_description("version", &ty), "Version string");
+        assert_eq!(generate_field_description("id", &ty), "Unique identifier");
+        assert_eq!(
+            generate_field_description("enabled", &ty),
+            "Whether this feature is enabled"
+        );
+        assert_eq!(generate_field_description("size", &ty), "Size in bytes");
+        assert_eq!(generate_field_description("count", &ty), "Number of items");
+    }
+
+    #[test]
+    fn test_generate_field_description_prefix_patterns() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("row_count", &ty), "Number of row");
+        assert_eq!(generate_field_description("is_valid", &ty), "Whether valid");
+        assert_eq!(generate_field_description("has_errors", &ty), "Whether errors");
+        assert_eq!(generate_field_description("max_retries", &ty), "Maximum retries");
+        assert_eq!(generate_field_description("min_confidence", &ty), "Minimum confidence");
+        assert_eq!(generate_field_description("is_ocr_enabled", &ty), "Whether ocr enabled");
+    }
+
+    #[test]
+    fn test_generate_field_description_named_type() {
+        let ty = TypeRef::Named("ExtractionConfig".to_string());
+        assert_eq!(generate_field_description("config", &ty), "Config (extraction config)");
+    }
+
+    #[test]
+    fn test_generate_field_description_fallback_snake_case() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("column_types", &ty), "Column types");
+        assert_eq!(generate_field_description("output_format", &ty), "Output format");
+    }
+
+    #[test]
+    fn test_snake_to_readable() {
+        assert_eq!(snake_to_readable("row_count"), "Row count");
+        assert_eq!(snake_to_readable("column_types"), "Column types");
+        assert_eq!(snake_to_readable("x"), "X");
+        assert_eq!(snake_to_readable(""), "");
     }
 }
