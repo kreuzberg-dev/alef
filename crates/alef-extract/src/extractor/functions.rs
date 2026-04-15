@@ -185,12 +185,14 @@ pub(crate) fn extract_trait_impl_methods(
         if STD_TRAITS.contains(&trait_name) {
             return None;
         }
-        // Only record multi-segment trait paths (e.g. "tower::CacheStore").
-        // Single-segment traits (e.g. just "CacheStore") can't be reliably
-        // resolved to their full path — they may be in submodules not re-exported
-        // at the crate root. The binding crate's Cargo.toml should import them.
         if segments.len() == 1 {
-            None // Skip — can't determine full import path
+            // Single-segment trait: look up its full path from already-extracted trait types
+            let trait_name = &segments[0];
+            surface
+                .types
+                .iter()
+                .find(|t| t.is_trait && t.name == *trait_name)
+                .map(|t| t.rust_path.replace('-', "_"))
         } else {
             Some(segments.join("::").replace('-', "_"))
         }

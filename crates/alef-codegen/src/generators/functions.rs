@@ -5,7 +5,7 @@ use crate::generators::binding_helpers::{
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::shared::{function_params, function_sig_defaults};
 use crate::type_mapper::TypeMapper;
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use alef_core::ir::{ApiSurface, FunctionDef, TypeRef};
 use std::fmt::Write;
 
@@ -387,4 +387,32 @@ pub fn collect_trait_imports(api: &ApiSurface) -> Vec<String> {
     let mut sorted: Vec<String> = traits.into_iter().collect();
     sorted.sort();
     sorted
+}
+
+/// Check if any type has methods from trait impls whose trait_source could not be resolved.
+///
+/// When true, the binding crate should add a glob import of the core crate (e.g.
+/// `use kreuzberg::*`) to bring all publicly exported traits into scope.
+/// This handles traits defined in private submodules that are re-exported.
+pub fn has_unresolved_trait_methods(api: &ApiSurface) -> bool {
+    // Count method names that appear on multiple non-trait types but lack trait_source.
+    // Such methods likely come from trait impls whose trait path could not be resolved
+    // (e.g. traits defined in private modules but re-exported via `pub use`).
+    let mut method_counts: AHashMap<&str, (usize, usize)> = AHashMap::new(); // (total, with_source)
+    for typ in &api.types {
+        if typ.is_trait {
+            continue;
+        }
+        for method in &typ.methods {
+            let entry = method_counts.entry(&method.name).or_insert((0, 0));
+            entry.0 += 1;
+            if method.trait_source.is_some() {
+                entry.1 += 1;
+            }
+        }
+    }
+    // A method appearing on 3+ types without trait_source on any is almost certainly a trait method
+    method_counts
+        .values()
+        .any(|&(total, with_source)| total >= 3 && with_source == 0)
 }

@@ -456,6 +456,45 @@ pub fn core_enum_path(enum_def: &EnumDef, core_import: &str) -> String {
     }
 }
 
+/// Build a map from type/enum short name to full rust_path.
+///
+/// Used by backends to resolve `TypeRef::Named(name)` to the correct qualified path
+/// instead of assuming `core_import::name` (which fails for types not re-exported at crate root).
+pub fn build_type_path_map(surface: &ApiSurface, core_import: &str) -> AHashMap<String, String> {
+    let mut map = AHashMap::new();
+    for typ in &surface.types {
+        let path = typ.rust_path.replace('-', "_");
+        let resolved = if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", typ.name)
+        };
+        map.insert(typ.name.clone(), resolved);
+    }
+    for en in &surface.enums {
+        let path = en.rust_path.replace('-', "_");
+        let resolved = if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", en.name)
+        };
+        map.insert(en.name.clone(), resolved);
+    }
+    map
+}
+
+/// Resolve a `TypeRef::Named` short name to its full qualified path.
+///
+/// If the name is in the path map, returns the full path; otherwise falls back
+/// to `core_import::name`.
+pub fn resolve_named_path(name: &str, core_import: &str, path_map: &AHashMap<String, String>) -> String {
+    if let Some(path) = path_map.get(name) {
+        path.clone()
+    } else {
+        format!("{core_import}::{name}")
+    }
+}
+
 /// Generate a match arm for binding -> core direction.
 /// Binding enums are always unit-variant-only. Core enums may have data variants.
 /// For data variants: `BindingEnum::Variant => CoreEnum::Variant(Default::default(), ...)`

@@ -1,8 +1,10 @@
-use crate::type_map::{c_param_type, c_return_type, is_void_return};
+use ahash::AHashMap;
 use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
+
+use crate::type_map::{c_param_type_with_paths, c_return_type_with_paths, is_void_return};
 
 use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, gen_value_to_c, null_return_value};
 
@@ -10,7 +12,13 @@ use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, gen_value
 // Method wrappers
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str, core_import: &str) -> String {
+pub(super) fn gen_method_wrapper(
+    typ: &TypeDef,
+    method: &MethodDef,
+    prefix: &str,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+) -> String {
     let type_snake = typ.name.to_snake_case();
     let type_name = &typ.name;
     let method_name = &method.name;
@@ -48,11 +56,11 @@ pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str
     } else if has_error {
         // Fallible + non-void: return nullable pointer
         match &method.return_type {
-            TypeRef::Primitive(_) => c_return_type(&method.return_type, core_import).into_owned(),
-            _ => c_return_type(&method.return_type, core_import).into_owned(),
+            TypeRef::Primitive(_) => c_return_type_with_paths(&method.return_type, core_import, path_map).into_owned(),
+            _ => c_return_type_with_paths(&method.return_type, core_import, path_map).into_owned(),
         }
     } else {
-        c_return_type(&method.return_type, core_import).into_owned()
+        c_return_type_with_paths(&method.return_type, core_import, path_map).into_owned()
     };
 
     // Replace "Self" with the actual qualified type name in FFI signatures
@@ -79,7 +87,7 @@ pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str
         } else {
             p.name.clone()
         };
-        params.push(format!("    {}: {}", param_name, c_param_type(&p.ty, core_import)));
+        params.push(format!("    {}: {}", param_name, c_param_type_with_paths(&p.ty, core_import, path_map)));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
             let len_param_name = if will_be_unimplemented {
@@ -269,7 +277,12 @@ pub(super) fn gen_method_wrapper(typ: &TypeDef, method: &MethodDef, prefix: &str
 // Free functions
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &str) -> String {
+pub(super) fn gen_free_function(
+    func: &FunctionDef,
+    prefix: &str,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+) -> String {
     let fn_name_snake = func.name.to_snake_case();
     let ffi_name = format!("{prefix}_{fn_name_snake}");
     // Use the full rust_path for correct module path resolution
@@ -322,7 +335,7 @@ pub(super) fn gen_free_function(func: &FunctionDef, prefix: &str, core_import: &
         } else {
             p.name.clone()
         };
-        params.push(format!("    {}: {}", param_name, c_param_type(&p.ty, core_import)));
+        params.push(format!("    {}: {}", param_name, c_param_type_with_paths(&p.ty, core_import, path_map)));
         // Bytes parameters need a separate length parameter
         if matches!(p.ty, TypeRef::Bytes) {
             let len_param_name = if will_be_unimplemented {
