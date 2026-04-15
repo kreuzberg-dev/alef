@@ -349,7 +349,6 @@ crate-type = ["cdylib"]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
 napi = {{ version = "3", features = ["async"] }}
 napi-derive = "3"
-serde_json = "1"
 
 [build-dependencies]
 napi-build = "2"
