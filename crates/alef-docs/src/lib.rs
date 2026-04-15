@@ -384,6 +384,46 @@ fn render_csharp_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     }
 }
 
+fn render_rust_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+    let name = func.name.to_snake_case();
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let pname = p.name.to_snake_case();
+            let pty = doc_type(&p.ty, Language::Rust, ffi_prefix);
+            if p.optional {
+                format!("{pname}: Option<{pty}>")
+            } else {
+                // Use references for String and Vec types in parameters
+                match &p.ty {
+                    TypeRef::String | TypeRef::Char => format!("{pname}: &str"),
+                    TypeRef::Bytes => format!("{pname}: &[u8]"),
+                    _ => format!("{pname}: {pty}"),
+                }
+            }
+        })
+        .collect();
+    let ret = doc_type(&func.return_type, Language::Rust, ffi_prefix);
+    let error_part = if let Some(err) = &func.error_type {
+        let err_ty = type_name(err, Language::Rust, ffi_prefix);
+        if ret == "()" {
+            format!(" -> Result<(), {err_ty}>")
+        } else {
+            format!(" -> Result<{ret}, {err_ty}>")
+        }
+    } else if ret == "()" {
+        String::new()
+    } else {
+        format!(" -> {ret}")
+    };
+    if func.is_async {
+        format!("pub async fn {}({}){}", name, params.join(", "), error_part)
+    } else {
+        format!("pub fn {}({}){}", name, params.join(", "), error_part)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Type rendering
 // ---------------------------------------------------------------------------
@@ -594,6 +634,36 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                 })
                 .collect();
             format!("{} {}({});", ret, name, params.join(", "))
+        }
+        Language::Rust => {
+            let params: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| {
+                    let pname = p.name.to_snake_case();
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
+                    if p.optional {
+                        format!("{pname}: Option<{pty}>")
+                    } else {
+                        format!("{pname}: {pty}")
+                    }
+                })
+                .collect();
+            if method.is_static {
+                if ret == "()" {
+                    format!("pub fn {}({})", name, params.join(", "))
+                } else {
+                    format!("pub fn {}({}) -> {}", name, params.join(", "), ret)
+                }
+            } else {
+                let mut all_params = vec!["&self".to_string()];
+                all_params.extend(params);
+                if ret == "()" {
+                    format!("pub fn {}({})", name, all_params.join(", "))
+                } else {
+                    format!("pub fn {}({}) -> {}", name, all_params.join(", "), ret)
+                }
+            }
         }
     }
 }
@@ -949,6 +1019,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Php => "string".to_string(),
             Language::Elixir => "String.t()".to_string(),
             Language::R => "character".to_string(),
+            Language::Rust => "String".to_string(),
             Language::Ffi => "const char*".to_string(),
         },
         TypeRef::Bytes => match lang {
@@ -961,6 +1032,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Php => "string".to_string(),
             Language::Elixir => "binary()".to_string(),
             Language::R => "raw".to_string(),
+            Language::Rust => "Vec<u8>".to_string(),
             Language::Ffi => "const uint8_t*".to_string(),
         },
         TypeRef::Primitive(p) => doc_primitive(p, lang),
@@ -976,6 +1048,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Php => format!("?{inner_ty}"),
                 Language::Elixir => format!("{inner_ty} | nil"),
                 Language::R => format!("{inner_ty} or NULL"),
+                Language::Rust => format!("Option<{inner_ty}>"),
                 Language::Ffi => format!("{inner_ty}*"),
             }
         }
@@ -1000,6 +1073,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                         Language::Php => format!("array<{inner_ty}>"),
                         Language::Elixir => format!("list({inner_ty})"),
                         Language::R => "list".to_string(),
+                        Language::Rust => format!("Vec<{inner_ty}>"),
                         Language::Ffi => format!("{inner_ty}*"),
                         Language::Java | Language::Csharp => unreachable!(),
                     }
@@ -1025,6 +1099,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Php => format!("array<{kty}, {vty}>"),
                 Language::Elixir => "map()".to_string(),
                 Language::R => "list".to_string(),
+                Language::Rust => format!("HashMap<{kty}, {vty}>"),
                 Language::Ffi => "void*".to_string(),
             }
         }
@@ -1039,6 +1114,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Php => "string".to_string(),
             Language::Elixir => "String.t()".to_string(),
             Language::R => "character".to_string(),
+            Language::Rust => "PathBuf".to_string(),
             Language::Ffi => "const char*".to_string(),
         },
         TypeRef::Unit => match lang {
@@ -1051,6 +1127,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Php => "void".to_string(),
             Language::Elixir => ":ok".to_string(),
             Language::R => "NULL".to_string(),
+            Language::Rust => "()".to_string(),
             Language::Ffi => "void".to_string(),
         },
         TypeRef::Json => match lang {
@@ -1063,6 +1140,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Php => "mixed".to_string(),
             Language::Elixir => "term()".to_string(),
             Language::R => "list".to_string(),
+            Language::Rust => "serde_json::Value".to_string(),
             Language::Ffi => "void*".to_string(),
         },
         TypeRef::Duration => match lang {
@@ -1075,6 +1153,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Php => "float".to_string(),
             Language::Elixir => "integer()".to_string(),
             Language::R => "numeric".to_string(),
+            Language::Rust => "std::time::Duration".to_string(),
             Language::Ffi => "uint64_t".to_string(),
         },
     }
@@ -1164,6 +1243,21 @@ fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
             PrimitiveType::F32 => "float".to_string(),
             PrimitiveType::F64 => "double".to_string(),
         },
+        Language::Rust => match p {
+            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::U8 => "u8".to_string(),
+            PrimitiveType::U16 => "u16".to_string(),
+            PrimitiveType::U32 => "u32".to_string(),
+            PrimitiveType::U64 => "u64".to_string(),
+            PrimitiveType::I8 => "i8".to_string(),
+            PrimitiveType::I16 => "i16".to_string(),
+            PrimitiveType::I32 => "i32".to_string(),
+            PrimitiveType::I64 => "i64".to_string(),
+            PrimitiveType::Usize => "usize".to_string(),
+            PrimitiveType::Isize => "isize".to_string(),
+            PrimitiveType::F32 => "f32".to_string(),
+            PrimitiveType::F64 => "f64".to_string(),
+        },
     }
 }
 
@@ -1205,6 +1299,7 @@ fn lang_display_name(lang: Language) -> &'static str {
         Language::Ffi => "C",
         Language::Wasm => "WebAssembly",
         Language::R => "R",
+        Language::Rust => "Rust",
     }
 }
 
@@ -1222,6 +1317,7 @@ fn lang_slug(lang: Language) -> &'static str {
         Language::Ffi => "c",
         Language::Wasm => "wasm",
         Language::R => "r",
+        Language::Rust => "rust",
     }
 }
 
@@ -1238,6 +1334,7 @@ fn lang_code_fence(lang: Language) -> &'static str {
         Language::Csharp => "csharp",
         Language::Ffi => "c",
         Language::R => "r",
+        Language::Rust => "rust",
     }
 }
 
@@ -1255,7 +1352,8 @@ fn type_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
         | Language::Csharp
         | Language::Php
         | Language::Elixir
-        | Language::R => short.to_pascal_case(),
+        | Language::R
+        | Language::Rust => short.to_pascal_case(),
         Language::Ffi => {
             // C: prefix with configured FFI prefix (PascalCase) and PascalCase type name
             format!("{}{}", ffi_prefix, short.to_pascal_case())
@@ -1266,7 +1364,7 @@ fn type_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
 /// Convert a Rust function name to the idiomatic name for the target language.
 fn func_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
     let base = match lang {
-        Language::Python | Language::Ruby | Language::Elixir | Language::R => name.to_snake_case(),
+        Language::Python | Language::Ruby | Language::Elixir | Language::R | Language::Rust => name.to_snake_case(),
         Language::Node | Language::Wasm | Language::Java | Language::Php => to_camel_case(name),
         Language::Csharp | Language::Go => name.to_pascal_case(),
         Language::Ffi => format!("{}_{}", ffi_prefix.to_snake_case(), name.to_snake_case()),
@@ -1282,7 +1380,9 @@ fn func_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
 /// Convert a Rust field name to the idiomatic name for the target language.
 fn field_name(name: &str, lang: Language) -> String {
     match lang {
-        Language::Python | Language::Ruby | Language::Elixir | Language::R | Language::Ffi => name.to_snake_case(),
+        Language::Python | Language::Ruby | Language::Elixir | Language::R | Language::Ffi | Language::Rust => {
+            name.to_snake_case()
+        }
         // Go and C# exported fields/properties are PascalCase
         Language::Go | Language::Csharp => name.to_pascal_case(),
         Language::Node | Language::Wasm | Language::Java | Language::Php => to_camel_case(name),
@@ -1304,6 +1404,8 @@ fn enum_variant_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
             name.to_pascal_case()
         }
         Language::R => name.to_snake_case(),
+        // Rust: PascalCase enum variants
+        Language::Rust => name.to_pascal_case(),
         Language::Ffi => format!(
             "{}_{}",
             ffi_prefix.to_shouty_snake_case(),
@@ -1346,6 +1448,7 @@ fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface, ffi_
             Language::Php => "`null`".to_string(),
             Language::Elixir => "`nil`".to_string(),
             Language::R => "`NULL`".to_string(),
+            Language::Rust => "`None`".to_string(),
             Language::Ffi => "`NULL`".to_string(),
         };
     }
@@ -1428,6 +1531,7 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
                     }
                     Language::Ruby | Language::Elixir => "`[]`".to_string(),
                     Language::Php => "`[]`".to_string(),
+                    Language::Rust => "`vec![]`".to_string(),
                     Language::Ffi => "`NULL`".to_string(),
                     Language::R => "`list()`".to_string(),
                 };
@@ -1448,6 +1552,7 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
                             "`new Dictionary<>()`".to_string()
                         }
                     }
+                    Language::Rust => "`HashMap::new()`".to_string(),
                     Language::Ffi => "`NULL`".to_string(),
                     Language::R => "`list()`".to_string(),
                 };
@@ -1463,6 +1568,7 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
                 Language::Php => "`null`".to_string(),
                 Language::Elixir => "`nil`".to_string(),
                 Language::R => "`NULL`".to_string(),
+                Language::Rust => "`Default::default()`".to_string(),
                 Language::Ffi => "`NULL`".to_string(),
             }
         }
@@ -1476,6 +1582,7 @@ fn format_typed_default(val: &DefaultValue, field_ty: &TypeRef, lang: Language, 
             Language::Php => "`null`".to_string(),
             Language::Elixir => "`nil`".to_string(),
             Language::R => "`NULL`".to_string(),
+            Language::Rust => "`None`".to_string(),
             Language::Ffi => "`NULL`".to_string(),
         },
     }
@@ -1493,6 +1600,7 @@ fn format_enum_variant_ref(enum_type: &str, variant: &str, lang: Language, ffi_p
         Language::Php => format!("{enum_type}::{variant}"),
         Language::Elixir => format!(":{variant}"),
         Language::R => format!("\"{variant}\""),
+        Language::Rust => format!("{enum_type}::{variant}"),
         Language::Ffi => format!(
             "{}_{}",
             ffi_prefix.to_shouty_snake_case(),
@@ -1533,6 +1641,10 @@ fn format_error_phrase(error_type: &str, lang: Language) -> String {
         }
         Language::Ffi => "Returns `NULL` on error.".to_string(),
         Language::R => "Stops with error message.".to_string(),
+        Language::Rust => {
+            let ename = short.to_pascal_case();
+            format!("Returns `Err({ename})`.")
+        }
     }
 }
 
@@ -1551,6 +1663,7 @@ fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: bool, ffi_pref
             Language::Php => format!("?{inner}"),
             Language::Elixir => format!("{inner} | nil"),
             Language::R => format!("{inner} or NULL"),
+            Language::Rust => format!("Option<{inner}>"),
             Language::Ffi => format!("{inner}*"),
         };
     }
@@ -1642,7 +1755,7 @@ fn replace_rust_terminology(doc: &str, lang: Language) -> String {
     let none_replacement = match lang {
         Language::Go | Language::Ruby | Language::Elixir => "`nil`",
         Language::Java | Language::Node | Language::Wasm | Language::Csharp | Language::Php => "`null`",
-        Language::Python => "`None`", // keep as-is for Python
+        Language::Python | Language::Rust => "`None`", // keep as-is for Python and Rust
         Language::R | Language::Ffi => "`NULL`",
     };
     let doc = doc.replace("`None`", none_replacement);

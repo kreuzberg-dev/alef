@@ -154,6 +154,8 @@ fn output_path_for(lang: Language, config: &AlefConfig) -> Option<&Path> {
         Language::Wasm => config.output.wasm.as_deref(),
         Language::Elixir => config.output.elixir.as_deref(),
         Language::R => config.output.r.as_deref(),
+        // Rust is the core language — no separate output path
+        Language::Rust => None,
     }
 }
 
