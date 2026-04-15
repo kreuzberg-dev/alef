@@ -165,7 +165,7 @@ fn render_function(
                     let s = s.replace("::", ".");
                     s.replace("ConversionOptions.default()", "default options")
                 })
-                .unwrap_or_default();
+                .unwrap_or_else(|| generate_param_description(&param.name, &param.ty));
             out.push_str(&format!("| `{pname}` | `{pty}` | {required} | {pdoc} |\n"));
         }
         out.push('\n');
@@ -262,7 +262,14 @@ fn render_go_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
         .collect();
     let ret = doc_type(&func.return_type, Language::Go, ffi_prefix);
     if func.error_type.is_some() {
-        format!("func {}({}) ({}, error)", name, params.join(", "), ret)
+        if ret.is_empty() {
+            // Result<(), E> → func Foo() error
+            format!("func {}({}) error", name, params.join(", "))
+        } else {
+            format!("func {}({}) ({}, error)", name, params.join(", "), ret)
+        }
+    } else if ret.is_empty() {
+        format!("func {}({})", name, params.join(", "))
     } else {
         format!("func {}({}) {}", name, params.join(", "), ret)
     }
@@ -384,7 +391,17 @@ fn render_csharp_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
         })
         .collect();
     if func.is_async {
-        format!("public static async Task<{}> {}Async({})", ret, name, params.join(", "))
+        let async_name = if name.ends_with("Async") {
+            name.clone()
+        } else {
+            format!("{name}Async")
+        };
+        format!(
+            "public static async Task<{}> {}({})",
+            ret,
+            async_name,
+            params.join(", ")
+        )
     } else {
         format!("public static {} {}({})", ret, name, params.join(", "))
     }
@@ -729,7 +746,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
         } else if let Some(tmpl) = &variant.message_template {
             clean_doc_inline(tmpl)
         } else {
-            String::new()
+            generate_error_variant_description(&variant.name)
         };
         out.push_str(&format!("| `{vname}` | {vdoc} |\n"));
     }
@@ -982,7 +999,11 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
         out.push_str("|---------|---------|-------------|\n");
         for variant in &err.variants {
             let tmpl = variant.message_template.as_deref().unwrap_or("").replace('|', "\\|");
-            let vdoc = clean_doc_inline(&variant.doc);
+            let vdoc = if !variant.doc.is_empty() {
+                clean_doc_inline(&variant.doc)
+            } else {
+                generate_error_variant_description(&variant.name)
+            };
             out.push_str(&format!("| `{}` | {} | {} |\n", variant.name, tmpl, vdoc));
         }
         out.push('\n');
@@ -2037,6 +2058,85 @@ fn type_sort_key(name: &str) -> (u8, &str) {
 
 fn is_update_type(name: &str) -> bool {
     name.ends_with("Update")
+}
+
+/// Generate a human-readable description for an error variant from its PascalCase name.
+///
+/// Splits PascalCase into words and forms a sentence like "IO errors" or "Parsing errors".
+fn generate_error_variant_description(variant_name: &str) -> String {
+    // Split PascalCase into words
+    let mut words = Vec::new();
+    let mut current = String::new();
+    for c in variant_name.chars() {
+        if c.is_uppercase() && !current.is_empty() {
+            words.push(current);
+            current = String::new();
+        }
+        current.push(c);
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+
+    if words.is_empty() {
+        return String::new();
+    }
+
+    // Join into readable form and add "errors" suffix
+    let readable = words.join(" ").to_lowercase();
+    // Capitalize first letter
+    let mut chars = readable.chars();
+    match chars.next() {
+        Some(first) => {
+            let capitalized = first.to_uppercase().to_string() + chars.as_str();
+            format!("{capitalized} errors")
+        }
+        None => String::new(),
+    }
+}
+
+/// Generate a human-readable parameter description from its name and type
+/// when no explicit doc comment or `# Arguments` entry exists.
+fn generate_param_description(name: &str, ty: &TypeRef) -> String {
+    // Derive a readable noun phrase from the parameter name by splitting on underscores
+    // and joining with spaces (e.g. "mime_type" → "MIME type", "config" → "configuration").
+    let article = match name {
+        // Common names that benefit from a specific description
+        "config" | "configuration" => return "The configuration options".to_string(),
+        "options" | "opts" => return "The options to use".to_string(),
+        "path" | "file_path" => return "Path to the file".to_string(),
+        "content" | "contents" => return "The content to process".to_string(),
+        "input" => return "The input data".to_string(),
+        "output" => return "The output destination".to_string(),
+        "url" => return "The URL to fetch".to_string(),
+        "timeout" => return "Timeout duration".to_string(),
+        "callback" | "cb" => return "Callback function".to_string(),
+        _ => "The",
+    };
+
+    // For named types, use the type name for context
+    let type_hint = match ty {
+        TypeRef::Named(type_name) => {
+            // Convert PascalCase type name to readable form
+            type_name.chars().enumerate().fold(String::new(), |mut acc, (i, c)| {
+                if c.is_uppercase() && i > 0 {
+                    acc.push(' ');
+                    acc.push(c.to_ascii_lowercase());
+                } else if i == 0 {
+                    acc.push(c.to_ascii_lowercase());
+                } else {
+                    acc.push(c);
+                }
+                acc
+            })
+        }
+        _ => {
+            // For non-named types, use the param name as description
+            name.replace('_', " ")
+        }
+    };
+
+    format!("{article} {type_hint}")
 }
 
 // ---------------------------------------------------------------------------
