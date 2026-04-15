@@ -206,6 +206,30 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
                     }
                 }
 
+                // Duration::from_secs(N) → IntLiteral(N * 1000) (milliseconds)
+                if segments == ["Duration", "from_secs"] && call.args.len() == 1 {
+                    if let Some(syn::Expr::Lit(lit)) = call.args.first() {
+                        if let syn::Lit::Int(i) = &lit.lit {
+                            if let Ok(val) = i.base10_parse::<i64>() {
+                                return DefaultValue::IntLiteral(val * 1000);
+                            }
+                        }
+                    }
+                    return DefaultValue::Empty;
+                }
+
+                // Duration::from_millis(N) → IntLiteral(N) (already milliseconds)
+                if segments == ["Duration", "from_millis"] && call.args.len() == 1 {
+                    if let Some(syn::Expr::Lit(lit)) = call.args.first() {
+                        if let syn::Lit::Int(i) = &lit.lit {
+                            if let Ok(val) = i.base10_parse::<i64>() {
+                                return DefaultValue::IntLiteral(val);
+                            }
+                        }
+                    }
+                    return DefaultValue::Empty;
+                }
+
                 // SomeType::default() or Default::default()
                 if segments.last().is_some_and(|s| s == "default") {
                     return DefaultValue::Empty;
@@ -214,12 +238,16 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
             DefaultValue::Empty
         }
 
-        // Path expressions: SomeEnum::Variant (no function call)
+        // Path expressions: SomeEnum::Variant (no function call), or bare `None`
         syn::Expr::Path(path) => {
             let segments: Vec<String> = path.path.segments.iter().map(|s| s.ident.to_string()).collect();
             if segments.len() == 2 {
                 // SomeEnum::Variant → EnumVariant("Variant")
                 return DefaultValue::EnumVariant(segments[1].clone());
+            }
+            // Bare `None` → DefaultValue::None
+            if segments.len() == 1 && segments[0] == "None" {
+                return DefaultValue::None;
             }
             // Single ident like `true`/`false` are handled as Lit, but just in case
             DefaultValue::Empty

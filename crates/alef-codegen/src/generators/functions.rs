@@ -369,16 +369,15 @@ pub fn gen_function(
     out
 }
 
-/// Collect all unique trait import paths from opaque types' methods.
+/// Collect all unique trait import paths from types' methods.
 ///
 /// Returns a deduplicated, sorted list of trait paths (e.g. `["liter_llm::LlmClient"]`)
 /// that need to be imported in generated binding code so that trait methods can be called.
+/// Both opaque and non-opaque types are scanned because non-opaque wrapper types also
+/// delegate trait method calls to their inner core type.
 pub fn collect_trait_imports(api: &ApiSurface) -> Vec<String> {
     let mut traits: AHashSet<String> = AHashSet::new();
     for typ in &api.types {
-        if !typ.is_opaque {
-            continue;
-        }
         for method in &typ.methods {
             if let Some(ref trait_path) = method.trait_source {
                 traits.insert(trait_path.clone());

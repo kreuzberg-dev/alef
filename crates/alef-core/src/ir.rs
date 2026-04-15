@@ -72,6 +72,11 @@ pub struct TypeDef {
     /// Used by Go/Java/C# backends to emit correct JSON tags matching Rust serde config.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// True if the type derives `serde::Serialize` and `serde::Deserialize`.
+    /// Used by FFI backend to gate `from_json`/`to_json` generation — types
+    /// without serde derives cannot be (de)serialized.
+    #[serde(default)]
+    pub has_serde: bool,
 }
 
 /// A field on a public struct.

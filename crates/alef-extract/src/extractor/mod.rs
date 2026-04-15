@@ -512,7 +512,7 @@ fn extract_items(
                         is_return_type: false,
                         doc,
                         cfg: None,
-                        serde_rename_all: None,
+                        serde_rename_all: None, has_serde: false,
                     });
                 }
             }
@@ -584,7 +584,7 @@ fn extract_items(
                         is_return_type: false,
                         doc,
                         cfg: None,
-                        serde_rename_all: None,
+                        serde_rename_all: None, has_serde: false,
                     });
                 }
             }

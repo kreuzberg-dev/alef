@@ -88,7 +88,7 @@ fn simple_type_def() -> TypeDef {
         has_default: false,
         has_stripped_cfg_fields: false,
         is_return_type: false,
-        serde_rename_all: None,
+        serde_rename_all: None, has_serde: false,
         doc: "A minimal config type.".to_string(),
         cfg: None,
     }
@@ -149,7 +149,7 @@ fn simple_enum_def() -> EnumDef {
         doc: "Output format options.".to_string(),
         cfg: None,
         serde_tag: None,
-        serde_rename_all: None,
+        serde_rename_all: None, has_serde: false,
     }
 }
 
@@ -238,7 +238,7 @@ fn test_gen_struct_with_empty_fields() {
         has_default: false,
         has_stripped_cfg_fields: false,
         is_return_type: false,
-        serde_rename_all: None,
+        serde_rename_all: None, has_serde: false,
         doc: String::new(),
         cfg: None,
     };

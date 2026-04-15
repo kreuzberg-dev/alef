@@ -868,8 +868,12 @@ fn gen_nif_method(
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
-        let core_call = if is_opaque {
+        let core_call = if is_opaque && method.receiver.is_some() {
             format!("resource.inner.as_ref().clone().{}({})", method.name, call_args)
+        } else if is_opaque {
+            // Static method on opaque type: call directly on the inner core type
+            let inner_ty = format!("{core_import}::{struct_name}");
+            format!("{inner_ty}::{}({})", method.name, call_args)
         } else if method.receiver.is_some() {
             // Instance method on non-opaque: convert binding struct to core type, then call
             format!(
@@ -951,8 +955,12 @@ fn gen_nif_async_method(
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
-        let core_call = if is_opaque {
+        let core_call = if is_opaque && method.receiver.is_some() {
             format!("resource.inner.as_ref().clone().{}({})", method.name, call_args)
+        } else if is_opaque {
+            // Static method on opaque type: call directly on the inner core type
+            let inner_ty = format!("{core_import}::{struct_name}");
+            format!("{inner_ty}::{}({})", method.name, call_args)
         } else if method.receiver.is_some() {
             format!(
                 "{core_import}::{}::from(obj).{}({})",

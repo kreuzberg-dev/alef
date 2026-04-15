@@ -457,7 +457,7 @@ pub(super) fn gen_param_conversion(
     param: &ParamDef,
     has_error: bool,
     return_type: &TypeRef,
-    core_import: &str,
+    _core_import: &str,
 ) -> String {
     let name = &param.name;
     let rs_name = format!("{name}_rs");
@@ -503,14 +503,13 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "        }}").ok();
                 writeln!(out, "    }};").ok();
             }
-            TypeRef::Named(type_name) => {
-                let qualified = format!("{core_import}::{type_name}");
+            TypeRef::Named(_type_name) => {
                 writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
                 writeln!(out, "        None").ok();
                 writeln!(out, "    }} else {{").ok();
                 writeln!(
                     out,
-                    "        Some(unsafe {{ &*({name} as *const {qualified}) }}.clone())"
+                    "        Some(unsafe {{ &*{name} }}.clone())"
                 )
                 .ok();
                 writeln!(out, "    }};").ok();

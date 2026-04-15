@@ -129,7 +129,7 @@ mod tests {
             has_default: false,
             has_stripped_cfg_fields: false,
             is_return_type: false,
-            serde_rename_all: None,
+            serde_rename_all: None, has_serde: false,
             doc: String::new(),
             cfg: None,
         }
@@ -158,7 +158,7 @@ mod tests {
             doc: String::new(),
             cfg: None,
             serde_tag: None,
-            serde_rename_all: None,
+            serde_rename_all: None, has_serde: false,
         }
     }
 

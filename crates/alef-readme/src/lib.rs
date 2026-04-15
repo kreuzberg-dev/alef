@@ -176,13 +176,29 @@ fn try_template_readme(
 
     // Flatten per-language config fields into top-level context
     // (templates expect snippets, features, performance, etc. at top level)
+    //
+    // String values may themselves contain template expressions (e.g. `{{ version }}`
+    // in Java/Elixir install_command). We render those inline before inserting them
+    // so the outer template receives the final text.
     if let serde_json::Value::Object(map) = &lang_json {
         for (key, val) in map {
+            let rendered_val = if let serde_json::Value::String(s) = val {
+                if s.contains("{{") {
+                    let rendered = env
+                        .render_str(s, &ctx)
+                        .unwrap_or_else(|_| s.clone());
+                    Value::from(rendered)
+                } else {
+                    json_to_minijinja_value(val)
+                }
+            } else {
+                json_to_minijinja_value(val)
+            };
             ctx.insert(
                 // SAFETY: we leak the string to get a &'static str for the HashMap key.
                 // This is fine since readmes are generated once per run.
                 Box::leak(key.clone().into_boxed_str()),
-                json_to_minijinja_value(val),
+                rendered_val,
             );
         }
     }
@@ -736,6 +752,54 @@ mod tests {
     fn test_include_snippet_missing() {
         let result = include_snippet(Path::new("/nonexistent"), "python", "foo.py");
         assert!(result.contains("snippet not found"));
+    }
+
+    #[test]
+    fn test_template_version_in_install_command() {
+        // Verify that {{ version }} placeholders in per-language config strings
+        // (e.g. Java pom.xml snippet, Elixir mix.exs dep) are rendered.
+        let tmp = std::env::temp_dir().join("alef_readme_test_version");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        // Minimal template that just outputs the install_command
+        fs::write(tmp.join("test.md"), "{{ install_command }}").unwrap();
+
+        let mut config = test_config();
+        let mut lang_map = std::collections::HashMap::new();
+        lang_map.insert(
+            "java".to_string(),
+            serde_json::json!({
+                "template": "test.md",
+                "install_command": "<version>{{ version }}</version>",
+                "output_path": "packages/java/README.md"
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api(); // version = "0.1.0"
+        let files = generate_readmes(&api, &config, &[Language::Java]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(
+            files[0].content.contains("<version>0.1.0</version>"),
+            "Expected version placeholder to be rendered, got: {}",
+            files[0].content,
+        );
+        assert!(
+            !files[0].content.contains("{{ version }}"),
+            "Raw template placeholder should not remain in output",
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     #[test]

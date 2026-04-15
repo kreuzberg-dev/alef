@@ -219,11 +219,9 @@ fn render_python_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
         })
         .collect();
     let ret = doc_type(&func.return_type, Language::Python, ffi_prefix);
-    if func.is_async {
-        format!("async def {}({}) -> {}", name, params.join(", "), ret)
-    } else {
-        format!("def {}({}) -> {}", name, params.join(", "), ret)
-    }
+    // Python bindings wrap async Rust functions in sync Python functions,
+    // so always emit `def` (never `async def`) for the public API.
+    format!("def {}({}) -> {}", name, params.join(", "), ret)
 }
 
 fn render_typescript_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
@@ -723,11 +721,24 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
     out.push_str("|-------|-------------|\n");
     for variant in &en.variants {
         let vname = enum_variant_name(&variant.name, lang, ffi_prefix);
-        let vdoc = if !variant.doc.is_empty() {
+        let mut vdoc = if !variant.doc.is_empty() {
             clean_doc_inline(&variant.doc)
         } else {
             generate_enum_variant_description(&variant.name)
         };
+        // Append field info for data variants
+        if !variant.fields.is_empty() {
+            let fields_desc: Vec<String> = variant
+                .fields
+                .iter()
+                .map(|f| {
+                    let fname = field_name(&f.name, lang);
+                    let fty = doc_type(&f.ty, lang, ffi_prefix);
+                    format!("`{fname}`: `{fty}`")
+                })
+                .collect();
+            vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
+        }
         out.push_str(&format!("| `{vname}` | {vdoc} |\n"));
     }
     out.push('\n');
@@ -752,18 +763,41 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
         out.push('\n');
     }
 
-    out.push_str("| Variant | Description |\n");
-    out.push_str("|---------|-------------|\n");
-    for variant in &err.variants {
-        let vname = enum_variant_name(&variant.name, lang, ffi_prefix);
-        let vdoc = if !variant.doc.is_empty() {
-            clean_doc_inline(&variant.doc)
-        } else if let Some(tmpl) = &variant.message_template {
-            clean_doc_inline(tmpl)
-        } else {
-            generate_error_variant_description(&variant.name)
-        };
-        out.push_str(&format!("| `{vname}` | {vdoc} |\n"));
+    // For Node/WASM, note that errors are plain Error objects
+    if matches!(lang, Language::Node | Language::Wasm) {
+        out.push_str("Errors are thrown as plain `Error` objects with descriptive messages.\n\n");
+    }
+
+    // For Python, render as exception class hierarchy
+    if lang == Language::Python {
+        out.push_str(&format!("**Base class:** `{ename}(Exception)`\n\n"));
+        out.push_str("| Exception | Description |\n");
+        out.push_str("|-----------|-------------|\n");
+        for variant in &err.variants {
+            let vname = variant.name.to_pascal_case();
+            let vdoc = if !variant.doc.is_empty() {
+                clean_doc_inline(&variant.doc)
+            } else if let Some(tmpl) = &variant.message_template {
+                clean_doc_inline(tmpl)
+            } else {
+                generate_error_variant_description(&variant.name)
+            };
+            out.push_str(&format!("| `{vname}({ename})` | {vdoc} |\n"));
+        }
+    } else {
+        out.push_str("| Variant | Description |\n");
+        out.push_str("|---------|-------------|\n");
+        for variant in &err.variants {
+            let vname = enum_variant_name(&variant.name, lang, ffi_prefix);
+            let vdoc = if !variant.doc.is_empty() {
+                clean_doc_inline(&variant.doc)
+            } else if let Some(tmpl) = &variant.message_template {
+                clean_doc_inline(tmpl)
+            } else {
+                generate_error_variant_description(&variant.name)
+            };
+            out.push_str(&format!("| `{vname}` | {vdoc} |\n"));
+        }
     }
     out.push('\n');
 
@@ -921,18 +955,9 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
                 for field in &ty.fields {
                     // Use Rust-style type representation as canonical
                     let fty = format_type_ref_rust(&field.ty, field.optional);
-                    let fdefault = field
-                        .default
-                        .as_deref()
-                        .filter(|d| !d.is_empty())
-                        .map(|d| format!("`{d}`"))
-                        .unwrap_or_else(|| {
-                            if field.optional {
-                                "`None`".to_string()
-                            } else {
-                                "\u{2014}".to_string()
-                            }
-                        });
+                    // Use the typed default (consistent with per-language pages)
+                    // falling back to the raw string default.
+                    let fdefault = format_field_default(field, Language::Rust, api, "");
                     let fdoc = {
                         let raw = clean_doc_inline(&field.doc);
                         if raw.is_empty() {
@@ -1086,7 +1111,10 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Python => format!("{inner_ty} | None"),
                 Language::Node | Language::Wasm => format!("{inner_ty} | null"),
                 Language::Go => format!("*{inner_ty}"),
-                Language::Java => format!("Optional<{inner_ty}>"),
+                Language::Java => {
+                    let boxed = java_boxed_type(inner);
+                    format!("Optional<{boxed}>")
+                }
                 Language::Csharp => format!("{inner_ty}?"),
                 Language::Ruby => format!("{inner_ty}?"),
                 Language::Php => format!("?{inner_ty}"),
@@ -1435,26 +1463,34 @@ fn field_name(name: &str, lang: Language) -> String {
 
 /// Convert a Rust enum variant name to the idiomatic name for the target language.
 fn enum_variant_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
+    // Special-case acronym variants that don't split cleanly
+    if name == "RDFa" {
+        return match lang {
+            Language::Python | Language::Java => "RDFA".to_string(),
+            Language::Ruby | Language::Elixir => "rdfa".to_string(),
+            Language::R => "rdfa".to_string(),
+            Language::Ffi => format!("{}_{}", ffi_prefix.to_shouty_snake_case(), "RDFA"),
+            _ => "RDFa".to_string(),
+        };
+    }
     match lang {
         Language::Python => {
             // Python: UPPER_SNAKE_CASE
-            name.to_snake_case().to_uppercase()
+            name.to_shouty_snake_case()
+        }
+        Language::Java => {
+            // Java: UPPER_SNAKE_CASE
+            name.to_shouty_snake_case()
         }
         Language::Ruby | Language::Elixir => {
             // Ruby/Elixir: :snake_atom style
             name.to_snake_case()
         }
-        Language::Go | Language::Node | Language::Wasm | Language::Java | Language::Csharp | Language::Php => {
-            name.to_pascal_case()
-        }
+        Language::Go | Language::Node | Language::Wasm | Language::Csharp | Language::Php => name.to_pascal_case(),
         Language::R => name.to_snake_case(),
         // Rust: PascalCase enum variants
         Language::Rust => name.to_pascal_case(),
-        Language::Ffi => format!(
-            "{}_{}",
-            ffi_prefix.to_shouty_snake_case(),
-            name.to_snake_case().to_uppercase()
-        ),
+        Language::Ffi => format!("{}_{}", ffi_prefix.to_shouty_snake_case(), name.to_shouty_snake_case()),
     }
 }
 
@@ -1474,7 +1510,7 @@ fn to_camel_case(s: &str) -> String {
 
 fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {
     if let Some(typed) = &field.typed_default {
-        return format_typed_default(typed, &field.ty, lang, api, ffi_prefix);
+        return format_typed_default(typed, &field.ty, lang, api, ffi_prefix, field.optional);
     }
     if let Some(raw) = &field.default {
         if !raw.is_empty() {
@@ -1505,6 +1541,7 @@ fn format_typed_default(
     lang: Language,
     api: &ApiSurface,
     ffi_prefix: &str,
+    optional: bool,
 ) -> String {
     match val {
         DefaultValue::BoolLiteral(b) => match lang {
@@ -1512,7 +1549,15 @@ fn format_typed_default(
             _ => format!("`{b}`"),
         },
         DefaultValue::StringLiteral(s) => format!("`\"{s}\"`"),
-        DefaultValue::IntLiteral(n) => format!("`{n}`"),
+        DefaultValue::IntLiteral(n) => {
+            // Duration fields store defaults as milliseconds; show with unit label
+            if matches!(field_ty, TypeRef::Duration)
+                || matches!(field_ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Duration))
+            {
+                return format!("`{n}ms`");
+            }
+            format!("`{n}`")
+        }
         DefaultValue::FloatLiteral(f) => format!("`{f}`"),
         DefaultValue::EnumVariant(v) => {
             // v is something like "HeadingStyle::Atx" or just "Atx"
@@ -1544,18 +1589,34 @@ fn format_typed_default(
             }
         }
         DefaultValue::Empty => {
-            // If the field type is a Named enum, resolve to its default (or first) variant
-            if let TypeRef::Named(type_name_str) = field_ty {
-                if let Some(enum_def) = api.enums.iter().find(|e| &e.name == type_name_str) {
-                    let variant = enum_def
-                        .variants
-                        .iter()
-                        .find(|v| v.is_default)
-                        .or_else(|| enum_def.variants.first());
-                    if let Some(v) = variant {
-                        let etype = type_name(type_name_str, lang, ffi_prefix);
-                        let vname = enum_variant_name(&v.name, lang, ffi_prefix);
-                        return format!("`{}`", format_enum_variant_ref(&etype, &vname, lang, ffi_prefix));
+            // Duration fields with Empty default: the actual value could not be parsed.
+            // Show a language-neutral placeholder rather than None/null.
+            let inner_for_dur = match field_ty {
+                TypeRef::Optional(inner) => Some(inner.as_ref()),
+                other => Some(other),
+            };
+            if matches!(inner_for_dur, Some(TypeRef::Duration)) {
+                return match lang {
+                    Language::Rust => "`Duration::default()`".to_string(),
+                    _ => "`0ms`".to_string(),
+                };
+            }
+
+            // If the field type is a Named enum, resolve to its default (or first) variant.
+            // But only for non-optional fields — optional enum fields default to None/null.
+            if !optional {
+                if let TypeRef::Named(type_name_str) = field_ty {
+                    if let Some(enum_def) = api.enums.iter().find(|e| &e.name == type_name_str) {
+                        let variant = enum_def
+                            .variants
+                            .iter()
+                            .find(|v| v.is_default)
+                            .or_else(|| enum_def.variants.first());
+                        if let Some(v) = variant {
+                            let etype = type_name(type_name_str, lang, ffi_prefix);
+                            let vname = enum_variant_name(&v.name, lang, ffi_prefix);
+                            return format!("`{}`", format_enum_variant_ref(&etype, &vname, lang, ffi_prefix));
+                        }
                     }
                 }
             }
@@ -1607,7 +1668,10 @@ fn format_typed_default(
                     Language::R => "`list()`".to_string(),
                 };
             }
-            // Non-collection Empty: use language-specific null/default
+            // Non-collection Empty: only show null for optional fields
+            if !optional {
+                return "—".to_string();
+            }
             match lang {
                 Language::Python => "`None`".to_string(),
                 Language::Node | Language::Wasm => "`null`".to_string(),
@@ -1622,19 +1686,24 @@ fn format_typed_default(
                 Language::Ffi => "`NULL`".to_string(),
             }
         }
-        DefaultValue::None => match lang {
-            Language::Python => "`None`".to_string(),
-            Language::Node | Language::Wasm => "`null`".to_string(),
-            Language::Go => "`nil`".to_string(),
-            Language::Java => "`null`".to_string(),
-            Language::Csharp => "`null`".to_string(),
-            Language::Ruby => "`nil`".to_string(),
-            Language::Php => "`null`".to_string(),
-            Language::Elixir => "`nil`".to_string(),
-            Language::R => "`NULL`".to_string(),
-            Language::Rust => "`None`".to_string(),
-            Language::Ffi => "`NULL`".to_string(),
-        },
+        DefaultValue::None => {
+            if !optional {
+                return "—".to_string();
+            }
+            match lang {
+                Language::Python => "`None`".to_string(),
+                Language::Node | Language::Wasm => "`null`".to_string(),
+                Language::Go => "`nil`".to_string(),
+                Language::Java => "`null`".to_string(),
+                Language::Csharp => "`null`".to_string(),
+                Language::Ruby => "`nil`".to_string(),
+                Language::Php => "`null`".to_string(),
+                Language::Elixir => "`nil`".to_string(),
+                Language::R => "`NULL`".to_string(),
+                Language::Rust => "`None`".to_string(),
+                Language::Ffi => "`NULL`".to_string(),
+            }
+        }
     }
 }
 
@@ -1670,12 +1739,14 @@ fn format_error_phrase(error_type: &str, lang: Language) -> String {
         Language::Go => "Returns `error`.".to_string(),
         Language::Java => {
             let ename = short.to_pascal_case();
+            let ename = if ename.ends_with("Exception") {
+                ename
+            } else {
+                format!("{ename}Exception")
+            };
             format!("Throws `{ename}`.")
         }
-        Language::Node | Language::Wasm => {
-            let ename = short.to_pascal_case();
-            format!("Throws `{ename}`.")
-        }
+        Language::Node | Language::Wasm => "Throws `Error` with a descriptive message.".to_string(),
         Language::Ruby => {
             let ename = short.to_pascal_case();
             format!("Raises `{ename}`.")
@@ -1801,6 +1872,12 @@ fn replace_rust_terminology(doc: &str, lang: Language) -> String {
             "Internal error caught during conversion",
         );
 
+    // Replace OutputFormat.None references with language-neutral phrasing
+    let doc = doc.replace(
+        "None when `output_format` is set to `OutputFormat.None`",
+        "null/nil when in extraction-only mode",
+    );
+
     // Replace `None` backtick references with the language-idiomatic null
     let none_replacement = match lang {
         Language::Go | Language::Ruby | Language::Elixir => "`nil`",
@@ -1813,6 +1890,12 @@ fn replace_rust_terminology(doc: &str, lang: Language) -> String {
     // For Python, normalise boolean literals in prose: `true` → `True`, `false` → `False`
     if lang == Language::Python {
         let doc = doc.replace("`true`", "`True`").replace("`false`", "`False`");
+        return doc;
+    }
+
+    // For non-Python languages, normalise Rust/Python boolean literals: `True` → `true`, `False` → `false`
+    if lang != Language::Rust {
+        let doc = doc.replace("`True`", "`true`").replace("`False`", "`false`");
         return doc;
     }
 
@@ -2102,7 +2185,7 @@ fn generate_enum_variant_description(variant_name: &str) -> String {
     match variant_name {
         "TEXT" => return "Text format".to_string(),
         "MARKDOWN" => return "Markdown format".to_string(),
-        "HTML" => return "HTML format".to_string(),
+        "HTML" | "Html" => return "Preserve as HTML `<mark>` tags".to_string(),
         "JSON" => return "JSON format".to_string(),
         "CSV" => return "CSV format".to_string(),
         "XML" => return "XML format".to_string(),

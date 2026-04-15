@@ -144,11 +144,10 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
 
     // Struct opaque-handle functions (from_json + free + field accessors + methods)
     for typ in &api.types {
-        // Opaque types don't implement serde Deserialize, so skip from_json.
-        // Types with sanitized fields may not implement Deserialize either
-        // (the core type has non-serializable field types).
+        // Only generate from_json/to_json for types that derive serde Serialize/Deserialize.
+        // Opaque types, types with sanitized fields, and types without serde derives are skipped.
         let has_sanitized = typ.fields.iter().any(|f| f.sanitized);
-        if !typ.is_opaque && !has_sanitized {
+        if !typ.is_opaque && !has_sanitized && typ.has_serde {
             builder.add_item(&gen_type_from_json(typ, prefix, &core_import));
             // Generate to_json for types that support serialization.
             // Update types (partial update structs) typically only implement Deserialize,
@@ -270,7 +269,7 @@ mod tests {
                 has_default: false,
                 has_stripped_cfg_fields: false,
                 is_return_type: false,
-                serde_rename_all: None,
+                serde_rename_all: None, has_serde: false,
                 doc: "Configuration struct.".to_string(),
                 cfg: None,
             }],
@@ -318,7 +317,7 @@ mod tests {
                 doc: "Output format.".to_string(),
                 cfg: None,
                 serde_tag: None,
-                serde_rename_all: None,
+                serde_rename_all: None, has_serde: false,
             }],
             errors: vec![],
         }

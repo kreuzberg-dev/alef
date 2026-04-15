@@ -37,7 +37,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
             lib_name: None,
             visitor_callbacks: false,
             features: None,
-            serde_rename_all: None,
+            serde_rename_all: None, has_serde: false,
         }),
         go: None,
         java: None,

@@ -856,7 +856,7 @@ mod tests {
             has_default: true,
             has_stripped_cfg_fields: false,
             is_return_type: false,
-            serde_rename_all: None,
+            serde_rename_all: None, has_serde: false,
         }
     }
 
