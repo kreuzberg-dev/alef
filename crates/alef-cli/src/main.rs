@@ -293,7 +293,7 @@ fn main() -> Result<()> {
         }
         Commands::Docs { lang, output } => {
             let config = load_config(config_path)?;
-            let languages = resolve_languages(&config, lang.as_deref())?;
+            let languages = resolve_doc_languages(&config, lang.as_deref())?;
             let config_toml = std::fs::read_to_string(config_path)?;
             // Use unfiltered IR for docs so ALL public types are documented,
             // not just the subset that survives [include]/[exclude] binding filters.
@@ -609,6 +609,23 @@ fn resolve_languages(
     config: &alef_core::config::AlefConfig,
     filter: Option<&[String]>,
 ) -> Result<Vec<alef_core::config::Language>> {
+    resolve_languages_inner(config, filter, false)
+}
+
+/// Like `resolve_languages` but also allows `rust` regardless of the config languages list.
+/// Docs can always be generated for Rust since it's the source language.
+fn resolve_doc_languages(
+    config: &alef_core::config::AlefConfig,
+    filter: Option<&[String]>,
+) -> Result<Vec<alef_core::config::Language>> {
+    resolve_languages_inner(config, filter, true)
+}
+
+fn resolve_languages_inner(
+    config: &alef_core::config::AlefConfig,
+    filter: Option<&[String]>,
+    allow_rust: bool,
+) -> Result<Vec<alef_core::config::Language>> {
     match filter {
         Some(langs) => {
             let mut result = vec![];
@@ -616,7 +633,7 @@ fn resolve_languages(
                 let lang: alef_core::config::Language = toml::Value::String(lang_str.clone())
                     .try_into()
                     .with_context(|| format!("Unknown language: {lang_str}"))?;
-                if config.languages.contains(&lang) {
+                if config.languages.contains(&lang) || (allow_rust && lang == alef_core::config::Language::Rust) {
                     result.push(lang);
                 } else {
                     anyhow::bail!("Language '{lang_str}' not in config languages list");
