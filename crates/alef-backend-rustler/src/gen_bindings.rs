@@ -152,7 +152,9 @@ impl Backend for RustlerBackend {
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         // From/Into conversions
         for typ in &api.types {
-            if alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core) {
+            if config.generate.reverse_conversions
+                && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
+            {
                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
             }
             if alef_codegen::conversions::can_generate_conversion(typ, &core_to_binding) {
@@ -164,7 +166,7 @@ impl Backend for RustlerBackend {
             }
         }
         for e in &api.enums {
-            if alef_codegen::conversions::can_generate_enum_conversion(e) {
+            if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
                 builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
                     e,
                     &core_import,

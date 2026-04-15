@@ -154,6 +154,10 @@ pub struct GenerateConfig {
     /// Generate idiomatic public API wrappers (default: true)
     #[serde(default = "default_true")]
     pub public_api: bool,
+    /// Generate `From<BindingType> for CoreType` reverse conversions (default: true).
+    /// Set to false when the binding layer only returns core types and never accepts them.
+    #[serde(default = "default_true")]
+    pub reverse_conversions: bool,
 }
 
 impl Default for GenerateConfig {
@@ -166,6 +170,7 @@ impl Default for GenerateConfig {
             type_conversions: true,
             package_metadata: true,
             public_api: true,
+            reverse_conversions: true,
         }
     }
 }

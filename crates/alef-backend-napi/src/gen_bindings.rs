@@ -145,7 +145,9 @@ impl Backend for NapiBackend {
         };
         // From/Into conversions using shared parameterized generators
         for typ in &api.types {
-            if alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core) {
+            if config.generate.reverse_conversions
+                && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
+            {
                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
                     typ,
                     &core_import,
@@ -168,7 +170,7 @@ impl Backend for NapiBackend {
                 builder.add_item(&gen_tagged_enum_binding_to_core(e, &core_import));
                 builder.add_item(&gen_tagged_enum_core_to_binding(e, &core_import));
             } else {
-                if alef_codegen::conversions::can_generate_enum_conversion(e) {
+                if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
                     builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
                         e,
                         &core_import,

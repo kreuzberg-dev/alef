@@ -154,11 +154,13 @@ impl Backend for WasmBackend {
             let is_relaxed = alef_codegen::conversions::can_generate_conversion(typ, &core_to_binding_convertible);
             if is_strict {
                 // Both directions
-                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
-                    typ,
-                    &core_import,
-                    &wasm_conv_config,
-                ));
+                if config.generate.reverse_conversions {
+                    builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
+                        typ,
+                        &core_import,
+                        &wasm_conv_config,
+                    ));
+                }
                 builder.add_item(&alef_codegen::conversions::gen_from_core_to_binding_cfg(
                     typ,
                     &core_import,
@@ -177,7 +179,7 @@ impl Backend for WasmBackend {
         }
         for e in &api.enums {
             if !exclude_types.contains(&e.name) {
-                if alef_codegen::conversions::can_generate_enum_conversion(e) {
+                if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
                     builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
                         e,
                         &core_import,

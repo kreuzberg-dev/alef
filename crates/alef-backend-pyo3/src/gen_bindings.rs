@@ -242,7 +242,9 @@ impl Backend for Pyo3Backend {
         // From/Into conversions — separate sets for each direction
         for typ in &api.types {
             // binding→core: strict (no sanitized fields)
-            if alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core) {
+            if config.generate.reverse_conversions
+                && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
+            {
                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
                     typ,
                     &core_import,
@@ -265,7 +267,7 @@ impl Backend for Pyo3Backend {
                 continue;
             }
             // Binding→core: only for enums with simple fields (Default::default() must work)
-            if alef_codegen::conversions::can_generate_enum_conversion(e) {
+            if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
                 builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core(
                     e,
                     &core_import,

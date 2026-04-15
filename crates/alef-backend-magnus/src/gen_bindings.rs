@@ -141,7 +141,7 @@ impl Backend for MagnusBackend {
             }
             let is_strict = alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core);
             let is_relaxed = alef_codegen::conversions::can_generate_conversion(typ, &core_to_binding);
-            if is_strict {
+            if is_strict && config.generate.reverse_conversions {
                 builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
             }
             if is_relaxed {
@@ -158,7 +158,7 @@ impl Backend for MagnusBackend {
             ..Default::default()
         };
         for e in &api.enums {
-            if alef_codegen::conversions::can_generate_enum_conversion(e) {
+            if config.generate.reverse_conversions && alef_codegen::conversions::can_generate_enum_conversion(e) {
                 builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
                     e,
                     &core_import,
