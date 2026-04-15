@@ -750,8 +750,7 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
   "autoload": {{
     "psr-4": {{
       "{php_namespace}\\\\": "src/"
-    }},
-    "files": ["src/functions.php"]
+    }}
   }},
   "scripts": {{
     "phpstan": "php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M",
@@ -919,12 +918,12 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.21.2</version>
+            <version>2.19.0</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jdk8</artifactId>
-            <version>2.21.2</version>
+            <version>2.19.0</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
