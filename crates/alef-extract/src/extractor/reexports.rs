@@ -328,6 +328,8 @@ pub(crate) fn extract_module(
     }
 
     // Post-process named re-exports: shorten rust_path for items whose names match.
+    // Also prune items from private modules that are NOT in the re-export list,
+    // since they can't be accessed from outside.
     if let Some(names) = named_reexports {
         let parent_prefix = if module_path.is_empty() {
             crate_name.to_string()
@@ -349,6 +351,23 @@ pub(crate) fn extract_module(
             if names.contains(&func.name) {
                 func.rust_path = format!("{parent_prefix}::{}", func.name);
             }
+        }
+
+        // Prune non-re-exported items from private modules.
+        // Items in private modules are only accessible via their explicit re-exports.
+        if !super::helpers::is_pub(&item_mod.vis) {
+            let new_types: Vec<_> = surface.types.drain(types_before..).collect();
+            surface
+                .types
+                .extend(new_types.into_iter().filter(|ty| names.contains(&ty.name)));
+            let new_enums: Vec<_> = surface.enums.drain(enums_before..).collect();
+            surface
+                .enums
+                .extend(new_enums.into_iter().filter(|en| names.contains(&en.name)));
+            let new_fns: Vec<_> = surface.functions.drain(fns_before..).collect();
+            surface
+                .functions
+                .extend(new_fns.into_iter().filter(|f| names.contains(&f.name)));
         }
     }
 

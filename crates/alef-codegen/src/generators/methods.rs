@@ -90,12 +90,15 @@ pub fn gen_method(
     };
 
     let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
+    let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
 
     // Auto-delegate opaque methods: unwrap Arc for params, wrap Arc for returns.
     // Owned receivers require the type to implement Clone (builder pattern).
+    // RefMut receivers can't be delegated on Arc<T> (Arc only gives &self, not &mut self).
     // Async methods are allowed — gen_async_body handles them below.
     let opaque_can_delegate = is_opaque
         && !method.sanitized
+        && !is_ref_mut_receiver
         && (!is_owned_receiver || typ.is_clone)
         && method
             .params
