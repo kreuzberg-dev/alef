@@ -160,8 +160,11 @@ fn apply_parent_reexport_shortening(
     // Check if there's a mod.rs in the same directory (for files like cache/core.rs,
     // the parent module is cache/mod.rs)
     let parent_mod = parent_dir.join("mod.rs");
+    let parent_lib = parent_dir.join("lib.rs");
     let parent_content = if parent_mod.exists() && parent_mod != source {
         std::fs::read_to_string(&parent_mod).ok()
+    } else if parent_lib.exists() && parent_lib != source {
+        std::fs::read_to_string(&parent_lib).ok()
     } else {
         None
     };
@@ -667,7 +670,14 @@ fn extract_items(
                 }
             }
             syn::Item::Mod(item_mod) => {
-                if is_pub(&item_mod.vis) {
+                // Follow pub modules unconditionally.
+                // Also follow non-pub modules whose items are re-exported via `pub use`
+                // at this level (e.g., `mod ocr; pub use ocr::{OcrBackend, ...}`).
+                // Without this, traits defined in private submodules wouldn't be extracted,
+                // causing unresolved trait_source on methods in downstream types.
+                let mod_name = item_mod.ident.to_string();
+                let is_reexported = reexport_map.contains_key(&mod_name);
+                if is_pub(&item_mod.vis) || is_reexported {
                     extract_module(
                         item_mod,
                         source_path,

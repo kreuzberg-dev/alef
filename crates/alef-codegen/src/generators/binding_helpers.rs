@@ -252,6 +252,12 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                 _ => {
                     if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
+                    } else if p.is_ref && p.optional {
+                        // Optional ref params: use as_deref() for slice/str coercion
+                        // Option<Vec<T>> -> Option<&[T]>, Option<String> -> Option<&str>
+                        format!("{}.as_deref()", p.name)
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
                     } else {
                         p.name.clone()
                     }
@@ -358,6 +364,10 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                 _ => {
                     if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
+                    } else if p.is_ref && p.optional {
+                        format!("{}.as_deref()", p.name)
+                    } else if p.is_ref {
+                        format!("&{}", p.name)
                     } else {
                         p.name.clone()
                     }

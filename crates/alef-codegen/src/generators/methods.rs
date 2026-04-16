@@ -1,7 +1,7 @@
 use crate::generators::binding_helpers::{
     apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_with_let_bindings,
-    gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_serde_let_bindings,
-    gen_unimplemented_body, has_named_params, is_simple_non_opaque_param, wrap_return,
+    gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_named_let_bindings_pub,
+    gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param, wrap_return,
 };
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::shared::{constructor_parts, function_params, function_sig_defaults, partition_methods};
@@ -74,7 +74,20 @@ pub fn gen_method(
     let return_type = mapper.map_type(&method.return_type);
     let ret = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let call_args = gen_call_args(&method.params, opaque_types);
+    // When non-opaque Named params have is_ref=true, we need let bindings so the
+    // converted value outlives the borrow. Use gen_call_args_with_let_bindings in that case.
+    let has_ref_named_params = method
+        .params
+        .iter()
+        .any(|p| p.is_ref && matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+    let (call_args, ref_let_bindings) = if has_ref_named_params {
+        (
+            gen_call_args_with_let_bindings(&method.params, opaque_types),
+            gen_named_let_bindings_pub(&method.params, opaque_types),
+        )
+    } else {
+        (gen_call_args(&method.params, opaque_types), String::new())
+    };
 
     let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
 
@@ -328,6 +341,12 @@ pub fn gen_method(
             core_call
         }
     };
+    // Prepend let bindings for non-opaque Named ref params (needed for borrow lifetime)
+    let body = if ref_let_bindings.is_empty() {
+        body
+    } else {
+        format!("{ref_let_bindings}{body}")
+    };
 
     let needs_py = method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
     let self_param = match (needs_py, params.is_empty()) {
@@ -423,7 +442,19 @@ pub fn gen_static_method(
     let return_type = mapper.map_type(&method.return_type);
     let ret = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    let call_args = gen_call_args(&method.params, opaque_types);
+    // Use let bindings when non-opaque Named params have is_ref=true
+    let has_ref_named_params = method
+        .params
+        .iter()
+        .any(|p| p.is_ref && matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+    let (call_args, ref_let_bindings) = if has_ref_named_params {
+        (
+            gen_call_args_with_let_bindings(&method.params, opaque_types),
+            gen_named_let_bindings_pub(&method.params, opaque_types),
+        )
+    } else {
+        (gen_call_args(&method.params, opaque_types), String::new())
+    };
 
     let can_delegate = crate::shared::can_auto_delegate(method, opaque_types);
 
@@ -496,6 +527,12 @@ pub fn gen_static_method(
                 method.returns_cow,
             )
         }
+    };
+    // Prepend let bindings for non-opaque Named ref params
+    let body = if ref_let_bindings.is_empty() {
+        body
+    } else {
+        format!("{ref_let_bindings}{body}")
     };
 
     let static_needs_py = method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;

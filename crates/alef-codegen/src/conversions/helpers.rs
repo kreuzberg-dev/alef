@@ -26,6 +26,19 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
             }
         }
     }
+    // Collect Named types from fields of non-opaque types that have methods.
+    // When a non-opaque type has methods, codegen generates binding→core struct conversion
+    // (gen_lossy_binding_to_core_fields) which calls `.into()` on Named fields.
+    // Those field types need binding→core From impls.
+    for typ in &surface.types {
+        if !typ.is_opaque && !typ.methods.is_empty() {
+            for field in &typ.fields {
+                if !field.sanitized {
+                    collect_named_types(&field.ty, &mut names);
+                }
+            }
+        }
+    }
 
     // Transitive closure: if type A is an input and has field of type B, B is also an input
     let mut changed = true;
