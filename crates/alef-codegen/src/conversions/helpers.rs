@@ -1,14 +1,18 @@
 use ahash::{AHashMap, AHashSet};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
-/// Collect all Named type names that appear as function/method input parameters.
-/// These are types that flow from the binding layer INTO the core — they need
-/// binding→core `From` impls. Types that only appear as return values do NOT
-/// need reverse conversions.
+/// Collect all Named type names that appear in the API surface — both as
+/// function/method input parameters AND as function/method return types.
+/// These are types that need binding→core `From` impls.
 ///
-/// The result includes transitive dependencies: if `CrawlConfig` is an input
-/// and it has a field `browser: BrowserConfig`, then `BrowserConfig` is also
-/// included.
+/// Return types need binding→core From impls because:
+/// - Users may construct binding types and convert them to core types
+/// - Generated code may use `.into()` on nested Named fields in From impls
+/// - Round-trip conversion completeness ensures the API is fully usable
+///
+/// The result includes transitive dependencies: if `ConversionResult` is a
+/// return type and it has a field `metadata: HtmlMetadata`, then `HtmlMetadata`
+/// is also included.
 pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
     let mut names = AHashSet::new();
 
@@ -24,6 +28,18 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
             for param in &method.params {
                 collect_named_types(&param.ty, &mut names);
             }
+        }
+    }
+    // Collect Named types from function return types.
+    // Return types and their transitive field types need binding→core From impls
+    // for round-trip conversion completeness.
+    for func in &surface.functions {
+        collect_named_types(&func.return_type, &mut names);
+    }
+    // Collect Named types from method return types.
+    for typ in &surface.types {
+        for method in &typ.methods {
+            collect_named_types(&method.return_type, &mut names);
         }
     }
     // Collect Named types from fields of non-opaque types that have methods.
