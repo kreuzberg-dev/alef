@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-04-16
+
+### Fixed
+
+- Codegen: deserialize sanitized fields in binding-to-core enum variant conversion
+- Codegen: skip trait types in all backend type generation loops
+- Codegen: replace glob imports with explicit named imports in PyO3 and FFI backends
+- Codegen: generate `From` impls for function return types and nested params
+- FFI: generate `from_json`/`to_json` for types with sanitized fields
+- FFI: remove unused explicit core imports from FFI backend
+- FFI: normalize dashes to underscores in IR `rust_path` for code generation
+- CLI: format generated Rust content before diffing in verify/diff commands
+- E2E: use configured `class::function` for PHP calls regardless of `result_is_simple`
+- Extract: check `lib.rs` as parent module for reexport shortening
+- Resolve trait sources in post-processing to handle module ordering
+- Normalize dashes to underscores in rust path comparison for `From` impl generation
+- Scaffold: add `compilers` directive to Elixir `mix.exs` template
+- Bump cbindgen scaffold version from 0.28 to 0.29
+
 ## [0.3.4] - 2026-04-15
 
 ### Added
