@@ -115,17 +115,9 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
     }
-    // When unresolved trait methods exist, import only types and enums from the
-    // core crate — NOT functions or type aliases — to avoid name conflicts
-    // (e.g. a `convert` function or `Result` alias shadowing local definitions).
-    // Node and WASM backends already work without the glob import; resolved
-    // trait imports (collected above) are sufficient for method dispatch.
-    if generators::has_unresolved_trait_methods(api) {
-        let explicit_imports = generators::collect_explicit_core_imports(api);
-        if !explicit_imports.is_empty() {
-            builder.add_import(&format!("{}::{{{}}}", core_import, explicit_imports.join(", ")));
-        }
-    }
+    // FFI backend uses fully qualified paths (e.g. html_to_markdown_rs::ConversionOptions)
+    // for all core type references, so no named or glob imports from the core crate are
+    // needed. Trait imports (collected above) are sufficient for method dispatch.
 
     // Only import serde_json when types need from_json deserialization or
     // when Json/Vec/Map fields/returns require serialization
