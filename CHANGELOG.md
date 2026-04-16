@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Codegen: correct float literal defaults (`0.0f32`/`0.0f64`) in unimplemented body for float return types
+- Codegen: handle `&mut T` parameters via new `is_mut` IR field — emit `&mut` refs instead of `&`
+- Codegen: parse `TypeRef::Json` parameters with `serde_json::from_str()` instead of passing raw String
 - Codegen: skip auto-delegation for trait-source methods on opaque types (prevents invalid Arc deref calls)
 - Extract: skip `#[cfg(...)]`-gated free functions during extraction (prevents feature-gated functions leaking into bindings)
 - Extract: prune non-re-exported items from private modules

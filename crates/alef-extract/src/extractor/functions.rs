@@ -427,6 +427,26 @@ fn option_inner_is_ref(ty: &syn::Type) -> bool {
     false
 }
 
+/// Detect `&mut T` or `Option<&mut T>` parameters.
+fn is_mut_ref(ty: &syn::Type) -> bool {
+    match ty {
+        syn::Type::Reference(r) => r.mutability.is_some(),
+        syn::Type::Path(type_path) => {
+            if let Some(seg) = type_path.path.segments.last() {
+                if seg.ident == "Option" {
+                    if let Some(inner) = type_resolver::extract_single_generic_arg_syn(seg) {
+                        if let syn::Type::Reference(r) = &*inner {
+                            return r.mutability.is_some();
+                        }
+                    }
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
 /// Extract function/method parameters, skipping `self` receivers.
 pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> Vec<ParamDef> {
     inputs
@@ -441,6 +461,7 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                 // The latter is needed to distinguish `Option<&str>` (core takes &str slice)
                 // from `Option<String>` (core takes owned String).
                 let is_ref = matches!(&*pat_type.ty, syn::Type::Reference(_)) || option_inner_is_ref(&pat_type.ty);
+                let is_mut = is_mut_ref(&pat_type.ty);
                 let resolved = type_resolver::resolve_type(&pat_type.ty);
                 let (ty, optional) = unwrap_optional(resolved);
                 Some(ParamDef {
@@ -451,6 +472,7 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                     sanitized: false,
                     typed_default: None,
                     is_ref,
+                    is_mut,
                     newtype_wrapper: None,
                 })
             } else {

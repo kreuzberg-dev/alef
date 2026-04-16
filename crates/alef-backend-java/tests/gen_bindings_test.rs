@@ -54,6 +54,7 @@ fn test_basic_generation() {
                 sanitized: false,
                 typed_default: None,
                 is_ref: false,
+                is_mut: false,
                 newtype_wrapper: None,
             }],
             return_type: TypeRef::String,

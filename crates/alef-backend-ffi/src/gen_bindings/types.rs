@@ -267,10 +267,8 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
         // When newtype_wrapper: obj.field_name is NewtypeT; access .0 to get the inner primitive.
         let access_expr = if field.newtype_wrapper.is_some() && matches!(field.ty, TypeRef::Primitive(_)) {
             format!("obj.{field_name}.0") // unwrap newtype inner value
-        } else if field.core_wrapper == CoreWrapper::Arc {
-            format!("(*obj.{field_name})") // deref Arc<T> to get &T
-        } else if field.is_boxed {
-            format!("(*obj.{field_name})")
+        } else if field.core_wrapper == CoreWrapper::Arc || field.is_boxed {
+            format!("(*obj.{field_name})") // deref Arc<T>/Box<T> to get &T
         } else {
             format!("obj.{field_name}")
         };

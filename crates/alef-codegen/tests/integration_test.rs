@@ -107,6 +107,7 @@ fn simple_function_def() -> FunctionDef {
             sanitized: false,
             typed_default: None,
             is_ref: false,
+            is_mut: false,
             newtype_wrapper: None,
         }],
         return_type: TypeRef::Primitive(PrimitiveType::U32),
@@ -316,6 +317,7 @@ fn test_gen_static_method_without_receiver() {
             sanitized: false,
             typed_default: None,
             is_ref: false,
+            is_mut: false,
             newtype_wrapper: None,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
@@ -394,6 +396,7 @@ fn test_gen_method_with_multiple_params() {
                 sanitized: false,
                 typed_default: None,
                 is_ref: false,
+                is_mut: false,
                 newtype_wrapper: None,
             },
             ParamDef {
@@ -404,6 +407,7 @@ fn test_gen_method_with_multiple_params() {
                 sanitized: false,
                 typed_default: None,
                 is_ref: false,
+                is_mut: false,
                 newtype_wrapper: None,
             },
             ParamDef {
@@ -414,6 +418,7 @@ fn test_gen_method_with_multiple_params() {
                 sanitized: false,
                 typed_default: None,
                 is_ref: false,
+                is_mut: false,
                 newtype_wrapper: None,
             },
         ],
@@ -543,6 +548,7 @@ fn test_gen_method_with_optional_param() {
             sanitized: false,
             typed_default: None,
             is_ref: false,
+            is_mut: false,
             newtype_wrapper: None,
         }],
         return_type: TypeRef::Unit,
@@ -717,6 +723,7 @@ fn test_gen_call_args_string_param() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
     let opaque_types = AHashSet::new();
@@ -735,6 +742,7 @@ fn test_gen_call_args_primitive_param() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
     let opaque_types = AHashSet::new();
@@ -755,6 +763,7 @@ fn test_gen_call_args_opaque_param() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
 
@@ -773,6 +782,7 @@ fn test_gen_call_args_non_opaque_param() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
 
@@ -790,6 +800,7 @@ fn test_gen_call_args_path_param() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
     let opaque_types = AHashSet::new();
@@ -808,6 +819,7 @@ fn test_gen_call_args_duration_param() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
     let opaque_types = AHashSet::new();
@@ -828,6 +840,7 @@ fn test_gen_call_args_multiple_params() {
             sanitized: false,
             typed_default: None,
             is_ref: false,
+            is_mut: false,
             newtype_wrapper: None,
         },
         ParamDef {
@@ -838,6 +851,7 @@ fn test_gen_call_args_multiple_params() {
             sanitized: false,
             typed_default: None,
             is_ref: false,
+            is_mut: false,
             newtype_wrapper: None,
         },
     ];
@@ -858,6 +872,7 @@ fn test_gen_call_args_with_let_bindings_opaque() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
 
@@ -876,6 +891,7 @@ fn test_gen_call_args_with_let_bindings_non_opaque() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
 
@@ -903,6 +919,7 @@ fn test_gen_named_let_bindings_non_opaque_param() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
 
@@ -922,6 +939,7 @@ fn test_gen_named_let_bindings_opaque_skipped() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
 
@@ -940,6 +958,7 @@ fn test_has_named_params_returns_true() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
 
@@ -958,6 +977,7 @@ fn test_has_named_params_returns_false() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
 
@@ -1065,6 +1085,7 @@ fn test_gen_unimplemented_body_with_error() {
         sanitized: false,
         typed_default: None,
         is_ref: false,
+        is_mut: false,
         newtype_wrapper: None,
     }];
 
@@ -1178,6 +1199,7 @@ fn test_gen_method_builder_pattern_opaque() {
             sanitized: false,
             typed_default: None,
             is_ref: false,
+            is_mut: false,
             newtype_wrapper: None,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),
@@ -1232,6 +1254,7 @@ fn test_gen_method_builder_pattern_non_opaque() {
             sanitized: false,
             typed_default: None,
             is_ref: false,
+            is_mut: false,
             newtype_wrapper: None,
         }],
         return_type: TypeRef::Named("MyConfig".to_string()),

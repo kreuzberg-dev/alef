@@ -253,9 +253,23 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                         format!("std::time::Duration::from_millis({})", p.name)
                     }
                 }
+                TypeRef::Json => {
+                    // JSON params: binding has String, core expects serde_json::Value
+                    if p.optional {
+                        format!("{}.as_ref().and_then(|s| serde_json::from_str(s).ok())", p.name)
+                    } else if promoted {
+                        format!("serde_json::from_str(&{}{}).unwrap_or_default()", p.name, unwrap_suffix)
+                    } else {
+                        format!("serde_json::from_str(&{}).unwrap_or_default()", p.name)
+                    }
+                }
                 _ => {
                     if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
+                    } else if p.is_mut && p.optional {
+                        format!("{}.as_deref_mut()", p.name)
+                    } else if p.is_mut {
+                        format!("&mut {}", p.name)
                     } else if p.is_ref && p.optional {
                         // Optional ref params: use as_deref() for slice/str coercion
                         // Option<Vec<T>> -> Option<&[T]>, Option<String> -> Option<&str>
@@ -795,6 +809,8 @@ pub fn gen_unimplemented_body(
             TypeRef::Bytes => "Vec::new()".to_string(),
             TypeRef::Primitive(p) => match p {
                 alef_core::ir::PrimitiveType::Bool => "false".to_string(),
+                alef_core::ir::PrimitiveType::F32 => "0.0f32".to_string(),
+                alef_core::ir::PrimitiveType::F64 => "0.0f64".to_string(),
                 _ => "0".to_string(),
             },
             TypeRef::Optional(_) => "None".to_string(),

@@ -125,6 +125,7 @@ fn print_generated_java_code() {
                         sanitized: false,
                         typed_default: None,
                         is_ref: false,
+                        is_mut: false,
                         newtype_wrapper: None,
                     },
                     ParamDef {
@@ -135,6 +136,7 @@ fn print_generated_java_code() {
                         sanitized: false,
                         typed_default: None,
                         is_ref: false,
+                        is_mut: false,
                         newtype_wrapper: None,
                     },
                 ],
@@ -160,6 +162,7 @@ fn print_generated_java_code() {
                         sanitized: false,
                         typed_default: None,
                         is_ref: false,
+                        is_mut: false,
                         newtype_wrapper: None,
                     },
                     ParamDef {
@@ -170,6 +173,7 @@ fn print_generated_java_code() {
                         sanitized: false,
                         typed_default: None,
                         is_ref: false,
+                        is_mut: false,
                         newtype_wrapper: None,
                     },
                 ],

@@ -208,6 +208,10 @@ pub struct ParamDef {
     /// Used by codegen to generate owned intermediates and pass refs.
     #[serde(default)]
     pub is_ref: bool,
+    /// True if the original Rust parameter was a mutable reference (`&mut T`).
+    /// Used by codegen to generate `&mut` refs when calling core functions.
+    #[serde(default)]
+    pub is_mut: bool,
     /// Full Rust path of the newtype wrapper that was resolved away for this param,
     /// e.g. `"my_crate::NodeIndex"` when `NodeIndex(u32)` was resolved to `u32`.
     /// When set, codegen must wrap the raw value back into the newtype when calling core:

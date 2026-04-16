@@ -343,7 +343,20 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
                         match entry {
                             Ok(path) => {
                                 if let Ok(content) = std::fs::read_to_string(&path) {
-                                    if let Some(ref re) = version_re {
+                                    let is_package_json = path.file_name().is_some_and(|f| f == "package.json");
+                                    if is_package_json {
+                                        // For package.json files, only update the top-level
+                                        // "version" field to avoid clobbering dependency versions.
+                                        if let Some(new_content) =
+                                            replace_version_pattern(&content, r#""version":\s*"[^"]*""#, &version)
+                                        {
+                                            if let Err(e) = std::fs::write(&path, &new_content) {
+                                                debug!("Could not write {}: {e}", path.display());
+                                            } else {
+                                                updated.push(path.to_string_lossy().to_string());
+                                            }
+                                        }
+                                    } else if let Some(ref re) = version_re {
                                         let new_content = re.replace_all(&content, version.as_str()).to_string();
                                         if new_content != content {
                                             if let Err(e) = std::fs::write(&path, &new_content) {

@@ -69,6 +69,7 @@ fn test_generated_code_example() {
                     sanitized: false,
                     typed_default: None,
                     is_ref: false,
+                    is_mut: false,
                     newtype_wrapper: None,
                 },
                 ParamDef {
@@ -79,6 +80,7 @@ fn test_generated_code_example() {
                     sanitized: false,
                     typed_default: None,
                     is_ref: false,
+                    is_mut: false,
                     newtype_wrapper: None,
                 },
             ],
