@@ -61,13 +61,13 @@ fn generate_lang_doc(
 
     // Title
     out.push_str(&format!(
-        "# {lang_display} API Reference <span class=\"version-badge\">v{version}</span>\n\n"
+        "## {lang_display} API Reference <span class=\"version-badge\">v{version}</span>\n\n"
     ));
 
     // --- Functions section ---
     let public_fns: Vec<&FunctionDef> = api.functions.iter().collect();
     if !public_fns.is_empty() {
-        out.push_str("## Functions\n\n");
+        out.push_str("### Functions\n\n");
         for func in &public_fns {
             out.push_str(&render_function(func, lang, config, api, ffi_prefix));
             out.push_str("\n---\n\n");
@@ -83,7 +83,7 @@ fn generate_lang_doc(
     types_to_doc.sort_by(|a, b| type_sort_key(&a.name).cmp(&type_sort_key(&b.name)));
 
     if !types_to_doc.is_empty() {
-        out.push_str("## Types\n\n");
+        out.push_str("### Types\n\n");
         for ty in &types_to_doc {
             out.push_str(&render_type(ty, lang, api, ffi_prefix));
             out.push_str("\n---\n\n");
@@ -92,7 +92,7 @@ fn generate_lang_doc(
 
     // --- Enums section ---
     if !api.enums.is_empty() {
-        out.push_str("## Enums\n\n");
+        out.push_str("### Enums\n\n");
         for en in &api.enums {
             out.push_str(&render_enum(en, lang, ffi_prefix));
             out.push_str("\n---\n\n");
@@ -101,7 +101,7 @@ fn generate_lang_doc(
 
     // --- Errors section ---
     if !api.errors.is_empty() {
-        out.push_str("## Errors\n\n");
+        out.push_str("### Errors\n\n");
         for err in &api.errors {
             out.push_str(&render_error(err, lang, ffi_prefix));
             out.push_str("\n---\n\n");
@@ -131,7 +131,7 @@ fn render_function(
     let mut out = String::new();
     let fn_name = func_name(&func.name, lang, ffi_prefix);
 
-    out.push_str(&format!("### {fn_name}()\n\n"));
+    out.push_str(&format!("#### {fn_name}()\n\n"));
 
     // Extract parameter descriptions from the RAW doc string BEFORE cleaning
     let param_docs = extract_param_docs(&func.doc);
@@ -453,7 +453,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
     let mut out = String::new();
     let tname = type_name(&ty.name, lang, ffi_prefix);
 
-    out.push_str(&format!("### {tname}\n\n"));
+    out.push_str(&format!("#### {tname}\n\n"));
 
     let doc = clean_doc(&ty.doc, lang);
     if !doc.is_empty() {
@@ -490,7 +490,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
         } else {
             "Methods"
         };
-        out.push_str(&format!("#### {methods_heading}\n\n"));
+        out.push_str(&format!("##### {methods_heading}\n\n"));
         for method in &ty.methods {
             out.push_str(&render_method(method, &ty.name, lang, ffi_prefix));
         }
@@ -503,7 +503,7 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
     let mut out = String::new();
     let mname = func_name(&method.name, lang, ffi_prefix);
 
-    out.push_str(&format!("##### {mname}()\n\n"));
+    out.push_str(&format!("###### {mname}()\n\n"));
 
     let doc = clean_doc(&method.doc, lang);
     if !doc.is_empty() {
@@ -708,7 +708,7 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ename = type_name(&en.name, lang, ffi_prefix);
 
-    out.push_str(&format!("### {ename}\n\n"));
+    out.push_str(&format!("#### {ename}\n\n"));
 
     let doc = clean_doc(&en.doc, lang);
     if !doc.is_empty() {
@@ -754,7 +754,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ename = type_name(&err.name, lang, ffi_prefix);
 
-    out.push_str(&format!("### {ename}\n\n"));
+    out.push_str(&format!("#### {ename}\n\n"));
 
     let doc = clean_doc(&err.doc, lang);
     if !doc.is_empty() {
@@ -816,7 +816,7 @@ fn generate_configuration_doc(
     let mut out = String::new();
 
     out.push_str("---\ntitle: \"Configuration Reference\"\n---\n\n");
-    out.push_str("# Configuration Reference\n\n");
+    out.push_str("## Configuration Reference\n\n");
     out.push_str("This page documents all configuration types and their defaults across all languages.\n\n");
 
     // Collect config-like types (Config, Options, Settings suffixes, or types with Default)
@@ -831,7 +831,7 @@ fn generate_configuration_doc(
         .collect();
 
     for ty in config_types {
-        out.push_str(&format!("## {}\n\n", ty.name));
+        out.push_str(&format!("### {}\n\n", ty.name));
         let doc = clean_doc(&ty.doc, Language::Python);
         if !doc.is_empty() {
             out.push_str(&doc);
@@ -894,7 +894,7 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
     let mut out = String::new();
 
     out.push_str("---\ntitle: \"Types Reference\"\n---\n\n");
-    out.push_str("# Types Reference\n\n");
+    out.push_str("## Types Reference\n\n");
     out.push_str("All types defined by the library, grouped by category. Types are shown using Rust as the canonical representation.\n\n");
 
     // Collect non-update types
@@ -931,14 +931,14 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
         let Some(types) = groups.get(cat) else {
             continue;
         };
-        out.push_str(&format!("## {cat}\n\n"));
+        out.push_str(&format!("### {cat}\n\n"));
 
         if cat == "Configuration Types" {
             out.push_str("See [Configuration Reference](configuration.md) for detailed defaults and language-specific representations.\n\n");
         }
 
         for ty in types {
-            out.push_str(&format!("### {}\n\n", ty.name));
+            out.push_str(&format!("#### {}\n\n", ty.name));
 
             let doc = clean_doc(&ty.doc, Language::Python);
             if !doc.is_empty() {
@@ -1036,11 +1036,11 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
     let mut out = String::new();
 
     out.push_str("---\ntitle: \"Error Reference\"\n---\n\n");
-    out.push_str("# Error Reference\n\n");
+    out.push_str("## Error Reference\n\n");
     out.push_str("All error types thrown by the library across all languages.\n\n");
 
     for err in &api.errors {
-        out.push_str(&format!("## {}\n\n", err.name));
+        out.push_str(&format!("### {}\n\n", err.name));
 
         let doc = clean_doc(&err.doc, Language::Python);
         if !doc.is_empty() {

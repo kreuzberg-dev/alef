@@ -736,7 +736,7 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
   "require-dev": {{
     "phpstan/phpstan": "^2.1",
     "friendsofphp/php-cs-fixer": "^3.95",
-    "phpunit/phpunit": "^11.0"
+    "phpunit/phpunit": "^13.1"
   }},
   "autoload": {{
     "psr-4": {{
