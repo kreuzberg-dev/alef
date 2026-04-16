@@ -109,13 +109,22 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
 }
 
 /// Diff generated files against what's on disk.
+///
+/// For Rust files, the generated content is formatted with rustfmt before
+/// comparison so that diffs reflect semantic changes rather than formatting
+/// discrepancies introduced by the code generator.
 pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> anyhow::Result<Vec<String>> {
     let mut diffs = vec![];
     for (lang, lang_files) in files {
         for file in lang_files {
             let full_path = base_dir.join(&file.path);
             let existing = std::fs::read_to_string(&full_path).unwrap_or_default();
-            if existing != file.content {
+            let content = if file.path.extension().is_some_and(|ext| ext == "rs") {
+                format_rust_content(&file.content)
+            } else {
+                file.content.clone()
+            };
+            if existing != content {
                 diffs.push(format!("[{lang}] {}", file.path.display()));
             }
         }
@@ -150,7 +159,48 @@ pub fn write_scaffold_files(files: &[GeneratedFile], base_dir: &Path) -> anyhow:
     Ok(count)
 }
 
-/// Auto-format generated Rust files using `cargo fmt` (best-effort, doesn't fail on error).
+/// Format a Rust source string using `rustfmt` via stdin/stdout.
+///
+/// Returns the formatted content on success, or the original content if
+/// rustfmt is unavailable or fails (best-effort).
+pub fn format_rust_content(content: &str) -> String {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let child = Command::new("rustfmt")
+        .arg("--edition")
+        .arg("2024")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+
+    let Ok(mut child) = child else {
+        debug!("rustfmt not available for in-memory formatting");
+        return content.to_string();
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(content.as_bytes());
+    }
+
+    match child.wait_with_output() {
+        Ok(output) if output.status.success() => String::from_utf8(output.stdout).unwrap_or_else(|_| content.to_string()),
+        Ok(output) => {
+            debug!(
+                "rustfmt failed on stdin: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            content.to_string()
+        }
+        Err(e) => {
+            debug!("rustfmt process error: {e}");
+            content.to_string()
+        }
+    }
+}
+
+/// Auto-format generated Rust files using `rustfmt` (best-effort, doesn't fail on error).
 pub fn format_rust_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) {
     let rs_files: Vec<_> = files
         .iter()
