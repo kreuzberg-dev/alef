@@ -421,17 +421,6 @@ fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
   }},
   "devDependencies": {{
     "@napi-rs/cli": "^3.0.0"
-  }},
-  "optionalDependencies": {{
-    "{package_name}-darwin-arm64": "{version}",
-    "{package_name}-darwin-x64": "{version}",
-    "{package_name}-linux-arm64-gnu": "{version}",
-    "{package_name}-linux-arm64-musl": "{version}",
-    "{package_name}-linux-x64-gnu": "{version}",
-    "{package_name}-linux-x64-musl": "{version}",
-    "{package_name}-linux-arm-gnueabihf": "{version}",
-    "{package_name}-win32-x64-msvc": "{version}",
-    "{package_name}-win32-arm64-msvc": "{version}"
   }}
 }}
 "#,
@@ -885,6 +874,38 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     let name = &config.crate_config.name;
     let version = &api.version;
 
+    // Derive SCM URLs from repository URL
+    let repo_url = &meta.repository;
+    let repo_path = repo_url
+        .strip_prefix("https://github.com/")
+        .or_else(|| repo_url.strip_prefix("http://github.com/"))
+        .unwrap_or(repo_url.trim_start_matches("https://"));
+
+    // Build developers XML from authors
+    let developers_xml = if meta.authors.is_empty() {
+        String::new()
+    } else {
+        let devs: Vec<String> = meta
+            .authors
+            .iter()
+            .map(|a| format!("        <developer>\n            <name>{a}</name>\n        </developer>"))
+            .collect();
+        format!("\n    <developers>\n{}\n    </developers>\n", devs.join("\n"))
+    };
+
+    // License URL mapping
+    let license_url = match meta.license.as_str() {
+        "Elastic-2.0" => "https://www.elastic.co/licensing/elastic-license",
+        "MIT" => "https://opensource.org/licenses/MIT",
+        "Apache-2.0" => "https://www.apache.org/licenses/LICENSE-2.0",
+        _ => "",
+    };
+    let license_url_xml = if license_url.is_empty() {
+        String::new()
+    } else {
+        format!("\n            <url>{license_url}</url>")
+    };
+
     let content = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -903,14 +924,27 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
 
     <licenses>
         <license>
-            <name>{license}</name>
+            <name>{license}</name>{license_url}
         </license>
     </licenses>
+{developers}
+    <scm>
+        <connection>scm:git:git://github.com/{repo_path}.git</connection>
+        <developerConnection>scm:git:ssh://github.com:{repo_path}.git</developerConnection>
+        <url>{repository}</url>
+    </scm>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.release>25</maven.compiler.release>
+        <junit.version>5.11.4</junit.version>
+        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+        <maven-surefire-plugin.version>3.5.5</maven-surefire-plugin.version>
+        <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
+        <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
+        <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
+        <central-publishing-plugin.version>0.10.0</central-publishing-plugin.version>
+        <spotless-maven-plugin.version>3.4.0</spotless-maven-plugin.version>
         <gpg.skip>true</gpg.skip>
     </properties>
 
@@ -918,17 +952,17 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.19.0</version>
+            <version>2.21.2</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jdk8</artifactId>
-            <version>2.19.0</version>
+            <version>2.21.2</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
-            <version>5.11.4</version>
+            <version>${{junit.version}}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -938,29 +972,31 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
+                <version>${{maven-compiler-plugin.version}}</version>
                 <configuration>
-                    <source>21</source>
-                    <target>21</target>
+                    <release>25</release>
+                    <compilerArgs>
+                        <arg>--enable-preview</arg>
+                    </compilerArgs>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
+                <version>${{maven-surefire-plugin.version}}</version>
                 <configuration>
-                    <argLine>--enable-native-access=ALL-UNNAMED -Djava.library.path=${{project.basedir}}/../../target/release</argLine>
+                    <argLine>@{{argLine}} --enable-native-access=ALL-UNNAMED --enable-preview -Djava.library.path=${{project.basedir}}/../../target/release</argLine>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>
-                <version>3.4.0</version>
+                <version>${{spotless-maven-plugin.version}}</version>
                 <configuration>
                     <java>
-                        <googleJavaFormat>
-                            <version>1.35.0</version>
-                        </googleJavaFormat>
+                        <eclipse>
+                            <version>4.31</version>
+                        </eclipse>
                     </java>
                 </configuration>
                 <executions>
@@ -972,12 +1008,46 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>${{maven-source-plugin.version}}</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>${{maven-javadoc-plugin.version}}</version>
+                <configuration>
+                    <doclint>all,-missing</doclint>
+                    <show>protected</show>
+                    <additionalOptions>--enable-preview</additionalOptions>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
     <profiles>
         <profile>
             <id>publish</id>
+            <properties>
+                <gpg.skip>false</gpg.skip>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
@@ -990,7 +1060,7 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
-                        <version>3.2.8</version>
+                        <version>${{maven-gpg-plugin.version}}</version>
                         <executions>
                             <execution>
                                 <id>sign-artifacts</id>
@@ -1012,7 +1082,7 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                     <plugin>
                         <groupId>org.sonatype.central</groupId>
                         <artifactId>central-publishing-maven-plugin</artifactId>
-                        <version>0.10.0</version>
+                        <version>${{central-publishing-plugin.version}}</version>
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>ossrh</publishingServerId>
@@ -1031,8 +1101,11 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         name = name,
         version = version,
         description = meta.description,
-        repository = meta.repository,
+        repository = repo_url,
         license = meta.license,
+        license_url = license_url_xml,
+        developers = developers_xml,
+        repo_path = repo_path,
     );
 
     Ok(vec![GeneratedFile {
