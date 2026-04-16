@@ -1110,7 +1110,7 @@ serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}
 
 [build-dependencies]
-cbindgen = "0.28"
+cbindgen = "0.29"
 "#,
         pkg_header = pkg_header,
         description = meta.description,
