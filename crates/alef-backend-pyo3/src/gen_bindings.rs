@@ -112,8 +112,16 @@ impl Backend for Pyo3Backend {
         for trait_path in generators::collect_trait_imports(api) {
             builder.add_import(&trait_path);
         }
+        // When unresolved trait methods exist, import only types and enums from the
+        // core crate — NOT functions or type aliases — to avoid name conflicts
+        // (e.g. a `convert` function or `Result` alias shadowing local definitions).
+        // Node and WASM backends already work without the glob import; resolved
+        // trait imports (collected above) are sufficient for method dispatch.
         if generators::has_unresolved_trait_methods(api) {
-            builder.add_import(&format!("{core_import}::*"));
+            let explicit_imports = generators::collect_explicit_core_imports(api);
+            if !explicit_imports.is_empty() {
+                builder.add_import(&format!("{}::{{{}}}", core_import, explicit_imports.join(", ")));
+            }
         }
 
         // Check if we have non-sanitized async functions (sanitized async methods produce stubs, not async code)

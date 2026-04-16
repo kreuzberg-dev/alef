@@ -416,3 +416,24 @@ pub fn has_unresolved_trait_methods(api: &ApiSurface) -> bool {
         .values()
         .any(|&(total, with_source)| total >= 3 && with_source == 0)
 }
+
+/// Collect explicit type and enum names from the API surface for named imports.
+///
+/// Returns a sorted, deduplicated list of type and enum names that should be
+/// imported from the core crate. This replaces glob imports (`use core::*`)
+/// which can cause name conflicts with local binding definitions (e.g. a
+/// `convert` function or `Result` type alias from the core crate shadowing
+/// the binding's own `convert` wrapper or `std::result::Result`).
+///
+/// Only struct/enum names are included — functions and type aliases are
+/// intentionally excluded because they are the source of conflicts.
+pub fn collect_explicit_core_imports(api: &ApiSurface) -> Vec<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for typ in &api.types {
+        names.insert(typ.name.clone());
+    }
+    for e in &api.enums {
+        names.insert(e.name.clone());
+    }
+    names.into_iter().collect()
+}

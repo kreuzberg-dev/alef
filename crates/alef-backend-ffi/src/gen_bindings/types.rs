@@ -194,10 +194,6 @@ pub(super) fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, 
     // Determine if we need an extra out-param for byte-length
     let needs_len_out = matches!(field.ty, TypeRef::Bytes) && !field.optional;
 
-    // Simple field accessors (non-optional primitives) can be const
-    let is_const = !field.optional && matches!(field.ty, TypeRef::Primitive(_));
-    let const_kw = if is_const { "const " } else { "" };
-
     if needs_len_out {
         writeln!(
             out,
@@ -207,7 +203,7 @@ pub(super) fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, 
     } else {
         writeln!(
             out,
-            "pub {const_kw}unsafe extern \"C\" fn {prefix}_{type_snake}_{field_name}(ptr: *const {qualified}) -> {ret_type} {{"
+            "pub unsafe extern \"C\" fn {prefix}_{type_snake}_{field_name}(ptr: *const {qualified}) -> {ret_type} {{"
         )
         .ok();
     }

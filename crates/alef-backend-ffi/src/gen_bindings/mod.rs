@@ -113,11 +113,16 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
     }
-    // When trait methods exist but their source trait couldn't be resolved (e.g. traits
-    // in private modules re-exported via `pub use`), add a glob import to bring all
-    // publicly exported traits into scope.
+    // When unresolved trait methods exist, import only types and enums from the
+    // core crate — NOT functions or type aliases — to avoid name conflicts
+    // (e.g. a `convert` function or `Result` alias shadowing local definitions).
+    // Node and WASM backends already work without the glob import; resolved
+    // trait imports (collected above) are sufficient for method dispatch.
     if generators::has_unresolved_trait_methods(api) {
-        builder.add_import(&format!("{core_import}::*"));
+        let explicit_imports = generators::collect_explicit_core_imports(api);
+        if !explicit_imports.is_empty() {
+            builder.add_import(&format!("{}::{{{}}}", core_import, explicit_imports.join(", ")));
+        }
     }
 
     // Only import serde_json when types need from_json deserialization or
