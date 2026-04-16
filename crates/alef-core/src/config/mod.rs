@@ -408,6 +408,26 @@ impl AlefConfig {
         self.crate_config.name.clone()
     }
 
+    /// Get the WASM type name prefix (e.g. "Wasm" produces `WasmConversionOptions`).
+    /// Defaults to `"Wasm"`.
+    pub fn wasm_type_prefix(&self) -> String {
+        self.wasm
+            .as_ref()
+            .and_then(|w| w.type_prefix.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "Wasm".to_string())
+    }
+
+    /// Get the Node/NAPI type name prefix (e.g. "Js" produces `JsConversionOptions`).
+    /// Defaults to `"Js"`.
+    pub fn node_type_prefix(&self) -> String {
+        self.node
+            .as_ref()
+            .and_then(|n| n.type_prefix.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "Js".to_string())
+    }
+
     /// Get the R package name.
     pub fn r_package_name(&self) -> String {
         self.r

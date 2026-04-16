@@ -66,8 +66,9 @@ impl Backend for WasmBackend {
         let exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
         let type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
+        let prefix = config.wasm_type_prefix();
 
-        let mapper = WasmMapper::new(type_overrides);
+        let mapper = WasmMapper::new(type_overrides, prefix.clone());
         let core_import = config.core_import();
 
         // Note: custom modules and registrations handled below after builder creation
@@ -108,12 +109,18 @@ impl Backend for WasmBackend {
                 continue;
             }
             if typ.is_opaque {
-                builder.add_item(&gen_opaque_struct(typ, &core_import));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types, &core_import));
+                builder.add_item(&gen_opaque_struct(typ, &core_import, &prefix));
+                builder.add_item(&gen_opaque_struct_methods(
+                    typ,
+                    &mapper,
+                    &opaque_types,
+                    &core_import,
+                    &prefix,
+                ));
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&gen_struct(typ, &mapper, &exclude_types));
+                builder.add_item(&gen_struct(typ, &mapper, &exclude_types, &prefix));
                 builder.add_item(&gen_struct_methods(
                     typ,
                     &mapper,
@@ -121,24 +128,25 @@ impl Backend for WasmBackend {
                     &core_import,
                     &opaque_types,
                     &api.enums,
+                    &prefix,
                 ));
             }
         }
 
         for enum_def in &api.enums {
             if !exclude_types.contains(&enum_def.name) {
-                builder.add_item(&gen_enum(enum_def));
+                builder.add_item(&gen_enum(enum_def, &prefix));
             }
         }
 
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
-                builder.add_item(&gen_function(func, &mapper, &core_import, &opaque_types));
+                builder.add_item(&gen_function(func, &mapper, &core_import, &opaque_types, &prefix));
             }
         }
 
         let wasm_conv_config = alef_codegen::conversions::ConversionConfig {
-            type_name_prefix: "Js",
+            type_name_prefix: &prefix,
             map_uses_jsvalue: true,
             option_duration_on_defaults: true,
             exclude_types: &exclude_types,
@@ -225,21 +233,22 @@ impl Backend for WasmBackend {
         let wasm_config = config.wasm.as_ref();
         let exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
+        let prefix = config.wasm_type_prefix();
 
         // Collect all exported names from the API
         let mut exports = vec![];
 
-        // Collect all types (exported with Js prefix from WASM module)
+        // Collect all types (exported with prefix from WASM module)
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if !exclude_types.contains(&typ.name) {
-                exports.push(format!("Js{}", typ.name));
+                exports.push(format!("{prefix}{}", typ.name));
             }
         }
 
-        // Collect all enums (exported with Js prefix from WASM module)
+        // Collect all enums (exported with prefix from WASM module)
         for enum_def in &api.enums {
             if !exclude_types.contains(&enum_def.name) {
-                exports.push(format!("Js{}", enum_def.name));
+                exports.push(format!("{prefix}{}", enum_def.name));
             }
         }
 
@@ -298,8 +307,8 @@ impl Backend for WasmBackend {
 }
 
 /// Generate an opaque wasm-bindgen struct with inner Arc.
-fn gen_opaque_struct(typ: &TypeDef, core_import: &str) -> String {
-    let js_name = format!("Js{}", typ.name);
+fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) -> String {
+    let js_name = format!("{prefix}{}", typ.name);
 
     // We can't use StructBuilder for private fields, so build manually
     let mut out = String::with_capacity(256);
@@ -318,8 +327,9 @@ fn gen_opaque_struct_methods(
     mapper: &WasmMapper,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    prefix: &str,
 ) -> String {
-    let js_name = format!("Js{}", typ.name);
+    let js_name = format!("{prefix}{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
     impl_builder.add_attr("wasm_bindgen");
 
@@ -331,9 +341,10 @@ fn gen_opaque_struct_methods(
                 &typ.name,
                 opaque_types,
                 core_import,
+                prefix,
             ));
         } else {
-            impl_builder.add_method(&gen_opaque_method(method, mapper, &typ.name, opaque_types));
+            impl_builder.add_method(&gen_opaque_method(method, mapper, &typ.name, opaque_types, prefix));
         }
     }
 
@@ -346,6 +357,7 @@ fn gen_opaque_method(
     mapper: &WasmMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    prefix: &str,
 ) -> String {
     let params: Vec<String> = method
         .params
@@ -394,6 +406,7 @@ fn gen_opaque_method(
                 opaque_types,
                 true,
                 method.returns_ref,
+                prefix,
             );
             if method.error_type.is_some() {
                 format!(
@@ -415,6 +428,7 @@ fn gen_opaque_method(
                     opaque_types,
                     true,
                     method.returns_ref,
+                    prefix,
                 );
                 format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
             }
@@ -426,6 +440,7 @@ fn gen_opaque_method(
                 opaque_types,
                 true,
                 method.returns_ref,
+                prefix,
             )
         }
     } else {
@@ -462,6 +477,7 @@ fn gen_opaque_static_method(
     type_name: &str,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    prefix: &str,
 ) -> String {
     let params: Vec<String> = method
         .params
@@ -499,6 +515,7 @@ fn gen_opaque_static_method(
                 opaque_types,
                 true,
                 method.returns_ref,
+                prefix,
             );
             format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
         } else {
@@ -509,6 +526,7 @@ fn gen_opaque_static_method(
                 opaque_types,
                 true,
                 method.returns_ref,
+                prefix,
             )
         }
     } else {
@@ -538,8 +556,8 @@ fn gen_opaque_static_method(
 }
 
 /// Generate a wasm-bindgen struct definition with private fields.
-fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String]) -> String {
-    let js_name = format!("Js{}", typ.name);
+fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], prefix: &str) -> String {
+    let js_name = format!("{prefix}{}", typ.name);
     let mut out = String::with_capacity(512);
     if typ.has_default {
         writeln!(out, "#[derive(Clone, Default)]").ok();
@@ -582,13 +600,14 @@ fn gen_struct_methods(
     core_import: &str,
     opaque_types: &AHashSet<String>,
     api_enums: &[EnumDef],
+    prefix: &str,
 ) -> String {
-    let js_name = format!("Js{}", typ.name);
+    let js_name = format!("{prefix}{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
     impl_builder.add_attr("wasm_bindgen");
 
     if !typ.fields.is_empty() {
-        impl_builder.add_method(&gen_new_method(typ, mapper, exclude_types));
+        impl_builder.add_method(&gen_new_method(typ, mapper, exclude_types, prefix));
     }
 
     // Collect enum names for Copy detection in getters.
@@ -606,7 +625,14 @@ fn gen_struct_methods(
 
     if !exclude_types.contains(&typ.name) {
         for method in &typ.methods {
-            impl_builder.add_method(&gen_method(method, mapper, &typ.name, core_import, opaque_types));
+            impl_builder.add_method(&gen_method(
+                method,
+                mapper,
+                &typ.name,
+                core_import,
+                opaque_types,
+                prefix,
+            ));
         }
     }
 
@@ -614,7 +640,7 @@ fn gen_struct_methods(
 }
 
 /// Generate a constructor method.
-fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String]) -> String {
+fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], prefix: &str) -> String {
     let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
 
     // Filter out fields whose types reference excluded types
@@ -643,7 +669,7 @@ fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String]) 
     };
 
     format!(
-        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list}) -> Js{} {{\n    Js{} {{ {assignments} }}\n}}",
+        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments} }}\n}}",
         typ.name, typ.name
     )
 }
@@ -715,6 +741,7 @@ fn gen_method(
     type_name: &str,
     core_import: &str,
     opaque_types: &AHashSet<String>,
+    prefix: &str,
 ) -> String {
     let params: Vec<String> = method
         .params
@@ -799,6 +826,7 @@ fn gen_method(
                     opaque_types,
                     false,
                     method.returns_ref,
+                    prefix,
                 );
                 format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
             } else {
@@ -809,6 +837,7 @@ fn gen_method(
                     opaque_types,
                     false,
                     method.returns_ref,
+                    prefix,
                 )
             }
         } else {
@@ -836,6 +865,7 @@ fn gen_method(
                     opaque_types,
                     false,
                     method.returns_ref,
+                    prefix,
                 );
                 format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
             } else {
@@ -846,6 +876,7 @@ fn gen_method(
                     opaque_types,
                     false,
                     method.returns_ref,
+                    prefix,
                 )
             }
         } else {
@@ -862,8 +893,8 @@ fn gen_method(
 }
 
 /// Generate a wasm-bindgen enum definition.
-fn gen_enum(enum_def: &EnumDef) -> String {
-    let js_name = format!("Js{}", enum_def.name);
+fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
+    let js_name = format!("{prefix}{}", enum_def.name);
     let mut lines = vec![
         "#[wasm_bindgen]".to_string(),
         "#[derive(Clone, Copy, PartialEq, Eq)]".to_string(),
@@ -889,7 +920,13 @@ fn gen_enum(enum_def: &EnumDef) -> String {
 }
 
 /// Generate a free function binding.
-fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaque_types: &AHashSet<String>) -> String {
+fn gen_function(
+    func: &FunctionDef,
+    mapper: &WasmMapper,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+    prefix: &str,
+) -> String {
     let params: Vec<String> = func
         .params
         .iter()
@@ -986,10 +1023,10 @@ fn gen_function(func: &FunctionDef, mapper: &WasmMapper, core_import: &str, opaq
         let call_args = generators::gen_call_args(&func.params, opaque_types);
         let core_call = format!("{core_fn_path}({call_args})");
         let body = if func.error_type.is_some() {
-            let wrap = wasm_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref);
+            let wrap = wasm_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix);
             format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
         } else {
-            wasm_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref)
+            wasm_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref, prefix)
         };
         format!(
             "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
@@ -1033,7 +1070,7 @@ fn gen_wasm_unimplemented_body(return_type: &TypeRef, fn_name: &str, has_error: 
     }
 }
 
-/// WASM-specific return wrapping for opaque methods (adds Js prefix for opaque Named returns).
+/// WASM-specific return wrapping for opaque methods (adds prefix for opaque Named returns).
 fn wasm_wrap_return(
     expr: &str,
     return_type: &TypeRef,
@@ -1041,6 +1078,7 @@ fn wasm_wrap_return(
     opaque_types: &AHashSet<String>,
     self_is_opaque: bool,
     returns_ref: bool,
+    prefix: &str,
 ) -> String {
     match return_type {
         // Self-returning opaque method
@@ -1051,21 +1089,21 @@ fn wasm_wrap_return(
                 format!("Self {{ inner: Arc::new({expr}) }}")
             }
         }
-        // Other opaque Named return: needs Js prefix
+        // Other opaque Named return: needs prefix
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
-                format!("Js{n} {{ inner: Arc::new({expr}.clone()) }}")
+                format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
             } else {
-                format!("Js{n} {{ inner: Arc::new({expr}) }}")
+                format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")
             }
         }
-        // Optional<opaque>: wrap with Js prefix
+        // Optional<opaque>: wrap with prefix
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {
-                    format!("{expr}.map(|v| Js{name} {{ inner: Arc::new(v.clone()) }})")
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }})")
                 } else {
-                    format!("{expr}.map(|v| Js{name} {{ inner: Arc::new(v) }})")
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v) }})")
                 }
             }
             _ => generators::wrap_return(
@@ -1078,13 +1116,13 @@ fn wasm_wrap_return(
                 false,
             ),
         },
-        // Vec<opaque>: wrap with Js prefix
+        // Vec<opaque>: wrap with prefix
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {
-                    format!("{expr}.into_iter().map(|v| Js{name} {{ inner: Arc::new(v.clone()) }}).collect()")
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }}).collect()")
                 } else {
-                    format!("{expr}.into_iter().map(|v| Js{name} {{ inner: Arc::new(v) }}).collect()")
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v) }}).collect()")
                 }
             }
             _ => generators::wrap_return(
@@ -1109,19 +1147,20 @@ fn wasm_wrap_return(
     }
 }
 
-/// WASM-specific return wrapping for free functions (no type_name context, adds Js prefix).
+/// WASM-specific return wrapping for free functions (no type_name context, adds prefix).
 fn wasm_wrap_return_fn(
     expr: &str,
     return_type: &TypeRef,
     opaque_types: &AHashSet<String>,
     returns_ref: bool,
+    prefix: &str,
 ) -> String {
     match return_type {
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
-                format!("Js{n} {{ inner: Arc::new({expr}.clone()) }}")
+                format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
             } else {
-                format!("Js{n} {{ inner: Arc::new({expr}) }}")
+                format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")
             }
         }
         TypeRef::Named(_) => {
@@ -1143,9 +1182,9 @@ fn wasm_wrap_return_fn(
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {
-                    format!("{expr}.map(|v| Js{name} {{ inner: Arc::new(v.clone()) }})")
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }})")
                 } else {
-                    format!("{expr}.map(|v| Js{name} {{ inner: Arc::new(v) }})")
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v) }})")
                 }
             }
             TypeRef::Named(_) => {
@@ -1170,9 +1209,9 @@ fn wasm_wrap_return_fn(
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {
-                    format!("{expr}.into_iter().map(|v| Js{name} {{ inner: Arc::new(v.clone()) }}).collect()")
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }}).collect()")
                 } else {
-                    format!("{expr}.into_iter().map(|v| Js{name} {{ inner: Arc::new(v) }}).collect()")
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v) }}).collect()")
                 }
             }
             TypeRef::Named(_) => {

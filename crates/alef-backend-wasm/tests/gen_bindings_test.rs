@@ -53,6 +53,7 @@ fn make_config() -> AlefConfig {
             type_overrides: std::collections::HashMap::new(),
             features: None,
             serde_rename_all: None,
+            type_prefix: None,
         }),
         ffi: None,
         go: None,
@@ -177,14 +178,14 @@ fn test_basic_generation() {
         "Content should contain #[wasm_bindgen] attribute"
     );
 
-    // Assert struct generation with Js prefix
+    // Assert struct generation with Wasm prefix
     assert!(
-        content.contains("pub struct JsConfig"),
-        "Should generate JsConfig struct"
+        content.contains("pub struct WasmConfig"),
+        "Should generate Wasm-prefixed Config struct"
     );
 
-    // Assert enum generation with Js prefix
-    assert!(content.contains("pub enum JsMode"), "Should generate JsMode enum");
+    // Assert enum generation with Wasm prefix
+    assert!(content.contains("pub enum WasmMode"), "Should generate WasmMode enum");
 
     // Assert function binding
     assert!(content.contains("pub fn process"), "Should generate process function");
@@ -234,8 +235,8 @@ fn test_type_mapping() {
 
     let content = &files[0].content;
 
-    // Should contain JsTypeTest struct
-    assert!(content.contains("pub struct JsTypeTest"));
+    // Should contain WasmTypeTest struct
+    assert!(content.contains("pub struct WasmTypeTest"));
 
     // Should have #[wasm_bindgen] on struct
     assert!(content.contains("#[wasm_bindgen]"));
@@ -301,9 +302,9 @@ fn test_enum_generation() {
 
     let content = &files[0].content;
 
-    // Should contain JsLevel enum with #[wasm_bindgen]
+    // Should contain WasmLevel enum with #[wasm_bindgen]
     assert!(content.contains("#[wasm_bindgen]"));
-    assert!(content.contains("pub enum JsLevel"));
+    assert!(content.contains("pub enum WasmLevel"));
 
     // Should have all variants
     assert!(content.contains("Low"));
@@ -529,8 +530,8 @@ fn test_methods_generation() {
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Should generate Counter struct with Js prefix
-    assert!(content.contains("pub struct JsCounter"));
+    // Should generate Counter struct with Wasm prefix
+    assert!(content.contains("pub struct WasmCounter"));
 
     // Should have methods
     assert!(content.contains("fn increment"));
@@ -695,8 +696,8 @@ fn test_opaque_type() {
 
     // Should generate opaque struct with Arc
     assert!(content.contains("Arc"));
-    // Should have JsOpaqueHandle struct
-    assert!(content.contains("JsOpaqueHandle"));
+    // Should have WasmOpaqueHandle struct
+    assert!(content.contains("WasmOpaqueHandle"));
 }
 
 #[test]
@@ -822,11 +823,11 @@ fn test_exclude_types() {
     let content = &files[0].content;
 
     // Should contain PublicType
-    assert!(content.contains("pub struct JsPublicType"));
+    assert!(content.contains("pub struct WasmPublicType"));
 
     // Should NOT contain HiddenType
     assert!(
-        !content.contains("JsHiddenType"),
+        !content.contains("WasmHiddenType"),
         "excluded type should not be in output"
     );
 }

@@ -40,6 +40,10 @@ pub struct NodeConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Prefix for generated type names (e.g. "Js" produces `JsConversionOptions`).
+    /// Defaults to `"Js"`.
+    #[serde(default)]
+    pub type_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +103,10 @@ pub struct WasmConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Prefix for generated type names (e.g. "Wasm" produces `WasmConversionOptions`).
+    /// Defaults to `"Wasm"`.
+    #[serde(default)]
+    pub type_prefix: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

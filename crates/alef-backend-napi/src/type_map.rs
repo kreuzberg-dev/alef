@@ -4,8 +4,16 @@ use std::borrow::Cow;
 
 /// TypeMapper for NAPI bindings.
 /// JS numbers are 53-bit safe, so U64/Usize/Isize map to i64.
-/// Named types get a "Js" prefix.
-pub struct NapiMapper;
+/// Named types get a configurable prefix (defaults to "Js").
+pub struct NapiMapper {
+    pub prefix: String,
+}
+
+impl NapiMapper {
+    pub fn new(prefix: String) -> Self {
+        Self { prefix }
+    }
+}
 
 impl TypeMapper for NapiMapper {
     fn primitive(&self, prim: &PrimitiveType) -> Cow<'static, str> {
@@ -27,7 +35,7 @@ impl TypeMapper for NapiMapper {
     }
 
     fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
-        Cow::Owned(format!("Js{name}"))
+        Cow::Owned(format!("{}{name}", self.prefix))
     }
 
     /// NAPI uses i64 for Duration (JS numbers are 53-bit safe).

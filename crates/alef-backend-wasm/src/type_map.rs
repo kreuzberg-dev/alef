@@ -5,11 +5,12 @@ use std::collections::HashMap;
 /// TypeMapper for WASM bindings with configurable type overrides.
 pub struct WasmMapper {
     pub overrides: HashMap<String, String>,
+    pub prefix: String,
 }
 
 impl WasmMapper {
-    pub fn new(overrides: HashMap<String, String>) -> Self {
-        Self { overrides }
+    pub fn new(overrides: HashMap<String, String>, prefix: String) -> Self {
+        Self { overrides, prefix }
     }
 }
 
@@ -17,7 +18,7 @@ impl TypeMapper for WasmMapper {
     fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
         match self.overrides.get(name) {
             Some(override_ty) => Cow::Owned(override_ty.clone()),
-            None => Cow::Owned(format!("Js{name}")),
+            None => Cow::Owned(format!("{}{name}", self.prefix)),
         }
     }
 

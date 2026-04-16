@@ -13,7 +13,7 @@ use std::path::PathBuf;
 pub struct NapiBackend;
 
 impl NapiBackend {
-    fn binding_config(core_import: &str) -> RustBindingConfig<'_> {
+    fn binding_config<'a>(core_import: &'a str, prefix: &'a str) -> RustBindingConfig<'a> {
         RustBindingConfig {
             struct_attrs: &["napi"],
             field_attrs: &[],
@@ -31,7 +31,7 @@ impl NapiBackend {
             async_pattern: AsyncPattern::NapiNativeAsync,
             has_serde: false,
             // NAPI napi(object) structs don't derive Serialize — disable serde bridge
-            type_name_prefix: "Js",
+            type_name_prefix: prefix,
             option_duration_on_defaults: true,
         }
     }
@@ -58,9 +58,10 @@ impl Backend for NapiBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let mapper = NapiMapper;
+        let prefix = config.node_type_prefix();
+        let mapper = NapiMapper::new(prefix.clone());
         let core_import = config.core_import();
-        let cfg = Self::binding_config(&core_import);
+        let cfg = Self::binding_config(&core_import, &prefix);
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code)");
@@ -112,29 +113,31 @@ impl Backend for NapiBackend {
         // but keep struct/method generation custom.
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
-                builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(typ, &cfg, "Js"));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &cfg, &opaque_types));
+                builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(
+                    typ, &cfg, &prefix,
+                ));
+                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &cfg, &opaque_types, &prefix));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
                 // gen_struct adds Default to derives when typ.has_default is true.
-                builder.add_item(&gen_struct(typ, &mapper));
+                builder.add_item(&gen_struct(typ, &mapper, &prefix));
             }
         }
 
         for enum_def in &api.enums {
-            builder.add_item(&gen_enum(enum_def));
+            builder.add_item(&gen_enum(enum_def, &prefix));
         }
 
         for func in &api.functions {
-            builder.add_item(&gen_function(func, &mapper, &cfg, &opaque_types));
+            builder.add_item(&gen_function(func, &mapper, &cfg, &opaque_types, &prefix));
         }
 
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
         let napi_conv_config = alef_codegen::conversions::ConversionConfig {
-            type_name_prefix: "Js",
+            type_name_prefix: &prefix,
             cast_large_ints_to_i64: true,
             cast_f32_to_f64: true,
             // optionalize_defaults: For types with has_default, conversion generators
@@ -169,8 +172,8 @@ impl Backend for NapiBackend {
             let is_tagged_data_enum = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
             if is_tagged_data_enum {
                 // Tagged data enums use flattened struct — generate custom conversions
-                builder.add_item(&gen_tagged_enum_binding_to_core(e, &core_import));
-                builder.add_item(&gen_tagged_enum_core_to_binding(e, &core_import));
+                builder.add_item(&gen_tagged_enum_binding_to_core(e, &core_import, &prefix));
+                builder.add_item(&gen_tagged_enum_core_to_binding(e, &core_import, &prefix));
             } else {
                 if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
                     builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
@@ -214,20 +217,22 @@ impl Backend for NapiBackend {
     }
 
     fn generate_public_api(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let prefix = config.node_type_prefix();
+
         // Separate exports into functions (plain export) and types (export type)
         let mut type_exports = vec![];
         let mut function_exports = vec![];
 
-        // Collect all types (exported with Js prefix from native module) - export type
+        // Collect all types (exported with prefix from native module) - export type
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            type_exports.push(format!("Js{}", typ.name));
+            type_exports.push(format!("{prefix}{}", typ.name));
         }
 
         // Collect all enums as value exports (runtime objects).
         // NAPI generates const enum in .d.ts, but we post-process it to regular enum
         // so they can be re-exported as values with verbatimModuleSyntax.
         for enum_def in &api.enums {
-            function_exports.push(format!("Js{}", enum_def.name));
+            function_exports.push(format!("{prefix}{}", enum_def.name));
         }
 
         // NAPI errors are thrown as native JS Error objects, not exported as TS types.
@@ -288,7 +293,8 @@ impl Backend for NapiBackend {
     }
 
     fn generate_type_stubs(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let content = gen_dts(api);
+        let prefix = config.node_type_prefix();
+        let content = gen_dts(api, &prefix);
 
         // `config.output.node` points to the `src/` directory (e.g., `crates/{name}-node/src/`).
         // `index.d.ts` belongs at the crate root, one level up from `src/`.
@@ -329,8 +335,8 @@ impl Backend for NapiBackend {
 }
 
 /// Generate a NAPI struct with Js-prefixed name and fields wrapped in Option only if optional.
-fn gen_struct(typ: &TypeDef, mapper: &NapiMapper) -> String {
-    let mut struct_builder = StructBuilder::new(&format!("Js{}", typ.name));
+fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str) -> String {
+    let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
     struct_builder.add_attr("napi(object)");
     struct_builder.add_derive("Clone");
@@ -366,17 +372,25 @@ fn gen_opaque_struct_methods(
     mapper: &NapiMapper,
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
+    prefix: &str,
 ) -> String {
-    let mut impl_builder = ImplBuilder::new(&format!("Js{}", typ.name));
+    let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
 
     let (instance, statics) = partition_methods(&typ.methods);
 
     for method in &instance {
-        impl_builder.add_method(&gen_opaque_instance_method(method, mapper, typ, cfg, opaque_types));
+        impl_builder.add_method(&gen_opaque_instance_method(
+            method,
+            mapper,
+            typ,
+            cfg,
+            opaque_types,
+            prefix,
+        ));
     }
     for method in &statics {
-        impl_builder.add_method(&gen_static_method(method, mapper, typ, cfg, opaque_types));
+        impl_builder.add_method(&gen_static_method(method, mapper, typ, cfg, opaque_types, prefix));
     }
 
     impl_builder.build()
@@ -389,6 +403,7 @@ fn gen_opaque_instance_method(
     typ: &TypeDef,
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
+    prefix: &str,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
@@ -433,6 +448,7 @@ fn gen_opaque_instance_method(
         opaque_types,
         true,
         method.returns_ref,
+        prefix,
     );
 
     let body = if !opaque_can_delegate {
@@ -458,6 +474,7 @@ fn gen_opaque_instance_method(
                     opaque_types,
                     true,
                     method.returns_ref,
+                    prefix,
                 );
                 format!("{serde_bindings}let result = {core_call}{err_conv}?;\n    Ok({wrap})")
             }
@@ -496,6 +513,7 @@ fn gen_opaque_instance_method(
                     opaque_types,
                     true,
                     method.returns_ref,
+                    prefix,
                 );
                 format!("let result = {core_call}{err_conv}?;\n    Ok({wrap})")
             }
@@ -507,6 +525,7 @@ fn gen_opaque_instance_method(
                 opaque_types,
                 true,
                 method.returns_ref,
+                prefix,
             )
         }
     };
@@ -538,6 +557,7 @@ fn gen_static_method(
     typ: &TypeDef,
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
+    prefix: &str,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
@@ -574,6 +594,7 @@ fn gen_static_method(
             opaque_types,
             typ.is_opaque,
             method.returns_ref,
+            prefix,
         );
         generators::gen_async_body(
             &core_call,
@@ -595,6 +616,7 @@ fn gen_static_method(
                 opaque_types,
                 typ.is_opaque,
                 method.returns_ref,
+                prefix,
             );
             if wrapped == "val" {
                 format!("{core_call}{err_conv}")
@@ -609,6 +631,7 @@ fn gen_static_method(
                 opaque_types,
                 typ.is_opaque,
                 method.returns_ref,
+                prefix,
             )
         }
     };
@@ -638,11 +661,11 @@ fn gen_static_method(
 /// For simple enums (no variant fields): generates `#[napi(string_enum)]`.
 /// For tagged enums with data fields: generates a flattened `#[napi(object)]` struct
 /// with a discriminant field and all variant fields as optional.
-fn gen_enum(enum_def: &EnumDef) -> String {
+fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
     let is_tagged_data_enum = enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
     if is_tagged_data_enum {
-        return gen_tagged_enum_as_object(enum_def);
+        return gen_tagged_enum_as_object(enum_def, prefix);
     }
 
     // Simple string enum
@@ -665,7 +688,7 @@ fn gen_enum(enum_def: &EnumDef) -> String {
     let mut lines = vec![
         string_enum_attr,
         "#[derive(Clone)]".to_string(),
-        format!("pub enum Js{} {{", enum_def.name),
+        format!("pub enum {prefix}{} {{", enum_def.name),
     ];
 
     for variant in &enum_def.variants {
@@ -678,7 +701,7 @@ fn gen_enum(enum_def: &EnumDef) -> String {
     if let Some(first) = enum_def.variants.first() {
         lines.push(String::new());
         lines.push("#[allow(clippy::derivable_impls)]".to_string());
-        lines.push(format!("impl Default for Js{} {{", enum_def.name));
+        lines.push(format!("impl Default for {prefix}{} {{", enum_def.name));
         lines.push(format!("    fn default() -> Self {{ Self::{} }}", first.name));
         lines.push("}".to_string());
     }
@@ -698,16 +721,16 @@ fn gen_enum(enum_def: &EnumDef) -> String {
 ///     pub token: Option<String>,
 /// }
 /// ```
-fn gen_tagged_enum_as_object(enum_def: &EnumDef) -> String {
+fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str) -> String {
     use alef_codegen::type_mapper::TypeMapper;
-    let mapper = NapiMapper;
+    let mapper = NapiMapper::new(prefix.to_string());
 
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
     let mut lines = vec![
         "#[derive(Clone)]".to_string(),
         "#[napi(object)]".to_string(),
-        format!("pub struct Js{} {{", enum_def.name),
+        format!("pub struct {prefix}{} {{", enum_def.name),
         format!("    #[napi(js_name = \"{tag_field}\")]"),
         format!("    pub {tag_field}_tag: String,"),
     ];
@@ -732,7 +755,7 @@ fn gen_tagged_enum_as_object(enum_def: &EnumDef) -> String {
     // Default impl
     lines.push(String::new());
     lines.push("#[allow(clippy::derivable_impls)]".to_string());
-    lines.push(format!("impl Default for Js{} {{", enum_def.name));
+    lines.push(format!("impl Default for {prefix}{} {{", enum_def.name));
     lines.push(format!(
         "    fn default() -> Self {{ Self {{ {tag_field}_tag: String::new(), {} }} }}",
         seen_fields
@@ -752,13 +775,14 @@ fn gen_function(
     mapper: &NapiMapper,
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
+    prefix: &str,
 ) -> String {
     let params = function_params(&func.params, &|ty| {
         // Opaque Named params must be received by reference since NAPI opaque
         // structs don't implement FromNapiValue (they use Arc<T> internally).
         if let TypeRef::Named(n) = ty {
             if opaque_types.contains(n.as_str()) {
-                return format!("&Js{n}");
+                return format!("&{prefix}{n}");
             }
         }
         mapper.map_type(ty)
@@ -807,7 +831,7 @@ fn gen_function(
             if matches!(func.return_type, TypeRef::Unit) {
                 format!("{serde_bindings}{core_call}{err_conv}?;\n    Ok(())")
             } else {
-                let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref);
+                let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref, prefix);
                 if wrapped == "val" {
                     format!("{serde_bindings}{core_call}{err_conv}")
                 } else {
@@ -825,7 +849,7 @@ fn gen_function(
         }
     } else if func.is_async {
         let core_call = format!("{core_fn_path}({call_args})");
-        let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref);
+        let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix);
         generators::gen_async_body(
             &core_call,
             cfg,
@@ -845,7 +869,7 @@ fn gen_function(
         };
 
         if func.error_type.is_some() {
-            let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref);
+            let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref, prefix);
             if wrapped == "val" {
                 format!("{let_bindings}{core_call}{err_conv}")
             } else {
@@ -854,7 +878,7 @@ fn gen_function(
         } else {
             format!(
                 "{let_bindings}{}",
-                napi_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref)
+                napi_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref, prefix)
             )
         }
     };
@@ -927,13 +951,14 @@ fn napi_wrap_return(
     opaque_types: &AHashSet<String>,
     self_is_opaque: bool,
     returns_ref: bool,
+    prefix: &str,
 ) -> String {
     match return_type {
         TypeRef::Primitive(p) if needs_napi_cast(p) => {
             format!("{expr} as i64")
         }
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
-        // Opaque Named returns need Js prefix
+        // Opaque Named returns need prefix
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
             if returns_ref {
                 format!("Self {{ inner: Arc::new({expr}.clone()) }}")
@@ -943,9 +968,9 @@ fn napi_wrap_return(
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
-                format!("Js{n} {{ inner: Arc::new({expr}.clone()) }}")
+                format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
             } else {
-                format!("Js{n} {{ inner: Arc::new({expr}) }}")
+                format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")
             }
         }
         TypeRef::Named(_) => {
@@ -973,6 +998,7 @@ fn napi_wrap_return_fn(
     return_type: &TypeRef,
     opaque_types: &AHashSet<String>,
     returns_ref: bool,
+    prefix: &str,
 ) -> String {
     match return_type {
         TypeRef::Primitive(p) if needs_napi_cast(p) => {
@@ -981,9 +1007,9 @@ fn napi_wrap_return_fn(
         TypeRef::Duration => format!("{expr}.as_millis() as i64"),
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
             if returns_ref {
-                format!("Js{n} {{ inner: Arc::new({expr}.clone()) }}")
+                format!("{prefix}{n} {{ inner: Arc::new({expr}.clone()) }}")
             } else {
-                format!("Js{n} {{ inner: Arc::new({expr}) }}")
+                format!("{prefix}{n} {{ inner: Arc::new({expr}) }}")
             }
         }
         TypeRef::Named(_) => {
@@ -1005,9 +1031,9 @@ fn napi_wrap_return_fn(
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {
-                    format!("{expr}.map(|v| Js{name} {{ inner: Arc::new(v.clone()) }})")
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }})")
                 } else {
-                    format!("{expr}.map(|v| Js{name} {{ inner: Arc::new(v) }})")
+                    format!("{expr}.map(|v| {prefix}{name} {{ inner: Arc::new(v) }})")
                 }
             }
             TypeRef::Named(_) => {
@@ -1032,9 +1058,9 @@ fn napi_wrap_return_fn(
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                 if returns_ref {
-                    format!("{expr}.into_iter().map(|v| Js{name} {{ inner: Arc::new(v.clone()) }}).collect()")
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v.clone()) }}).collect()")
                 } else {
-                    format!("{expr}.into_iter().map(|v| Js{name} {{ inner: Arc::new(v) }}).collect()")
+                    format!("{expr}.into_iter().map(|v| {prefix}{name} {{ inner: Arc::new(v) }}).collect()")
                 }
             }
             TypeRef::Named(_) => {
@@ -1096,7 +1122,7 @@ fn gen_tokio_runtime() -> String {
 ///
 /// The output format matches what NAPI-RS would generate after patching, using the same
 /// alphabetical ordering and type declarations seen in the committed `index.d.ts` files.
-fn gen_dts(api: &ApiSurface) -> String {
+fn gen_dts(api: &ApiSurface, prefix: &str) -> String {
     let mut lines: Vec<String> = vec![
         "/* auto-generated by alef */".to_string(),
         "/* eslint-disable */".to_string(),
@@ -1132,13 +1158,13 @@ fn gen_dts(api: &ApiSurface) -> String {
 
     let mut all_decls: Vec<(String, Decl<'_>)> = Vec::new();
     for t in &opaque_types {
-        all_decls.push((format!("Js{}", t.name), Decl::Class(t)));
+        all_decls.push((format!("{prefix}{}", t.name), Decl::Class(t)));
     }
     for t in &plain_types {
-        all_decls.push((format!("Js{}", t.name), Decl::Interface(t)));
+        all_decls.push((format!("{prefix}{}", t.name), Decl::Interface(t)));
     }
     for e in &sorted_enums {
-        all_decls.push((format!("Js{}", e.name), Decl::Enum(e)));
+        all_decls.push((format!("{prefix}{}", e.name), Decl::Enum(e)));
     }
     for f in &sorted_fns {
         all_decls.push((to_node_name(&f.name), Decl::Function(f)));
@@ -1149,11 +1175,16 @@ fn gen_dts(api: &ApiSurface) -> String {
         lines.push(String::new());
         match decl {
             Decl::Class(typ) => {
-                lines.push(format!("export declare class Js{} {{", typ.name));
+                lines.push(format!("export declare class {prefix}{} {{", typ.name));
                 for method in &typ.methods {
                     let js_name = to_node_name(&method.name);
-                    let params = dts_params(&method.params);
-                    let ret = dts_return_type(&method.return_type, method.error_type.is_some(), method.is_async);
+                    let params = dts_params(&method.params, prefix);
+                    let ret = dts_return_type(
+                        &method.return_type,
+                        method.error_type.is_some(),
+                        method.is_async,
+                        prefix,
+                    );
                     if method.is_static {
                         lines.push(format!("  static {js_name}({params}): {ret}"));
                     } else {
@@ -1163,17 +1194,17 @@ fn gen_dts(api: &ApiSurface) -> String {
                 lines.push("}".to_string());
             }
             Decl::Interface(typ) => {
-                lines.push(format!("export interface Js{} {{", typ.name));
+                lines.push(format!("export interface {prefix}{} {{", typ.name));
                 for field in &typ.fields {
                     let js_name = to_node_name(&field.name);
-                    let ts_ty = dts_type(&field.ty);
+                    let ts_ty = dts_type(&field.ty, prefix);
                     // All fields on plain structs are optional (NAPI napi(object) makes them Option).
                     lines.push(format!("  {js_name}?: {ts_ty}"));
                 }
                 lines.push("}".to_string());
             }
             Decl::Enum(e) => {
-                lines.push(format!("export declare enum Js{} {{", e.name));
+                lines.push(format!("export declare enum {prefix}{} {{", e.name));
                 for variant in &e.variants {
                     // NAPI string_enum: variant values are the variant name as a string literal.
                     let value = variant.serde_rename.as_deref().unwrap_or(variant.name.as_str());
@@ -1183,8 +1214,8 @@ fn gen_dts(api: &ApiSurface) -> String {
             }
             Decl::Function(func) => {
                 let js_name = to_node_name(&func.name);
-                let params = dts_params(&func.params);
-                let ret = dts_return_type(&func.return_type, func.error_type.is_some(), func.is_async);
+                let params = dts_params(&func.params, prefix);
+                let ret = dts_return_type(&func.return_type, func.error_type.is_some(), func.is_async, prefix);
                 lines.push(format!("export declare function {js_name}({params}): {ret}"));
             }
         }
@@ -1195,7 +1226,7 @@ fn gen_dts(api: &ApiSurface) -> String {
 }
 
 /// Map an IR `TypeRef` to its TypeScript equivalent for `.d.ts` generation.
-fn dts_type(ty: &TypeRef) -> String {
+fn dts_type(ty: &TypeRef, prefix: &str) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {
             alef_core::ir::PrimitiveType::Bool => "boolean".to_string(),
@@ -1218,20 +1249,20 @@ fn dts_type(ty: &TypeRef) -> String {
         TypeRef::Json => "string".to_string(),
         TypeRef::Duration => "number".to_string(),
         TypeRef::Unit => "void".to_string(),
-        TypeRef::Optional(inner) => format!("{} | undefined | null", dts_type(inner)),
-        TypeRef::Vec(inner) => format!("Array<{}>", dts_type(inner)),
-        TypeRef::Map(k, v) => format!("Record<{}, {}>", dts_type(k), dts_type(v)),
-        TypeRef::Named(name) => format!("Js{name}"),
+        TypeRef::Optional(inner) => format!("{} | undefined | null", dts_type(inner, prefix)),
+        TypeRef::Vec(inner) => format!("Array<{}>", dts_type(inner, prefix)),
+        TypeRef::Map(k, v) => format!("Record<{}, {}>", dts_type(k, prefix), dts_type(v, prefix)),
+        TypeRef::Named(name) => format!("{prefix}{name}"),
     }
 }
 
 /// Render a list of parameters as a TypeScript parameter string for `.d.ts`.
-fn dts_params(params: &[ParamDef]) -> String {
+fn dts_params(params: &[ParamDef], prefix: &str) -> String {
     params
         .iter()
         .map(|p| {
             let js_name = to_node_name(&p.name);
-            let ts_ty = dts_type(&p.ty);
+            let ts_ty = dts_type(&p.ty, prefix);
             if p.optional {
                 format!("{js_name}?: {ts_ty} | undefined | null")
             } else {
@@ -1246,20 +1277,20 @@ fn dts_params(params: &[ParamDef]) -> String {
 ///
 /// Async functions return `Promise<T>`. Functions that can error still return `T`
 /// (NAPI throws JS exceptions on error, so the `.d.ts` signature just shows the success type).
-fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool) -> String {
+fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool, prefix: &str) -> String {
     let base = match ret {
         TypeRef::Unit => "void".to_string(),
-        other => dts_type(other),
+        other => dts_type(other, prefix),
     };
     if is_async { format!("Promise<{base}>") } else { base }
 }
 
 /// Generate `From<JsTaggedEnum> for core::TaggedEnum` for a flattened struct representation.
-fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str) -> String {
+fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix: &str) -> String {
     use alef_core::ir::TypeRef;
     use std::fmt::Write;
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
-    let binding_name = format!("Js{}", enum_def.name);
+    let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
     let mut out = String::with_capacity(512);
@@ -1353,10 +1384,10 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str) -> Str
 }
 
 /// Generate `From<core::TaggedEnum> for JsTaggedEnum` for a flattened struct representation.
-fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str) -> String {
+fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix: &str) -> String {
     use std::fmt::Write;
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
-    let binding_name = format!("Js{}", enum_def.name);
+    let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
     // Collect all field names across all variants
