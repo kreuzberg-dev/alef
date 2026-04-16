@@ -205,9 +205,14 @@ fn try_template_readme(
         .get_template(&template_name)
         .map_err(|e| anyhow::anyhow!("Failed to load template '{}': {}", template_name, e))?;
 
-    let content = tmpl
+    let mut content = tmpl
         .render(ctx)
         .map_err(|e| anyhow::anyhow!("Failed to render template '{}': {}", template_name, e))?;
+
+    // Ensure POSIX-compliant trailing newline
+    if !content.ends_with('\n') {
+        content.push('\n');
+    }
 
     // Determine output path
     let path = readme_output_path(config, lang, readme_cfg, &lang_json);
