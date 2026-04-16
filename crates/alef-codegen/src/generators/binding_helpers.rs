@@ -157,8 +157,11 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
         .enumerate()
         .map(|(idx, p)| {
             let promoted = crate::shared::is_promoted_optional(params, idx);
-            // If a required param was promoted to optional, unwrap it before use
-            let unwrap_suffix = if promoted {
+            // If a required param was promoted to optional, unwrap it before use.
+            // Note: promoted params that are not Optional<T> will NOT call .expect() because
+            // promoted refers to the PyO3 signature constraint, not the actual Rust type.
+            // The function_params logic wraps promoted params in Option<T>, making them truly optional.
+            let unwrap_suffix = if promoted && p.optional {
                 format!(".expect(\"'{}' is required\")", p.name)
             } else {
                 String::new()
@@ -466,33 +469,49 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
 }
 
 /// Generate let bindings for non-opaque Named params, converting them to core types.
-pub fn gen_named_let_bindings_pub(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
-    gen_named_let_bindings(params, opaque_types)
+pub fn gen_named_let_bindings_pub(params: &[ParamDef], opaque_types: &AHashSet<String>, core_import: &str) -> String {
+    gen_named_let_bindings(params, opaque_types, core_import)
 }
 
-pub(super) fn gen_named_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+pub(super) fn gen_named_let_bindings(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
     let mut bindings = String::new();
     for (idx, p) in params.iter().enumerate() {
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let promoted = crate::shared::is_promoted_optional(params, idx);
+                let core_type_path = format!("{}::{}", core_import, name);
                 if p.optional {
                     if p.is_ref {
                         // Option<T> (binding) -> Option<&T> (core expects reference)
                         write!(bindings, "let {}_core = {}.as_ref();\n    ", p.name, p.name).ok();
                     } else {
-                        write!(bindings, "let {}_core = {}.map(Into::into);\n    ", p.name, p.name).ok();
+                        write!(
+                            bindings,
+                            "let {}_core: Option<{core_type_path}> = {}.map(Into::into);\n    ",
+                            p.name, p.name
+                        )
+                        .ok();
                     }
                 } else if promoted {
-                    // Promoted-optional: unwrap then convert
+                    // Promoted-optional: unwrap then convert. Add explicit type annotation to help type inference.
                     write!(
                         bindings,
-                        "let {}_core = {}.expect(\"'{}' is required\").into();\n    ",
+                        "let {}_core: {core_type_path} = {}.expect(\"'{}' is required\").into();\n    ",
                         p.name, p.name, p.name
                     )
                     .ok();
                 } else {
-                    write!(bindings, "let {}_core = {}.into();\n    ", p.name, p.name).ok();
+                    // Non-optional: add explicit type annotation to help type inference
+                    write!(
+                        bindings,
+                        "let {}_core: {core_type_path} = {}.into();\n    ",
+                        p.name, p.name
+                    )
+                    .ok();
                 }
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {

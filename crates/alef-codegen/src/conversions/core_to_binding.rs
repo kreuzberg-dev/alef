@@ -124,13 +124,18 @@ pub fn gen_from_core_to_binding_cfg(
             base_conversion
         };
         // CoreWrapper: unwrap Arc, convert Cow→String, Bytes→Vec<u8>
-        let conversion = apply_core_wrapper_from_core(
-            &conversion,
-            &field.name,
-            &field.core_wrapper,
-            &field.vec_inner_core_wrapper,
-            field.optional,
-        );
+        // Skip for sanitized fields since their conversion already handles the type mismatch via format!("{:?}", ...)
+        let conversion = if !field.sanitized {
+            apply_core_wrapper_from_core(
+                &conversion,
+                &field.name,
+                &field.core_wrapper,
+                &field.vec_inner_core_wrapper,
+                field.optional,
+            )
+        } else {
+            conversion
+        };
         // Skip cfg-gated fields — they don't exist in the binding struct
         if field.cfg.is_some() {
             continue;

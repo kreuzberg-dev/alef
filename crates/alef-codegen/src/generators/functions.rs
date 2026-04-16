@@ -29,12 +29,12 @@ pub fn gen_function(
     } else {
         gen_call_args(&func.params, opaque_types)
     };
+    let core_import = cfg.core_import;
     let let_bindings = if use_let_bindings {
-        gen_named_let_bindings(&func.params, opaque_types)
+        gen_named_let_bindings(&func.params, opaque_types, core_import)
     } else {
         String::new()
     };
-    let core_import = cfg.core_import;
 
     // Use the function's rust_path for correct module path resolution
     let core_fn_path = {
@@ -297,11 +297,16 @@ pub fn gen_function(
     let func_lifetime = if func_needs_py { "<'py>" } else { "" };
 
     let (func_sig, _params_formatted) = if params.len() > 100 {
+        // When formatting for long signatures, promote optional params like function_params() does
+        let mut seen_optional = false;
         let wrapped_params = func
             .params
             .iter()
             .map(|p| {
-                let ty = if p.optional {
+                if p.optional {
+                    seen_optional = true;
+                }
+                let ty = if p.optional || seen_optional {
                     format!("Option<{}>", mapper.map_type(&p.ty))
                 } else {
                     mapper.map_type(&p.ty)

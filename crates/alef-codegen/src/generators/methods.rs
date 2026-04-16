@@ -74,6 +74,8 @@ pub fn gen_method(
     let return_type = mapper.map_type(&method.return_type);
     let ret = mapper.wrap_return(&return_type, method.error_type.is_some());
 
+    let core_import = cfg.core_import;
+
     // When non-opaque Named params have is_ref=true, we need let bindings so the
     // converted value outlives the borrow. Use gen_call_args_with_let_bindings in that case.
     let has_ref_named_params = method
@@ -83,7 +85,7 @@ pub fn gen_method(
     let (call_args, ref_let_bindings) = if has_ref_named_params {
         (
             gen_call_args_with_let_bindings(&method.params, opaque_types),
-            gen_named_let_bindings_pub(&method.params, opaque_types),
+            gen_named_let_bindings_pub(&method.params, opaque_types, core_import),
         )
     } else {
         (gen_call_args(&method.params, opaque_types), String::new())
@@ -504,6 +506,8 @@ pub fn gen_static_method(
     let return_type = mapper.map_type(&method.return_type);
     let ret = mapper.wrap_return(&return_type, method.error_type.is_some());
 
+    let core_import = cfg.core_import;
+
     // Use let bindings when non-opaque Named params have is_ref=true
     let has_ref_named_params = method
         .params
@@ -512,7 +516,7 @@ pub fn gen_static_method(
     let (call_args, ref_let_bindings) = if has_ref_named_params {
         (
             gen_call_args_with_let_bindings(&method.params, opaque_types),
-            gen_named_let_bindings_pub(&method.params, opaque_types),
+            gen_named_let_bindings_pub(&method.params, opaque_types, core_import),
         )
     } else {
         (gen_call_args(&method.params, opaque_types), String::new())

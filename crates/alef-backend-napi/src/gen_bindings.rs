@@ -876,7 +876,7 @@ fn gen_function(
         let core_call = format!("{core_fn_path}({call_args})");
         // Generate let bindings for Named params if needed
         let let_bindings = if use_let_bindings {
-            generators::gen_named_let_bindings_pub(&func.params, opaque_types)
+            generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
         } else {
             String::new()
         };

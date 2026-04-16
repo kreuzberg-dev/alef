@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Codegen: add explicit type annotations in let bindings to resolve E0283 ambiguity
+- Codegen: skip `apply_core_wrapper_from_core` for sanitized fields (fixes Mutex clone)
 - Codegen: replace `compile_error!` with `Default::default()` for Named returns without error variant
 - Codegen: generate `Vec<Named>` let bindings for non-optional `is_ref=true` params
 - FFI: handle `Option<&Path>` / `Option<PathBuf>` conversion from `Option<String>`

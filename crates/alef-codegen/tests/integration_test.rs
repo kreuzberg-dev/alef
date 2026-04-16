@@ -925,7 +925,7 @@ fn test_gen_named_let_bindings_empty_params() {
     let opaque_types = AHashSet::new();
     let params = vec![];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types);
+    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
     assert_eq!(result, "");
 }
 
@@ -944,7 +944,7 @@ fn test_gen_named_let_bindings_non_opaque_param() {
         newtype_wrapper: None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types);
+    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
     assert!(result.contains("let config_core = config.into();"));
 }
 
@@ -965,7 +965,7 @@ fn test_gen_named_let_bindings_optional_ref_param() {
         newtype_wrapper: None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types);
+    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
     assert!(result.contains("let config_core = config.as_ref();"));
 }
 
@@ -1031,7 +1031,7 @@ fn test_gen_named_let_bindings_opaque_skipped() {
         newtype_wrapper: None,
     }];
 
-    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types);
+    let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
     assert_eq!(result, "");
 }
 
