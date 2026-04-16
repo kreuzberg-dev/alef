@@ -92,13 +92,19 @@ pub fn gen_method(
     let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
     let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
 
+    // Methods from trait impls can't be called on Arc<dyn Trait> through deref.
+    // Skip these unless there's an adapter body that can handle them.
+    let is_trait_method = method.trait_source.is_some();
+
     // Auto-delegate opaque methods: unwrap Arc for params, wrap Arc for returns.
     // Owned receivers require the type to implement Clone (builder pattern).
     // RefMut receivers can't be delegated on Arc<T> (Arc only gives &self, not &mut self).
+    // Trait methods can't be delegated on opaque types (Arc deref doesn't expose trait methods).
     // Async methods are allowed — gen_async_body handles them below.
     let opaque_can_delegate = is_opaque
         && !method.sanitized
         && !is_ref_mut_receiver
+        && !is_trait_method
         && (!is_owned_receiver || typ.is_clone)
         && method
             .params
@@ -164,11 +170,13 @@ pub fn gen_method(
         } else if cfg.has_serde
             && is_opaque
             && !method.sanitized
+            && !is_trait_method
             && has_named_params(&method.params, opaque_types)
             && method.error_type.is_some()
             && crate::shared::is_opaque_delegatable_type(&method.return_type)
         {
             // Serde-based param conversion for opaque methods with non-opaque Named params.
+            // NOTE: Only executed when has_serde=true, ensuring serde_json calls are gated.
             let err_conv = match cfg.async_pattern {
                 AsyncPattern::Pyo3FutureIntoPy => {
                     ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"

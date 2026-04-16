@@ -147,6 +147,10 @@ pub fn apply_return_newtype_unwrap(expr: &str, return_newtype_wrapper: &Option<S
 /// - String/Path/Bytes: `&param` since core functions typically take `&str`/`&Path`/`&[u8]`
 /// - Params with `newtype_wrapper` set: re-wrap the raw value in the newtype constructor
 ///   (e.g., `NodeIndex(parent)`) since the binding resolved `NodeIndex(u32)` → `u32`.
+///
+/// NOTE: This function does not perform serde-based conversion. For Named params that lack
+/// From impls (e.g., due to sanitized fields), use `gen_serde_let_bindings` instead when
+/// `cfg.has_serde` is true, or fall back to `gen_unimplemented_body`.
 pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     params
         .iter()
@@ -412,6 +416,8 @@ pub(super) fn gen_named_let_bindings(params: &[ParamDef], opaque_types: &AHashSe
 /// Serializes binding types to JSON and deserializes to core types.
 /// Used when From impls don't exist (e.g., types with sanitized fields).
 /// `indent` is the whitespace prefix for each generated line (e.g., "    " for functions, "        " for methods).
+/// NOTE: This function should only be called when `cfg.has_serde` is true.
+/// The caller (functions.rs, methods.rs) must gate the call behind a `has_serde` check.
 pub fn gen_serde_let_bindings(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
@@ -481,6 +487,11 @@ pub fn is_simple_non_opaque_param(ty: &TypeRef) -> bool {
 /// Generate a lossy binding→core struct literal for non-opaque delegation.
 /// Sanitized fields use `Default::default()`, non-sanitized fields are cloned and converted.
 /// Fields are accessed via `self.` (behind &self), so all non-Copy types need `.clone()`.
+///
+/// NOTE: This assumes all binding struct fields implement Clone. If a field type does not
+/// implement Clone (e.g., `Mutex<T>`), it should be marked as `sanitized=true` so that
+/// `Default::default()` is used instead of calling `.clone()`. Backends that exclude types
+/// should mark such fields appropriately.
 pub fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str) -> String {
     gen_lossy_binding_to_core_fields_inner(typ, core_import, false)
 }

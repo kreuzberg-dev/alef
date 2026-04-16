@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Codegen: skip auto-delegation for trait-source methods on opaque types (prevents invalid Arc deref calls)
 - Extract: skip `#[cfg(...)]`-gated free functions during extraction (prevents feature-gated functions leaking into bindings)
 - Extract: prune non-re-exported items from private modules
 - FFI: handle `returns_cow` — emit `.into_owned()` for `Cow<'_, T>` returns before boxing
