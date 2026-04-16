@@ -463,6 +463,7 @@ crate-type = ["cdylib"]
 magnus = "0.8"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
+tokio = {{ version = "1", features = ["rt-multi-thread"] }}
 "#,
         pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
@@ -1249,6 +1250,9 @@ crate-type = ["cdylib", "staticlib"]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}
+
+[features]
+default = []
 
 [build-dependencies]
 cbindgen = "0.29"
