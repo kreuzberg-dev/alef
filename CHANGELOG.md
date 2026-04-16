@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Codegen: replace `compile_error!` with `Default::default()` for Named returns without error variant
+- Codegen: generate `Vec<Named>` let bindings for non-optional `is_ref=true` params
+- FFI: handle `Option<&Path>` / `Option<PathBuf>` conversion from `Option<String>`
+- FFI: add `.as_ref()` for `Option<&T>` params from `Option<T>` in argument passing
+- FFI: handle `&Value` params by deserializing into owned Value then passing reference
 - Codegen: convert `Vec<BindingType>` to `Vec<CoreType>` via let bindings before passing to core functions
 - Codegen: fix `Option<&T>` double-reference — don't add extra `&` when let binding already produces `Option<&T>`
 - FFI: add explicit `Vec<_>` type annotations for serde deserialization of ref/mut params (prevents unsized type inference)
