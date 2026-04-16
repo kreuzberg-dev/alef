@@ -17,7 +17,9 @@ fn use_unwrap_or_default(field: &FieldDef) -> bool {
     }
     // No typed_default — the fallback default_value_for_field generates type-based zero values
     // which are the same as Default::default() for the type.
-    field.default.is_none()
+    // Named types may not implement Default in some bindings (e.g. Magnus), so they
+    // fall through to the explicit default path.
+    field.default.is_none() && !matches!(&field.ty, TypeRef::Named(_))
 }
 
 /// Generate a PyO3 `#[new]` constructor with kwargs for a type with `has_default`.
@@ -487,6 +489,17 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
             "r" => "list()".to_string(),
             "rust" => "serde_json::json!({})".to_string(),
             _ => "{}".to_string(),
+        },
+        TypeRef::Named(name) => match language {
+            "rust" => format!("{name}::default()"),
+            "python" => "None".to_string(),
+            "ruby" => "nil".to_string(),
+            "go" => "nil".to_string(),
+            "java" => "null".to_string(),
+            "csharp" => "null".to_string(),
+            "php" => "null".to_string(),
+            "r" => "NULL".to_string(),
+            _ => "null".to_string(),
         },
         _ => match language {
             "python" => "None".to_string(),
