@@ -102,7 +102,7 @@ pub fn gen_stubs(api: &ApiSurface) -> String {
     ];
 
     // Generate type stubs
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_opaque {
             lines.push(gen_opaque_type_stub(typ));
             lines.push("".to_string());

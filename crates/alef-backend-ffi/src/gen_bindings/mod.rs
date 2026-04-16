@@ -101,7 +101,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     // Normalize dashes to underscores since IR paths use Cargo package names (dashes)
     // but Rust source code requires crate names (underscores).
     let mut path_map = ahash::AHashMap::new();
-    for t in &api.types {
+    for t in api.types.iter().filter(|t| !t.is_trait) {
         path_map.insert(t.name.clone(), t.rust_path.replace('-', "_"));
     }
     for e in &api.enums {
@@ -160,7 +160,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     builder.add_item(&gen_version(prefix));
 
     // Struct opaque-handle functions (from_json + free + field accessors + methods)
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         // Generate from_json/to_json for types that derive serde Serialize/Deserialize.
         // Opaque types and types without serde derives are skipped.
         // Note: sanitized fields do NOT block from_json/to_json generation because these

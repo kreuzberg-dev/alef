@@ -225,6 +225,9 @@ fn main() -> Result<()> {
                 eprintln!("Generated {stub_count} type stub files");
             }
 
+            // Format and lint all generated files via prek (best-effort)
+            pipeline::run_prek();
+
             println!("Generated {count} files");
             Ok(())
         }
@@ -264,10 +267,16 @@ fn main() -> Result<()> {
             }
             eprintln!("Generating scaffolding for: {}", format_languages(&languages));
             let files = pipeline::scaffold(&api, &config, &languages)?;
+            let has_pre_commit = files.iter().any(|f| f.path.ends_with(".pre-commit-config.yaml"));
             let base_dir = std::env::current_dir()?;
             let count = pipeline::write_scaffold_files(&files, &base_dir)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
             cache::write_stage_hash("scaffold", &stage_hash, &output_paths)?;
+            // If a new .pre-commit-config.yaml was scaffolded, run prek autoupdate
+            // to bump hook revisions to the latest available versions.
+            if has_pre_commit {
+                pipeline::run_prek_autoupdate();
+            }
             println!("Generated {count} scaffold files");
             Ok(())
         }
@@ -455,7 +464,13 @@ fn main() -> Result<()> {
 
             eprintln!("Generating scaffolding...");
             let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
+            let has_pre_commit = scaffold_files
+                .iter()
+                .any(|f| f.path.ends_with(".pre-commit-config.yaml"));
             let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
+            if has_pre_commit {
+                pipeline::run_prek_autoupdate();
+            }
 
             eprintln!("Generating READMEs...");
             let readme_files = pipeline::readme(&api, &config, &languages)?;
@@ -476,6 +491,10 @@ fn main() -> Result<()> {
             let docs_api = pipeline::extract_unfiltered(&config, config_path)?;
             let doc_files = alef_docs::generate_docs(&docs_api, &config, &languages, "docs/reference")?;
             let doc_count = pipeline::write_scaffold_files(&doc_files, &base_dir)?;
+
+            // Format and lint all generated files via prek (best-effort)
+            eprintln!("Running formatters and linters...");
+            pipeline::run_prek();
 
             println!(
                 "Done: {binding_count} binding files, {stub_count} stub files, {api_count} API files, {scaffold_count} scaffold files, {readme_count} readme files, {e2e_count} e2e files, {doc_count} doc files"

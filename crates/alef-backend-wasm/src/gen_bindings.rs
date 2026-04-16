@@ -103,7 +103,7 @@ impl Backend for WasmBackend {
             builder.add_import("std::sync::Arc");
         }
 
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if exclude_types.contains(&typ.name) {
                 continue;
             }
@@ -148,7 +148,7 @@ impl Backend for WasmBackend {
         let core_to_binding_convertible = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
         // From/Into conversions using shared parameterized generators
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if exclude_types.contains(&typ.name) {
                 continue;
             }
@@ -230,7 +230,7 @@ impl Backend for WasmBackend {
         let mut exports = vec![];
 
         // Collect all types (exported with Js prefix from WASM module)
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if !exclude_types.contains(&typ.name) {
                 exports.push(format!("Js{}", typ.name));
             }

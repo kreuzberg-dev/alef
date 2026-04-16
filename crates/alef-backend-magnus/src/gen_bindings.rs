@@ -131,7 +131,7 @@ impl Backend for MagnusBackend {
             );
         }
 
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_struct(typ, &core_import, &module_name));
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
@@ -164,7 +164,7 @@ impl Backend for MagnusBackend {
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 continue;
             }
@@ -1177,7 +1177,7 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
         lines.push("".to_string());
     }
 
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         lines.push(format!(
             r#"    let class = module.define_class("{}", ruby.class_object())?;"#,
             typ.name

@@ -131,7 +131,11 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str) -> St
     match ty {
         TypeRef::Primitive(prim) => match prim {
             alef_core::ir::PrimitiveType::Bool => {
-                writeln!(out, "{indent}if {expr} {{ 1 }} else {{ 0 }}").ok();
+                writeln!(out, "{indent}if {expr} {{").ok();
+                writeln!(out, "{indent}    1").ok();
+                writeln!(out, "{indent}}} else {{").ok();
+                writeln!(out, "{indent}    0").ok();
+                writeln!(out, "{indent}}}").ok();
             }
             _ => {
                 writeln!(out, "{indent}{expr}").ok();

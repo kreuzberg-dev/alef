@@ -197,7 +197,7 @@ impl Backend for Pyo3Backend {
             }
         }
 
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
                 let impl_block = generators::gen_opaque_impl_block(typ, &mapper, &cfg, &opaque_types, &adapter_bodies);
@@ -246,7 +246,7 @@ impl Backend for Pyo3Backend {
             ..Default::default()
         };
         // From/Into conversions — separate sets for each direction
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             // binding→core: strict (no sanitized fields)
             if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
@@ -436,7 +436,7 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
 
     // Collect all Named types referenced by has_default types
     let mut referenced_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.has_default {
             for field in &typ.fields {
                 if let TypeRef::Named(name) = &field.ty {
@@ -454,7 +454,7 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
     // that aren't part of the user-facing config API.
     // Only generate enums referenced by has_default type fields.
     let mut needed_enums: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.has_default {
             for field in &typ.fields {
                 if let TypeRef::Named(name) = &field.ty {
@@ -519,7 +519,7 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
     }
 
     // Generate @dataclass or TypedDict for types with has_default (user-facing config types)
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if !typ.has_default || typ.fields.is_empty() {
             continue;
         }
@@ -1263,7 +1263,7 @@ fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str) -> String {
     let mut needed_enums: Vec<String> = Vec::new();
     let mut needed_data_enums: Vec<String> = Vec::new();
     let mut config_types: Vec<String> = Vec::new();
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.has_default && !typ.name.ends_with("Update") {
             config_types.push(typ.name.clone());
             for field in &typ.fields {
@@ -1440,7 +1440,7 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
 
     // Deduplicate registered types and enums
     let mut registered: AHashSet<String> = AHashSet::new();
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if registered.insert(typ.name.clone()) {
             lines.push(format!("    m.add_class::<{}>()?;", typ.name));
         }

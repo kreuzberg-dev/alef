@@ -256,7 +256,7 @@ fn gen_go_file(
         .collect();
 
     // Generate struct types
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_opaque {
             writeln!(out, "{}\n", gen_opaque_type(typ, ffi_prefix)).ok();
         } else {
@@ -281,7 +281,7 @@ fn gen_go_file(
     // Skip static methods that return Named types (e.g., Default() constructors) —
     // these are redundant with the generated New*() functional options constructors,
     // and the opaque handle conversion pipeline is not yet implemented.
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             if method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
                 continue;
