@@ -139,7 +139,7 @@ impl Backend for JavaBackend {
         let lang_rename_all = config.serde_rename_all_for_language(Language::Java);
 
         // 4. Record types
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if !typ.is_opaque && !typ.fields.is_empty() {
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
@@ -167,7 +167,7 @@ impl Backend for JavaBackend {
             .collect();
 
         // 4b. Opaque handle types (skip if a pure-Java builder already covers this name)
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque && !builder_class_names.contains(&typ.name) {
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
@@ -461,7 +461,7 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
         .collect();
 
     // Free handles for opaque types (handle pointer → void)
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_opaque && !builder_class_names.contains(&typ.name) {
             let type_snake = typ.name.to_snake_case();
             let type_upper = type_snake.to_uppercase();

@@ -1,5 +1,5 @@
 use anyhow::Context as _;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Run a shell command, logging and failing on non-zero exit.
 pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
@@ -9,6 +9,56 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
         anyhow::bail!("Command failed: {cmd}");
     }
     Ok(())
+}
+
+/// Run `prek run --all-files` to format and lint all generated files (best-effort).
+///
+/// If prek is not installed or the command fails, a warning is logged but
+/// generation is not blocked.
+pub fn run_prek() {
+    info!("Running prek run --all-files...");
+    let result = std::process::Command::new("prek")
+        .args(["run", "--all-files"])
+        .status();
+    match result {
+        Ok(status) if status.success() => {
+            info!("prek completed successfully");
+        }
+        Ok(status) => {
+            warn!("prek exited with status {status}, some hooks may have failed");
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            warn!("prek not found, skipping formatting/linting. Install with: cargo install prek");
+        }
+        Err(e) => {
+            warn!("failed to run prek: {e}");
+        }
+    }
+}
+
+/// Run `prek autoupdate` to update hook revisions to the latest versions (best-effort).
+///
+/// Called after scaffolding a new `.pre-commit-config.yaml` so that pinned
+/// versions are immediately bumped to the latest available.
+pub fn run_prek_autoupdate() {
+    info!("Running prek autoupdate...");
+    let result = std::process::Command::new("prek")
+        .args(["autoupdate"])
+        .status();
+    match result {
+        Ok(status) if status.success() => {
+            info!("prek autoupdate completed successfully");
+        }
+        Ok(status) => {
+            warn!("prek autoupdate exited with status {status}");
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            warn!("prek not found, skipping autoupdate. Install with: cargo install prek");
+        }
+        Err(e) => {
+            warn!("failed to run prek autoupdate: {e}");
+        }
+    }
 }
 
 /// Initialize a new alef.toml config file.

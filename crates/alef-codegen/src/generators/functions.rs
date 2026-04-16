@@ -377,7 +377,7 @@ pub fn gen_function(
 /// delegate trait method calls to their inner core type.
 pub fn collect_trait_imports(api: &ApiSurface) -> Vec<String> {
     let mut traits: AHashSet<String> = AHashSet::new();
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             if let Some(ref trait_path) = method.trait_source {
                 traits.insert(trait_path.clone());
@@ -399,7 +399,7 @@ pub fn has_unresolved_trait_methods(api: &ApiSurface) -> bool {
     // Such methods likely come from trait impls whose trait path could not be resolved
     // (e.g. traits defined in private modules but re-exported via `pub use`).
     let mut method_counts: AHashMap<&str, (usize, usize)> = AHashMap::new(); // (total, with_source)
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_trait {
             continue;
         }
@@ -429,7 +429,7 @@ pub fn has_unresolved_trait_methods(api: &ApiSurface) -> bool {
 /// intentionally excluded because they are the source of conflicts.
 pub fn collect_explicit_core_imports(api: &ApiSurface) -> Vec<String> {
     let mut names = std::collections::BTreeSet::new();
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         names.insert(typ.name.clone());
     }
     for e in &api.enums {

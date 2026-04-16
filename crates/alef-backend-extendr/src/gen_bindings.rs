@@ -109,7 +109,7 @@ impl Backend for ExtendrBackend {
             .collect();
 
         // Generate type bindings
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             builder.add_item(&generators::gen_struct(typ, self, &cfg));
             if typ.has_default {
                 builder.add_item(&generators::gen_struct_default_impl(typ, ""));

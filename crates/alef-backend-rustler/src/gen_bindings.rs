@@ -77,7 +77,7 @@ impl Backend for RustlerBackend {
             builder.add_import("std::sync::Arc");
         }
 
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_resource(typ, &core_import, &opaque_types));
             } else {
@@ -125,7 +125,7 @@ impl Backend for RustlerBackend {
             }
         }
 
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             for method in &typ.methods {
                 if method.is_async {
                     builder.add_item(&gen_nif_async_method(
@@ -153,7 +153,7 @@ impl Backend for RustlerBackend {
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
         // From/Into conversions
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
@@ -273,7 +273,7 @@ impl Backend for RustlerBackend {
         });
 
         // ── 2. Struct modules for non-opaque types with fields ────────────────
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque || typ.fields.is_empty() {
                 continue;
             }
@@ -364,7 +364,7 @@ impl Backend for RustlerBackend {
         }
 
         // Wrapper functions for type methods (e.g., conversionoptions_default)
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             for method in &typ.methods {
                 let nif_fn_name = if method.is_async {
                     format!("{}_{}_async", typ.name.to_lowercase(), method.name)
@@ -1073,7 +1073,7 @@ fn gen_nif_init(api: &ApiSurface, config: &AlefConfig) -> String {
         exports.push(func_name);
     }
 
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             let method_name = if method.is_async {
                 format!("{}_{}_async", typ.name.to_lowercase(), method.name)
@@ -1152,7 +1152,7 @@ fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, _crate_name
     }
 
     // Stubs for type methods
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             let nif_fn_name = if method.is_async {
                 format!("{}_{}_async", typ.name.to_lowercase(), method.name)

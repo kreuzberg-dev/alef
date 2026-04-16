@@ -110,7 +110,7 @@ impl Backend for NapiBackend {
         // NAPI has some unique patterns: Js-prefixed names, Option-wrapped fields,
         // and custom constructor. Use shared generators for enums and functions,
         // but keep struct/method generation custom.
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(typ, &cfg, "Js"));
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &cfg, &opaque_types));
@@ -146,7 +146,7 @@ impl Backend for NapiBackend {
             ..Default::default()
         };
         // From/Into conversions using shared parameterized generators
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
@@ -219,7 +219,7 @@ impl Backend for NapiBackend {
         let mut function_exports = vec![];
 
         // Collect all types (exported with Js prefix from native module) - export type
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             type_exports.push(format!("Js{}", typ.name));
         }
 

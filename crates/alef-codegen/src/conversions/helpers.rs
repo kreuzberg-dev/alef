@@ -23,7 +23,7 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
         }
     }
     // Collect Named types from method params
-    for typ in &surface.types {
+    for typ in surface.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             for param in &method.params {
                 collect_named_types(&param.ty, &mut names);
@@ -37,7 +37,7 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
         collect_named_types(&func.return_type, &mut names);
     }
     // Collect Named types from method return types.
-    for typ in &surface.types {
+    for typ in surface.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             collect_named_types(&method.return_type, &mut names);
         }
@@ -46,7 +46,7 @@ pub fn input_type_names(surface: &ApiSurface) -> AHashSet<String> {
     // When a non-opaque type has methods, codegen generates binding→core struct conversion
     // (gen_lossy_binding_to_core_fields) which calls `.into()` on Named fields.
     // Those field types need binding→core From impls.
-    for typ in &surface.types {
+    for typ in surface.types.iter().filter(|typ| !typ.is_trait) {
         if !typ.is_opaque && !typ.methods.is_empty() {
             for field in &typ.fields {
                 if !field.sanitized {
@@ -498,7 +498,7 @@ pub fn core_enum_path(enum_def: &EnumDef, core_import: &str) -> String {
 /// instead of assuming `core_import::name` (which fails for types not re-exported at crate root).
 pub fn build_type_path_map(surface: &ApiSurface, core_import: &str) -> AHashMap<String, String> {
     let mut map = AHashMap::new();
-    for typ in &surface.types {
+    for typ in surface.types.iter().filter(|typ| !typ.is_trait) {
         let path = typ.rust_path.replace('-', "_");
         let resolved = if path.starts_with(core_import) {
             path

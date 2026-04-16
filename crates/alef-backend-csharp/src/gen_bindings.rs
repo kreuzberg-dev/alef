@@ -104,7 +104,7 @@ impl Backend for CsharpBackend {
         });
 
         // 4. Generate opaque handle classes
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 let type_filename = typ.name.to_pascal_case();
                 files.push(GeneratedFile {
@@ -155,7 +155,7 @@ impl Backend for CsharpBackend {
         let lang_rename_all = config.serde_rename_all_for_language(Language::Csharp);
 
         // 5. Generate record types (structs)
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if !typ.is_opaque {
                 // Skip types where all fields are unnamed tuple positions — they have no
                 // meaningful properties to expose in C#.
@@ -371,7 +371,7 @@ fn gen_native_methods(api: &ApiSurface, namespace: &str, lib_name: &str, prefix:
             }
         }
     }
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             for param in &method.params {
                 if let TypeRef::Named(name) = &param.ty {
@@ -458,7 +458,7 @@ fn gen_native_methods(api: &ApiSurface, namespace: &str, lib_name: &str, prefix:
     }
 
     // Generate P/Invoke declarations for type methods
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         let type_snake = typ.name.to_snake_case();
         for method in &typ.methods {
             let c_method_name = format!("{}_{}_{}", prefix, type_snake, method.name.to_lowercase());
@@ -635,7 +635,7 @@ fn gen_wrapper_class(
     }
 
     // Generate wrapper methods for type methods (prefixed with type name to avoid collisions)
-    for typ in &api.types {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         // Skip opaque types — their methods belong on the opaque handle class, not the static wrapper
         if typ.is_opaque {
             continue;

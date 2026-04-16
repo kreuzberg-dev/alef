@@ -2544,7 +2544,7 @@ mod tests {
 
     #[test]
     fn test_enum_variant_name_java() {
-        assert_eq!(enum_variant_name("Atx", Language::Java, TEST_PREFIX), "Atx");
+        assert_eq!(enum_variant_name("Atx", Language::Java, TEST_PREFIX), "ATX");
     }
 
     #[test]

@@ -149,7 +149,7 @@ impl Backend for PhpBackend {
             extension_name.to_pascal_case()
         };
 
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 // Generate the opaque struct with separate #[php_class] and
                 // #[php(name = "Ns\\Type")] attributes (ext-php-rs 0.15+ syntax).
@@ -256,7 +256,7 @@ impl Backend for PhpBackend {
         };
         // Build transitive set of types that can't have binding->core From
         let mut enum_tainted: AHashSet<String> = AHashSet::new();
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if has_enum_named_field(typ, enum_names_ref) {
                 enum_tainted.insert(typ.name.clone());
             }
@@ -265,7 +265,7 @@ impl Backend for PhpBackend {
         let mut changed = true;
         while changed {
             changed = false;
-            for typ in &api.types {
+            for typ in api.types.iter().filter(|typ| !typ.is_trait) {
                 if !enum_tainted.contains(&typ.name)
                     && typ.fields.iter().any(|f| references_named_type(&f.ty, &enum_tainted))
                 {
@@ -274,7 +274,7 @@ impl Backend for PhpBackend {
                 }
             }
         }
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             // binding->core: only when not enum-tainted and type is used as input
             if input_types.contains(&typ.name)
                 && !enum_tainted.contains(&typ.name)
@@ -332,7 +332,7 @@ impl Backend for PhpBackend {
         // PHP module entry point — explicit class registration required because
         // `inventory` crate auto-registration doesn't work in cdylib on macOS.
         let mut class_registrations = String::new();
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             class_registrations.push_str(&format!("\n    .class::<{}>()", typ.name));
         }
         // Register the facade class that wraps free functions as static methods.
@@ -498,7 +498,7 @@ impl Backend for PhpBackend {
         content.push_str("}\n\n");
 
         // Opaque handle classes
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 if !typ.doc.is_empty() {
                     content.push_str("/**\n");
@@ -518,7 +518,7 @@ impl Backend for PhpBackend {
         }
 
         // Record / struct types (non-opaque with fields)
-        for typ in &api.types {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque || typ.fields.is_empty() {
                 continue;
             }
