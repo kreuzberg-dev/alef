@@ -97,16 +97,18 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     builder.add_import("std::cell::RefCell");
     let core_import = config.core_import();
 
-    // Build path map: short name -> full rust_path for all types and enums
+    // Build path map: short name -> full rust_path for all types and enums.
+    // Normalize dashes to underscores since IR paths use Cargo package names (dashes)
+    // but Rust source code requires crate names (underscores).
     let mut path_map = ahash::AHashMap::new();
     for t in &api.types {
-        path_map.insert(t.name.clone(), t.rust_path.clone());
+        path_map.insert(t.name.clone(), t.rust_path.replace('-', "_"));
     }
     for e in &api.enums {
-        path_map.insert(e.name.clone(), e.rust_path.clone());
+        path_map.insert(e.name.clone(), e.rust_path.replace('-', "_"));
     }
     for err in &api.errors {
-        path_map.insert(err.name.clone(), err.rust_path.clone());
+        path_map.insert(err.name.clone(), err.rust_path.replace('-', "_"));
     }
 
     // Import traits needed for trait method dispatch
