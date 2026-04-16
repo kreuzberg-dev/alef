@@ -308,12 +308,7 @@ fn render_test_method(
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, enum_fields, &fixture.id);
 
-    // When result_is_simple, emit a simple function call instead of a class method.
-    let call_expr = if result_is_simple {
-        format!("html_to_markdown_convert({args_str})")
-    } else {
-        format!("{class_name}::{function_name}({args_str})")
-    };
+    let call_expr = format!("{class_name}::{function_name}({args_str})");
 
     let _ = writeln!(out, "    /** {description} */");
     let _ = writeln!(out, "    public function test_{method_name}(): void");
