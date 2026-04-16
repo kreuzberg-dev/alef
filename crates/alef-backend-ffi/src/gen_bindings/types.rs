@@ -163,8 +163,11 @@ pub(super) fn gen_field_accessor(typ: &TypeDef, field: &FieldDef, prefix: &str, 
         // type_rust_path may be e.g. "types::extraction::OutputFormat" (relative)
         // or "kreuzberg::types::OutputFormat" (already fully qualified with crate prefix).
         // We need the module path prefix without the type name itself.
-        if let Some(pos) = rust_path.rfind("::") {
-            let module_prefix = &rust_path[..pos];
+        // Normalize dashes to underscores since IR paths use Cargo package names (dashes)
+        // but Rust source code requires crate names (underscores).
+        let rust_path_norm = rust_path.replace('-', "_");
+        if let Some(pos) = rust_path_norm.rfind("::") {
+            let module_prefix = &rust_path_norm[..pos];
             // Avoid double-prefixing: if rust_path already starts with core_import,
             // use it as-is. Otherwise prepend core_import.
             if module_prefix == core_import || module_prefix.starts_with(&format!("{core_import}::")) {
