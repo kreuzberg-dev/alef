@@ -817,6 +817,7 @@ fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
       app: :{app_name},
       version: "{version}",
       elixir: "~> 1.14",
+      compilers: [:rustler] ++ Mix.compilers(),
       description: "{description}",
       package: package(),
       deps: deps()
