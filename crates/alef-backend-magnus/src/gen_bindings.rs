@@ -144,12 +144,19 @@ impl Backend for MagnusBackend {
                 builder.add_item(&gen_opaque_struct(typ, &core_import, &module_name));
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
             } else {
-                let generates_default = typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
+                let generates_default =
+                    typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
                 builder.add_item(&gen_struct(typ, &mapper, &module_name, api, generates_default));
                 if generates_default {
                     builder.add_item(&alef_codegen::generators::gen_struct_default_impl(typ, ""));
                 }
-                builder.add_item(&gen_struct_methods(typ, &mapper, &opaque_types, &core_import, generates_default));
+                builder.add_item(&gen_struct_methods(
+                    typ,
+                    &mapper,
+                    &opaque_types,
+                    &core_import,
+                    generates_default,
+                ));
             }
         }
 
@@ -509,7 +516,13 @@ fn gen_opaque_async_instance_method(
 }
 
 /// Generate a Magnus-wrapped struct definition using the shared TypeMapper.
-fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str, api: &ApiSurface, generates_default: bool) -> String {
+fn gen_struct(
+    typ: &TypeDef,
+    mapper: &MagnusMapper,
+    module_name: &str,
+    api: &ApiSurface,
+    generates_default: bool,
+) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
 
     let mut struct_builder = StructBuilder::new(&typ.name);
@@ -526,10 +539,18 @@ fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str, api: &Api
         let name = match &f.ty {
             alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
             alef_core::ir::TypeRef::Vec(inner) => {
-                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                    Some(n.as_str())
+                } else {
+                    None
+                }
             }
             alef_core::ir::TypeRef::Optional(inner) => {
-                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                    Some(n.as_str())
+                } else {
+                    None
+                }
             }
             _ => None,
         };
@@ -545,9 +566,15 @@ fn gen_struct(typ: &TypeDef, mapper: &MagnusMapper, module_name: &str, api: &Api
     if typ.has_serde && all_fields_serde {
         struct_builder.add_derive("serde::Serialize");
         struct_builder.add_derive("serde::Deserialize");
-        if generates_default {
+        if typ.has_default {
             struct_builder.add_attr("serde(default)");
         }
+    }
+    // Derive Default for types where the manual Default impl won't be generated
+    // (can_generate_default_impl returned false) but the type still needs Default
+    // for kwargs constructors. Types with generates_default=true get a manual impl instead.
+    if typ.has_default && !generates_default {
+        struct_builder.add_derive("Default");
     }
 
     for field in &typ.fields {
@@ -587,7 +614,7 @@ fn gen_struct_methods(
     mapper: &MagnusMapper,
     opaque_types: &AHashSet<String>,
     core_import: &str,
-    generates_default: bool,
+    _generates_default: bool,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 

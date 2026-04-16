@@ -268,6 +268,42 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                         format!("serde_json::from_str(&{}).unwrap_or_default()", p.name)
                     }
                 }
+                TypeRef::Vec(inner) => {
+                    // Vec<Named>: convert each element via Into::into when used with let bindings
+                    if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                        if p.optional {
+                            if p.is_ref {
+                                format!("{}.as_deref()", p.name)
+                            } else {
+                                p.name.clone()
+                            }
+                        } else if promoted {
+                            if p.is_ref {
+                                format!("&{}{}", p.name, unwrap_suffix)
+                            } else {
+                                format!("{}{}", p.name, unwrap_suffix)
+                            }
+                        } else if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    } else {
+                        if promoted {
+                            format!("{}{}", p.name, unwrap_suffix)
+                        } else if p.is_mut && p.optional {
+                            format!("{}.as_deref_mut()", p.name)
+                        } else if p.is_mut {
+                            format!("&mut {}", p.name)
+                        } else if p.is_ref && p.optional {
+                            format!("{}.as_deref()", p.name)
+                        } else if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    }
+                }
                 _ => {
                     if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
@@ -325,7 +361,11 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                     }
                 }
                 TypeRef::Named(_) => {
-                    if p.is_ref {
+                    if p.optional && p.is_ref {
+                        // Let binding already created Option<&T> via .as_ref()
+                        format!("{}_core", p.name)
+                    } else if p.is_ref {
+                        // Let binding created T, need reference for call
                         format!("&{}_core", p.name)
                     } else {
                         format!("{}_core", p.name)
@@ -385,6 +425,29 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                         format!("std::time::Duration::from_millis({})", p.name)
                     }
                 }
+                TypeRef::Vec(inner) => {
+                    // Vec<Named>: use let binding that converts each element
+                    if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                        if p.optional && p.is_ref {
+                            // No let binding generated for this case — use param directly with as_deref()
+                            format!("{}.as_deref()", p.name)
+                        } else if p.is_ref {
+                            format!("&{}_core", p.name)
+                        } else {
+                            format!("{}_core", p.name)
+                        }
+                    } else {
+                        if promoted {
+                            format!("{}{}", p.name, unwrap_suffix)
+                        } else if p.is_ref && p.optional {
+                            format!("{}.as_deref()", p.name)
+                        } else if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    }
+                }
                 _ => {
                     if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
@@ -410,8 +473,8 @@ pub fn gen_named_let_bindings_pub(params: &[ParamDef], opaque_types: &AHashSet<S
 pub(super) fn gen_named_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     let mut bindings = String::new();
     for (idx, p) in params.iter().enumerate() {
-        if let TypeRef::Named(name) = &p.ty {
-            if !opaque_types.contains(name.as_str()) {
+        match &p.ty {
+            TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 let promoted = crate::shared::is_promoted_optional(params, idx);
                 if p.optional {
                     if p.is_ref {
@@ -432,6 +495,39 @@ pub(super) fn gen_named_let_bindings(params: &[ParamDef], opaque_types: &AHashSe
                     write!(bindings, "let {}_core = {}.into();\n    ", p.name, p.name).ok();
                 }
             }
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {
+                let promoted = crate::shared::is_promoted_optional(params, idx);
+                if p.optional && p.is_ref {
+                    // Option<Vec<Named>> with is_ref: use as_deref() in call args which handles both Option and slice deref.
+                    // The element type conversion happens implicitly via Deref trait and Into trait.
+                    // Skip generating a let binding — the call_args logic will emit param.as_deref().
+                } else if p.optional {
+                    // Option<Vec<Named>> without is_ref: convert to concrete Vec
+                    write!(
+                        bindings,
+                        "let {}_core = {}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect()).unwrap_or_default();\n    ",
+                        p.name, p.name
+                    )
+                    .ok();
+                } else if promoted {
+                    // Promoted-optional: unwrap then convert
+                    write!(
+                        bindings,
+                        "let {}_core: Vec<_> = {}.expect(\"'{}' is required\").into_iter().map(Into::into).collect();\n    ",
+                        p.name, p.name, p.name
+                    )
+                    .ok();
+                } else {
+                    // Vec<Named>: convert each element
+                    write!(
+                        bindings,
+                        "let {}_core: Vec<_> = {}.into_iter().map(Into::into).collect();\n    ",
+                        p.name, p.name
+                    )
+                    .ok();
+                }
+            }
+            _ => {}
         }
     }
     bindings
@@ -487,10 +583,15 @@ pub fn gen_serde_let_bindings(
 }
 
 /// Check if params contain any non-opaque Named types that need let bindings.
+/// This includes both direct Named types and Vec<Named> types.
 pub fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) -> bool {
-    params
-        .iter()
-        .any(|p| matches!(&p.ty, TypeRef::Named(name) if !opaque_types.contains(name.as_str())))
+    params.iter().any(|p| match &p.ty {
+        TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => true,
+        TypeRef::Vec(inner) => {
+            matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str()))
+        }
+        _ => false,
+    })
 }
 
 /// Check if a param type is safe for non-opaque delegation (no complex conversions needed).
