@@ -2795,7 +2795,10 @@ mod tests {
     fn test_generate_enum_variant_description_well_known() {
         assert_eq!(generate_enum_variant_description("TEXT"), "Text format");
         assert_eq!(generate_enum_variant_description("MARKDOWN"), "Markdown format");
-        assert_eq!(generate_enum_variant_description("HTML"), "HTML format");
+        assert_eq!(
+            generate_enum_variant_description("HTML"),
+            "Preserve as HTML `<mark>` tags"
+        );
         assert_eq!(generate_enum_variant_description("JSON"), "JSON format");
         assert_eq!(generate_enum_variant_description("PDF"), "PDF format");
         assert_eq!(generate_enum_variant_description("PLAIN"), "Plain text format");

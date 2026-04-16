@@ -17,9 +17,7 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
 /// generation is not blocked.
 pub fn run_prek() {
     info!("Running prek run --all-files...");
-    let result = std::process::Command::new("prek")
-        .args(["run", "--all-files"])
-        .status();
+    let result = std::process::Command::new("prek").args(["run", "--all-files"]).status();
     match result {
         Ok(status) if status.success() => {
             info!("prek completed successfully");
@@ -42,9 +40,7 @@ pub fn run_prek() {
 /// versions are immediately bumped to the latest available.
 pub fn run_prek_autoupdate() {
     info!("Running prek autoupdate...");
-    let result = std::process::Command::new("prek")
-        .args(["autoupdate"])
-        .status();
+    let result = std::process::Command::new("prek").args(["autoupdate"]).status();
     match result {
         Ok(status) if status.success() => {
             info!("prek autoupdate completed successfully");

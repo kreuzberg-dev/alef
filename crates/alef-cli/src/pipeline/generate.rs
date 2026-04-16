@@ -185,12 +185,11 @@ pub fn format_rust_content(content: &str) -> String {
     }
 
     match child.wait_with_output() {
-        Ok(output) if output.status.success() => String::from_utf8(output.stdout).unwrap_or_else(|_| content.to_string()),
+        Ok(output) if output.status.success() => {
+            String::from_utf8(output.stdout).unwrap_or_else(|_| content.to_string())
+        }
         Ok(output) => {
-            debug!(
-                "rustfmt failed on stdin: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+            debug!("rustfmt failed on stdin: {}", String::from_utf8_lossy(&output.stderr));
             content.to_string()
         }
         Err(e) => {

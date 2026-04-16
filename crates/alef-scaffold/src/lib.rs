@@ -1276,9 +1276,7 @@ fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Ve
         let mut excludes = String::new();
         for (suffix, lang) in suffixes {
             if has(*lang) {
-                excludes.push_str(&format!(
-                    "            \"--exclude={crate_dir}{suffix}\",\n"
-                ));
+                excludes.push_str(&format!("            \"--exclude={crate_dir}{suffix}\",\n"));
             }
         }
         excludes
