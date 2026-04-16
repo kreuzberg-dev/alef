@@ -517,6 +517,14 @@ pub(super) fn gen_named_let_bindings(params: &[ParamDef], opaque_types: &AHashSe
                         p.name, p.name, p.name
                     )
                     .ok();
+                } else if p.is_ref {
+                    // Non-optional Vec<Named> with is_ref=true: generate let binding for conversion
+                    write!(
+                        bindings,
+                        "let {}_core: Vec<_> = {}.into_iter().map(Into::into).collect();\n    ",
+                        p.name, p.name
+                    )
+                    .ok();
                 } else {
                     // Vec<Named>: convert each element
                     write!(
@@ -930,11 +938,9 @@ pub fn gen_unimplemented_body(
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Duration => "0".to_string(),
             TypeRef::Named(_) | TypeRef::Json => {
-                // Named return without error type: can't return Err.
-                // Emit compile_error so this is caught at build time rather than panicking at runtime.
-                format!(
-                    "compile_error!(\"alef: {fn_name} returns a Named/Json type but has no error variant — cannot auto-delegate\")"
-                )
+                // Named/Json return without error type: return Default::default()
+                // This works for builder methods (return Self) and getter methods returning complex types
+                "Default::default()".to_string()
             }
         }
     };

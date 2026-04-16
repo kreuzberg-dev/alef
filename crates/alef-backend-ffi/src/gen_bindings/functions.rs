@@ -201,7 +201,30 @@ pub(super) fn gen_method_wrapper(
                     // When is_ref=false, the core takes Option<String> — pass owned.
                     if p.is_ref { format!("{rs}.as_deref()") } else { rs }
                 }
-                TypeRef::Path if p.optional => rs, // Optional<PathBuf> passed owned
+                TypeRef::Path if p.optional => {
+                    // Optional Path: rs is Option<String> (from param conversion)
+                    // If is_ref=true, convert to Option<&Path>; else Option<PathBuf>
+                    if p.is_ref {
+                        format!("{rs}.as_ref().map(|s| std::path::Path::new(s.as_str()))")
+                    } else {
+                        format!("{rs}.map(std::path::PathBuf::from)")
+                    }
+                }
+                TypeRef::Named(_) if p.optional => {
+                    // Optional Named: rs is Option<T>
+                    // If is_ref=true, convert to Option<&T>; else pass owned
+                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                }
+                TypeRef::Json if !p.optional => {
+                    // Json: rs is already serde_json::Value (from param conversion)
+                    // If is_ref=true, pass &value; else pass owned
+                    if p.is_ref { format!("&{rs}") } else { rs }
+                }
+                TypeRef::Json if p.optional => {
+                    // Optional Json: rs is Option<Value>
+                    // If is_ref=true, convert to Option<&Value>; else pass owned
+                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                }
                 TypeRef::Vec(_) | TypeRef::Map(_, _) if !p.optional => {
                     // When is_ref=true, pass &vec as a slice. When is_mut=true, pass &mut vec.
                     // Otherwise pass the vec owned.
@@ -440,7 +463,30 @@ pub(super) fn gen_free_function(
                     // When is_ref=false, the core takes Option<String> — pass owned.
                     if p.is_ref { format!("{rs}.as_deref()") } else { rs }
                 }
-                TypeRef::Path if p.optional => rs, // Optional<PathBuf> passed owned
+                TypeRef::Path if p.optional => {
+                    // Optional Path: rs is Option<String> (from param conversion)
+                    // If is_ref=true, convert to Option<&Path>; else Option<PathBuf>
+                    if p.is_ref {
+                        format!("{rs}.as_ref().map(|s| std::path::Path::new(s.as_str()))")
+                    } else {
+                        format!("{rs}.map(std::path::PathBuf::from)")
+                    }
+                }
+                TypeRef::Named(_) if p.optional => {
+                    // Optional Named: rs is Option<T>
+                    // If is_ref=true, convert to Option<&T>; else pass owned
+                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                }
+                TypeRef::Json if !p.optional => {
+                    // Json: rs is already serde_json::Value (from param conversion)
+                    // If is_ref=true, pass &value; else pass owned
+                    if p.is_ref { format!("&{rs}") } else { rs }
+                }
+                TypeRef::Json if p.optional => {
+                    // Optional Json: rs is Option<Value>
+                    // If is_ref=true, convert to Option<&Value>; else pass owned
+                    if p.is_ref { format!("{rs}.as_ref()") } else { rs }
+                }
                 TypeRef::Vec(_) | TypeRef::Map(_, _) if !p.optional => {
                     // When is_ref=true, pass &vec as a slice. When is_mut=true, pass &mut vec.
                     // Otherwise pass the vec owned.
@@ -559,7 +605,46 @@ pub(super) fn gen_param_conversion(
     if param.optional {
         // Optional parameter — null means None
         match &param.ty {
-            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
+            TypeRef::String | TypeRef::Char => {
+                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
+                writeln!(out, "        None").ok();
+                writeln!(out, "    }} else {{").ok();
+                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
+                writeln!(out, "            Ok(s) => Some(s.to_string()),").ok();
+                writeln!(out, "            Err(_) => {{").ok();
+                writeln!(
+                    out,
+                    "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
+                )
+                .ok();
+                writeln!(out, "                {fail_ret}").ok();
+                writeln!(out, "            }}").ok();
+                writeln!(out, "        }}").ok();
+                writeln!(out, "    }};").ok();
+            }
+            TypeRef::Path => {
+                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
+                writeln!(out, "        None").ok();
+                writeln!(out, "    }} else {{").ok();
+                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
+                if param.is_ref {
+                    // Option<&Path>: defer Path creation until use
+                    writeln!(out, "            Ok(s) => Some(s.to_string()),").ok();
+                } else {
+                    writeln!(out, "            Ok(s) => Some(std::path::PathBuf::from(s)),").ok();
+                }
+                writeln!(out, "            Err(_) => {{").ok();
+                writeln!(
+                    out,
+                    "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
+                )
+                .ok();
+                writeln!(out, "                {fail_ret}").ok();
+                writeln!(out, "            }}").ok();
+                writeln!(out, "        }}").ok();
+                writeln!(out, "    }};").ok();
+            }
+            TypeRef::Json => {
                 writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
                 writeln!(out, "        None").ok();
                 writeln!(out, "    }} else {{").ok();
