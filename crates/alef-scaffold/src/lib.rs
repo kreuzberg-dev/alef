@@ -1254,12 +1254,13 @@ fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
     <PackageId>{namespace}</PackageId>
     <Version>{version}</Version>
     <Description>{description}</Description>
-    <PackageLicenseExpression>{license}</PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <RepositoryUrl>{repository}</RepositoryUrl>
 {authors}    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="../../../LICENSE" Pack="true" PackagePath="/" />
     <None Include="runtimes/**" Pack="true" PackagePath="runtimes/" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
