@@ -1529,7 +1529,7 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                             }
                             TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                 let core_ty = core_prim_str(p);
-                                format!("(val.{} as {core_ty}).unwrap_or_default()", f.name)
+                                format!("val.{}.map(|v| v as {core_ty}).unwrap_or_default()", f.name)
                             }
                             _ => {
                                 format!("val.{}.unwrap_or_default()", f.name)
