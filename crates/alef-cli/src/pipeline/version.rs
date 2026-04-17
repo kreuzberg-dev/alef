@@ -141,8 +141,10 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
         }
     }
 
-    // Elixir
-    if let Some(found) = extract_version("packages/elixir/mix.exs", r#"version:\s*"([^"]*)""#) {
+    // Elixir — check both `version: "X.Y.Z"` and `@version "X.Y.Z"` patterns
+    if let Some(found) = extract_version("packages/elixir/mix.exs", r#"version:\s*"([^"]*)""#)
+        .or_else(|| extract_version("packages/elixir/mix.exs", r#"@version\s*"([^"]*)""#))
+    {
         if found != expected {
             mismatches.push(format!("packages/elixir/mix.exs: found {found}, expected {expected}"));
         }
@@ -259,9 +261,12 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
         }
     }
 
-    // Elixir: mix.exs
+    // Elixir: mix.exs — handle both `version: "X.Y.Z"` and `@version "X.Y.Z"` patterns
     if let Ok(content) = std::fs::read_to_string("packages/elixir/mix.exs") {
         if let Some(new_content) = replace_version_pattern(&content, r#"version: "[^"]*""#, &version) {
+            std::fs::write("packages/elixir/mix.exs", &new_content)?;
+            updated.push("packages/elixir/mix.exs".to_string());
+        } else if let Some(new_content) = replace_version_pattern(&content, r#"@version "[^"]*""#, &version) {
             std::fs::write("packages/elixir/mix.exs", &new_content)?;
             updated.push("packages/elixir/mix.exs".to_string());
         }
@@ -454,6 +459,7 @@ fn replace_version_pattern(content: &str, pattern: &str, version: &str) -> Optio
         p if p.contains("spec") => format!("spec.version = '{version}'"),
         p if p.contains("<version>") => format!("<version>{version}</version>"),
         p if p.contains("<Version>") => format!("<Version>{version}</Version>"),
+        p if p.contains("@version") => format!(r#"@version "{version}""#),
         p if p.contains("version:") && p.contains(":") => format!(r#"version: "{version}""#),
         p if p.contains("__version__") => format!(r#"__version__ = "{version}""#),
         p if p.contains("defaultFFIVersion") => format!(r#"defaultFFIVersion = "{version}""#),
