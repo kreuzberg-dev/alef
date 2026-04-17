@@ -191,8 +191,9 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                 TypeRef::Named(_) => {
                     if p.optional {
                         if p.is_ref {
-                            // Option<T> (binding) -> Option<&T> (core expects reference)
-                            format!("{}.as_ref()", p.name)
+                            // Option<T> (binding) -> Option<&CoreT> (core expects reference to core type)
+                            // Convert the inner type with .map(Into::into) to get Option<CoreT>, then .as_ref()
+                            format!("{}.map(Into::into).as_ref()", p.name)
                         } else {
                             format!("{}.map(Into::into)", p.name)
                         }
@@ -246,9 +247,21 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                             p.name.clone()
                         }
                     } else if promoted {
-                        format!("&{}{}", p.name, unwrap_suffix)
+                        // is_ref=true: pass &Vec<u8> (core takes &[u8])
+                        // is_ref=false: pass Vec<u8> (core takes owned Vec<u8>)
+                        if p.is_ref {
+                            format!("&{}{}", p.name, unwrap_suffix)
+                        } else {
+                            format!("{}{}", p.name, unwrap_suffix)
+                        }
                     } else {
-                        format!("&{}", p.name)
+                        // is_ref=true: pass &Vec<u8> (core takes &[u8])
+                        // is_ref=false: pass Vec<u8> (core takes owned Vec<u8>)
+                        if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.clone()
+                        }
                     }
                 }
                 // Duration: binding uses u64 (millis), core uses std::time::Duration
@@ -414,9 +427,21 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                             p.name.clone()
                         }
                     } else if promoted {
-                        format!("&{}{}", p.name, unwrap_suffix)
+                        // is_ref=true: pass &Vec<u8> (core takes &[u8])
+                        // is_ref=false: pass Vec<u8> (core takes owned Vec<u8>)
+                        if p.is_ref {
+                            format!("&{}{}", p.name, unwrap_suffix)
+                        } else {
+                            format!("{}{}", p.name, unwrap_suffix)
+                        }
                     } else {
-                        format!("&{}", p.name)
+                        // is_ref=true: pass &Vec<u8> (core takes &[u8])
+                        // is_ref=false: pass Vec<u8> (core takes owned Vec<u8>)
+                        if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.clone()
+                        }
                     }
                 }
                 TypeRef::Duration => {
@@ -486,8 +511,14 @@ pub(super) fn gen_named_let_bindings(
                 let core_type_path = format!("{}::{}", core_import, name);
                 if p.optional {
                     if p.is_ref {
-                        // Option<T> (binding) -> Option<&T> (core expects reference)
-                        write!(bindings, "let {}_core = {}.as_ref();\n    ", p.name, p.name).ok();
+                        // Option<T> (binding) -> Option<&CoreT> (core expects reference to core type)
+                        // Convert the inner type with .map(Into::into) to get Option<CoreT>, then .as_ref()
+                        write!(
+                            bindings,
+                            "let {}_core = {}.map(Into::into).as_ref();\n    ",
+                            p.name, p.name
+                        )
+                        .ok();
                     } else {
                         write!(
                             bindings,

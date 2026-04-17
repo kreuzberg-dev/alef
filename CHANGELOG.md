@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Codegen: convert optional Named params with `.map(Into::into).as_ref()` for non-opaque ref params
+- Codegen: pass owned `Vec<u8>` when `is_ref=false` for Bytes params
+- FFI: use `std::mem::drop()` instead of `.drop()` for owned receiver methods
+- FFI: clone `&mut String` returns before CString conversion
+- FFI: deserialize `Optional(Vec/Map)` JSON params and pass with `.as_deref()`
 - Codegen: add explicit type annotations in let bindings to resolve E0283 ambiguity
 - Codegen: skip `apply_core_wrapper_from_core` for sanitized fields (fixes Mutex clone)
 - Codegen: replace `compile_error!` with `Default::default()` for Named returns without error variant
