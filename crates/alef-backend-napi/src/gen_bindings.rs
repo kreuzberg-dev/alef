@@ -1662,17 +1662,18 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                 .map(|f| {
                     if let Some(field) = variant_field_map.get(f.as_str()) {
                         if field.optional {
-                            format!("{f}: {f}")
+                            match &field.ty {
+                                TypeRef::Path => format!("{f}: {f}.map(|p| p.to_string_lossy().to_string())"),
+                                TypeRef::Named(_) => format!("{f}: {f}.map(Into::into)"),
+                                _ => format!("{f}: {f}"),
+                            }
                         } else if field.sanitized {
                             format!("{f}: None")
                         } else {
                             match &field.ty {
                                 TypeRef::Named(_) => format!("{f}: Some({f}.into())"),
                                 TypeRef::Path => format!("{f}: Some({f}.to_string_lossy().to_string())"),
-                                TypeRef::Primitive(p) if needs_napi_cast(p) => {
-                                    let binding_ty = napi_prim_str(p);
-                                    format!("{f}: Some({f} as {binding_ty})")
-                                }
+                                // Tagged enum struct fields keep original types, no NAPI cast needed
                                 _ => format!("{f}: Some({f})"),
                             }
                         }
