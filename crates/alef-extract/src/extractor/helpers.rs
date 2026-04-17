@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use ahash::AHashMap;
 use alef_core::ir::{CoreWrapper, EnumVariant, FieldDef, TypeRef};
+use quote::ToTokens;
 use syn;
 
 use crate::type_resolver;
@@ -32,6 +33,7 @@ pub(crate) fn extract_doc_comments(attrs: &[syn::Attribute]) -> String {
 }
 
 /// Check if a `#[derive(...)]` attribute contains a specific derive.
+/// Also checks `#[cfg_attr(..., derive(...))]` for conditional derives.
 pub(crate) fn has_derive(attrs: &[syn::Attribute], derive_name: &str) -> bool {
     for attr in attrs {
         if attr.path().is_ident("derive") {
@@ -43,6 +45,13 @@ pub(crate) fn has_derive(attrs: &[syn::Attribute], derive_name: &str) -> bool {
                         return true;
                     }
                 }
+            }
+        } else if attr.path().is_ident("cfg_attr") {
+            // Check cfg_attr for conditional derives, e.g.:
+            // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+            let tokens = attr.meta.to_token_stream().to_string();
+            if tokens.contains("derive") && tokens.contains(derive_name) {
+                return true;
             }
         }
     }
@@ -389,6 +398,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
 
 /// Check if a `#[derive(...)]` attribute contains a specific multi-segment derive path.
 /// e.g. `has_derive_path(attrs, &["thiserror", "Error"])` matches `#[derive(thiserror::Error)]`.
+/// Also checks `#[cfg_attr(..., derive(...))]` for conditional derives.
 pub(crate) fn has_derive_path(attrs: &[syn::Attribute], segments: &[&str]) -> bool {
     for attr in attrs {
         if attr.path().is_ident("derive") {
@@ -406,6 +416,13 @@ pub(crate) fn has_derive_path(attrs: &[syn::Attribute], segments: &[&str]) -> bo
                         return true;
                     }
                 }
+            }
+        } else if attr.path().is_ident("cfg_attr") {
+            // Check cfg_attr for conditional derives, e.g.:
+            // #[cfg_attr(feature = "serde", derive(thiserror::Error))]
+            let tokens = attr.meta.to_token_stream().to_string();
+            if tokens.contains("derive") && segments.iter().all(|seg| tokens.contains(seg)) {
+                return true;
             }
         }
     }
