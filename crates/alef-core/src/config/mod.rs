@@ -525,7 +525,7 @@ impl AlefConfig {
     pub fn rewrite_path(&self, rust_path: &str) -> String {
         // Sort mappings by key length descending (longest prefix first)
         let mut mappings: Vec<_> = self.crate_config.path_mappings.iter().collect();
-        mappings.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        mappings.sort_by_key(|b| std::cmp::Reverse(b.0.len()));
 
         for (from, to) in &mappings {
             if rust_path.starts_with(from.as_str()) {

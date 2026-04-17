@@ -1282,6 +1282,17 @@ fn core_prim_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
     }
 }
 
+fn napi_prim_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
+    match p {
+        alef_core::ir::PrimitiveType::U32
+        | alef_core::ir::PrimitiveType::U64
+        | alef_core::ir::PrimitiveType::Usize
+        | alef_core::ir::PrimitiveType::Isize => "i64",
+        alef_core::ir::PrimitiveType::F32 => "f64",
+        _ => unreachable!(),
+    }
+}
+
 /// Generate a global Tokio runtime for NAPI async support.
 fn gen_tokio_runtime() -> String {
     "static WORKER_POOL: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {
@@ -1498,6 +1509,10 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                             TypeRef::Named(_) => {
                                 format!("val.{}.map(Into::into)", f.name)
                             }
+                            TypeRef::Primitive(p) if needs_napi_cast(p) => {
+                                let core_ty = core_prim_str(p);
+                                format!("val.{}.map(|v| v as {core_ty})", f.name)
+                            }
                             _ => {
                                 format!("val.{}", f.name)
                             }
@@ -1511,6 +1526,10 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                             }
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from).unwrap_or_default()", f.name)
+                            }
+                            TypeRef::Primitive(p) if needs_napi_cast(p) => {
+                                let core_ty = core_prim_str(p);
+                                format!("(val.{} as {core_ty}).unwrap_or_default()", f.name)
                             }
                             _ => {
                                 format!("val.{}.unwrap_or_default()", f.name)
@@ -1650,6 +1669,10 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                             match &field.ty {
                                 TypeRef::Named(_) => format!("{f}: Some({f}.into())"),
                                 TypeRef::Path => format!("{f}: Some({f}.to_string_lossy().to_string())"),
+                                TypeRef::Primitive(p) if needs_napi_cast(p) => {
+                                    let binding_ty = napi_prim_str(p);
+                                    format!("{f}: Some({f} as {binding_ty})")
+                                }
                                 _ => format!("{f}: Some({f})"),
                             }
                         }

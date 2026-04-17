@@ -889,7 +889,7 @@ end
 "#,
         module = capitalize_first(&app_name),
         app_name = app_name,
-        nif_atom = format!("{app_name}_nif"),
+        nif_atom = format_args!("{app_name}_nif"),
         version = version,
         description = meta.description,
         license = meta.license,
