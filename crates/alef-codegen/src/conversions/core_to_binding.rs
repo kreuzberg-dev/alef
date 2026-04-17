@@ -454,6 +454,23 @@ pub fn field_conversion_from_core_cfg(
                 field_conversion_from_core(name, ty, optional, sanitized, opaque_types)
             }
         }
+        // HashMap value type casting: when value type needs i64 casting
+        TypeRef::Map(k, v)
+            if config.cast_large_ints_to_i64 && matches!(v.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) =>
+        {
+            if let TypeRef::Primitive(p) = v.as_ref() {
+                let cast_to = binding_prim_str(p);
+                if optional {
+                    format!(
+                        "{name}: val.{name}.as_ref().map(|m| m.iter().map(|(k, v)| (k.clone(), *v as {cast_to})).collect())"
+                    )
+                } else {
+                    format!("{name}: val.{name}.iter().map(|(k, v)| (k.clone(), *v as {cast_to})).collect()")
+                }
+            } else {
+                field_conversion_from_core(name, ty, optional, sanitized, opaque_types)
+            }
+        }
         // Vec<u64/usize/isize> needs element-wise i64 casting (core→binding)
         TypeRef::Vec(inner)
             if config.cast_large_ints_to_i64

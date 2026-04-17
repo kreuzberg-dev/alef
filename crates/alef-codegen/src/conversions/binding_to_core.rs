@@ -290,6 +290,23 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                 format!("{name}: val.{name}.into()")
             }
         }
+        // Map with Json value type: binding uses HashMap<K, String>, core uses HashMap<K, Value>
+        TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
+            let k_expr = if matches!(k.as_ref(), TypeRef::Json) {
+                "serde_json::from_str(&k).unwrap_or_default()"
+            } else {
+                "k"
+            };
+            if optional {
+                format!(
+                    "{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({k_expr}, serde_json::from_str(&v).unwrap_or_default())).collect())"
+                )
+            } else {
+                format!(
+                    "{name}: val.{name}.into_iter().map(|(k, v)| ({k_expr}, serde_json::from_str(&v).unwrap_or_default())).collect()"
+                )
+            }
+        }
         // Optional with inner
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Json => format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())"),
@@ -447,6 +464,21 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                     format!("{name}: val.{name}.map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
                 } else {
                     format!("{name}: val.{name}.into_iter().map(|v| v as {core_ty}).collect()")
+                }
+            } else {
+                field_conversion_to_core(name, ty, optional)
+            }
+        }
+        // HashMap value type casting: when value type needs i64→core casting
+        TypeRef::Map(k, v)
+            if config.cast_large_ints_to_i64 && matches!(v.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) =>
+        {
+            if let TypeRef::Primitive(p) = v.as_ref() {
+                let core_ty = core_prim_str(p);
+                if optional {
+                    format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v as {core_ty})).collect())")
+                } else {
+                    format!("{name}: val.{name}.into_iter().map(|(k, v)| (k, v as {core_ty})).collect()")
                 }
             } else {
                 field_conversion_to_core(name, ty, optional)

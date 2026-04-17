@@ -127,6 +127,21 @@ pub fn gen_function(
                     }
                 };
                 format!("pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n{inner_body}\n        }})")
+            } else if func.is_async {
+                // Async serde path for other backends (NAPI, etc.): use gen_async_body
+                let is_unit = matches!(func.return_type, TypeRef::Unit);
+                let wrapped = wrap_return("result");
+                let async_body = gen_async_body(
+                    &core_call,
+                    cfg,
+                    func.error_type.is_some(),
+                    &wrapped,
+                    false,
+                    "",
+                    is_unit,
+                    Some(&return_type),
+                );
+                format!("{serde_bindings}{async_body}")
             } else if matches!(func.return_type, TypeRef::Unit) {
                 // Unit return with error: avoid let_unit_value
                 format!("{serde_bindings}{core_call}{serde_err_conv}?;\n    Ok(())")

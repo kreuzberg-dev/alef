@@ -983,12 +983,12 @@ fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> S
             TypeRef::Path => {
                 if p.optional {
                     if p.is_ref {
-                        format!("{}.as_deref()", p.name)
+                        format!("{}.as_deref().map(std::path::Path::new)", p.name)
                     } else {
                         format!("{}.map(std::path::PathBuf::from)", p.name)
                     }
                 } else if p.is_ref {
-                    format!("{}.as_path()", p.name)
+                    format!("std::path::Path::new(&{})", p.name)
                 } else {
                     format!("std::path::PathBuf::from({})", p.name)
                 }
@@ -1185,15 +1185,21 @@ fn napi_wrap_return_fn(
 fn needs_napi_cast(p: &alef_core::ir::PrimitiveType) -> bool {
     matches!(
         p,
-        alef_core::ir::PrimitiveType::U64 | alef_core::ir::PrimitiveType::Usize | alef_core::ir::PrimitiveType::Isize
+        alef_core::ir::PrimitiveType::U32
+            | alef_core::ir::PrimitiveType::U64
+            | alef_core::ir::PrimitiveType::Usize
+            | alef_core::ir::PrimitiveType::Isize
+            | alef_core::ir::PrimitiveType::F32
     )
 }
 
 fn core_prim_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
     match p {
+        alef_core::ir::PrimitiveType::U32 => "u32",
         alef_core::ir::PrimitiveType::U64 => "u64",
         alef_core::ir::PrimitiveType::Usize => "usize",
         alef_core::ir::PrimitiveType::Isize => "isize",
+        alef_core::ir::PrimitiveType::F32 => "f32",
         _ => unreachable!(),
     }
 }
