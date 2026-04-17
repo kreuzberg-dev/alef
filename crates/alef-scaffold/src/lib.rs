@@ -862,6 +862,8 @@ fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
       app: :{app_name},
       version: "{version}",
       elixir: "~> 1.14",
+      compilers: [:rustler] ++ Mix.compilers(),
+      rustler_crates: [{nif_atom}: [mode: :release]],
       description: "{description}",
       package: package(),
       deps: deps()
@@ -871,13 +873,15 @@ fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
   defp package do
     [
       licenses: ["{license}"],
-      links: %{{"GitHub" => "{repository}"}}
+      links: %{{"GitHub" => "{repository}"}},
+      files: ~w(lib native .formatter.exs mix.exs README* LICENSE*)
     ]
   end
 
   defp deps do
     [
-      {{:rustler, "~> 0.34"}},
+      {{:rustler, "~> 0.37.0", optional: true, runtime: false}},
+      {{:rustler_precompiled, "~> 0.9"}},
       {{:credo, "~> 1.7", only: [:dev, :test], runtime: false}},
       {{:ex_doc, "~> 0.40", only: :dev, runtime: false}}
     ]
@@ -886,6 +890,7 @@ end
 "#,
         module = capitalize_first(&app_name),
         app_name = app_name,
+        nif_atom = format!("{app_name}_nif"),
         version = version,
         description = meta.description,
         license = meta.license,
