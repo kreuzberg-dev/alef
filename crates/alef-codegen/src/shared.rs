@@ -1,5 +1,5 @@
 use ahash::AHashSet;
-use alef_core::ir::{DefaultValue, FieldDef, MethodDef, ParamDef, TypeRef};
+use alef_core::ir::{DefaultValue, FieldDef, MethodDef, ParamDef, ReceiverKind, TypeRef};
 
 /// Returns true if this parameter is required but must be promoted to optional
 /// because it follows an optional parameter in the list.
@@ -25,7 +25,12 @@ pub fn can_auto_delegate_function(func: &alef_core::ir::FunctionDef, opaque_type
 }
 
 /// Check if all params and return type are delegatable.
+/// For opaque types, skip methods with RefMut receiver (cannot borrow Arc mutably).
 pub fn can_auto_delegate(method: &MethodDef, opaque_types: &AHashSet<String>) -> bool {
+    // Skip RefMut methods on opaque types (Arc doesn't allow mutable access)
+    if matches!(method.receiver, Some(ReceiverKind::RefMut)) && method.trait_source.is_none() {
+        return false;
+    }
     !method.sanitized
         && method
             .params

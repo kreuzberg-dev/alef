@@ -406,6 +406,7 @@ fn gen_opaque_method(
                 opaque_types,
                 true,
                 method.returns_ref,
+                method.returns_cow,
                 prefix,
             );
             if method.error_type.is_some() {
@@ -428,6 +429,7 @@ fn gen_opaque_method(
                     opaque_types,
                     true,
                     method.returns_ref,
+                    method.returns_cow,
                     prefix,
                 );
                 format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
@@ -440,6 +442,7 @@ fn gen_opaque_method(
                 opaque_types,
                 true,
                 method.returns_ref,
+                method.returns_cow,
                 prefix,
             )
         }
@@ -515,6 +518,7 @@ fn gen_opaque_static_method(
                 opaque_types,
                 true,
                 method.returns_ref,
+                method.returns_cow,
                 prefix,
             );
             format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
@@ -526,6 +530,7 @@ fn gen_opaque_static_method(
                 opaque_types,
                 true,
                 method.returns_ref,
+                method.returns_cow,
                 prefix,
             )
         }
@@ -788,21 +793,30 @@ fn gen_method(
     }
 
     if method.is_async {
-        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let let_bindings = if alef_codegen::generators::has_named_params(&method.params, opaque_types) {
+            alef_codegen::generators::gen_named_let_bindings_pub(&method.params, opaque_types, core_import)
+        } else {
+            String::new()
+        };
+        let call_args = if let_bindings.is_empty() {
+            generators::gen_call_args(&method.params, opaque_types)
+        } else {
+            generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+        };
         let core_call = format!(
             "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
             method_name = method.name
         );
         let body = if method.error_type.is_some() {
             format!(
-                "let result = {core_call}.await\n        \
+                "{let_bindings}let result = {core_call}.await\n        \
                  .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
                  Ok({}::from(result))",
                 return_type
             )
         } else {
             format!(
-                "let result = {core_call}.await;\n    \
+                "{let_bindings}let result = {core_call}.await;\n    \
                  Ok({}::from(result))",
                 return_type
             )
@@ -816,7 +830,16 @@ fn gen_method(
         )
     } else if method.is_static {
         let body = if can_delegate {
-            let call_args = generators::gen_call_args(&method.params, opaque_types);
+            let let_bindings = if alef_codegen::generators::has_named_params(&method.params, opaque_types) {
+                alef_codegen::generators::gen_named_let_bindings_pub(&method.params, opaque_types, core_import)
+            } else {
+                String::new()
+            };
+            let call_args = if let_bindings.is_empty() {
+                generators::gen_call_args(&method.params, opaque_types)
+            } else {
+                generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+            };
             let core_call = format!("{core_import}::{type_name}::{}({call_args})", method.name);
             if method.error_type.is_some() {
                 let wrap = wasm_wrap_return(
@@ -826,18 +849,25 @@ fn gen_method(
                     opaque_types,
                     false,
                     method.returns_ref,
+                    method.returns_cow,
                     prefix,
                 );
-                format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
+                format!(
+                    "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+                )
             } else {
-                wasm_wrap_return(
-                    &core_call,
-                    &method.return_type,
-                    type_name,
-                    opaque_types,
-                    false,
-                    method.returns_ref,
-                    prefix,
+                format!(
+                    "{let_bindings}{}",
+                    wasm_wrap_return(
+                        &core_call,
+                        &method.return_type,
+                        type_name,
+                        opaque_types,
+                        false,
+                        method.returns_ref,
+                        method.returns_cow,
+                        prefix,
+                    )
                 )
             }
         } else {
@@ -852,7 +882,16 @@ fn gen_method(
         )
     } else {
         let body = if can_delegate {
-            let call_args = generators::gen_call_args(&method.params, opaque_types);
+            let let_bindings = if alef_codegen::generators::has_named_params(&method.params, opaque_types) {
+                alef_codegen::generators::gen_named_let_bindings_pub(&method.params, opaque_types, core_import)
+            } else {
+                String::new()
+            };
+            let call_args = if let_bindings.is_empty() {
+                generators::gen_call_args(&method.params, opaque_types)
+            } else {
+                generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+            };
             let core_call = format!(
                 "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
                 method_name = method.name
@@ -865,18 +904,25 @@ fn gen_method(
                     opaque_types,
                     false,
                     method.returns_ref,
+                    method.returns_cow,
                     prefix,
                 );
-                format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
+                format!(
+                    "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+                )
             } else {
-                wasm_wrap_return(
-                    &core_call,
-                    &method.return_type,
-                    type_name,
-                    opaque_types,
-                    false,
-                    method.returns_ref,
-                    prefix,
+                format!(
+                    "{let_bindings}{}",
+                    wasm_wrap_return(
+                        &core_call,
+                        &method.return_type,
+                        type_name,
+                        opaque_types,
+                        false,
+                        method.returns_ref,
+                        method.returns_cow,
+                        prefix,
+                    )
                 )
             }
         } else {
@@ -972,7 +1018,16 @@ fn gen_function(
     };
 
     if func.is_async {
-        let call_args = generators::gen_call_args(&func.params, opaque_types);
+        let let_bindings = if alef_codegen::generators::has_named_params(&func.params, opaque_types) {
+            alef_codegen::generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
+        } else {
+            String::new()
+        };
+        let call_args = if let_bindings.is_empty() {
+            generators::gen_call_args(&func.params, opaque_types)
+        } else {
+            generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
+        };
         let core_call = format!("{core_fn_path}({call_args})");
         // Build the return expression: handle Vec<Named> with collect pattern (turbofish),
         // plain Named with From::from, and everything else as passthrough.
@@ -1002,13 +1057,13 @@ fn gen_function(
         };
         let body = if func.error_type.is_some() {
             format!(
-                "let result = {core_call}.await\n        \
+                "{let_bindings}let result = {core_call}.await\n        \
                  .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
                  Ok({return_expr})"
             )
         } else {
             format!(
-                "let result = {core_call}.await;\n    \
+                "{let_bindings}let result = {core_call}.await;\n    \
                  {return_expr}"
             )
         };
@@ -1020,13 +1075,27 @@ fn gen_function(
             return_annotation
         )
     } else if can_delegate {
-        let call_args = generators::gen_call_args(&func.params, opaque_types);
+        let let_bindings = if alef_codegen::generators::has_named_params(&func.params, opaque_types) {
+            alef_codegen::generators::gen_named_let_bindings_pub(&func.params, opaque_types, core_import)
+        } else {
+            String::new()
+        };
+        let call_args = if let_bindings.is_empty() {
+            generators::gen_call_args(&func.params, opaque_types)
+        } else {
+            generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
+        };
         let core_call = format!("{core_fn_path}({call_args})");
         let body = if func.error_type.is_some() {
             let wrap = wasm_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix);
-            format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
+            format!(
+                "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+            )
         } else {
-            wasm_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref, prefix)
+            format!(
+                "{let_bindings}{}",
+                wasm_wrap_return_fn(&core_call, &func.return_type, opaque_types, func.returns_ref, prefix)
+            )
         };
         format!(
             "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
@@ -1078,6 +1147,7 @@ fn wasm_wrap_return(
     opaque_types: &AHashSet<String>,
     self_is_opaque: bool,
     returns_ref: bool,
+    returns_cow: bool,
     prefix: &str,
 ) -> String {
     match return_type {
@@ -1113,7 +1183,7 @@ fn wasm_wrap_return(
                 opaque_types,
                 self_is_opaque,
                 returns_ref,
-                false,
+                returns_cow,
             ),
         },
         // Vec<opaque>: wrap with prefix
@@ -1132,7 +1202,7 @@ fn wasm_wrap_return(
                 opaque_types,
                 self_is_opaque,
                 returns_ref,
-                false,
+                returns_cow,
             ),
         },
         _ => generators::wrap_return(

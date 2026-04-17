@@ -442,6 +442,28 @@ pub fn field_conversion_from_core_cfg(
         {
             format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as f64).collect())")
         }
+        // Vec<Vec<f32>> needs nested element-wise cast to f64 (for embeddings, etc.)
+        TypeRef::Vec(outer)
+            if config.cast_f32_to_f64
+                && matches!(outer.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::F32))) =>
+        {
+            if optional {
+                format!(
+                    "{name}: val.{name}.as_ref().map(|v| v.iter().map(|inner| inner.iter().map(|&x| x as f64).collect()).collect())"
+                )
+            } else {
+                format!("{name}: val.{name}.iter().map(|inner| inner.iter().map(|&x| x as f64).collect()).collect()")
+            }
+        }
+        // Optional(Vec<Vec<f32>>) needs nested element-wise cast to f64
+        TypeRef::Optional(inner)
+            if config.cast_f32_to_f64
+                && matches!(inner.as_ref(), TypeRef::Vec(outer) if matches!(outer.as_ref(), TypeRef::Vec(prim) if matches!(prim.as_ref(), TypeRef::Primitive(PrimitiveType::F32)))) =>
+        {
+            format!(
+                "{name}: val.{name}.as_ref().map(|v| v.iter().map(|inner| inner.iter().map(|&x| x as f64).collect()).collect())"
+            )
+        }
         // Optional with i64-cast inner
         TypeRef::Optional(inner)
             if config.cast_large_ints_to_i64
@@ -482,6 +504,30 @@ pub fn field_conversion_from_core_cfg(
                     format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as {cast_to}).collect())")
                 } else {
                     format!("{name}: val.{name}.iter().map(|&v| v as {cast_to}).collect()")
+                }
+            } else {
+                field_conversion_from_core(name, ty, optional, sanitized, opaque_types)
+            }
+        }
+        // Vec<Vec<u64/usize/isize>> needs nested element-wise i64 casting (core→binding)
+        TypeRef::Vec(outer)
+            if config.cast_large_ints_to_i64
+                && matches!(outer.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p))) =>
+        {
+            if let TypeRef::Vec(inner) = outer.as_ref() {
+                if let TypeRef::Primitive(p) = inner.as_ref() {
+                    let cast_to = binding_prim_str(p);
+                    if optional {
+                        format!(
+                            "{name}: val.{name}.as_ref().map(|v| v.iter().map(|inner| inner.iter().map(|&x| x as {cast_to}).collect()).collect())"
+                        )
+                    } else {
+                        format!(
+                            "{name}: val.{name}.iter().map(|inner| inner.iter().map(|&x| x as {cast_to}).collect()).collect()"
+                        )
+                    }
+                } else {
+                    field_conversion_from_core(name, ty, optional, sanitized, opaque_types)
                 }
             } else {
                 field_conversion_from_core(name, ty, optional, sanitized, opaque_types)

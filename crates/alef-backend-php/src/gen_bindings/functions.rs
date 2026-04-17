@@ -9,7 +9,6 @@ use super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params,
     gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, php_wrap_return,
 };
-
 /// Generate an instance method binding for an opaque struct.
 pub(crate) fn gen_instance_method(
     method: &MethodDef,

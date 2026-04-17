@@ -171,7 +171,8 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                         p.name.clone()
                     }
                 } else if p.is_ref {
-                    format!("&{}", p.name)
+                    // Core expects &[T], so convert Vec<T> to &[T]
+                    format!("&{}[..]", p.name)
                 } else {
                     p.name.clone()
                 }
@@ -246,7 +247,17 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                 }
             }
             TypeRef::Named(_) => {
-                format!("{}_core", p.name)
+                // Non-opaque Named: use the _core binding.
+                // If core expects a reference (is_ref=true), add & for optional or &val for non-optional.
+                if p.is_ref {
+                    if p.optional {
+                        format!("{}_core.as_ref()", p.name)
+                    } else {
+                        format!("&{}_core", p.name)
+                    }
+                } else {
+                    format!("{}_core", p.name)
+                }
             }
             TypeRef::String | TypeRef::Char => {
                 if p.optional {
@@ -295,7 +306,8 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                         p.name.clone()
                     }
                 } else if p.is_ref {
-                    format!("&{}", p.name)
+                    // Core expects &[T], so convert Vec<T> to &[T]
+                    format!("&{}[..]", p.name)
                 } else {
                     p.name.clone()
                 }
