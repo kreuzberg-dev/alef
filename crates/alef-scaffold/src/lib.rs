@@ -1269,7 +1269,6 @@ fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
         namespace = namespace,
         version = version,
         description = meta.description,
-        license = meta.license,
         repository = meta.repository,
         authors = authors_csproj,
     );
