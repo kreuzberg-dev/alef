@@ -194,7 +194,9 @@ pub(super) fn gen_method_wrapper(
                     if p.is_ref { format!("&{rs}") } else { rs }
                 }
                 TypeRef::Bytes if !p.optional => {
-                    format!("&{rs}")
+                    // Pass &[u8] when is_ref=true (function takes &[u8]),
+                    // otherwise pass owned Vec<u8>
+                    if p.is_ref { format!("&{rs}") } else { rs }
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
                     // Only convert to &str slice when the core param is a reference (&str).
@@ -236,6 +238,19 @@ pub(super) fn gen_method_wrapper(
                         rs
                     }
                 }
+                TypeRef::Vec(_) | TypeRef::Map(_, _) if p.optional => {
+                    // Optional Vec/Map: rs is Option<Vec<T>> or Option<HashMap<K, V>>
+                    // If is_ref=true, convert to Option<&[T]> with .as_deref()
+                    // If is_mut=true, convert to Option<&mut Vec<T>> with .as_deref_mut()
+                    // Otherwise pass owned Option
+                    if p.is_mut {
+                        format!("{rs}.as_deref_mut()")
+                    } else if p.is_ref {
+                        format!("{rs}.as_deref()")
+                    } else {
+                        rs
+                    }
+                }
                 _ => rs,
             }
         })
@@ -258,6 +273,10 @@ pub(super) fn gen_method_wrapper(
         }
     } else if method.is_static {
         writeln!(out, "    let result = {qualified}::{method_name}({call_args});").ok();
+    } else if method_name == "drop" {
+        // Special case: Rust's drop method cannot be called directly with dot notation.
+        // Use std::mem::drop instead.
+        writeln!(out, "    std::mem::drop(obj);").ok();
     } else {
         writeln!(out, "    let result = obj.{method_name}({call_args});").ok();
     }
@@ -271,14 +290,31 @@ pub(super) fn gen_method_wrapper(
     } else {
         "result"
     };
-    // When returns_ref=true and the return type is Option<NamedType>, the core returns Option<&T>.
-    // Clone the result so that gen_owned_value_to_c receives an owned Option<T>
-    // (Box::new requires owned, not reference).
-    if method.returns_ref
-        && !has_error
-        && matches!(&method.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
-    {
-        writeln!(out, "    let result = result.cloned();").ok();
+    // When returns_ref=true, the core returns a reference (&T or &[T]).
+    // We need to convert it to an owned value for C FFI:
+    // - For String/&str: clone to owned String
+    // - For Named/&T: clone to owned T
+    // - For Vec/&[T]: clone to owned Vec
+    // This must happen before passing to gen_owned_value_to_c.
+    if method.returns_ref && !has_error {
+        match &method.return_type {
+            TypeRef::String | TypeRef::Char => {
+                writeln!(out, "    let result = result.clone();").ok();
+            }
+            TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                writeln!(out, "    let result = result.clone();").ok();
+            }
+            TypeRef::Named(_) => {
+                writeln!(out, "    let result = result.clone();").ok();
+            }
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                    writeln!(out, "    let result = result.cloned();").ok();
+                }
+                _ => {}
+            },
+            _ => {}
+        }
     }
     // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
     // Convert to owned by calling .into_owned().
@@ -452,7 +488,9 @@ pub(super) fn gen_free_function(
                     if p.is_ref { format!("&{rs}") } else { rs }
                 }
                 TypeRef::Bytes if !p.optional => {
-                    format!("&{rs}")
+                    // Pass &[u8] when is_ref=true (function takes &[u8]),
+                    // otherwise pass owned Vec<u8>
+                    if p.is_ref { format!("&{rs}") } else { rs }
                 }
                 TypeRef::Named(_) if !p.optional => {
                     // Pass by value when function takes owned (is_ref=false)
@@ -494,6 +532,19 @@ pub(super) fn gen_free_function(
                         format!("&mut {rs}")
                     } else if p.is_ref {
                         format!("&{rs}")
+                    } else {
+                        rs
+                    }
+                }
+                TypeRef::Vec(_) | TypeRef::Map(_, _) if p.optional => {
+                    // Optional Vec/Map: rs is Option<Vec<T>> or Option<HashMap<K, V>>
+                    // If is_ref=true, convert to Option<&[T]> with .as_deref()
+                    // If is_mut=true, convert to Option<&mut Vec<T>> with .as_deref_mut()
+                    // Otherwise pass owned Option
+                    if p.is_mut {
+                        format!("{rs}.as_deref_mut()")
+                    } else if p.is_ref {
+                        format!("{rs}.as_deref()")
                     } else {
                         rs
                     }
@@ -705,6 +756,41 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "        None").ok();
                 writeln!(out, "    }} else {{").ok();
                 writeln!(out, "        Some({name})").ok();
+                writeln!(out, "    }};").ok();
+            }
+            TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                // Optional Vec/Map: deserialize from JSON string
+                writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
+                writeln!(out, "        None").ok();
+                writeln!(out, "    }} else {{").ok();
+                writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
+                writeln!(out, "            Ok(s) => {{").ok();
+                let type_hint = match &param.ty {
+                    TypeRef::Vec(_) => "::<Vec<_>>",
+                    TypeRef::Map(_, _) => "::<std::collections::HashMap<_, _>>",
+                    _ => "",
+                };
+                writeln!(out, "                match serde_json::from_str{type_hint}(s) {{").ok();
+                writeln!(out, "                    Ok(v) => Some(v),").ok();
+                writeln!(out, "                    Err(e) => {{").ok();
+                writeln!(
+                    out,
+                    "                        set_last_error(2, &format!(\"Invalid JSON in parameter '{{}}': {{}}\", \"{name}\", e));"
+                )
+                .ok();
+                writeln!(out, "                        {fail_ret}").ok();
+                writeln!(out, "                    }}").ok();
+                writeln!(out, "                }}").ok();
+                writeln!(out, "            }}").ok();
+                writeln!(out, "            Err(_) => {{").ok();
+                writeln!(
+                    out,
+                    "                set_last_error(1, \"Invalid UTF-8 in parameter '{name}'\");"
+                )
+                .ok();
+                writeln!(out, "                {fail_ret}").ok();
+                writeln!(out, "            }}").ok();
+                writeln!(out, "        }}").ok();
                 writeln!(out, "    }};").ok();
             }
             _ => {
