@@ -1259,6 +1259,10 @@ fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
     <RepositoryUrl>{repository}</RepositoryUrl>
 {authors}    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="runtimes/**" Pack="true" PackagePath="runtimes/" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
 "#,
         target_framework = target_framework,
