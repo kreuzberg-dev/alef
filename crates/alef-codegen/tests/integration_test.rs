@@ -714,6 +714,40 @@ fn test_wrap_return_vec_named() {
 }
 
 #[test]
+fn test_wrap_return_optional_vec_named() {
+    let opaque_types = AHashSet::new();
+    let result = binding_helpers::wrap_return(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))))),
+        "MyType",
+        &opaque_types,
+        false,
+        false,
+        false,
+    );
+    assert_eq!(result, "result.map(|v| v.into_iter().map(Into::into).collect())");
+}
+
+#[test]
+fn test_wrap_return_optional_vec_opaque_named() {
+    let mut opaque_types = AHashSet::new();
+    opaque_types.insert("Item".to_string());
+    let result = binding_helpers::wrap_return(
+        "result",
+        &TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))))),
+        "MyType",
+        &opaque_types,
+        false,
+        false,
+        false,
+    );
+    assert_eq!(
+        result,
+        "result.map(|v| v.into_iter().map(|x| Item { inner: Arc::new(x) }).collect())"
+    );
+}
+
+#[test]
 fn test_gen_call_args_string_param() {
     let params = vec![ParamDef {
         name: "input".to_string(),

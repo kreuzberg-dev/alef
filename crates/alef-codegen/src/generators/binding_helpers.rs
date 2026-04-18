@@ -99,6 +99,24 @@ pub fn wrap_return(
             }
             TypeRef::Duration => format!("{expr}.map(|d| d.as_millis() as u64)"),
             TypeRef::Json => format!("{expr}.map(ToString::to_string)"),
+            // Optional<Vec<Named>>: convert each element in the inner Vec
+            TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if returns_ref {
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {n} {{ inner: Arc::new(x.clone()) }}).collect())")
+                    } else {
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {n} {{ inner: Arc::new(x) }}).collect())")
+                    }
+                }
+                TypeRef::Named(_) => {
+                    if returns_ref {
+                        format!("{expr}.map(|v| v.into_iter().map(|x| x.clone().into()).collect())")
+                    } else {
+                        format!("{expr}.map(|v| v.into_iter().map(Into::into).collect())")
+                    }
+                }
+                _ => expr.to_string(),
+            },
             _ => expr.to_string(),
         },
         // Vec: map each element through the appropriate conversion
