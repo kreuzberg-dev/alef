@@ -367,6 +367,7 @@ crate-type = ["cdylib"]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
 napi = {{ version = "3", features = ["async"] }}
 napi-derive = "3"
+serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 
 [build-dependencies]
@@ -832,6 +833,7 @@ crate-type = ["cdylib"]
 [dependencies]
 {crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
 rustler = "0.37"
+serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}
 "#,

@@ -578,10 +578,13 @@ pub fn binding_to_core_match_arm_ext_cfg(
         let core_args: Vec<String> = fields
             .iter()
             .map(|f| {
-                // Use the conversion logic from field_conversion_to_core_cfg
+                // Use the conversion logic from field_conversion_to_core_cfg.
+                // In an enum match arm, fields are bound by destructuring (not via `val.field`),
+                // so replace `val.{name}` with just `{name}` in the generated expression.
                 let conv = field_conversion_to_core_cfg(&f.name, &f.ty, f.optional, config);
                 // Extract the RHS from "name: expr" format
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
+                    let expr = expr.replace(&format!("val.{}", f.name), &f.name);
                     expr.to_string()
                 } else {
                     conv
@@ -598,10 +601,13 @@ pub fn binding_to_core_match_arm_ext_cfg(
         let core_fields: Vec<String> = fields
             .iter()
             .map(|f| {
-                // Use the conversion logic from field_conversion_to_core_cfg
+                // Use the conversion logic from field_conversion_to_core_cfg.
+                // In an enum match arm, fields are bound by destructuring (not via `val.field`),
+                // so replace `val.{name}` with just `{name}` in the generated expression.
                 let conv = field_conversion_to_core_cfg(&f.name, &f.ty, f.optional, config);
                 // Extract the RHS from "name: expr" format
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
+                    let expr = expr.replace(&format!("val.{}", f.name), &f.name);
                     format!("{}: {}", f.name, expr)
                 } else {
                     conv
@@ -725,11 +731,14 @@ pub fn core_to_binding_match_arm_ext_cfg(
         let binding_fields: Vec<String> = fields
             .iter()
             .map(|f| {
-                // Use the conversion logic from field_conversion_from_core_cfg
+                // Use the conversion logic from field_conversion_from_core_cfg.
+                // In an enum match arm, fields are bound by destructuring (not via `val.field`),
+                // so replace `val.{name}` with just `{name}` in the generated expression.
                 let conv =
                     field_conversion_from_core_cfg(&f.name, &f.ty, f.optional, f.sanitized, &AHashSet::new(), config);
                 // Extract the RHS from "name: expr" format
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
+                    let expr = expr.replace(&format!("val.{}", f.name), &f.name);
                     format!("{}: {}", f.name, expr)
                 } else {
                     conv
@@ -746,11 +755,14 @@ pub fn core_to_binding_match_arm_ext_cfg(
         let binding_fields: Vec<String> = fields
             .iter()
             .map(|f| {
-                // Use the conversion logic from field_conversion_from_core_cfg
+                // Use the conversion logic from field_conversion_from_core_cfg.
+                // In an enum match arm, fields are bound by destructuring (not via `val.field`),
+                // so replace `val.{name}` with just `{name}` in the generated expression.
                 let conv =
                     field_conversion_from_core_cfg(&f.name, &f.ty, f.optional, f.sanitized, &AHashSet::new(), config);
                 // Extract the RHS from "name: expr" format
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
+                    let expr = expr.replace(&format!("val.{}", f.name), &f.name);
                     format!("{}: {}", f.name, expr)
                 } else {
                     conv
