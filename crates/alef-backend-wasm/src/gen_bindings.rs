@@ -87,11 +87,8 @@ impl Backend for WasmBackend {
         // pass HashMap<K, V> across the JS boundary), so HashMap is never referenced
         // in the generated WASM binding code.
 
-        // Custom module declarations
-        let custom_mods = config.custom_modules.for_language(Language::Wasm);
-        for module in custom_mods {
-            builder.add_item(&format!("pub mod {module};"));
-        }
+        // Note: custom_modules for WASM are TypeScript-only re-exports
+        // (used in generate_public_api), not Rust module declarations.
 
         // Check if we have opaque types and add Arc import if needed
         let opaque_types: AHashSet<String> = api
