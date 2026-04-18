@@ -1492,6 +1492,12 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
+    // Determine which Named fields use binding structs vs serde JSON String.
+    // A field uses a binding struct only if: (1) it has a binding struct in struct_names,
+    // (2) it's not sanitized, and (3) the field name maps to a single Named type across
+    // all variants (not shared with different types).
+    let fields_with_binding_struct = tagged_enum_binding_struct_fields(enum_def, struct_names);
+
     let mut out = String::with_capacity(512);
     writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
     writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
@@ -1508,18 +1514,16 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                 .fields
                 .iter()
                 .map(|f| {
+                    let has_binding = fields_with_binding_struct.contains(f.name.as_str());
                     if f.optional {
-                        // Optional fields: apply type-specific conversions
                         match &f.ty {
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from)", f.name)
                             }
-                            TypeRef::Named(n) if struct_names.contains(n.as_str()) => {
-                                // Named type has a binding struct — use Into conversion
+                            TypeRef::Named(_) if has_binding => {
                                 format!("val.{}.map(|v| v.into())", f.name)
                             }
                             TypeRef::Named(_) => {
-                                // Named type flattened to Option<String> — use serde JSON round-trip
                                 format!(
                                     "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
                                     f.name
@@ -1537,7 +1541,7 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                         "Default::default()".to_string()
                     } else {
                         match &f.ty {
-                            TypeRef::Named(n) if struct_names.contains(n.as_str()) => {
+                            TypeRef::Named(_) if has_binding => {
                                 format!("val.{}.map(|v| v.into()).unwrap_or_default()", f.name)
                             }
                             TypeRef::Named(_) => {
@@ -1624,6 +1628,7 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
+    let fields_with_binding_struct = tagged_enum_binding_struct_fields(enum_def, struct_names);
 
     // Collect all field names across all variants
     let all_fields: Vec<String> = {
@@ -1683,14 +1688,14 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                 .iter()
                 .map(|f| {
                     if let Some(field) = variant_field_map.get(f.as_str()) {
+                        let has_binding = fields_with_binding_struct.contains(f.as_str());
                         if field.optional {
                             match &field.ty {
                                 TypeRef::Path => format!("{f}: {f}.map(|p| p.to_string_lossy().to_string())"),
-                                TypeRef::Named(n) if struct_names.contains(n.as_str()) => {
+                                TypeRef::Named(_) if has_binding => {
                                     format!("{f}: {f}.map(|v| v.into())")
                                 }
                                 TypeRef::Named(_) => {
-                                    // Named type flattened to Option<String> — use serde JSON
                                     format!("{f}: {f}.as_ref().and_then(|v| serde_json::to_string(v).ok())")
                                 }
                                 _ => format!("{f}: {f}"),
@@ -1699,7 +1704,7 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                             format!("{f}: None")
                         } else {
                             match &field.ty {
-                                TypeRef::Named(n) if struct_names.contains(n.as_str()) => format!("{f}: Some({f}.into())"),
+                                TypeRef::Named(_) if has_binding => format!("{f}: Some({f}.into())"),
                                 TypeRef::Named(_) => format!("{f}: serde_json::to_string(&{f}).ok()"),
                                 TypeRef::Path => format!("{f}: Some({f}.to_string_lossy().to_string())"),
                                 TypeRef::Primitive(p) if needs_napi_cast(p) => {

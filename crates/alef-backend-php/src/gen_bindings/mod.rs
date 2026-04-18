@@ -554,7 +554,8 @@ impl Backend for PhpBackend {
             for field in &typ.fields {
                 let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
                 let prop_type = if field.optional {
-                    format!("?{}", php_type(&field.ty))
+                    let inner = php_type(&field.ty);
+                    if inner.starts_with('?') { inner } else { format!("?{inner}") }
                 } else {
                     php_type(&field.ty)
                 };
@@ -594,7 +595,7 @@ impl Backend for PhpBackend {
                 .iter()
                 .map(|f| {
                     let ptype = php_type(&f.ty);
-                    let nullable = if f.optional { format!("?{}", ptype) } else { ptype };
+                    let nullable = if f.optional && !ptype.starts_with('?') { format!("?{ptype}") } else { ptype };
                     let default = if f.optional { " = null" } else { "" };
                     format!("        {} ${}{}", nullable, f.name, default)
                 })
@@ -607,7 +608,8 @@ impl Backend for PhpBackend {
             for field in &typ.fields {
                 let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
                 let return_type = if field.optional {
-                    format!("?{}", php_type(&field.ty))
+                    let inner = php_type(&field.ty);
+                    if inner.starts_with('?') { inner } else { format!("?{inner}") }
                 } else {
                     php_type(&field.ty)
                 };
@@ -749,7 +751,11 @@ fn php_type_fq(ty: &TypeRef, namespace: &str) -> String {
         TypeRef::Named(name) => format!("\\{}\\{}", namespace, name),
         TypeRef::Optional(inner) => {
             let inner_type = php_type_fq(inner, namespace);
-            format!("?{}", inner_type)
+            if inner_type.starts_with('?') {
+                inner_type
+            } else {
+                format!("?{inner_type}")
+            }
         }
         _ => php_type(ty),
     }
@@ -774,8 +780,14 @@ fn php_type(ty: &TypeRef) -> String {
             | PrimitiveType::Isize => "int".to_string(),
         },
         TypeRef::Optional(inner) => {
+            // Flatten nested Option<Option<T>> to a single nullable type.
+            // PHP has no double-nullable concept; ?T already covers null.
             let inner_type = php_type(inner);
-            format!("?{}", inner_type)
+            if inner_type.starts_with('?') {
+                inner_type
+            } else {
+                format!("?{inner_type}")
+            }
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => "array".to_string(),
         TypeRef::Named(name) => name.clone(),
