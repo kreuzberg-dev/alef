@@ -643,6 +643,9 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                             let core_ty = core_prim_str(p);
                             format!("self.{name}.map(|v| v as {core_ty})")
                         }
+                        TypeRef::Duration => {
+                            format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
+                        }
                         TypeRef::Named(_) => {
                             format!("self.{name}.clone().map(Into::into)")
                         }

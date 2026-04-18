@@ -286,8 +286,15 @@ fn config_constructor_parts_inner(
         .iter()
         .map(|f| {
             let ty = type_mapper(&f.ty);
-            // All fields become Option<T>
-            format!("{}: Option<{}>", f.name, ty)
+            // All fields become Option<T>, but avoid Option<Option<T>> for already-optional fields.
+            // When f.ty is TypeRef::Optional(X), type_mapper already returns "Option<X>".
+            // Wrapping it again would yield Option<Option<X>>, making `None` ambiguous in PyO3
+            // signatures (E0283: type annotations needed).
+            if matches!(f.ty, TypeRef::Optional(_)) {
+                format!("{}: {}", f.name, ty)
+            } else {
+                format!("{}: Option<{}>", f.name, ty)
+            }
         })
         .collect();
 

@@ -533,7 +533,7 @@ fn gen_rustler_config_impl(typ: &TypeDef, mapper: &RustlerMapper) -> String {
 /// Generate a Rustler NIF enum definition (unit enum).
 fn gen_enum(enum_def: &EnumDef) -> String {
     let mut lines = vec![
-        "#[derive(Debug, Clone, Copy, rustler::NifUnitEnum)]".to_string(),
+        "#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, rustler::NifUnitEnum)]".to_string(),
         format!("pub enum {} {{", enum_def.name),
     ];
 

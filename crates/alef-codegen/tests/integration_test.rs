@@ -1311,6 +1311,60 @@ fn test_gen_lossy_binding_to_core_fields_with_duration() {
 }
 
 #[test]
+fn test_gen_lossy_binding_to_core_fields_with_duration_optional_flag() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "request_timeout".to_string(),
+        ty: TypeRef::Duration,
+        optional: true,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate");
+
+    assert!(
+        result.contains("request_timeout: self.request_timeout.map(std::time::Duration::from_millis),"),
+        "got: {result}"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_with_optional_duration_type() {
+    let mut typ = simple_type_def();
+    typ.fields.push(FieldDef {
+        name: "request_timeout".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::Duration)),
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate");
+
+    assert!(
+        result.contains("request_timeout: self.request_timeout.map(|v| std::time::Duration::from_millis(v as u64)),"),
+        "got: {result}"
+    );
+}
+
+#[test]
 fn test_gen_method_builder_pattern_opaque() {
     let mut typ = simple_type_def();
     typ.is_opaque = true;
