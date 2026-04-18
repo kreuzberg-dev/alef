@@ -80,31 +80,13 @@ pub(crate) fn gen_php_function_params(
                     }
                 }
                 TypeRef::Vec(inner) => {
-                    // Vec<NonOpaqueCustomType> also needs &Vec<T> since the inner type is a php_class.
-                    // Check if inner is a Named type that's not an enum.
-                    if let TypeRef::Named(name) = inner.as_ref() {
-                        if !mapper.enum_names.contains(name.as_str()) && !opaque_types.contains(name.as_str()) {
-                            // Non-opaque named type inside Vec: need &Vec
-                            if p.optional {
-                                format!("Option<&{base_ty}>")
-                            } else {
-                                format!("&{base_ty}")
-                            }
-                        } else {
-                            // Enum or opaque type: can use owned Vec
-                            if p.optional {
-                                format!("Option<{base_ty}>")
-                            } else {
-                                base_ty
-                            }
-                        }
+                    // ext-php-rs doesn't provide FromZvalMut for &Vec<T>, so all Vec params are owned.
+                    // The core function may expect &[T] or Vec<T>, which is handled in gen_php_call_args
+                    // via let bindings that convert the owned Vec to &[T] or &mut Vec<T> as needed.
+                    if p.optional {
+                        format!("Option<{base_ty}>")
                     } else {
-                        // Primitive types inside Vec: can use owned Vec
-                        if p.optional {
-                            format!("Option<{base_ty}>")
-                        } else {
-                            base_ty
-                        }
+                        base_ty
                     }
                 }
                 _ => {

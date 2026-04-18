@@ -73,6 +73,11 @@ impl Backend for PhpBackend {
         let mapper = PhpMapper { enum_names };
         let core_import = config.core_import();
 
+        // Get exclusion lists from PHP config
+        let php_config = config.php.as_ref();
+        let exclude_functions = php_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
+        let exclude_types = php_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
+
         let output_dir = resolve_output_dir(
             config.output.php.as_ref(),
             &config.crate_config.name,
@@ -149,7 +154,7 @@ impl Backend for PhpBackend {
             extension_name.to_pascal_case()
         };
 
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name)) {
             if typ.is_opaque {
                 // Generate the opaque struct with separate #[php_class] and
                 // #[php(name = "Ns\\Type")] attributes (ext-php-rs 0.15+ syntax).
@@ -187,12 +192,15 @@ impl Backend for PhpBackend {
         // `#[php_function]` items. Standalone functions rely on the `inventory` crate for
         // auto-registration, which does not work in cdylib builds on macOS. Classes registered
         // via `.class::<T>()` in the module builder DO work on all platforms.
-        if !api.functions.is_empty() {
+        let included_functions: Vec<_> = api.functions.iter()
+            .filter(|f| !exclude_functions.contains(&f.name))
+            .collect();
+        if !included_functions.is_empty() {
             let facade_class_name = extension_name.to_pascal_case();
             // Build each static method body (no #[php_function] attribute — they live inside
             // a #[php_impl] block which handles registration via the class machinery).
             let mut method_items: Vec<String> = Vec::new();
-            for func in &api.functions {
+            for func in included_functions {
                 if func.is_async {
                     method_items.push(gen_async_function_as_static_method(
                         func,
