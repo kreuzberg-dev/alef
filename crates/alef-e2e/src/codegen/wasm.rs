@@ -218,12 +218,21 @@ fn render_test_file(
         }
     }
 
-    if let (true, Some(opts_type)) = (needs_options_import, options_type) {
-        let mut imports = vec![function_name.to_string(), opts_type.to_string()];
-        imports.extend(enum_imports.iter().map(|s| s.to_string()));
+    // Collect handle constructor imports.
+    let handle_constructors: Vec<String> = args
+        .iter()
+        .filter(|arg| arg.arg_type == "handle")
+        .map(|arg| format!("create{}", arg.name.to_upper_camel_case()))
+        .collect();
+
+    {
+        let mut imports = vec![function_name.to_string()];
+        imports.extend(handle_constructors);
+        if let (true, Some(opts_type)) = (needs_options_import, options_type) {
+            imports.push(opts_type.to_string());
+            imports.extend(enum_imports.iter().map(|s| s.to_string()));
+        }
         let _ = writeln!(out, "import {{ {} }} from '{pkg_name}';", imports.join(", "));
-    } else {
-        let _ = writeln!(out, "import {{ {function_name} }} from '{pkg_name}';");
     }
     let _ = writeln!(out);
     let _ = writeln!(out, "describe('{category}', () => {{");
@@ -267,10 +276,15 @@ fn render_test_case(
     let await_kw = if is_async { "await " } else { "" };
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    let (setup_lines, arg_parts) =
+        build_args_and_setup(&fixture.input, args, options_type, enum_fields, &fixture.id);
+    let args_str = arg_parts.join(", ");
 
     if expects_error {
         let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
-        let args_str = build_args_string(&fixture.input, args, options_type, enum_fields);
+        for line in &setup_lines {
+            let _ = writeln!(out, "    {line}");
+        }
         if is_async {
             let _ = writeln!(
                 out,
@@ -284,64 +298,10 @@ fn render_test_case(
     }
 
     let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
-
-    // Check if we need to emit options setup code.
-    let has_options_setup = options_type.is_some()
-        && args
-            .iter()
-            .any(|arg| arg.arg_type == "json_object" && fixture.input.get(&arg.field).is_some_and(|v| !v.is_null()));
-
-    if has_options_setup {
-        // Emit options construction via default + setter pattern.
-        if let Some(opts_type) = options_type {
-            for arg in args {
-                if arg.arg_type == "json_object" {
-                    if let Some(val) = fixture.input.get(&arg.field) {
-                        if !val.is_null() {
-                            if let Some(obj) = val.as_object() {
-                                let _ = writeln!(out, "    const options = {opts_type}.default();");
-                                for (k, v) in obj {
-                                    let camel_key = k.to_lower_camel_case();
-                                    // Check if this field maps to an enum type.
-                                    let js_val = if let Some(enum_type) = enum_fields.get(k) {
-                                        // Map string value to enum constant (PascalCase).
-                                        if let Some(s) = v.as_str() {
-                                            let pascal_val = s.to_upper_camel_case();
-                                            format!("{enum_type}.{pascal_val}")
-                                        } else {
-                                            json_to_js(v)
-                                        }
-                                    } else {
-                                        json_to_js(v)
-                                    };
-                                    let _ = writeln!(out, "    options.{camel_key} = {js_val};");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // Build call args, replacing the json_object arg with the `options` variable.
-        let call_args: Vec<String> = args
-            .iter()
-            .filter_map(|arg| {
-                let val = fixture.input.get(&arg.field)?;
-                if val.is_null() && arg.optional {
-                    return None;
-                }
-                if arg.arg_type == "json_object" && !val.is_null() && options_type.is_some() {
-                    return Some("options".to_string());
-                }
-                Some(json_to_js(val))
-            })
-            .collect();
-        let args_str = call_args.join(", ");
-        let _ = writeln!(out, "    const {result_var} = {await_kw}{function_name}({args_str});");
-    } else {
-        let args_str = build_args_string(&fixture.input, args, options_type, enum_fields);
-        let _ = writeln!(out, "    const {result_var} = {await_kw}{function_name}({args_str});");
+    for line in &setup_lines {
+        let _ = writeln!(out, "    {line}");
     }
+    let _ = writeln!(out, "    const {result_var} = {await_kw}{function_name}({args_str});");
 
     for assertion in &fixture.assertions {
         render_assertion(out, assertion, result_var, field_resolver);
@@ -350,28 +310,93 @@ fn render_test_case(
     let _ = writeln!(out, "  }});");
 }
 
-fn build_args_string(
+/// Build setup lines and argument parts for a function call.
+///
+/// Returns `(setup_lines, args_parts)`. Setup lines are emitted before the
+/// function call; args parts are joined with `, ` to form the argument list.
+fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
-    _options_type: Option<&str>,
-    _enum_fields: &HashMap<String, String>,
-) -> String {
+    options_type: Option<&str>,
+    enum_fields: &HashMap<String, String>,
+    fixture_id: &str,
+) -> (Vec<String>, Vec<String>) {
+    let mut setup_lines = Vec::new();
+    let mut parts = Vec::new();
+
     if args.is_empty() {
-        return json_to_js(input);
+        parts.push(json_to_js(input));
+        return (setup_lines, parts);
     }
 
-    let parts: Vec<String> = args
-        .iter()
-        .filter_map(|arg| {
-            let val = input.get(&arg.field)?;
-            if val.is_null() && arg.optional {
-                return None;
-            }
-            Some(json_to_js(val))
-        })
-        .collect();
+    for arg in args {
+        if arg.arg_type == "mock_url" {
+            setup_lines.push(format!(
+                "const {} = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;",
+                arg.name,
+            ));
+            parts.push(arg.name.clone());
+            continue;
+        }
 
-    parts.join(", ")
+        if arg.arg_type == "handle" {
+            let constructor_name = format!("create{}", arg.name.to_upper_camel_case());
+            let config_value = input.get(&arg.field).unwrap_or(&serde_json::Value::Null);
+            if config_value.is_null()
+                || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
+            {
+                setup_lines.push(format!("const {} = {constructor_name}(null);", arg.name));
+            } else {
+                let js_val = json_to_js(config_value);
+                setup_lines.push(format!("const {} = {constructor_name}({js_val});", arg.name));
+            }
+            parts.push(arg.name.clone());
+            continue;
+        }
+
+        let val = input.get(&arg.field);
+        match val {
+            None | Some(serde_json::Value::Null) if arg.optional => continue,
+            None | Some(serde_json::Value::Null) => {
+                let default_val = match arg.arg_type.as_str() {
+                    "string" => "''".to_string(),
+                    "int" | "integer" => "0".to_string(),
+                    "float" | "number" => "0.0".to_string(),
+                    "bool" | "boolean" => "false".to_string(),
+                    _ => "null".to_string(),
+                };
+                parts.push(default_val);
+            }
+            Some(v) => {
+                if arg.arg_type == "json_object" && !v.is_null() {
+                    if let Some(opts_type) = options_type {
+                        if let Some(obj) = v.as_object() {
+                            setup_lines.push(format!("const options = {opts_type}.default();"));
+                            for (k, field_val) in obj {
+                                let camel_key = k.to_lower_camel_case();
+                                let js_val = if let Some(enum_type) = enum_fields.get(k) {
+                                    if let Some(s) = field_val.as_str() {
+                                        let pascal_val = s.to_upper_camel_case();
+                                        format!("{enum_type}.{pascal_val}")
+                                    } else {
+                                        json_to_js(field_val)
+                                    }
+                                } else {
+                                    json_to_js(field_val)
+                                };
+                                setup_lines.push(format!("options.{camel_key} = {js_val};"));
+                            }
+                            parts.push("options".to_string());
+                            continue;
+                        }
+                    }
+                }
+                parts.push(json_to_js(v));
+            }
+        }
+    }
+
+    (setup_lines, parts)
 }
 
 fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {

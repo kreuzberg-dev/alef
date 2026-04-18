@@ -76,6 +76,12 @@ pub struct PhpConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Functions to exclude from PHP binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from PHP binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
