@@ -109,7 +109,16 @@ pub(crate) fn gen_php_function_params(
 pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types: &AHashSet<String>) -> String {
     params
         .iter()
-        .map(|p| match &p.ty {
+        .map(|p| {
+            // Newtype params (e.g. NodeIndex(u32)→u32): re-wrap the raw binding value.
+            if let Some(newtype_path) = &p.newtype_wrapper {
+                return if p.optional {
+                    format!("{}.map({newtype_path})", p.name)
+                } else {
+                    format!("{newtype_path}({})", p.name)
+                };
+            }
+            match &p.ty {
             TypeRef::Primitive(prim) if needs_i64_cast(prim) => {
                 let core_ty = core_prim_str(prim);
                 if p.optional {
@@ -226,6 +235,7 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                 }
             }
             _ => p.name.clone(),
+        }
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -649,7 +659,12 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                         }
                         _ => format!("self.{name}.clone()"),
                     },
-                    TypeRef::Map(_, _) => format!("self.{name}.clone()"),
+                    // Map with Json values: PHP stores String but core expects serde_json::Value.
+                    // Can't recover original Values, so fall back to an empty map.
+                    TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Json) => "Default::default()".to_string(),
+                    // Map<K, V> where V is not Json: PHP uses HashMap but core may use BTreeMap.
+                    // Use into_iter().collect() to allow coercion to the target map type.
+                    TypeRef::Map(_, _) => format!("self.{name}.clone().into_iter().collect()"),
                     TypeRef::Unit => format!("self.{name}.clone()"),
                     // Json maps to String in PHP -- can't directly assign to serde_json::Value
                     TypeRef::Json => "Default::default()".to_string(),
