@@ -271,6 +271,16 @@ pub fn field_conversion_from_core(
                 format!("{name}: val.{name}.iter().map(ToString::to_string).collect()")
             }
         }
+        // Vec<Optional<Json>>: each element is Option<Value> → Option<String>
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Optional(oi) if matches!(oi.as_ref(), TypeRef::Json)) => {
+            if optional {
+                format!(
+                    "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| i.as_ref().map(ToString::to_string)).collect())"
+                )
+            } else {
+                format!("{name}: val.{name}.iter().map(|i| i.as_ref().map(ToString::to_string)).collect()")
+            }
+        }
         // Map with Json values: core uses HashMap<K, serde_json::Value>, binding uses HashMap<K, String>
         TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
             let k_is_json = matches!(k.as_ref(), TypeRef::Json);
