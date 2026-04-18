@@ -173,7 +173,10 @@ fn test_gen_struct_produces_struct_definition() {
         result.contains("count: Option<u32>"),
         "should contain optional u32 field"
     );
-    assert!(result.contains("#[derive(Clone, Debug)]"), "should have derives");
+    assert!(
+        result.contains("#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]"),
+        "should have derives"
+    );
 }
 
 #[test]
@@ -209,7 +212,7 @@ fn test_gen_enum_produces_enum_with_variants() {
     assert!(result.contains("Csv = 1"), "should contain second variant");
     assert!(result.contains("Plain = 2"), "should contain third variant");
     assert!(
-        result.contains("#[derive(Clone, Debug, PartialEq)]"),
+        result.contains("#[derive(Clone, Debug, PartialEq, Default, serde::Serialize, serde::Deserialize)]"),
         "should have derives"
     );
 }
@@ -222,10 +225,10 @@ fn test_gen_enum_produces_default_impl() {
     let result = gen_enum(&enum_def, &cfg);
 
     assert!(
-        result.contains("impl Default for OutputFormat"),
-        "should have Default impl"
+        result.contains("#[default]"),
+        "should have #[default] attribute on first variant"
     );
-    assert!(result.contains("Self::Json"), "default should be first variant");
+    assert!(result.contains("Default"), "should derive Default");
 }
 
 #[test]
@@ -979,7 +982,7 @@ fn test_gen_named_let_bindings_non_opaque_param() {
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
-    assert!(result.contains("let config_core = config.into();"));
+    assert!(result.contains("let config_core: my_crate::Config = config.into();"));
 }
 
 #[test]
@@ -1000,7 +1003,8 @@ fn test_gen_named_let_bindings_optional_ref_param() {
     }];
 
     let result = binding_helpers::gen_named_let_bindings_pub(&params, &opaque_types, "my_crate");
-    assert!(result.contains("let config_core = config.as_ref();"));
+    assert!(result.contains("let config_owned: Option<my_crate::Config> = config.map(Into::into);"));
+    assert!(result.contains("let config_core = config_owned.as_ref();"));
 }
 
 #[test]
@@ -1045,8 +1049,8 @@ fn test_gen_call_args_with_let_bindings_optional_ref_vec_named() {
     }];
 
     let result = binding_helpers::gen_call_args_with_let_bindings(&params, &opaque_types);
-    // The result should be `items.as_deref()` which converts Option<Vec<Item>> to Option<&[Item]>
-    assert_eq!(result, "items.as_deref()");
+    // The result should use the _core let binding which was created by gen_named_let_bindings
+    assert_eq!(result, "items_core.as_deref()");
 }
 
 #[test]

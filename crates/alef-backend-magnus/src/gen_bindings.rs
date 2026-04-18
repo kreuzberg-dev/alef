@@ -521,7 +521,7 @@ fn gen_struct(
     mapper: &MagnusMapper,
     module_name: &str,
     _api: &ApiSurface,
-    _generates_default: bool,
+    generates_default: bool,
 ) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
 
@@ -531,10 +531,13 @@ fn gen_struct(
     // Magnus requires Clone for TryConvert on owned types
     struct_builder.add_derive("Clone");
     struct_builder.add_derive("Debug");
-    // Binding types always derive Default, Serialize, and Deserialize.
-    // Default: enables using unwrap_or_default() in constructors.
-    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
-    struct_builder.add_derive("Default");
+    // Only derive Default when no manual impl Default will be generated.
+    // When generates_default is true, a manual impl Default is emitted separately
+    // (via gen_struct_default_impl), so adding #[derive(Default)] here would
+    // cause a conflicting implementations error.
+    if !generates_default {
+        struct_builder.add_derive("Default");
+    }
     struct_builder.add_derive("serde::Serialize");
     struct_builder.add_derive("serde::Deserialize");
     if typ.has_default {
