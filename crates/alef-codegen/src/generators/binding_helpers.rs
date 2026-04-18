@@ -746,7 +746,7 @@ fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, need
                 TypeRef::Primitive(_) => format!("self.{name}"),
                 TypeRef::Duration => {
                     if field.optional {
-                        format!("self.{name}.map(std::time::Duration::from_secs)")
+                        format!("self.{name}.map(std::time::Duration::from_millis)")
                     } else {
                         format!("std::time::Duration::from_millis(self.{name})")
                     }
@@ -780,6 +780,9 @@ fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, need
                 TypeRef::Optional(inner) => match inner.as_ref() {
                     TypeRef::Named(_) => {
                         format!("self.{name}.clone().map(Into::into)")
+                    }
+                    TypeRef::Duration => {
+                        format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
                     }
                     TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
                         format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")

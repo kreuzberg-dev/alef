@@ -591,7 +591,16 @@ fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], pref
         // On has_default types, non-optional Duration fields are stored as Option<u64> so the
         // wasm constructor can omit them and the From conversion falls back to the core default.
         let force_optional = typ.has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
-        let field_type = if field.optional || force_optional {
+        let field_type = if force_optional {
+            // Duration field forced to Option<u64>: map_type returns "u64", wrap in Option<>.
+            mapper.optional(&mapper.map_type(&field.ty))
+        } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
+            // Field is already Optional in the IR: map_type returns "Option<X>". Using
+            // mapper.optional() would yield Option<Option<X>>, which wasm-bindgen can't handle
+            // (OptionIntoWasmAbi is not implemented for Option<Option<T>>). Use the mapped
+            // type directly.
+            mapper.map_type(&field.ty)
+        } else if field.optional {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
             mapper.map_type(&field.ty)
@@ -699,7 +708,12 @@ fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], 
 fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<String>, has_default: bool) -> String {
     // On has_default types, non-optional Duration fields are stored as Option<u64>.
     let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
-    let field_type = if field.optional || force_optional {
+    let field_type = if force_optional {
+        mapper.optional(&mapper.map_type(&field.ty))
+    } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
+        // Already Optional in IR: map_type returns "Option<X>". Don't double-wrap.
+        mapper.map_type(&field.ty)
+    } else if field.optional {
         mapper.optional(&mapper.map_type(&field.ty))
     } else {
         mapper.map_type(&field.ty)
@@ -736,7 +750,12 @@ fn gen_getter(field: &FieldDef, mapper: &WasmMapper, enum_names: &AHashSet<Strin
 fn gen_setter(field: &FieldDef, mapper: &WasmMapper, has_default: bool) -> String {
     // On has_default types, non-optional Duration fields are stored as Option<u64>.
     let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
-    let field_type = if field.optional || force_optional {
+    let field_type = if force_optional {
+        mapper.optional(&mapper.map_type(&field.ty))
+    } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
+        // Already Optional in IR: map_type returns "Option<X>". Don't double-wrap.
+        mapper.map_type(&field.ty)
+    } else if field.optional {
         mapper.optional(&mapper.map_type(&field.ty))
     } else {
         mapper.map_type(&field.ty)

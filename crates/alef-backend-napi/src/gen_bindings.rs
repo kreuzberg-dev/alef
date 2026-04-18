@@ -134,7 +134,7 @@ impl Backend for NapiBackend {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
                 // gen_struct adds Default to derives when typ.has_default is true.
-                builder.add_item(&gen_struct(typ, &mapper, &prefix));
+                builder.add_item(&gen_struct(typ, &mapper, &prefix, has_serde));
             }
         }
 
@@ -361,7 +361,7 @@ impl Backend for NapiBackend {
 }
 
 /// Generate a NAPI struct with Js-prefixed name and fields wrapped in Option only if optional.
-fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str) -> String {
+fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str, has_serde: bool) -> String {
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
     struct_builder.add_attr("napi(object)");
@@ -370,8 +370,13 @@ fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str) -> String {
     // Default: enables using unwrap_or_default() in constructors for types with has_default.
     // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
     struct_builder.add_derive("Default");
-    struct_builder.add_derive("serde::Serialize");
-    struct_builder.add_derive("serde::Deserialize");
+    // Only derive serde traits when the binding crate has serde as a dependency.
+    // Generating these derives unconditionally causes compile errors in crates
+    // that don't list serde in their Cargo.toml.
+    if has_serde {
+        struct_builder.add_derive("serde::Serialize");
+        struct_builder.add_derive("serde::Deserialize");
+    }
 
     for field in &typ.fields {
         let mapped_type = mapper.map_type(&field.ty);
