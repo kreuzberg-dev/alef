@@ -292,7 +292,7 @@ pub(crate) fn gen_function_as_static_method(
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    let body = gen_function_body(func, opaque_types, core_import);
+    let body = gen_function_body(func, opaque_types, core_import, &mapper.enum_names);
     let params = gen_php_function_params(&func.params, mapper, opaque_types);
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
@@ -315,7 +315,12 @@ pub(crate) fn gen_function_as_static_method(
 }
 
 /// Shared body generation for sync free functions.
-fn gen_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, core_import: &str) -> String {
+fn gen_function_body(
+    func: &FunctionDef,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+    enum_names: &AHashSet<String>,
+) -> String {
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
     if can_delegate {
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
@@ -329,19 +334,29 @@ fn gen_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, core_i
             }
         };
         let core_call = format!("{core_fn_path}({call_args})");
+        let is_enum_return =
+            matches!(&func.return_type, TypeRef::Named(n) if enum_names.contains(n.as_str()));
         if func.error_type.is_some() {
-            let wrap = php_wrap_return(
-                "result",
-                &func.return_type,
-                "",
-                opaque_types,
-                false,
-                func.returns_ref,
-                false,
-            );
-            format!(
-                "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
-            )
+            if is_enum_return {
+                format!(
+                    "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(format!(\"{{:?}}\", result))"
+                )
+            } else {
+                let wrap = php_wrap_return(
+                    "result",
+                    &func.return_type,
+                    "",
+                    opaque_types,
+                    false,
+                    func.returns_ref,
+                    false,
+                );
+                format!(
+                    "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
+                )
+            }
+        } else if is_enum_return {
+            format!("{let_bindings}format!(\"{{:?}}\", {core_call})")
         } else {
             format!(
                 "{let_bindings}{}",
@@ -369,7 +384,7 @@ pub(crate) fn gen_async_function_as_static_method(
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    let body = gen_async_function_body(func, opaque_types, core_import);
+    let body = gen_async_function_body(func, opaque_types, core_import, &mapper.enum_names);
     let params = gen_php_function_params(&func.params, mapper, opaque_types);
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
@@ -392,7 +407,12 @@ pub(crate) fn gen_async_function_as_static_method(
 }
 
 /// Shared body generation for async free functions (block_on variant).
-fn gen_async_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, core_import: &str) -> String {
+fn gen_async_function_body(
+    func: &FunctionDef,
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+    enum_names: &AHashSet<String>,
+) -> String {
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
     if can_delegate {
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
@@ -406,15 +426,21 @@ fn gen_async_function_body(func: &FunctionDef, opaque_types: &AHashSet<String>, 
             }
         };
         let core_call = format!("{core_fn_path}({call_args})");
-        let result_wrap = php_wrap_return(
-            "result",
-            &func.return_type,
-            "",
-            opaque_types,
-            false,
-            func.returns_ref,
-            false,
-        );
+        let is_enum_return =
+            matches!(&func.return_type, TypeRef::Named(n) if enum_names.contains(n.as_str()));
+        let result_wrap = if is_enum_return {
+            "format!(\"{:?}\", result)".to_string()
+        } else {
+            php_wrap_return(
+                "result",
+                &func.return_type,
+                "",
+                opaque_types,
+                false,
+                func.returns_ref,
+                false,
+            )
+        };
         if func.error_type.is_some() {
             format!(
                 "{let_bindings}WORKER_RUNTIME.block_on(async {{\n        \
@@ -548,6 +574,8 @@ pub(crate) fn gen_php_unimplemented_body(
             TypeRef::Bytes => "Vec::new()".to_string(),
             TypeRef::Primitive(p) => match p {
                 alef_core::ir::PrimitiveType::Bool => "false".to_string(),
+                alef_core::ir::PrimitiveType::F32 => "0.0f32".to_string(),
+                alef_core::ir::PrimitiveType::F64 => "0.0".to_string(),
                 _ => "0".to_string(),
             },
             TypeRef::Optional(_) => "None".to_string(),

@@ -138,6 +138,9 @@ impl Backend for NapiBackend {
             }
         }
 
+        // Collect struct names so tagged enum codegen knows which Named types have binding structs
+        let struct_names: ahash::AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
+
         for enum_def in &api.enums {
             builder.add_item(&gen_enum(enum_def, &prefix));
         }
@@ -185,8 +188,8 @@ impl Backend for NapiBackend {
             let is_tagged_data_enum = e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty());
             if is_tagged_data_enum {
                 // Tagged data enums use flattened struct — generate custom conversions
-                builder.add_item(&gen_tagged_enum_binding_to_core(e, &core_import, &prefix));
-                builder.add_item(&gen_tagged_enum_core_to_binding(e, &core_import, &prefix));
+                builder.add_item(&gen_tagged_enum_binding_to_core(e, &core_import, &prefix, &struct_names));
+                builder.add_item(&gen_tagged_enum_core_to_binding(e, &core_import, &prefix, &struct_names));
             } else {
                 if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
                     builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
@@ -1482,7 +1485,7 @@ fn dts_return_type(ret: &TypeRef, _has_error: bool, is_async: bool, prefix: &str
 }
 
 /// Generate `From<JsTaggedEnum> for core::TaggedEnum` for a flattened struct representation.
-fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix: &str) -> String {
+fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix: &str, struct_names: &ahash::AHashSet<String>) -> String {
     use alef_core::ir::TypeRef;
     use std::fmt::Write;
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
@@ -1511,8 +1514,16 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from)", f.name)
                             }
-                            TypeRef::Named(_) => {
+                            TypeRef::Named(n) if struct_names.contains(n.as_str()) => {
+                                // Named type has a binding struct — use Into conversion
                                 format!("val.{}.map(|v| v.into())", f.name)
+                            }
+                            TypeRef::Named(_) => {
+                                // Named type flattened to Option<String> — use serde JSON round-trip
+                                format!(
+                                    "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
+                                    f.name
+                                )
                             }
                             TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                 let core_ty = core_prim_str(p);
@@ -1526,8 +1537,14 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
                         "Default::default()".to_string()
                     } else {
                         match &f.ty {
-                            TypeRef::Named(_) => {
+                            TypeRef::Named(n) if struct_names.contains(n.as_str()) => {
                                 format!("val.{}.map(|v| v.into()).unwrap_or_default()", f.name)
+                            }
+                            TypeRef::Named(_) => {
+                                format!(
+                                    "val.{}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()",
+                                    f.name
+                                )
                             }
                             TypeRef::Path => {
                                 format!("val.{}.map(std::path::PathBuf::from).unwrap_or_default()", f.name)
@@ -1602,7 +1619,7 @@ fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix
 }
 
 /// Generate `From<core::TaggedEnum> for JsTaggedEnum` for a flattened struct representation.
-fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix: &str) -> String {
+fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix: &str, struct_names: &ahash::AHashSet<String>) -> String {
     use std::fmt::Write;
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = format!("{prefix}{}", enum_def.name);
@@ -1669,8 +1686,12 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                         if field.optional {
                             match &field.ty {
                                 TypeRef::Path => format!("{f}: {f}.map(|p| p.to_string_lossy().to_string())"),
-                                TypeRef::Named(_) => {
+                                TypeRef::Named(n) if struct_names.contains(n.as_str()) => {
                                     format!("{f}: {f}.map(|v| v.into())")
+                                }
+                                TypeRef::Named(_) => {
+                                    // Named type flattened to Option<String> — use serde JSON
+                                    format!("{f}: {f}.as_ref().and_then(|v| serde_json::to_string(v).ok())")
                                 }
                                 _ => format!("{f}: {f}"),
                             }
@@ -1678,7 +1699,8 @@ fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix
                             format!("{f}: None")
                         } else {
                             match &field.ty {
-                                TypeRef::Named(_) => format!("{f}: Some({f}.into())"),
+                                TypeRef::Named(n) if struct_names.contains(n.as_str()) => format!("{f}: Some({f}.into())"),
+                                TypeRef::Named(_) => format!("{f}: serde_json::to_string(&{f}).ok()"),
                                 TypeRef::Path => format!("{f}: Some({f}.to_string_lossy().to_string())"),
                                 TypeRef::Primitive(p) if needs_napi_cast(p) => {
                                     let target = match p {

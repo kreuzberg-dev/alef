@@ -347,7 +347,7 @@ impl Backend for PhpBackend {
         // PHP module entry point — explicit class registration required because
         // `inventory` crate auto-registration doesn't work in cdylib on macOS.
         let mut class_registrations = String::new();
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name)) {
             class_registrations.push_str(&format!("\n    .class::<{}>()", typ.name));
         }
         // Register the facade class that wraps free functions as static methods.

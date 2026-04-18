@@ -246,12 +246,10 @@ fn gen_field_access_body(field: &FieldDef, needs_len_out: bool) -> String {
                 _ => "inner_val",
             };
             writeln!(out, "    match &obj.{field_name} {{").ok();
-            writeln!(out, "        Some(val) => match val {{").ok();
-            writeln!(out, "            Some(inner_val) => {{").ok();
-            write!(out, "{}", gen_value_to_c(inner_val_expr, inner, "                ")).ok();
-            writeln!(out, "            }}").ok();
-            writeln!(out, "            None => {inner_null},").ok();
+            writeln!(out, "        Some(Some(inner_val)) => {{").ok();
+            write!(out, "{}", gen_value_to_c(inner_val_expr, inner, "            ")).ok();
             writeln!(out, "        }}").ok();
+            writeln!(out, "        Some(None) => {inner_null},").ok();
             writeln!(
                 out,
                 "        None => {},",
