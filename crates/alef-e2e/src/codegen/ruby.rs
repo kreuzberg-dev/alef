@@ -249,14 +249,6 @@ fn render_spec_file(
 
     let mut first = true;
     for fixture in fixtures {
-        // Skip examples that have zero usable assertions (no executable expect() calls).
-        // This prevents Lint/UselessAssignment, RSpec/NoExpectationExample,
-        // and RSpec/RepeatedExample.
-        let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-        if !expects_error && !has_usable_assertion(fixture, field_resolver, result_is_simple) {
-            continue;
-        }
-
         if !first {
             let _ = writeln!(out);
         }
@@ -482,8 +474,7 @@ fn render_assertion(
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            // Don't emit skip comments — the example-level filter ensures we only
-            // get here in mixed cases, and the comment would be noise.
+            let _ = writeln!(out, "    # skipped: field '{f}' not available on result type");
             return;
         }
     }

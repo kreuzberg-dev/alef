@@ -329,6 +329,17 @@ pub struct CallOverride {
     /// E.g., `["asset_types"]` generates `asset_types: [:image]` instead of `["image"]`.
     #[serde(default)]
     pub handle_atom_list_fields: HashSet<String>,
+    /// Static CLI arguments appended to every invocation (brew/CLI generator only).
+    ///
+    /// E.g., `["--format", "json"]` appends `--format json` to every CLI call.
+    #[serde(default)]
+    pub cli_args: Vec<String>,
+    /// Maps fixture config field names to CLI flag names (brew/CLI generator only).
+    ///
+    /// E.g., `{"output_format": "--format"}` generates `--format <value>` from
+    /// the fixture's `output_format` input field.
+    #[serde(default)]
+    pub cli_flags: HashMap<String, String>,
 }
 
 /// Per-language package reference configuration.

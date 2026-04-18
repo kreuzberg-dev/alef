@@ -1,0 +1,562 @@
+//! Brew (Homebrew CLI) e2e test generator.
+//!
+//! Generates a self-contained shell-script test suite that tests a CLI binary
+//! installed via Homebrew.  The suite consists of:
+//!
+//! - `run_tests.sh` — main runner that sources per-category files, tracks
+//!   pass/fail counts and exits 1 on any failure.
+//! - `test_{category}.sh` — one file per fixture category, each containing
+//!   a `test_{fixture_id}()` shell function.
+//!
+//! Each test function:
+//! 1. Constructs a CLI invocation: `{binary} {subcommand} "{url}" {flags...}`
+//! 2. Captures stdout into a variable.
+//! 3. Uses `jq` to extract fields and runs helper assertion functions.
+//!
+//! Requirements at runtime: `bash`, `jq`, and `MOCK_SERVER_URL` env var.
+
+use crate::config::E2eConfig;
+use crate::escape::{escape_shell, sanitize_filename, sanitize_ident};
+use crate::field_access::FieldResolver;
+use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use alef_core::backend::GeneratedFile;
+use alef_core::config::AlefConfig;
+use anyhow::Result;
+use std::fmt::Write as FmtWrite;
+use std::path::PathBuf;
+
+use super::E2eCodegen;
+
+/// Brew (Homebrew CLI) e2e code generator.
+pub struct BrewCodegen;
+
+impl E2eCodegen for BrewCodegen {
+    fn generate(
+        &self,
+        groups: &[FixtureGroup],
+        e2e_config: &E2eConfig,
+        _alef_config: &AlefConfig,
+    ) -> Result<Vec<GeneratedFile>> {
+        let lang = self.language_name();
+        let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
+
+        // Resolve call config with overrides for the "brew" language key.
+        let call = &e2e_config.call;
+        let overrides = call.overrides.get(lang);
+        let subcommand = overrides
+            .and_then(|o| o.function.as_ref())
+            .cloned()
+            .unwrap_or_else(|| call.function.clone());
+
+        // Static CLI flags appended to every invocation.
+        let static_cli_args: Vec<String> = overrides
+            .map(|o| o.cli_args.clone())
+            .unwrap_or_default();
+
+        // Field-to-flag mapping (fixture input field → CLI flag name).
+        let cli_flags: std::collections::HashMap<String, String> = overrides
+            .map(|o| o.cli_flags.clone())
+            .unwrap_or_default();
+
+        // Resolve binary name from the "brew" package entry, falling back to call.module.
+        let binary_name = e2e_config
+            .registry
+            .packages
+            .get(lang)
+            .and_then(|p| p.name.as_ref())
+            .cloned()
+            .or_else(|| {
+                e2e_config
+                    .packages
+                    .get(lang)
+                    .and_then(|p| p.name.as_ref())
+                    .cloned()
+            })
+            .unwrap_or_else(|| call.module.clone());
+
+        // Filter active groups (non-skipped fixtures).
+        let active_groups: Vec<(&FixtureGroup, Vec<&Fixture>)> = groups
+            .iter()
+            .filter_map(|group| {
+                let active: Vec<&Fixture> = group
+                    .fixtures
+                    .iter()
+                    .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
+                    .collect();
+                if active.is_empty() {
+                    None
+                } else {
+                    Some((group, active))
+                }
+            })
+            .collect();
+
+        let field_resolver = FieldResolver::new(
+            &e2e_config.fields,
+            &e2e_config.fields_optional,
+            &e2e_config.result_fields,
+            &e2e_config.fields_array,
+        );
+
+        let mut files = Vec::new();
+
+        // Generate run_tests.sh.
+        let category_names: Vec<String> = active_groups
+            .iter()
+            .map(|(g, _)| sanitize_filename(&g.category))
+            .collect();
+        files.push(GeneratedFile {
+            path: output_base.join("run_tests.sh"),
+            content: render_run_tests(&category_names),
+            generated_header: true,
+        });
+
+        // Generate per-category test files.
+        for (group, active) in &active_groups {
+            let safe_category = sanitize_filename(&group.category);
+            let filename = format!("test_{safe_category}.sh");
+            let content = render_category_file(
+                &group.category,
+                active,
+                &binary_name,
+                &subcommand,
+                &static_cli_args,
+                &cli_flags,
+                &e2e_config.call.args,
+                &field_resolver,
+            );
+            files.push(GeneratedFile {
+                path: output_base.join(filename),
+                content,
+                generated_header: true,
+            });
+        }
+
+        Ok(files)
+    }
+
+    fn language_name(&self) -> &'static str {
+        "brew"
+    }
+}
+
+/// Render the main `run_tests.sh` runner script.
+fn render_run_tests(categories: &[String]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "#!/usr/bin/env bash");
+    let _ = writeln!(out, "# This file is auto-generated by alef. DO NOT EDIT.");
+    let _ = writeln!(out, "set -euo pipefail");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "# MOCK_SERVER_URL must be set to the base URL of the mock server.");
+    let _ = writeln!(out, ": \"${{MOCK_SERVER_URL:?MOCK_SERVER_URL is required}}\"");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "# Verify that jq is available.");
+    let _ = writeln!(out, "if ! command -v jq &>/dev/null; then");
+    let _ = writeln!(out, "    echo 'error: jq is required but not found in PATH' >&2");
+    let _ = writeln!(out, "    exit 1");
+    let _ = writeln!(out, "fi");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "PASS=0");
+    let _ = writeln!(out, "FAIL=0");
+    let _ = writeln!(out);
+
+    // Helper functions.
+    let _ = writeln!(out, "assert_equals() {{");
+    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "    if [ \"$actual\" != \"$expected\" ]; then");
+    let _ = writeln!(
+        out,
+        "        echo \"FAIL [$label]: expected '$expected', got '$actual'\" >&2"
+    );
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "assert_contains() {{");
+    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "    if [[ \"$actual\" != *\"$expected\"* ]]; then");
+    let _ = writeln!(
+        out,
+        "        echo \"FAIL [$label]: expected to contain '$expected'\" >&2"
+    );
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "assert_not_empty() {{");
+    let _ = writeln!(out, "    local actual=\"$1\" label=\"$2\"");
+    let _ = writeln!(out, "    if [ -z \"$actual\" ]; then");
+    let _ = writeln!(out, "        echo \"FAIL [$label]: expected non-empty value\" >&2");
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "assert_count_min() {{");
+    let _ = writeln!(out, "    local count=\"$1\" min=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "    if [ \"$count\" -lt \"$min\" ]; then");
+    let _ = writeln!(
+        out,
+        "        echo \"FAIL [$label]: expected at least $min elements, got $count\" >&2"
+    );
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "assert_greater_than() {{");
+    let _ = writeln!(out, "    local val=\"$1\" threshold=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "    if [ \"$(echo \"$val > $threshold\" | bc -l)\" != \"1\" ]; then");
+    let _ = writeln!(
+        out,
+        "        echo \"FAIL [$label]: expected $val > $threshold\" >&2"
+    );
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
+    // Source per-category files.
+    let script_dir = r#"SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)""#;
+    let _ = writeln!(out, "{script_dir}");
+    let _ = writeln!(out);
+    for category in categories {
+        let _ = writeln!(out, "# shellcheck source=test_{category}.sh");
+        let _ = writeln!(out, "source \"$SCRIPT_DIR/test_{category}.sh\"");
+    }
+    let _ = writeln!(out);
+
+    // Run each test function and track pass/fail.
+    let _ = writeln!(out, "run_test() {{");
+    let _ = writeln!(out, "    local name=\"$1\"");
+    let _ = writeln!(out, "    if \"$name\"; then");
+    let _ = writeln!(out, "        echo \"PASS: $name\"");
+    let _ = writeln!(out, "        PASS=$((PASS + 1))");
+    let _ = writeln!(out, "    else");
+    let _ = writeln!(out, "        echo \"FAIL: $name\"");
+    let _ = writeln!(out, "        FAIL=$((FAIL + 1))");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
+    // Gather all test function names from category files then call them.
+    // We enumerate them at code-generation time so the runner doesn't need
+    // introspection at runtime.
+    let _ = writeln!(out, "# Run all generated test functions.");
+    for category in categories {
+        let _ = writeln!(out, "# Category: {category}");
+        // We emit a placeholder comment — the actual list is per-category.
+        // The run_test calls are emitted inline below based on known IDs.
+        let _ = writeln!(out, "run_tests_{category}");
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "echo \"\"");
+    let _ = writeln!(out, "echo \"Results: $PASS passed, $FAIL failed\"");
+    let _ = writeln!(out, "[ \"$FAIL\" -eq 0 ]");
+    out
+}
+
+/// Render a per-category `test_{category}.sh` file.
+#[allow(clippy::too_many_arguments)]
+fn render_category_file(
+    category: &str,
+    fixtures: &[&Fixture],
+    binary_name: &str,
+    subcommand: &str,
+    static_cli_args: &[String],
+    cli_flags: &std::collections::HashMap<String, String>,
+    args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
+) -> String {
+    let safe_category = sanitize_filename(category);
+    let mut out = String::new();
+    let _ = writeln!(out, "#!/usr/bin/env bash");
+    let _ = writeln!(out, "# This file is auto-generated by alef. DO NOT EDIT.");
+    let _ = writeln!(out, "# E2e tests for category: {category}");
+    let _ = writeln!(out, "set -euo pipefail");
+    let _ = writeln!(out);
+
+    for fixture in fixtures {
+        render_test_function(
+            &mut out,
+            fixture,
+            binary_name,
+            subcommand,
+            static_cli_args,
+            cli_flags,
+            args,
+            field_resolver,
+        );
+        let _ = writeln!(out);
+    }
+
+    // Emit a runner function for this category.
+    let _ = writeln!(out, "run_tests_{safe_category}() {{");
+    for fixture in fixtures {
+        let fn_name = sanitize_ident(&fixture.id);
+        let _ = writeln!(out, "    run_test test_{fn_name}");
+    }
+    let _ = writeln!(out, "}}");
+    out
+}
+
+/// Render a single `test_{id}()` function for a fixture.
+#[allow(clippy::too_many_arguments)]
+fn render_test_function(
+    out: &mut String,
+    fixture: &Fixture,
+    binary_name: &str,
+    subcommand: &str,
+    static_cli_args: &[String],
+    cli_flags: &std::collections::HashMap<String, String>,
+    args: &[crate::config::ArgMapping],
+    field_resolver: &FieldResolver,
+) {
+    let fn_name = sanitize_ident(&fixture.id);
+    let description = &fixture.description;
+
+    let expects_error = fixture
+        .assertions
+        .iter()
+        .any(|a| a.assertion_type == "error");
+
+    let _ = writeln!(out, "test_{fn_name}() {{");
+    let _ = writeln!(out, "    # {description}");
+
+    // Build the CLI command.
+    let cmd_parts = build_cli_command(
+        fixture,
+        binary_name,
+        subcommand,
+        static_cli_args,
+        cli_flags,
+        args,
+    );
+
+    if expects_error {
+        let cmd = cmd_parts.join(" ");
+        let _ = writeln!(out, "    if {cmd} >/dev/null 2>&1; then");
+        let _ = writeln!(
+            out,
+            "        echo 'FAIL [error]: expected command to fail but it succeeded' >&2"
+        );
+        let _ = writeln!(out, "        return 1");
+        let _ = writeln!(out, "    fi");
+        let _ = writeln!(out, "}}");
+        return;
+    }
+
+    // Capture output.
+    let cmd = cmd_parts.join(" ");
+    let _ = writeln!(out, "    local output");
+    let _ = writeln!(out, "    output=$({cmd})");
+    let _ = writeln!(out);
+
+    // Emit assertions.
+    for assertion in &fixture.assertions {
+        render_assertion(out, assertion, field_resolver);
+    }
+
+    let _ = writeln!(out, "}}");
+}
+
+/// Build the shell CLI invocation as a list of tokens.
+///
+/// Tokens are returned unquoted where safe (flag names) or single-quoted
+/// (string values from the fixture).
+fn build_cli_command(
+    fixture: &Fixture,
+    binary_name: &str,
+    subcommand: &str,
+    static_cli_args: &[String],
+    cli_flags: &std::collections::HashMap<String, String>,
+    args: &[crate::config::ArgMapping],
+) -> Vec<String> {
+    let mut parts: Vec<String> = vec![binary_name.to_string(), subcommand.to_string()];
+
+    for arg in args {
+        match arg.arg_type.as_str() {
+            "mock_url" => {
+                // Positional URL argument.
+                parts.push(format!(
+                    "\"${{MOCK_SERVER_URL}}/fixtures/{}\"",
+                    fixture.id
+                ));
+            }
+            "handle" => {
+                // CLI manages its own engine; skip handle args.
+            }
+            _ => {
+                // Check if there is a cli_flags mapping for this field.
+                if let Some(flag) = cli_flags.get(&arg.field) {
+                    if let Some(val) = fixture.input.get(&arg.field) {
+                        if !val.is_null() {
+                            let val_str = json_value_to_shell_arg(val);
+                            parts.push(flag.clone());
+                            parts.push(val_str);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Append static CLI args last.
+    for static_arg in static_cli_args {
+        parts.push(static_arg.clone());
+    }
+
+    parts
+}
+
+/// Convert a JSON value to a shell argument string.
+///
+/// Strings are wrapped in single quotes with embedded single quotes escaped.
+/// Numbers and booleans are emitted verbatim.
+fn json_value_to_shell_arg(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => format!("'{}'", escape_shell(s)),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Null => "''".to_string(),
+        other => format!("'{}'", escape_shell(&other.to_string())),
+    }
+}
+
+/// Convert a fixture field path to a jq expression.
+///
+/// A path like `metadata.title` becomes `.metadata.title`.
+/// An array field like `links` becomes `.links`.
+fn field_to_jq_path(resolved: &str) -> String {
+    format!(".{resolved}")
+}
+
+/// Render a single assertion as shell code.
+fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &FieldResolver) {
+    // Skip assertions on fields not available on the result type.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            let _ = writeln!(
+                out,
+                "    # skipped: field '{f}' not available on result type"
+            );
+            return;
+        }
+    }
+
+    match assertion.assertion_type.as_str() {
+        "equals" => {
+            if let Some(field) = &assertion.field {
+                if let Some(expected) = &assertion.value {
+                    let resolved = field_resolver.resolve(field);
+                    let jq_path = field_to_jq_path(resolved);
+                    let expected_str = json_value_to_shell_string(expected);
+                    let safe_field = sanitize_ident(field);
+                    let _ = writeln!(out, "    local val_{safe_field}");
+                    let _ = writeln!(
+                        out,
+                        "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    assert_equals \"$val_{safe_field}\" '{expected_str}' '{field}'"
+                    );
+                }
+            }
+        }
+        "contains" => {
+            if let Some(field) = &assertion.field {
+                if let Some(expected) = &assertion.value {
+                    let resolved = field_resolver.resolve(field);
+                    let jq_path = field_to_jq_path(resolved);
+                    let expected_str = json_value_to_shell_string(expected);
+                    let safe_field = sanitize_ident(field);
+                    let _ = writeln!(out, "    local val_{safe_field}");
+                    let _ = writeln!(
+                        out,
+                        "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    assert_contains \"$val_{safe_field}\" '{expected_str}' '{field}'"
+                    );
+                }
+            }
+        }
+        "not_empty" | "tree_not_null" => {
+            if let Some(field) = &assertion.field {
+                let resolved = field_resolver.resolve(field);
+                let jq_path = field_to_jq_path(resolved);
+                let safe_field = sanitize_ident(field);
+                let _ = writeln!(out, "    local val_{safe_field}");
+                let _ = writeln!(
+                    out,
+                    "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')"
+                );
+                let _ = writeln!(
+                    out,
+                    "    assert_not_empty \"$val_{safe_field}\" '{field}'"
+                );
+            }
+        }
+        "count_min" | "root_child_count_min" => {
+            if let Some(field) = &assertion.field {
+                if let Some(val) = &assertion.value {
+                    if let Some(min) = val.as_u64() {
+                        let resolved = field_resolver.resolve(field);
+                        let jq_path = field_to_jq_path(resolved);
+                        let safe_field = sanitize_ident(field);
+                        let _ = writeln!(out, "    local count_{safe_field}");
+                        let _ = writeln!(
+                            out,
+                            "    count_{safe_field}=$(echo \"$output\" | jq '{jq_path} | length')"
+                        );
+                        let _ = writeln!(
+                            out,
+                            "    assert_count_min \"$count_{safe_field}\" {min} '{field}'"
+                        );
+                    }
+                }
+            }
+        }
+        "greater_than" => {
+            if let Some(field) = &assertion.field {
+                if let Some(val) = &assertion.value {
+                    let resolved = field_resolver.resolve(field);
+                    let jq_path = field_to_jq_path(resolved);
+                    let threshold = json_value_to_shell_string(val);
+                    let safe_field = sanitize_ident(field);
+                    let _ = writeln!(out, "    local val_{safe_field}");
+                    let _ = writeln!(
+                        out,
+                        "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    assert_greater_than \"$val_{safe_field}\" '{threshold}' '{field}'"
+                    );
+                }
+            }
+        }
+        "not_error" => {
+            // No-op: reaching this point means the call succeeded.
+        }
+        "error" => {
+            // Handled at the function level (early return above).
+        }
+        other => {
+            let _ = writeln!(out, "    # TODO: unsupported assertion type: {other}");
+        }
+    }
+}
+
+/// Convert a JSON value to a plain string suitable for use in shell assertions.
+///
+/// Returns the bare string content (no quotes) — callers wrap in single quotes.
+fn json_value_to_shell_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => escape_shell(s),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Null => String::new(),
+        other => escape_shell(&other.to_string()),
+    }
+}

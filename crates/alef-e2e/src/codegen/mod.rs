@@ -1,5 +1,6 @@
 //! E2e test code generation trait and language dispatch.
 
+pub mod brew;
 pub mod c;
 pub mod csharp;
 pub mod elixir;
@@ -69,6 +70,7 @@ pub fn all_generators() -> Vec<Box<dyn E2eCodegen>> {
         Box::new(r::RCodegen),
         Box::new(wasm::WasmCodegen),
         Box::new(c::CCodegen),
+        Box::new(brew::BrewCodegen),
     ]
 }
 

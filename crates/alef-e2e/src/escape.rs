@@ -188,3 +188,12 @@ pub fn sanitize_filename(s: &str) -> String {
         .collect::<String>()
         .to_lowercase()
 }
+
+/// Escape a string for embedding in a POSIX single-quoted shell string literal.
+///
+/// Wraps the string in single quotes and escapes embedded single quotes as `'\''`.
+/// Single-quoted shell strings treat every character literally except `'`, so
+/// no other escaping is needed.
+pub fn escape_shell(s: &str) -> String {
+    s.replace('\'', r"'\''")
+}
