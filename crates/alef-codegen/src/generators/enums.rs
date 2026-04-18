@@ -135,6 +135,10 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
         if is_pyo3 && PYTHON_KEYWORDS.contains(&variant.name.as_str()) {
             writeln!(out, "    #[pyo3(name = \"{}_\")]", variant.name).ok();
         }
+        // Mark the first variant as #[default] so derive(Default) works
+        if idx == 0 {
+            writeln!(out, "    #[default]").ok();
+        }
         writeln!(out, "    {} = {idx},", variant.name).ok();
     }
     writeln!(out, "}}").ok();
