@@ -701,6 +701,16 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
     if body.contains("MethodHandle") {
         writeln!(out, "import java.lang.invoke.MethodHandle;").ok();
     }
+    // Imports required by the JAR-extraction native loader (always present).
+    writeln!(out, "import java.net.URL;").ok();
+    writeln!(out, "import java.nio.file.Files;").ok();
+    writeln!(out, "import java.nio.file.Path;").ok();
+    writeln!(out, "import java.nio.file.StandardCopyOption;").ok();
+    writeln!(out, "import java.util.ArrayList;").ok();
+    writeln!(out, "import java.util.Enumeration;").ok();
+    writeln!(out, "import java.util.List;").ok();
+    writeln!(out, "import java.util.jar.JarEntry;").ok();
+    writeln!(out, "import java.util.jar.JarFile;").ok();
     writeln!(out).ok();
 
     out.push_str(&body);

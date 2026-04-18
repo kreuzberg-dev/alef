@@ -322,10 +322,10 @@ fn test_native_ex_has_all_nif_stubs() {
         "Should define MyLib.Native; content:\n{content}"
     );
 
-    // Should use Rustler
+    // Should use RustlerPrecompiled
     assert!(
-        content.contains("use Rustler"),
-        "Should use Rustler; content:\n{content}"
+        content.contains("use RustlerPrecompiled"),
+        "Should use RustlerPrecompiled; content:\n{content}"
     );
 
     // Should have otp_app atom

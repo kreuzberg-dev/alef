@@ -50,6 +50,7 @@ fn make_config() -> AlefConfig {
         wasm: Some(WasmConfig {
             exclude_functions: vec![],
             exclude_types: vec![],
+            exclude_reexports: vec![],
             type_overrides: std::collections::HashMap::new(),
             features: None,
             serde_rename_all: None,

@@ -1149,7 +1149,7 @@ fn gen_native_ex(api: &ApiSurface, app_name: &str, app_module: &str, _crate_name
     let _ = writeln!(out, "    crate: \"{app_name}_nif\",");
     let _ = writeln!(
         out,
-        "    base_url: \"{repo_url}/releases/download/v\#{{Mix.Project.config()[:version]}}\","
+        "    base_url: \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
     );
     let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
     let _ = writeln!(
