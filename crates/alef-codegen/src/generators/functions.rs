@@ -166,8 +166,8 @@ pub fn gen_function(
                 format!("let _ = ({});\n        ", names.join(", "))
             };
             format!(
-                "{suppress}pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n            \
-                 Ok(py.None())\n        }})"
+                "{suppress}Err(pyo3::exceptions::PyNotImplementedError::new_err(\"not implemented: {}\"))",
+                func.name
             )
         } else {
             // Function can't be auto-delegated — return a default/error based on return type
