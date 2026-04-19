@@ -166,7 +166,7 @@ Alef provides pre-commit hooks for consumer repos:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.3.5
+    rev: v0.4.0
     hooks:
       - id: alef-verify    # Check-only: fails if stale
       # OR

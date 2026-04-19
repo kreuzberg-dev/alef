@@ -546,7 +546,7 @@ Fails if any generated file is stale -- does not modify files:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.3.5
+    rev: v0.4.0
     hooks:
       - id: alef-verify
 ```
@@ -559,7 +559,7 @@ Regenerates all output (bindings, stubs, docs, readme, scaffold) when source fil
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.3.5
+    rev: v0.4.0
     hooks:
       - id: alef-generate
 ```

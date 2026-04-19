@@ -7,46 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-19
+
 ### Added
 
-- Config: configurable `type_prefix` for WASM and NAPI backends, default WASM to `Wasm`
-- Scaffold: generate CMake config for FFI, add `build:ts` to Node scaffold
+- Codegen: `Option<Option<T>>` flattening — binding structs use `Option<T>` with `.map(Some)` / `.flatten()` in From impls
+- Codegen: RefMut functional pattern — `&mut self` methods on non-opaque types generate clone-mutate-return (`&self → Self`)
+- Codegen: auto-derive `Default`, `Serialize`, `Deserialize` on all binding types and enums
 - Codegen: builder-pattern methods returning `Self` now auto-delegate instead of emitting `compile_error!`
 - Codegen: `can_generate_default_impl()` validation — skip Default derivation for structs with non-Default fields
+- Config: configurable `type_prefix` for WASM and NAPI backends, default WASM to `Wasm`
+- E2E: Brew/Homebrew CLI test generator (13th e2e language target)
 - IR: `returns_cow` field on `FunctionDef` for Cow return type handling in free functions
+- IR: `is_mut` field on `ParamDef` for `&mut T` parameter handling
+- NAPI: conditional serde derives gated on `has_serde` for structs, enums, and tagged enum structs
+- NAPI: tagged enum From impls distinguish binding-struct fields from serde-flattened String fields
+- Scaffold: generate CMake config for FFI, add `build:ts` to Node scaffold
+- Scaffold: add serde dependency to NAPI and Rustler scaffold templates
+- WASM: `exclude_reexports` config for public API generation
+- WASM: TypeScript re-export support for custom modules
 
 ### Fixed
 
+- Codegen: `TypeRef::Char` in `gen_lossy_binding_to_core_fields` — use `.chars().next().unwrap_or('*')` instead of `.clone()`
+- Codegen: optionalized Duration field conversion — handle `has_default` types where Duration is stored as `Option<u64>`
+- Codegen: enum match arm field access — use destructured field name instead of `val.{name}`
+- Codegen: Default derive conflicts in extendr/magnus backends
 - Codegen: convert optional Named params with `.map(Into::into).as_ref()` for non-opaque ref params
 - Codegen: pass owned `Vec<u8>` when `is_ref=false` for Bytes params
-- FFI: use `std::mem::drop()` instead of `.drop()` for owned receiver methods
-- FFI: clone `&mut String` returns before CString conversion
-- FFI: deserialize `Optional(Vec/Map)` JSON params and pass with `.as_deref()`
 - Codegen: add explicit type annotations in let bindings to resolve E0283 ambiguity
 - Codegen: skip `apply_core_wrapper_from_core` for sanitized fields (fixes Mutex clone)
 - Codegen: replace `compile_error!` with `Default::default()` for Named returns without error variant
 - Codegen: generate `Vec<Named>` let bindings for non-optional `is_ref=true` params
-- FFI: handle `Option<&Path>` / `Option<PathBuf>` conversion from `Option<String>`
-- FFI: add `.as_ref()` for `Option<&T>` params from `Option<T>` in argument passing
-- FFI: handle `&Value` params by deserializing into owned Value then passing reference
-- Codegen: convert `Vec<BindingType>` to `Vec<CoreType>` via let bindings before passing to core functions
 - Codegen: fix `Option<&T>` double-reference — don't add extra `&` when let binding already produces `Option<&T>`
-- FFI: add explicit `Vec<_>` type annotations for serde deserialization of ref/mut params (prevents unsized type inference)
 - Codegen: correct float literal defaults (`0.0f32`/`0.0f64`) in unimplemented body for float return types
-- Codegen: handle `&mut T` parameters via new `is_mut` IR field — emit `&mut` refs instead of `&`
+- Codegen: handle `&mut T` parameters via `is_mut` IR field — emit `&mut` refs instead of `&`
 - Codegen: parse `TypeRef::Json` parameters with `serde_json::from_str()` instead of passing raw String
 - Codegen: skip auto-delegation for trait-source methods on opaque types (prevents invalid Arc deref calls)
-- Extract: skip `#[cfg(...)]`-gated free functions during extraction (prevents feature-gated functions leaking into bindings)
+- Codegen: convert `Vec<BindingType>` to `Vec<CoreType>` via let bindings before passing to core functions
+- Codegen: handle `Vec<Optional<Json>>` field conversion (`Value` → `String`)
+- Codegen: async unimplemented returns `PyNotImplementedError` instead of `py.None()`
+- Codegen: handle `Optional(Vec(Named))` in sync function return wrapping
+- Codegen: `#[default]` on first enum variant for `derive(Default)` to work
+- Extract: skip `#[cfg(...)]`-gated free functions during extraction
 - Extract: prune non-re-exported items from private modules
+- FFI: use `std::mem::drop()` instead of `.drop()` for owned receiver methods
+- FFI: clone `&mut String` returns before CString conversion
+- FFI: deserialize `Optional(Vec/Map)` JSON params and pass with `.as_deref()`
+- FFI: handle `Option<&Path>` / `Option<PathBuf>` conversion from `Option<String>`
+- FFI: handle `&Value` params by deserializing into owned Value then passing reference
+- FFI: add explicit `Vec<_>` type annotations for serde deserialization of ref/mut params
 - FFI: handle `returns_cow` — emit `.into_owned()` for `Cow<'_, T>` returns before boxing
 - FFI: unwrap `Arc<T>` fields in accessors via `core_wrapper` check
-- FFI: respect `is_ref` for `Path` parameters (`&Path` vs `PathBuf`)
-- FFI: respect `is_ref` for `String`/`Char` parameters (owned vs borrowed)
+- FFI: respect `is_ref` for `Path` and `String`/`Char` parameters
+- FFI: correct codegen for `Option<Option<primitive>>` field getters
+- FFI: collapse nested match for `Option<Option<T>>` getters
+- NAPI: `Optional(Vec(Named))` return wrapping for free functions
+- NAPI: U32 in tagged enum core→binding stays as u32, only U64/Usize/Isize cast to i64
 - NAPI: detect and import `serde_json` when serde-based parameter conversion is needed
+- NAPI: enum variant field casts use `.map()` for Optional wrapping
+- PHP: float literals in `gen_php_unimplemented_body` (`0.0f32`/`0.0`)
+- PHP: BTreeMap conversion via `.into_iter().collect()` in binding→core From
+- PHP: `Map(_, Json)` sanitized fields use `Default::default()`
+- PHP: enum returns use serde conversion instead of `.into()`
+- PHP: exclude `PooledString` (ext-php-rs incompatible methods)
+- PHP: filter excluded types from class registrations in `get_module`
+- PHP: flatten nested `Option<Option<T>>` to single nullable type in stubs
+- PHP: optionalized Duration in lossy binding→core conversion
 - Scaffold: skip existing files, align Java `pom.xml` with kreuzberg
-- Scaffold: remove `compilers` directive for Rustler 0.34+ (auto-compiles via use macro)
+- Scaffold: remove `compilers` directive for Rustler 0.34+
+- Scaffold: remove unused license format arg from C# template
+- Scaffold: use `PackageLicenseFile` for C# (NuGet rejects non-OSI licenses)
+- WASM: don't add Rust `pub mod` for custom modules
 - Docs: add trailing newlines and wrap bare URLs (MD034)
 - Docs: shift heading levels down for frontmatter compatibility
+
+### Documentation
+
+- Skills: add `--registry` flag, `[readme]` config, `[e2e.registry]` block, `custom_files` key, Brew e2e target
+- Skills: update `alef all` description to include e2e + docs generation
+- Skills: add `--set` flag to `sync-versions` documentation
+- Skills/READMEs: update pre-commit rev tags to v0.3.5
+- README: add `init` and `all` to alef-cli command list
 
 ## [0.3.5] - 2026-04-16
 
