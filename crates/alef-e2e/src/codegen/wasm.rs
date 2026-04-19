@@ -82,6 +82,13 @@ impl E2eCodegen for WasmCodegen {
             generated_header: true,
         });
 
+        // Generate tsconfig.json (prevents Vite from walking up to root tsconfig).
+        files.push(GeneratedFile {
+            path: output_base.join("tsconfig.json"),
+            content: render_tsconfig(),
+            generated_header: false,
+        });
+
         // Generate test files per category.
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -170,6 +177,23 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
   },
 });
+"#
+    .to_string()
+}
+
+fn render_tsconfig() -> String {
+    r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "strictNullChecks": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["tests/**/*.ts", "vitest.config.ts"]
+}
 "#
     .to_string()
 }

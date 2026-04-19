@@ -216,28 +216,32 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
 
     let mut updated = vec![];
 
-    // Workspace member Cargo.toml files: sync [package] version to match root.
-    // Parses workspace.members globs from the root Cargo.toml and updates each member's version.
+    // Workspace Cargo.toml files: sync [package] version in both members and excluded crates.
+    // Excluded crates (e.g. Ruby ext) have their own version field that needs updating.
+    // Uses write_version_to_cargo_toml which only replaces the [package] version field
+    // (anchored to start-of-line), so dependency version specs are never touched.
     if let Ok(root_content) = std::fs::read_to_string("Cargo.toml") {
         if let Ok(root_toml) = root_content.parse::<toml::Table>() {
-            if let Some(members) = root_toml
+            let empty_vec = vec![];
+            let members = root_toml
                 .get("workspace")
                 .and_then(|w| w.get("members"))
                 .and_then(|m| m.as_array())
-            {
-                for member in members {
-                    if let Some(pattern) = member.as_str() {
-                        if let Ok(paths) = glob::glob(&format!("{pattern}/Cargo.toml")) {
-                            for entry in paths.flatten() {
-                                if let Ok(content) = std::fs::read_to_string(&entry) {
-                                    if let Some(new_content) =
-                                        replace_version_pattern(&content, r#"version = "[^"]*""#, &version)
-                                    {
-                                        if std::fs::write(&entry, &new_content).is_ok() {
-                                            updated.push(entry.to_string_lossy().to_string());
-                                        }
-                                    }
-                                }
+                .unwrap_or(&empty_vec);
+            let excludes = root_toml
+                .get("workspace")
+                .and_then(|w| w.get("exclude"))
+                .and_then(|m| m.as_array())
+                .unwrap_or(&empty_vec);
+
+            for pattern_val in members.iter().chain(excludes.iter()) {
+                if let Some(pattern) = pattern_val.as_str() {
+                    if let Ok(paths) = glob::glob(&format!("{pattern}/Cargo.toml")) {
+                        for entry in paths.flatten() {
+                            let path_str = entry.to_string_lossy().to_string();
+                            // Skip crates that use workspace version inheritance or have no version
+                            if write_version_to_cargo_toml(&path_str, &version).is_ok() {
+                                updated.push(path_str);
                             }
                         }
                     }
