@@ -361,9 +361,19 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
                         PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
                         _ => "0".to_string(),
                     },
-                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => match language {
+                    TypeRef::String | TypeRef::Char | TypeRef::Path => match language {
                         "rust" => "String::new()".to_string(),
                         _ => "\"\"".to_string(),
+                    },
+                    TypeRef::Json => match language {
+                        "python" | "ruby" => "{}".to_string(),
+                        "go" => "map[string]interface{}{}".to_string(),
+                        "java" => "new com.fasterxml.jackson.databind.node.ObjectNode(null)".to_string(),
+                        "csharp" => "JObject.Parse(\"{}\")".to_string(),
+                        "php" => "[]".to_string(),
+                        "r" => "list()".to_string(),
+                        "rust" => "serde_json::json!({})".to_string(),
+                        _ => "{}".to_string(),
                     },
                     TypeRef::Duration => "0".to_string(),
                     TypeRef::Bytes => match language {
@@ -757,13 +767,25 @@ pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&Type
             )
             .ok();
         } else {
-            let default_str = default_value_for_field(field, "rust");
-            writeln!(
-                out,
-                "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or({}),",
-                field.name, field.name, default_str
-            )
-            .ok();
+            // For Named types, use unwrap_or_default() since the binding type may differ
+            // from the core type (e.g., excluded enums become String). For primitives and
+            // other types, use explicit defaults.
+            if matches!(&field.ty, TypeRef::Named(_)) {
+                writeln!(
+                    out,
+                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or_default(),",
+                    field.name, field.name
+                )
+                .ok();
+            } else {
+                let default_str = default_value_for_field(field, "rust");
+                writeln!(
+                    out,
+                    "        {}: opts.get(\"{}\").and_then(|t| t.decode().ok()).unwrap_or({}),",
+                    field.name, field.name, default_str
+                )
+                .ok();
+            }
         }
     }
 

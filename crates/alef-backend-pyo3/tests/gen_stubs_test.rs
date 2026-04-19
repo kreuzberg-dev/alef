@@ -946,3 +946,57 @@ fn test_multiple_types_and_functions() {
         "Should have Desc variant typed as SortOrder"
     );
 }
+
+#[test]
+fn test_builtin_shadowing_params_get_noqa_comment() {
+    let backend = Pyo3Backend;
+
+    // A type whose fields use names that shadow Python builtins: `id` and `format`.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Item".to_string(),
+            rust_path: "test_lib::Item".to_string(),
+            fields: vec![
+                make_field("id", TypeRef::Primitive(PrimitiveType::U64), false),
+                make_field("format", TypeRef::String, false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_stubs();
+
+    let result = backend.generate_type_stubs(&api, &config);
+    assert!(result.is_ok());
+
+    let content = result.unwrap().into_iter().next().unwrap().content;
+
+    // The __init__ must be multi-line and carry `# noqa: A002` on builtin-shadowing params.
+    assert!(
+        content.contains("# noqa: A002"),
+        "Builtin-shadowing params must have `# noqa: A002` comment"
+    );
+    assert!(
+        content.contains("id: int"),
+        "id field should be present with int type"
+    );
+    assert!(
+        content.contains("format: str"),
+        "format field should be present with str type"
+    );
+}

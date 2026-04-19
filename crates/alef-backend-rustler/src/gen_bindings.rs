@@ -1238,10 +1238,11 @@ fn gen_nif_init(api: &ApiSurface, config: &AlefConfig) -> String {
         })
         .unwrap_or_else(|| "Elixir.NativeModule.Native".to_string());
     // Check if any opaque types need Resource registration via on_load
+    // Exclude trait types (they shouldn't be registered as Rustler resources)
     let opaque_types: Vec<&str> = api
         .types
         .iter()
-        .filter(|t| t.is_opaque)
+        .filter(|t| t.is_opaque && !t.is_trait)
         .map(|t| t.name.as_str())
         .collect();
     if !opaque_types.is_empty() {

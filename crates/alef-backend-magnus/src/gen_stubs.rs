@@ -61,7 +61,9 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
     lines.push(format!("  class {}", typ.name));
 
     if !typ.doc.is_empty() {
-        lines.push(format!(r#"    # {}"#, typ.doc));
+        for doc_line in typ.doc.lines() {
+            lines.push(format!("    # {doc_line}"));
+        }
         lines.push("".to_string());
     }
 
@@ -92,7 +94,9 @@ fn gen_type_stub(typ: &TypeDef) -> String {
 
     // Add docstring if present
     if !typ.doc.is_empty() {
-        lines.push(format!(r#"    # {}"#, typ.doc));
+        for doc_line in typ.doc.lines() {
+            lines.push(format!("    # {doc_line}"));
+        }
         lines.push("".to_string());
     }
 
@@ -147,7 +151,7 @@ fn gen_type_stub(typ: &TypeDef) -> String {
     lines.join("\n")
 }
 
-/// Generate a method stub.
+/// Generate a method stub using RBS declaration syntax.
 fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
     let params: Vec<String> = method
         .params
@@ -155,23 +159,20 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
         .map(|p| {
             let param_type = rbs_type(&p.ty);
             if p.optional {
-                format!("?{}: {}", p.name, param_type)
+                format!("?{} {}", param_type, p.name)
             } else {
-                format!("{}: {}", p.name, param_type)
+                format!("{} {}", param_type, p.name)
             }
         })
         .collect();
 
     let return_type = rbs_type(&method.return_type);
+    let param_list = format!("({})", params.join(", "));
 
     if is_static {
-        format!("    def self.{}({}) -> {}", method.name, params.join(", "), return_type)
+        format!("    def self.{}: {} -> {}", method.name, param_list, return_type)
     } else {
-        if params.is_empty() {
-            format!("    def {}() -> {}", method.name, return_type)
-        } else {
-            format!("    def {}({}) -> {}", method.name, params.join(", "), return_type)
-        }
+        format!("    def {}: {} -> {}", method.name, param_list, return_type)
     }
 }
 
@@ -183,7 +184,9 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
 
     // Add docstring if present
     if !enum_def.doc.is_empty() {
-        lines.push(format!(r#"    # {}"#, enum_def.doc));
+        for doc_line in enum_def.doc.lines() {
+            lines.push(format!("    # {doc_line}"));
+        }
         lines.push("".to_string());
     }
 

@@ -730,6 +730,85 @@ fn test_type_with_methods_and_fields() {
 }
 
 #[test]
+fn test_multiline_doc_comment_is_valid_rbs() {
+    let backend = MagnusBackend;
+
+    // Multi-line doc strings must each be prefixed with `# `; raw continuation
+    // lines would produce RBS syntax errors (e.g. "provider" parsed as identifier).
+    let multiline_doc = "First line of the doc.\n\nSecond paragraph here.\nThird line.".to_string();
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Client".to_string(),
+            rust_path: "test_lib::Client".to_string(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: true,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            doc: multiline_doc,
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Mode".to_string(),
+            rust_path: "test_lib::Mode".to_string(),
+            variants: vec![EnumVariant {
+                name: "Fast".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            }],
+            doc: "Multi-line enum doc.\nSecond line.".to_string(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config_with_stubs();
+    let result = backend.generate_type_stubs(&api, &config);
+    assert!(result.is_ok(), "Stub generation should succeed");
+
+    let files = result.unwrap();
+    let rbs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("types.rbs"))
+        .unwrap();
+    let content = &rbs_file.content;
+
+    // All doc text must appear only as `# ...` lines; none of the raw prose
+    // should appear without a leading `#` prefix.
+    let bare_prose_fragments = ["Second paragraph here.", "Third line.", "Second line."];
+    for fragment in bare_prose_fragments {
+        // Must not exist as a bare (un-commented) line
+        for line in content.lines() {
+            let trimmed = line.trim();
+            assert!(
+                !(trimmed == fragment),
+                "Bare prose leaked into RBS output: {line:?}"
+            );
+        }
+    }
+
+    // Positive: all doc lines should appear as `# ...`
+    assert!(content.contains("    # First line of the doc."), "First doc line should be prefixed");
+    assert!(content.contains("    # Second paragraph here."), "Second doc line should be prefixed");
+    assert!(content.contains("    # Third line."), "Third doc line should be prefixed");
+    assert!(content.contains("    # Multi-line enum doc."), "Enum first doc line should be prefixed");
+    assert!(content.contains("    # Second line."), "Enum second doc line should be prefixed");
+}
+
+#[test]
 fn test_module_naming_from_crate_name() {
     let backend = MagnusBackend;
 
