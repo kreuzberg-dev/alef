@@ -724,19 +724,37 @@ pub fn is_simple_non_opaque_param(ty: &TypeRef) -> bool {
 /// implement Clone (e.g., `Mutex<T>`), it should be marked as `sanitized=true` so that
 /// `Default::default()` is used instead of calling `.clone()`. Backends that exclude types
 /// should mark such fields appropriately.
-pub fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str) -> String {
-    gen_lossy_binding_to_core_fields_inner(typ, core_import, false)
+pub fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str, option_duration_on_defaults: bool) -> String {
+    gen_lossy_binding_to_core_fields_inner(typ, core_import, false, option_duration_on_defaults)
 }
 
 /// Same as `gen_lossy_binding_to_core_fields` but declares `core_self` as mutable.
-pub fn gen_lossy_binding_to_core_fields_mut(typ: &TypeDef, core_import: &str) -> String {
-    gen_lossy_binding_to_core_fields_inner(typ, core_import, true)
+pub fn gen_lossy_binding_to_core_fields_mut(
+    typ: &TypeDef,
+    core_import: &str,
+    option_duration_on_defaults: bool,
+) -> String {
+    gen_lossy_binding_to_core_fields_inner(typ, core_import, true, option_duration_on_defaults)
 }
 
-fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, needs_mut: bool) -> String {
+fn gen_lossy_binding_to_core_fields_inner(
+    typ: &TypeDef,
+    core_import: &str,
+    needs_mut: bool,
+    option_duration_on_defaults: bool,
+) -> String {
     let core_path = crate::conversions::core_type_path(typ, core_import);
     let mut_kw = if needs_mut { "mut " } else { "" };
-    let mut out = format!("let {mut_kw}core_self = {core_path} {{\n");
+    // When has_stripped_cfg_fields is true we emit ..Default::default() at the end of the
+    // struct literal to fill cfg-gated fields that were stripped from the binding IR.
+    // Suppress clippy::needless_update because the fields only exist when the corresponding
+    // feature is enabled — without the feature, clippy thinks the spread is redundant.
+    let allow = if typ.has_stripped_cfg_fields {
+        "#[allow(clippy::needless_update)]\n        "
+    } else {
+        ""
+    };
+    let mut out = format!("{allow}let {mut_kw}core_self = {core_path} {{\n");
     for field in &typ.fields {
         let name = &field.name;
         if field.sanitized {
@@ -747,8 +765,11 @@ fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, need
                 TypeRef::Duration => {
                     if field.optional {
                         format!("self.{name}.map(std::time::Duration::from_millis)")
-                    } else if typ.has_default {
-                        // option_duration_on_defaults: Duration stored as Option<u64> in binding
+                    } else if option_duration_on_defaults && typ.has_default {
+                        // When option_duration_on_defaults is true, non-optional Duration fields
+                        // on has_default types are stored as Option<u64> in the binding struct.
+                        // Use .map(...).unwrap_or_default() so that None falls back to the core
+                        // type's Default (e.g. Duration::from_secs(30)) rather than Duration::ZERO.
                         format!("self.{name}.map(std::time::Duration::from_millis).unwrap_or_default()")
                     } else {
                         format!("std::time::Duration::from_millis(self.{name})")
@@ -780,18 +801,28 @@ fn gen_lossy_binding_to_core_fields_inner(typ: &TypeDef, core_import: &str, need
                     }
                     _ => format!("self.{name}.clone()"),
                 },
-                TypeRef::Optional(inner) => match inner.as_ref() {
-                    TypeRef::Named(_) => {
-                        format!("self.{name}.clone().map(Into::into)")
+                TypeRef::Optional(inner) => {
+                    // When field.optional is also true, the binding field was flattened from
+                    // Option<Option<T>> to Option<T>. Core expects Option<Option<T>>, so wrap
+                    // with .map(Some) to reconstruct the double-optional.
+                    let base = match inner.as_ref() {
+                        TypeRef::Named(_) => {
+                            format!("self.{name}.clone().map(Into::into)")
+                        }
+                        TypeRef::Duration => {
+                            format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
+                        }
+                        TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
+                            format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
+                        }
+                        _ => format!("self.{name}.clone()"),
+                    };
+                    if field.optional {
+                        format!("({base}).map(Some)")
+                    } else {
+                        base
                     }
-                    TypeRef::Duration => {
-                        format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
-                    }
-                    TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
-                        format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
-                    }
-                    _ => format!("self.{name}.clone()"),
-                },
+                }
                 TypeRef::Map(_, v) => match v.as_ref() {
                     TypeRef::Json => {
                         // HashMap<String, String> (binding) → HashMap<String, Value> (core)

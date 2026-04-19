@@ -672,7 +672,7 @@ fn gen_instance_method(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import);
+        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import, false);
         let core_call = format!("core_self.{}({})", method.name, call_args);
         let result_wrap = match &method.return_type {
             TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path => {
@@ -718,7 +718,7 @@ fn gen_async_instance_method(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import);
+        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import, false);
         let _core_call = format!("core_self.{}({})", method.name, call_args);
         let result_wrap = match &method.return_type {
             TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path => {

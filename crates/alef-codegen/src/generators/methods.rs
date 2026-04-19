@@ -94,6 +94,21 @@ pub fn gen_method(
     let is_owned_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::Owned));
     let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
 
+    // Detect non-opaque RefMut methods that can use the functional clone-mutate-return pattern.
+    // These cannot use &mut self in frozen PyO3 classes or immutable WASM structs, so instead
+    // we generate: clone self to core, apply mutation, convert back to Self.
+    // Conditions: non-opaque, RefMut receiver, no trait source (trait methods need special handling),
+    // all params delegatable (Named types are allowed — gen_call_args handles them via .into()),
+    // and not sanitized.
+    let is_functional_ref_mut = !is_opaque
+        && is_ref_mut_receiver
+        && !method.sanitized
+        && method.trait_source.is_none()
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && crate::shared::is_delegatable_param(&p.ty, opaque_types));
+
     // Methods from trait impls can't be called on Arc<dyn Trait> through deref.
     // Skip these unless there's an adapter body that can handle them.
     let is_trait_method = method.trait_source.is_some();
@@ -207,6 +222,33 @@ pub fn gen_method(
                 );
                 format!("{serde_bindings}let result = {core_call}{err_conv}?;\n        Ok({wrap})")
             }
+        } else if is_functional_ref_mut {
+            // Functional clone-mutate-return pattern for non-opaque RefMut methods.
+            // PyO3 frozen classes and WASM structs don't support &mut self, so instead:
+            //   1. Convert binding self to a mutable core type.
+            //   2. Call the mutating core method (which changes core_self in place).
+            //   3. Convert the mutated core type back to the binding type and return Self.
+            //
+            // The generated signature uses &self -> Self (or -> Result<Self, E> if fallible),
+            // making the method work correctly with immutable binding wrappers.
+            let field_conversions =
+                gen_lossy_binding_to_core_fields_mut(typ, cfg.core_import, cfg.option_duration_on_defaults);
+            let core_call = format!("core_self.{}({call_args})", method.name);
+            if method.error_type.is_some() {
+                let err_conv = match cfg.async_pattern {
+                    AsyncPattern::Pyo3FutureIntoPy => {
+                        ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))"
+                    }
+                    AsyncPattern::NapiNativeAsync => {
+                        ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
+                    }
+                    AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
+                    _ => ".map_err(|e| e.to_string())",
+                };
+                format!("{field_conversions}{core_call}{err_conv}?;\n        Ok(core_self.into())")
+            } else {
+                format!("{field_conversions}{core_call};\n        core_self.into()")
+            }
         } else if !is_opaque
             && !method.sanitized
             && method
@@ -219,9 +261,9 @@ pub fn gen_method(
             // Sanitized fields use Default::default() (lossy but functional for builder pattern).
             let is_ref_mut = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
             let field_conversions = if is_ref_mut {
-                gen_lossy_binding_to_core_fields_mut(typ, cfg.core_import)
+                gen_lossy_binding_to_core_fields_mut(typ, cfg.core_import, cfg.option_duration_on_defaults)
             } else {
-                gen_lossy_binding_to_core_fields(typ, cfg.core_import)
+                gen_lossy_binding_to_core_fields(typ, cfg.core_import, cfg.option_duration_on_defaults)
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
             let newtype_suffix = if method.return_newtype_wrapper.is_some() {
@@ -316,9 +358,9 @@ pub fn gen_method(
             // Construct core type field-by-field, call method, convert result back via .into().
             let is_ref_mut = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
             let field_conversions = if is_ref_mut {
-                gen_lossy_binding_to_core_fields_mut(typ, cfg.core_import)
+                gen_lossy_binding_to_core_fields_mut(typ, cfg.core_import, cfg.option_duration_on_defaults)
             } else {
-                gen_lossy_binding_to_core_fields(typ, cfg.core_import)
+                gen_lossy_binding_to_core_fields(typ, cfg.core_import, cfg.option_duration_on_defaults)
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
             let newtype_suffix = if method.return_newtype_wrapper.is_some() {
@@ -423,8 +465,12 @@ pub fn gen_method(
 
     // For async PyO3 methods, override return type to PyResult<Bound<'py, PyAny>>
     // and add the 'py lifetime generic on the method name.
+    // For functional RefMut methods, override to Self (or Result<Self, E>) because the
+    // generated body clones self, applies the mutation, and returns the updated value.
     let ret = if needs_py {
         "PyResult<Bound<'py, PyAny>>".to_string()
+    } else if is_functional_ref_mut {
+        mapper.wrap_return("Self", method.error_type.is_some())
     } else {
         ret
     };
