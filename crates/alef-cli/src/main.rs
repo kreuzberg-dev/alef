@@ -294,7 +294,7 @@ fn main() -> Result<()> {
             eprintln!("Generating READMEs for: {}", format_languages(&languages));
             let files = pipeline::readme(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
-            let count = pipeline::write_scaffold_files(&files, &base_dir)?;
+            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
             cache::write_stage_hash("readme", &stage_hash, &output_paths)?;
             println!("Generated {count} README files");
@@ -316,7 +316,7 @@ fn main() -> Result<()> {
             eprintln!("Generating API docs for: {}", format_languages(&languages));
             let files = alef_docs::generate_docs(&api, &config, &languages, &output)?;
             let base_dir = std::env::current_dir()?;
-            let count = pipeline::write_scaffold_files(&files, &base_dir)?;
+            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
             cache::write_stage_hash("docs", &stage_hash, &output_paths)?;
             println!("Generated {count} API doc files");
@@ -474,14 +474,14 @@ fn main() -> Result<()> {
 
             eprintln!("Generating READMEs...");
             let readme_files = pipeline::readme(&api, &config, &languages)?;
-            let readme_count = pipeline::write_scaffold_files(&readme_files, &base_dir)?;
+            let readme_count = pipeline::write_scaffold_files_with_overwrite(&readme_files, &base_dir, clean)?;
 
             // Generate e2e tests if [e2e] section is present in config
             let mut e2e_count = 0;
             if let Some(e2e_config) = &config.e2e {
                 eprintln!("Generating e2e test suites...");
                 let files = alef_e2e::generate_e2e(&config, e2e_config, None)?;
-                e2e_count = pipeline::write_scaffold_files(&files, &base_dir)?;
+                e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean)?;
                 alef_e2e::format::run_formatters(&files, e2e_config);
             }
 
@@ -490,7 +490,7 @@ fn main() -> Result<()> {
             eprintln!("Generating API docs...");
             let docs_api = pipeline::extract_unfiltered(&config, config_path)?;
             let doc_files = alef_docs::generate_docs(&docs_api, &config, &languages, "docs/reference")?;
-            let doc_count = pipeline::write_scaffold_files(&doc_files, &base_dir)?;
+            let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
 
             // Format and lint all generated files via prek (best-effort)
             eprintln!("Running formatters and linters...");
@@ -543,7 +543,7 @@ fn main() -> Result<()> {
                     let languages = lang.as_deref();
                     let files = alef_e2e::generate_e2e(&config, e2e_ref, languages)?;
                     let base_dir = std::env::current_dir()?;
-                    let count = pipeline::write_scaffold_files(&files, &base_dir)?;
+                    let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
                     // Run per-language formatters
                     alef_e2e::format::run_formatters(&files, e2e_ref);
