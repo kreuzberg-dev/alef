@@ -102,9 +102,10 @@ pub fn gen_struct_with_per_field_attrs(
             && typ.has_default
             && !field.optional
             && matches!(field.ty, TypeRef::Duration);
-        let ty = if field.optional || force_optional {
+        let ty = if (field.optional || force_optional) && !matches!(field.ty, TypeRef::Optional(_)) {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
+            // field.ty is already Optional(T) — mapped type is already Option<T>, don't double-wrap
             mapper.map_type(&field.ty)
         };
         let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
@@ -150,9 +151,10 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
             && typ.has_default
             && !field.optional
             && matches!(field.ty, TypeRef::Duration);
-        let ty = if field.optional || force_optional {
+        let ty = if (field.optional || force_optional) && !matches!(field.ty, TypeRef::Optional(_)) {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
+            // field.ty is already Optional(T) — mapped type is already Option<T>, don't double-wrap
             mapper.map_type(&field.ty)
         };
         let attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();

@@ -570,7 +570,12 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
     enums: &[EnumDef],
 ) -> String {
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
-    let mut out = format!("let core_self = {core_path} {{\n");
+    let allow = if typ.has_stripped_cfg_fields {
+        "#[allow(clippy::needless_update)]\n        "
+    } else {
+        ""
+    };
+    let mut out = format!("{allow}let core_self = {core_path} {{\n");
     for field in &typ.fields {
         let name = &field.name;
         if field.sanitized {

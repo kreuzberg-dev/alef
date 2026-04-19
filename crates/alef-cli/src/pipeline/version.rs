@@ -216,6 +216,36 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
 
     let mut updated = vec![];
 
+    // Workspace member Cargo.toml files: sync [package] version to match root.
+    // Parses workspace.members globs from the root Cargo.toml and updates each member's version.
+    if let Ok(root_content) = std::fs::read_to_string("Cargo.toml") {
+        if let Ok(root_toml) = root_content.parse::<toml::Table>() {
+            if let Some(members) = root_toml
+                .get("workspace")
+                .and_then(|w| w.get("members"))
+                .and_then(|m| m.as_array())
+            {
+                for member in members {
+                    if let Some(pattern) = member.as_str() {
+                        if let Ok(paths) = glob::glob(&format!("{pattern}/Cargo.toml")) {
+                            for entry in paths.flatten() {
+                                if let Ok(content) = std::fs::read_to_string(&entry) {
+                                    if let Some(new_content) =
+                                        replace_version_pattern(&content, r#"version = "[^"]*""#, &version)
+                                    {
+                                        if std::fs::write(&entry, &new_content).is_ok() {
+                                            updated.push(entry.to_string_lossy().to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Python: pyproject.toml — convert semver pre-release to PEP 440 format
     // e.g., "0.1.0-rc.1" → "0.1.0rc1", "0.1.0-alpha.2" → "0.1.0a2", "0.1.0-beta.3" → "0.1.0b3"
     let python_version = to_pep440(&version);

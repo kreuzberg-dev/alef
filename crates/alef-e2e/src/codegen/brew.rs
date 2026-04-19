@@ -200,6 +200,44 @@ fn render_run_tests(categories: &[String]) -> String {
     let _ = writeln!(out, "    fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
+    let _ = writeln!(out, "assert_greater_than_or_equal() {{");
+    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "    if [ \"$actual\" -lt \"$expected\" ]; then");
+    let _ = writeln!(out, "        echo \"FAIL [$label]: expected $actual >= $expected\" >&2");
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "assert_is_empty() {{");
+    let _ = writeln!(out, "    local actual=\"$1\" label=\"$2\"");
+    let _ = writeln!(out, "    if [ -n \"$actual\" ]; then");
+    let _ = writeln!(
+        out,
+        "        echo \"FAIL [$label]: expected empty value, got '$actual'\" >&2"
+    );
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "assert_less_than() {{");
+    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "    if [ \"$actual\" -ge \"$expected\" ]; then");
+    let _ = writeln!(out, "        echo \"FAIL [$label]: expected $actual < $expected\" >&2");
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "assert_not_contains() {{");
+    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "    if [[ \"$actual\" == *\"$expected\"* ]]; then");
+    let _ = writeln!(
+        out,
+        "        echo \"FAIL [$label]: expected not to contain '$expected'\" >&2"
+    );
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
 
     // Source per-category files.
     let script_dir = r#"SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)""#;
@@ -485,6 +523,82 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
                     let _ = writeln!(
                         out,
                         "    assert_greater_than \"$val_{safe_field}\" '{threshold}' '{field}'"
+                    );
+                }
+            }
+        }
+        "greater_than_or_equal" => {
+            if let Some(field) = &assertion.field {
+                if let Some(val) = &assertion.value {
+                    let resolved = field_resolver.resolve(field);
+                    let jq_path = field_to_jq_path(resolved);
+                    let threshold = json_value_to_shell_string(val);
+                    let safe_field = sanitize_ident(field);
+                    let _ = writeln!(out, "    local val_{safe_field}");
+                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(
+                        out,
+                        "    assert_greater_than_or_equal \"$val_{safe_field}\" '{threshold}' '{field}'"
+                    );
+                }
+            }
+        }
+        "contains_all" => {
+            if let Some(field) = &assertion.field {
+                if let Some(serde_json::Value::Array(items)) = &assertion.value {
+                    let resolved = field_resolver.resolve(field);
+                    let jq_path = field_to_jq_path(resolved);
+                    let safe_field = sanitize_ident(field);
+                    let _ = writeln!(out, "    local val_{safe_field}");
+                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    for (index, item) in items.iter().enumerate() {
+                        let item_str = json_value_to_shell_string(item);
+                        let _ = writeln!(
+                            out,
+                            "    assert_contains \"$val_{safe_field}\" '{item_str}' '{field}[{index}]'"
+                        );
+                    }
+                }
+            }
+        }
+        "is_empty" => {
+            if let Some(field) = &assertion.field {
+                let resolved = field_resolver.resolve(field);
+                let jq_path = field_to_jq_path(resolved);
+                let safe_field = sanitize_ident(field);
+                let _ = writeln!(out, "    local val_{safe_field}");
+                let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                let _ = writeln!(out, "    assert_is_empty \"$val_{safe_field}\" '{field}'");
+            }
+        }
+        "less_than" => {
+            if let Some(field) = &assertion.field {
+                if let Some(val) = &assertion.value {
+                    let resolved = field_resolver.resolve(field);
+                    let jq_path = field_to_jq_path(resolved);
+                    let threshold = json_value_to_shell_string(val);
+                    let safe_field = sanitize_ident(field);
+                    let _ = writeln!(out, "    local val_{safe_field}");
+                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(
+                        out,
+                        "    assert_less_than \"$val_{safe_field}\" '{threshold}' '{field}'"
+                    );
+                }
+            }
+        }
+        "not_contains" => {
+            if let Some(field) = &assertion.field {
+                if let Some(expected) = &assertion.value {
+                    let resolved = field_resolver.resolve(field);
+                    let jq_path = field_to_jq_path(resolved);
+                    let expected_str = json_value_to_shell_string(expected);
+                    let safe_field = sanitize_ident(field);
+                    let _ = writeln!(out, "    local val_{safe_field}");
+                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(
+                        out,
+                        "    assert_not_contains \"$val_{safe_field}\" '{expected_str}' '{field}'"
                     );
                 }
             }

@@ -142,7 +142,7 @@ impl Backend for NapiBackend {
         let struct_names: ahash::AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
 
         for enum_def in &api.enums {
-            builder.add_item(&gen_enum(enum_def, &prefix));
+            builder.add_item(&gen_enum(enum_def, &prefix, has_serde));
         }
 
         for func in &api.functions {
@@ -382,7 +382,8 @@ fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str, has_serde: bool)
         let mapped_type = mapper.map_type(&field.ty);
         // For types with Default, make all fields optional so JS callers
         // can pass partial objects (missing fields get defaults).
-        let field_type = if field.optional || typ.has_default {
+        // When field.ty is already Optional(T), mapped_type is already Option<T> — don't double-wrap.
+        let field_type = if (field.optional || typ.has_default) && !matches!(field.ty, TypeRef::Optional(_)) {
             format!("Option<{}>", mapped_type)
         } else {
             mapped_type
@@ -699,11 +700,11 @@ fn gen_static_method(
 /// For simple enums (no variant fields): generates `#[napi(string_enum)]`.
 /// For tagged enums with data fields: generates a flattened `#[napi(object)]` struct
 /// with a discriminant field and all variant fields as optional.
-fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
+fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> String {
     let is_tagged_data_enum = enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
     if is_tagged_data_enum {
-        return gen_tagged_enum_as_object(enum_def, prefix);
+        return gen_tagged_enum_as_object(enum_def, prefix, has_serde);
     }
 
     // Simple string enum
@@ -723,9 +724,14 @@ fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
         None => "#[napi(string_enum)]".to_string(),
     };
 
+    let derives = if has_serde {
+        "#[derive(Clone, serde::Serialize, serde::Deserialize)]".to_string()
+    } else {
+        "#[derive(Clone)]".to_string()
+    };
     let mut lines = vec![
         string_enum_attr,
-        "#[derive(Clone, serde::Serialize, serde::Deserialize)]".to_string(),
+        derives,
         format!("pub enum {prefix}{} {{", enum_def.name),
     ];
 
@@ -759,14 +765,19 @@ fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
 ///     pub token: Option<String>,
 /// }
 /// ```
-fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str) -> String {
+fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> String {
     use alef_codegen::type_mapper::TypeMapper;
     let mapper = NapiMapper::new(prefix.to_string());
 
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
+    let derive = if has_serde {
+        "#[derive(Clone, serde::Serialize, serde::Deserialize)]"
+    } else {
+        "#[derive(Clone)]"
+    };
     let mut lines = vec![
-        "#[derive(Clone, serde::Serialize, serde::Deserialize)]".to_string(),
+        derive.to_string(),
         "#[napi(object)]".to_string(),
         format!("pub struct {prefix}{} {{", enum_def.name),
         format!("    #[napi(js_name = \"{tag_field}\")]"),

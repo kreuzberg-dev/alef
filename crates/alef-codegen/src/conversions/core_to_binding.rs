@@ -106,13 +106,40 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             base_conversion
         };
+        // When field.optional=true AND field.ty=Optional(T), the binding struct flattens
+        // Option<Option<T>> to Option<T>. Core produces Option<Option<T>>, binding needs
+        // Option<T>. Generate the conversion by treating the pre-flattened field as Option<T>:
+        // call the standard conversion for the inner type T with optional=true, substituting
+        // val.{name}.flatten() for val.{name} so all cast/conversion logic applies to T.
+        let is_flattened_optional = field.optional && matches!(field.ty, TypeRef::Optional(_));
+        let base_conversion = if is_flattened_optional {
+            if let TypeRef::Optional(inner) = &field.ty {
+                // Produce the conversion as if the field is Option<inner> with value val.name.flatten()
+                let inner_conv = field_conversion_from_core_cfg(
+                    &field.name,
+                    inner.as_ref(),
+                    true,
+                    field.sanitized,
+                    opaque_types,
+                    config,
+                );
+                // inner_conv references val.{name}; replace with val.{name}.flatten()
+                inner_conv.replace(&format!("val.{}", field.name), &format!("val.{}.flatten()", field.name))
+            } else {
+                base_conversion
+            }
+        } else {
+            base_conversion
+        };
         // Optionalized non-optional fields need Some() wrapping in core→binding direction.
         // This covers both NAPI-style full optionalization and PyO3-style Duration optionalization.
-        let needs_some_wrap = (optionalized && !field.optional)
-            || (config.option_duration_on_defaults
-                && typ.has_default
-                && !field.optional
-                && matches!(field.ty, TypeRef::Duration));
+        // Flattened-optional fields are already handled above with the correct type.
+        let needs_some_wrap = !is_flattened_optional
+            && ((optionalized && !field.optional)
+                || (config.option_duration_on_defaults
+                    && typ.has_default
+                    && !field.optional
+                    && matches!(field.ty, TypeRef::Duration)));
         let conversion = if needs_some_wrap {
             // Extract the value expression after "name: " and wrap in Some()
             if let Some(expr) = base_conversion.strip_prefix(&format!("{}: ", field.name)) {

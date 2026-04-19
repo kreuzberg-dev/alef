@@ -238,6 +238,11 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
             // Binding has Option<String>, core has Option<PathBuf>
             format!("{name}: val.{name}.map(|s| std::path::PathBuf::from(s))")
         }
+        TypeRef::Optional(_) => {
+            // Field was flattened from Option<Option<T>> to Option<T> in the binding struct.
+            // Core expects Option<Option<T>>, so wrap with .map(Some) to reconstruct.
+            format!("{name}: val.{name}.map(Some)")
+        }
         // Char: binding uses Option<String>, core uses char
         TypeRef::Char => {
             format!("{name}: val.{name}.and_then(|s| s.chars().next()).unwrap_or('*')")
@@ -430,6 +435,20 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
 
 /// Binding→core field conversion with backend-specific config (i64 casts, etc.).
 pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, config: &ConversionConfig) -> String {
+    // When optional=true and ty=Optional(T), the binding field was flattened from
+    // Option<Option<T>> to Option<T>. Core expects Option<Option<T>>, so wrap with .map(Some).
+    // This applies regardless of cast config; handle before any other dispatch.
+    if optional && matches!(ty, TypeRef::Optional(_)) {
+        // Delegate to get the inner Optional(T) → Option<T> conversion (with optional=false,
+        // since the outer Option is handled by the .map(Some) we add here).
+        let inner_expr = field_conversion_to_core_cfg(name, ty, false, config);
+        // inner_expr is "name: <expr-for-Option<T>>"; wrap it with .map(Some)
+        if let Some(expr) = inner_expr.strip_prefix(&format!("{name}: ")) {
+            return format!("{name}: ({expr}).map(Some)");
+        }
+        return inner_expr;
+    }
+
     // WASM JsValue: use serde_wasm_bindgen for Map, nested Vec, and Vec<Json> types
     if config.map_uses_jsvalue {
         let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));

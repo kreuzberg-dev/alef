@@ -775,7 +775,14 @@ fn gen_lossy_binding_to_core_fields_inner(
                         format!("std::time::Duration::from_millis(self.{name})")
                     }
                 }
-                TypeRef::String | TypeRef::Char | TypeRef::Bytes => format!("self.{name}.clone()"),
+                TypeRef::String | TypeRef::Bytes => format!("self.{name}.clone()"),
+                TypeRef::Char => {
+                    if field.optional {
+                        format!("self.{name}.as_ref().and_then(|s| s.chars().next())")
+                    } else {
+                        format!("self.{name}.chars().next().unwrap_or('*')")
+                    }
+                }
                 TypeRef::Path => {
                     if field.optional {
                         format!("self.{name}.clone().map(Into::into)")
