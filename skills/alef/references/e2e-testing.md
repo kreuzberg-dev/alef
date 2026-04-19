@@ -1,10 +1,12 @@
 # E2E Test Generation
 
-Alef generates complete, runnable end-to-end test suites for 12 languages from a single set of JSON fixture files. Each generated project is self-contained with build files, test files, and local package references.
+Alef generates complete, runnable end-to-end test suites for 13 languages from a single set of JSON fixture files. Each generated project is self-contained with build files, test files, and local package references.
 
 ## Supported Languages
 
-Rust, Python, TypeScript, Ruby, Go, Java, C#, Elixir, PHP, WebAssembly (JS), R, C.
+Rust, Python, TypeScript, Ruby, Go, Java, C#, Elixir, PHP, WebAssembly (JS), R, C, Brew.
+
+**Brew:** Generates shell test scripts for verifying CLI binaries installed via Homebrew.
 
 Each language has a dedicated generator under `crates/alef-e2e/src/codegen/`.
 
@@ -286,7 +288,13 @@ Generate e2e test projects from fixtures. Results are cached -- re-runs are skip
 ```bash
 alef e2e generate              # All configured languages
 alef e2e generate --lang rust,python  # Specific languages
+alef e2e generate --registry   # Use published registry packages instead of local path dependencies
 ```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--lang` | string (comma-separated) | all from `[e2e].languages` | Languages to generate tests for |
+| `--registry` | bool | `false` | Generate standalone test apps using published registry package versions instead of local path dependencies |
 
 ### `alef e2e init`
 

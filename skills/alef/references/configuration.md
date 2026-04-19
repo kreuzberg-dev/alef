@@ -234,6 +234,37 @@ r = "list"                   # list | r6
 
 ---
 
+## `[readme]` -- README Generation
+
+Configuration for per-language README generation.
+
+```toml
+[readme]
+template_dir = "readme-templates"
+snippets_dir = "readme-snippets"
+output_pattern = "{lang}/README.md"
+discord_url = "https://discord.gg/yourserver"
+banner_url = "https://example.com/banner.png"
+
+[readme.languages.python]
+key = "value"
+
+[readme.languages.node]
+key = "value"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `template_dir` | string | -- | Directory containing minijinja README templates by language |
+| `snippets_dir` | string | -- | Directory containing reusable code snippets for embedding in READMEs |
+| `config` | map | `{}` | Global context variables for minijinja template rendering |
+| `output_pattern` | string | -- | Output path pattern using `{lang}` placeholder |
+| `discord_url` | string | -- | Discord community URL to include in generated READMEs |
+| `banner_url` | string | -- | Banner image URL to include in generated READMEs |
+| `languages.<lang>` | map | `{}` | Per-language key/value context variables for minijinja templates |
+
+---
+
 ## `[scaffold]` -- Package Metadata
 
 Metadata used when generating package manifests (`pyproject.toml`, `package.json`, `.gemspec`, `composer.json`, `mix.exs`, `go.mod`, `pom.xml`, `.csproj`, `DESCRIPTION`):
@@ -408,6 +439,12 @@ async = true
 args = [
   { name = "path", field = "input.path", type = "string" },
 ]
+
+[e2e.registry]
+output = "e2e-registry"
+packages = { python = "my-library", node = "@myorg/my-library" }
+categories = ["smoke", "basic"]
+github_repo = "org/repo"
 ```
 
 | Field | Type | Default | Description |
@@ -419,6 +456,10 @@ args = [
 | `call.module` | string | -- | Module/package to import in generated tests |
 | `call.async` | bool | `false` | Whether the function is async |
 | `call.args` | array | `[]` | Argument mappings from fixture fields to function parameters |
+| `registry.output` | string | -- | Output directory for registry-based test projects (when `--registry` is used) |
+| `registry.packages` | map | `{}` | Map of language to published package name/identifier |
+| `registry.categories` | string[] | `[]` | Fixture categories to include in registry test generation |
+| `registry.github_repo` | string | -- | GitHub repository identifier for release artifacts |
 
 ---
 
@@ -464,3 +505,20 @@ init_calls = ["register_custom_types(m)?;"]
 | `classes` | string[] | Class/type names to register in the module init |
 | `functions` | string[] | Function names to register in the module init |
 | `init_calls` | string[] | Raw Rust expressions to include in the module init function |
+
+---
+
+## `custom_files` -- Custom File Inclusion
+
+Top-level map of output group names to lists of custom file paths to include in generation.
+
+```toml
+[custom_files]
+python = ["src/custom_helpers.py"]
+node = ["src/custom_bridge.ts"]
+all = ["LICENSE", "CHANGELOG.md"]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `<group>` | string[] | List of custom file paths to include (group can be language name or `all`) |
