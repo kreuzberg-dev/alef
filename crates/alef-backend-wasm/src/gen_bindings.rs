@@ -366,16 +366,15 @@ fn gen_opaque_method(
     opaque_types: &AHashSet<String>,
     prefix: &str,
 ) -> String {
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let ty = mapper.map_type(&p.ty);
-            if p.optional {
-                format!("{}: Option<{}>", p.name, ty)
-            } else {
-                format!("{}: {}", p.name, ty)
-            }
+            let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+            format_param_unused(&p.name, &mapped_ty, !can_delegate)
         })
         .collect();
 
@@ -388,8 +387,6 @@ fn gen_opaque_method(
     } else {
         String::new()
     };
-
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
     let async_kw = if method.is_async { "async " } else { "" };
 
@@ -489,16 +486,15 @@ fn gen_opaque_static_method(
     core_import: &str,
     prefix: &str,
 ) -> String {
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let ty = mapper.map_type(&p.ty);
-            if p.optional {
-                format!("{}: Option<{}>", p.name, ty)
-            } else {
-                format!("{}: {}", p.name, ty)
-            }
+            let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+            format_param_unused(&p.name, &mapped_ty, !can_delegate)
         })
         .collect();
 
@@ -511,8 +507,6 @@ fn gen_opaque_static_method(
     } else {
         String::new()
     };
-
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
@@ -783,16 +777,15 @@ fn gen_method(
     opaque_types: &AHashSet<String>,
     prefix: &str,
 ) -> String {
+    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let ty = mapper.map_type(&p.ty);
-            if p.optional {
-                format!("{}: Option<{}>", p.name, ty)
-            } else {
-                format!("{}: {}", p.name, ty)
-            }
+            let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+            format_param_unused(&p.name, &mapped_ty, !can_delegate && !method.is_async)
         })
         .collect();
 
@@ -805,8 +798,6 @@ fn gen_method(
     } else {
         String::new()
     };
-
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
     let mut attrs = String::new();
     // Per-item clippy suppression: too_many_arguments when >7 params (including &self for instance methods)
@@ -973,6 +964,12 @@ fn gen_method(
     }
 }
 
+/// Helper: format a parameter, prefixing with _ if unused
+fn format_param_unused(name: &str, ty: &str, unused: bool) -> String {
+    let prefix = if unused { "_" } else { "" };
+    format!("{}{}: {}", prefix, name, ty)
+}
+
 /// Generate a wasm-bindgen enum definition.
 fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
     let js_name = format!("{prefix}{}", enum_def.name);
@@ -1008,16 +1005,15 @@ fn gen_function(
     opaque_types: &AHashSet<String>,
     prefix: &str,
 ) -> String {
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+
     let params: Vec<String> = func
         .params
         .iter()
         .map(|p| {
             let ty = mapper.map_type(&p.ty);
-            if p.optional {
-                format!("{}: Option<{}>", p.name, ty)
-            } else {
-                format!("{}: {}", p.name, ty)
-            }
+            let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+            format_param_unused(&p.name, &mapped_ty, !can_delegate && !func.is_async)
         })
         .collect();
 
@@ -1030,8 +1026,6 @@ fn gen_function(
     } else {
         String::new()
     };
-
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
 
     let mut attrs = String::new();
     // Per-item clippy suppression: too_many_arguments when >7 params
