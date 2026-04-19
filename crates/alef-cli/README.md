@@ -15,7 +15,7 @@
 
 CLI for the alef polyglot binding generator
 
-The main entry point for alef, providing the `alef` command-line tool that orchestrates the full binding generation pipeline. Commands include extract, generate, stubs, scaffold, readme, docs, build, test, lint, verify, diff, sync-versions, e2e, and cache. Uses blake3-based caching for incremental regeneration and includes a backend registry wiring all 11 language backends (Python, TypeScript, Ruby, PHP, Go, Java, C#, Elixir, R, WASM, FFI/C).
+The main entry point for alef, providing the `alef` command-line tool that orchestrates the full binding generation pipeline. Commands include init, extract, generate, stubs, scaffold, readme, docs, build, test, lint, verify, diff, all, e2e, sync-versions, and cache. Uses blake3-based caching for incremental regeneration and includes a backend registry wiring all 11 language backends (Python, TypeScript, Ruby, PHP, Go, Java, C#, Elixir, R, WASM, FFI/C).
 
 Part of the [alef](https://github.com/kreuzberg-dev/alef) polyglot binding generator.
 

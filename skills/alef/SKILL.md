@@ -139,7 +139,7 @@ node = "interface"
 ### Update After Changing Rust API
 
 ```bash
-alef all                   # Full pipeline: generate + stubs + scaffold + readme
+alef all                   # Full pipeline: generate + stubs + scaffold + readme + docs + e2e (when configured)
 alef verify --exit-code    # Or just check what changed
 ```
 
@@ -154,6 +154,7 @@ alef test --e2e            # Run all tests including e2e
 
 ```bash
 alef sync-versions --bump patch   # Bump patch and sync everywhere
+alef sync-versions --set 1.2.3    # Set specific version and sync
 alef sync-versions                # Just sync current version
 ```
 
@@ -165,7 +166,7 @@ Alef provides pre-commit hooks for consumer repos:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.3.2
+    rev: v0.3.5
     hooks:
       - id: alef-verify    # Check-only: fails if stale
       # OR

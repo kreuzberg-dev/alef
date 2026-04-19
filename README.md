@@ -123,10 +123,10 @@ alef test --lang python,go # Specific languages
 | `alef build` | Build bindings with native tools (`maturin`, `napi`, `wasm-pack`, etc.) |
 | `alef test` | Run per-language test suites |
 | `alef lint` | Run configured linters on generated output |
-| `alef sync-versions` | Sync version from `Cargo.toml` to all manifests |
+| `alef sync-versions` | Sync version from `Cargo.toml` to all manifests (use `--set <version>` to override) |
 | `alef verify` | Check if bindings are up-to-date (CI mode with `--exit-code`) |
 | `alef diff` | Show what would change without writing |
-| `alef all` | Run full pipeline: generate + stubs + scaffold + readme + sync |
+| `alef all` | Run full pipeline: generate + stubs + scaffold + readme + e2e + docs + sync |
 | `alef e2e` | Generate e2e test projects from JSON fixtures |
 | `alef cache` | Manage build cache |
 
@@ -415,7 +415,7 @@ async_wrappers = false
 
 ### `[sync]` -- Version Synchronization
 
-Configure the `alef sync-versions` command:
+Configure the `alef sync-versions` command (use `--set <version>` to override the version read from `Cargo.toml`):
 
 ```toml
 [sync]
@@ -546,7 +546,7 @@ Fails if any generated file is stale -- does not modify files:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.3.0
+    rev: v0.3.5
     hooks:
       - id: alef-verify
 ```
@@ -559,7 +559,7 @@ Regenerates all output (bindings, stubs, docs, readme, scaffold) when source fil
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.3.0
+    rev: v0.3.5
     hooks:
       - id: alef-generate
 ```

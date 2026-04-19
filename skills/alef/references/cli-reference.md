@@ -226,7 +226,7 @@ Always operates on all configured languages (no `--lang` filter).
 
 ## `alef all`
 
-Run the full pipeline: generate + stubs + public API + scaffold + readme + sync. Equivalent to running `generate`, `stubs`, `scaffold`, and `readme` in sequence.
+Run the full pipeline: generate + stubs + public API + scaffold + readme + docs + e2e generation (when configured) + sync. Equivalent to running `generate`, `stubs`, `scaffold`, `readme`, `docs`, and `e2e generate` in sequence.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -267,6 +267,7 @@ Generate e2e test projects from JSON fixture files.
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--lang` | string (comma-separated) | all from `[e2e].languages` | Languages to generate tests for |
+| `--registry` | bool | `false` | Generate standalone test apps using published registry package versions instead of local path dependencies |
 
 ```bash
 alef e2e generate
