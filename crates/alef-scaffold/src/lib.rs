@@ -1480,11 +1480,68 @@ ignored = ["wasm-bindgen-futures"]
         features = core_dep_features(config, Language::Wasm),
     );
 
-    Ok(vec![GeneratedFile {
+    let mut files = vec![GeneratedFile {
         path: PathBuf::from(format!("crates/{}-wasm/Cargo.toml", core_crate_dir)),
         content,
         generated_header: true,
-    }])
+    }];
+
+    // Generate package.json for npm publishing.
+    // Uses the node package name with -wasm suffix for the npm scope.
+    let node_pkg = config.node_package_name();
+    let wasm_pkg_name = format!("{node_pkg}-wasm");
+    let pkg_json = format!(
+        r#"{{
+  "name": "{wasm_pkg_name}",
+  "version": "{version}",
+  "private": false,
+  "description": "{description}",
+  "license": "{license}",
+  "repository": {{
+    "type": "git",
+    "url": "{repository}",
+    "directory": "crates/{core_crate_dir}-wasm"
+  }},
+  "type": "module",
+  "files": [
+    "pkg",
+    "*.wasm",
+    "*.d.ts",
+    "README.md"
+  ],
+  "main": "pkg/nodejs/{core_crate_dir}_wasm.js",
+  "module": "pkg/web/{core_crate_dir}_wasm.js",
+  "types": "pkg/nodejs/{core_crate_dir}_wasm.d.ts",
+  "scripts": {{
+    "build": "wasm-pack build --target nodejs --out-dir pkg/nodejs",
+    "build:ci": "wasm-pack build --release --target nodejs --out-dir pkg/nodejs",
+    "build:wasm:web": "wasm-pack build --release --target web --out-dir pkg/web",
+    "build:wasm:bundler": "wasm-pack build --release --target bundler --out-dir pkg/bundler",
+    "build:wasm:nodejs": "wasm-pack build --release --target nodejs --out-dir pkg/nodejs",
+    "build:wasm:deno": "wasm-pack build --release --target deno --out-dir pkg/deno",
+    "build:all": "npm run build:wasm:web && npm run build:wasm:bundler && npm run build:wasm:nodejs && npm run build:wasm:deno",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage",
+    "clean": "rm -rf pkg dist"
+  }}
+}}
+"#,
+        wasm_pkg_name = wasm_pkg_name,
+        version = version,
+        description = meta.description,
+        license = meta.license,
+        repository = meta.repository,
+        core_crate_dir = core_crate_dir,
+    );
+
+    files.push(GeneratedFile {
+        path: PathBuf::from(format!("crates/{}-wasm/package.json", core_crate_dir)),
+        content: pkg_json,
+        generated_header: false,
+    });
+
+    Ok(files)
 }
 
 /// Generate a `.pre-commit-config.yaml` file based on configured languages.
