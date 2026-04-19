@@ -1550,7 +1550,7 @@ ignored = ["wasm-bindgen-futures"]
     "build:wasm:bundler": "wasm-pack build --release --target bundler --out-dir pkg/bundler",
     "build:wasm:nodejs": "wasm-pack build --release --target nodejs --out-dir pkg/nodejs",
     "build:wasm:deno": "wasm-pack build --release --target deno --out-dir pkg/deno",
-    "build:all": "npm run build:wasm:web && npm run build:wasm:bundler && npm run build:wasm:nodejs && npm run build:wasm:deno",
+    "build:all": "npm run build:wasm:web && npm run build:wasm:bundler && npm run build:wasm:nodejs && npm run build:wasm:deno && find pkg -name .gitignore -delete",
     "test": "vitest run",
     "test:watch": "vitest watch",
     "test:coverage": "vitest run --coverage",
