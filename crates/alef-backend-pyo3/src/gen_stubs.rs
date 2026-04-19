@@ -132,6 +132,13 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
+    // D101: every public class needs a docstring.
+    let doc = if typ.doc.is_empty() {
+        format!("Wrapper for {}.", typ.name)
+    } else {
+        typ.doc.lines().next().unwrap_or("").to_string()
+    };
+    lines.push(format!("    \"\"\"{}\"\"\"", doc));
 
     // Instance methods
     for method in &typ.methods {
@@ -160,6 +167,13 @@ fn gen_type_stub(typ: &TypeDef, api: &ApiSurface) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
+    // D101: every public class needs a docstring.
+    let doc = if typ.doc.is_empty() {
+        format!("Wrapper for {}.", typ.name)
+    } else {
+        typ.doc.lines().next().unwrap_or("").to_string()
+    };
+    lines.push(format!("    \"\"\"{}\"\"\"", doc));
 
     // Add field type annotations
     for field in &typ.fields {
@@ -224,8 +238,14 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
         format!("{}: {} = None", f.name, param_type)
     }));
 
+    // If any parameter shadows a Python builtin we must use the multi-line form so we can
+    // append `# noqa: A002` on those lines. The noqa suppression is not valid on a single-line
+    // def, so force wrapping whenever a builtin-shadowing param is present.
+    let has_builtin_param = params
+        .iter()
+        .any(|p| is_python_builtin_name(p.split(':').next().unwrap_or("").trim()));
     let single_line = format!("    def __init__(self, {}) -> None: ...", params.join(", "));
-    if single_line.len() <= 100 {
+    if single_line.len() <= 100 && !has_builtin_param {
         single_line
     } else {
         // Wrap parameters across multiple lines to stay within 100 chars.
@@ -339,6 +359,13 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", enum_def.name));
+    // D101: every public class needs a docstring.
+    let doc = if enum_def.doc.is_empty() {
+        format!("Wrapper for {}.", enum_def.name)
+    } else {
+        enum_def.doc.lines().next().unwrap_or("").to_string()
+    };
+    lines.push(format!("    \"\"\"{}\"\"\"", doc));
 
     if enum_has_data_variants(enum_def) {
         // Data enums are frozen structs accepting a dict.

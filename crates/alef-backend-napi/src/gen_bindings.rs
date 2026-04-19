@@ -72,7 +72,8 @@ impl Backend for NapiBackend {
         let cfg = Self::binding_config(&core_import, &prefix, has_serde);
 
         let mut builder = RustFileBuilder::new().with_generated_header();
-        builder.add_inner_attribute("allow(dead_code)");
+        builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
+        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits)");
         builder.add_import("napi::*");
         builder.add_import("napi_derive::napi");
 

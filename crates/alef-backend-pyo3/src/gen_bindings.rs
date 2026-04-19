@@ -96,7 +96,7 @@ impl Backend for Pyo3Backend {
         // PyO3 0.22+ deprecates auto-derived FromPyObject; silence until upstream stabilises.
         builder.add_inner_attribute("allow(deprecated, dead_code)");
         builder.add_inner_attribute(
-            "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss)",
+            "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::just_underscores_and_digits)",
         );
         builder.add_import("pyo3::prelude::*");
         // Note: core_import and path_mapping crates are referenced via fully-qualified paths
@@ -677,7 +677,7 @@ fn python_field_type(
             python_field_type(v, false, enum_names, data_enum_names)
         ),
         // Data enums: users pass a dict with a "type" discriminator and fields.
-        TypeRef::Named(name) if data_enum_names.contains(name) => "dict".to_string(),
+        TypeRef::Named(name) if data_enum_names.contains(name) => "dict[str, Any]".to_string(),
         TypeRef::Named(name) if enum_names.contains(name) => "str".to_string(),
         TypeRef::Named(_name) => "Any".to_string(), // Use Any for undefined types to avoid F821
         TypeRef::Optional(inner) => {
@@ -1226,6 +1226,8 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
                 format!("{}.", doc)
             };
             out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
+        } else {
+            out.push_str("    pass\n");
         }
         out.push_str("\n\n");
 
@@ -1241,6 +1243,8 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
                     format!("{}.", doc)
                 };
                 out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
+            } else {
+                out.push_str("    pass\n");
             }
             out.push_str("\n\n");
         }

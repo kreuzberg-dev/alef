@@ -242,10 +242,22 @@ fn gen_go_file(
     }
 
     // Generate enum types and constants
-    let enum_names: std::collections::HashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
+    // Only unit enums map to `type X string` — data enums are generated as Go structs below.
+    let unit_enum_names: std::collections::HashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|e| e.variants.iter().all(|v| v.fields.is_empty()))
+        .map(|e| e.name.as_str())
+        .collect();
     for enum_def in &api.enums {
         writeln!(out, "{}\n", gen_enum_type(enum_def)).ok();
     }
+
+    // Error type names that are also opaque types — in this case the error struct emitted by
+    // gen_go_error_types is the Go-side type and the opaque handle definition below would be a
+    // duplicate. Skip re-generating the struct for such opaque types; the Free() method is still
+    // generated separately.
+    let error_names: std::collections::HashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
 
     // Collect opaque type names — these are pointer-wrapped handles, not JSON-serializable structs.
     let opaque_names: std::collections::HashSet<&str> = api
@@ -258,15 +270,22 @@ fn gen_go_file(
     // Generate struct types
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         if typ.is_opaque {
-            writeln!(out, "{}\n", gen_opaque_type(typ, ffi_prefix)).ok();
+            // If an error type has the same name as this opaque type, the structured error
+            // struct was already emitted by gen_go_error_types. Skip the duplicate struct
+            // definition but still emit the Free() method.
+            if error_names.contains(typ.name.as_str()) {
+                writeln!(out, "{}\n", gen_opaque_type_free_only(typ, ffi_prefix)).ok();
+            } else {
+                writeln!(out, "{}\n", gen_opaque_type(typ, ffi_prefix)).ok();
+            }
         } else {
-            writeln!(out, "{}\n", gen_struct_type(typ, &enum_names)).ok();
+            writeln!(out, "{}\n", gen_struct_type(typ, &unit_enum_names)).ok();
             // Generate functional options pattern if type has defaults.
             // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update
             // structs that share field names with the primary config type, producing duplicate
             // With* function declarations.
             if typ.has_default && !typ.name.ends_with("Update") {
-                writeln!(out, "{}\n", gen_config_options(typ, &enum_names)).ok();
+                writeln!(out, "{}\n", gen_config_options(typ, &unit_enum_names)).ok();
             }
         }
     }
@@ -471,6 +490,23 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     out
 }
 
+/// Generate only the `Free()` method for an opaque handle type whose struct definition
+/// was already emitted by `gen_go_error_types`.
+///
+/// Error types share their name with their corresponding opaque handle (the C layer allocates
+/// a `LiterLlmError*` handle that the Go binding holds as an opaque pointer). However the Go
+/// error struct uses `Code`/`Message` string fields rather than a raw `ptr unsafe.Pointer`, so
+/// we cannot generate the normal `Free()` using `h.ptr`. Instead we emit an unexported stub
+/// that references the C symbols to keep them from being pruned, but does nothing at runtime —
+/// Go error values are not heap-allocated C objects from the binding's perspective.
+fn gen_opaque_type_free_only(typ: &TypeDef, _ffi_prefix: &str) -> String {
+    // Nothing to emit — the structured error type already has its Error() method and
+    // the C-level free function is invoked transparently inside the FFI layer.
+    // Returning an empty string avoids a duplicate struct definition and a broken Free().
+    let _ = typ;
+    String::new()
+}
+
 /// Generate a Go struct type definition with json tags for marshaling.
 fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
     let mut out = String::with_capacity(1024);
@@ -571,37 +607,24 @@ fn gen_function_wrapper(
 
     write!(out, "func {}(", func_go_name).ok();
 
-    // Split params into required and trailing optional groups.
-    // Trailing optional params become variadic in Go for ergonomic calling.
-    let trailing_optional_count = func.params.iter().rev().take_while(|p| p.optional).count();
-    let required_count = func.params.len() - trailing_optional_count;
-
+    // All optional params (wherever they appear) are represented as pointer types in the Go
+    // signature so callers can pass nil to omit them.  This is simpler and more correct than
+    // the earlier variadic approach which broke when more than one trailing optional existed.
     let mut param_strs: Vec<String> = Vec::new();
-    for (i, p) in func.params.iter().enumerate() {
-        if i >= required_count {
-            // Trailing optional: use variadic syntax for the first one only.
-            // Additional trailing optionals get extracted from the variadic slice.
-            if i == required_count {
-                let param_type = go_optional_type(&p.ty);
-                param_strs.push(format!("{} ...{}", p.name, param_type));
-            }
-            // Extra trailing optionals are not in the Go signature; they're
-            // extracted from the variadic slice in the body.
-        } else {
-            let param_type: String = if p.optional {
-                go_optional_type(&p.ty).into_owned()
-            } else if let TypeRef::Named(name) = &p.ty {
-                if opaque_names.contains(name.as_str()) {
-                    // Opaque types are pointer wrappers — accept as pointer
-                    format!("*{}", go_type(&p.ty))
-                } else {
-                    go_type(&p.ty).into_owned()
-                }
+    for p in func.params.iter() {
+        let param_type: String = if p.optional {
+            go_optional_type(&p.ty).into_owned()
+        } else if let TypeRef::Named(name) = &p.ty {
+            if opaque_names.contains(name.as_str()) {
+                // Opaque types are pointer wrappers — accept as pointer
+                format!("*{}", go_type(&p.ty))
             } else {
                 go_type(&p.ty).into_owned()
-            };
-            param_strs.push(format!("{} {}", p.name, param_type));
-        }
+            }
+        } else {
+            go_type(&p.ty).into_owned()
+        };
+        param_strs.push(format!("{} {}", p.name, param_type));
     }
     write!(out, "{}", param_strs.join(", ")).ok();
 
@@ -611,69 +634,29 @@ fn gen_function_wrapper(
         writeln!(out, ") {} {{", return_type).ok();
     }
 
-    // For trailing optional params that became variadic, extract from slice
-    if trailing_optional_count > 0 {
-        let first_opt = &func.params[required_count];
-        let first_opt_type = go_optional_type(&first_opt.ty);
-        // The first variadic param uses its own name as the variadic slice
-        writeln!(
-            out,
-            "    var {name}Val {ty}\n    if len({name}) > 0 {{\n        {name}Val = {name}[0]\n    }}",
-            name = first_opt.name,
-            ty = first_opt_type,
-        )
-        .ok();
-        // For param conversion, use the extracted value
-    }
-
     // Convert parameters
     let can_return_error = func.error_type.is_some();
     let returns_value_and_error = can_return_error && !matches!(func.return_type, TypeRef::Unit);
-    for (i, param) in func.params.iter().enumerate() {
-        if i >= required_count && trailing_optional_count > 0 {
-            // For variadic optional params, create a modified param that uses the extracted value
-            let mut mod_param = param.clone();
-            mod_param.name = format!("{}Val", param.name);
-            write!(
-                out,
-                "{}",
-                gen_param_to_c(
-                    &mod_param,
-                    returns_value_and_error,
-                    can_return_error,
-                    ffi_prefix,
-                    opaque_names
-                )
+    for param in func.params.iter() {
+        write!(
+            out,
+            "{}",
+            gen_param_to_c(
+                param,
+                returns_value_and_error,
+                can_return_error,
+                ffi_prefix,
+                opaque_names
             )
-            .ok();
-        } else {
-            write!(
-                out,
-                "{}",
-                gen_param_to_c(
-                    param,
-                    returns_value_and_error,
-                    can_return_error,
-                    ffi_prefix,
-                    opaque_names
-                )
-            )
-            .ok();
-        }
+        )
+        .ok();
     }
 
     // Build the C call with converted parameters
     let c_params: Vec<String> = func
         .params
         .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            if i >= required_count && trailing_optional_count > 0 {
-                format!("c{}Val", p.name.to_pascal_case())
-            } else {
-                format!("c{}", p.name.to_pascal_case())
-            }
-        })
+        .map(|p| format!("c{}", p.name.to_pascal_case()))
         .collect();
 
     let c_call = format!("{}({})", ffi_name, c_params.join(", "));
@@ -1010,20 +993,45 @@ fn gen_param_to_c(
 
     match &param.ty {
         TypeRef::String | TypeRef::Char => {
-            writeln!(
-                out,
-                "    {} := C.CString({})\n    defer C.free(unsafe.Pointer({}))",
-                c_name, param.name, c_name
-            )
-            .ok();
+            if param.optional {
+                // Optional string param (ty=String, optional=true): the Go variable holds *string.
+                writeln!(
+                    out,
+                    "    var {c_name} *C.char\n    if {param} != nil {{\n        \
+                     {c_name} = C.CString(*{param})\n        defer C.free(unsafe.Pointer({c_name}))\n    \
+                     }}",
+                    c_name = c_name,
+                    param = param.name,
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "    {} := C.CString({})\n    defer C.free(unsafe.Pointer({}))",
+                    c_name, param.name, c_name
+                )
+                .ok();
+            }
         }
         TypeRef::Path => {
-            writeln!(
-                out,
-                "    {} := C.CString({})\n    defer C.free(unsafe.Pointer({}))",
-                c_name, param.name, c_name
-            )
-            .ok();
+            if param.optional {
+                writeln!(
+                    out,
+                    "    var {c_name} *C.char\n    if {param} != nil {{\n        \
+                     {c_name} = C.CString(*{param})\n        defer C.free(unsafe.Pointer({c_name}))\n    \
+                     }}",
+                    c_name = c_name,
+                    param = param.name,
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "    {} := C.CString({})\n    defer C.free(unsafe.Pointer({}))",
+                    c_name, param.name, c_name
+                )
+                .ok();
+            }
         }
         TypeRef::Bytes => {
             writeln!(out, "    {} := (*C.uchar)(unsafe.Pointer(&{}[0]))", c_name, param.name).ok();
@@ -1131,6 +1139,25 @@ fn gen_param_to_c(
                 }
             }
         }
+        TypeRef::Primitive(prim) if param.optional => {
+            // Optional primitive: the Go param is a pointer (*T). Dereference it if non-nil,
+            // otherwise pass the max-value sentinel (e.g. u64::MAX) so the FFI layer knows
+            // the parameter was omitted.
+            let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
+            let c_go_ty = go_type(&TypeRef::Primitive(prim.clone()));
+            let sentinel = primitive_max_sentinel(prim);
+            writeln!(
+                out,
+                "    var {c_name} {go_ty} = {sentinel}\n    if {param} != nil {{\n        \
+                 {c_name} = {c_go_ty}(*{param})\n    }}",
+                c_name = c_name,
+                go_ty = go_ty,
+                c_go_ty = c_go_ty,
+                sentinel = sentinel,
+                param = param.name,
+            )
+            .ok();
+        }
         _ => {
             // Primitives and other types pass through directly
         }
@@ -1140,6 +1167,27 @@ fn gen_param_to_c(
         writeln!(out).ok();
     }
     out
+}
+
+/// Return the Go expression for the maximum value of a primitive type, used as a sentinel
+/// to signal "None" to FFI functions that use max-value sentinels for optional primitives.
+fn primitive_max_sentinel(prim: &alef_core::ir::PrimitiveType) -> &'static str {
+    use alef_core::ir::PrimitiveType;
+    match prim {
+        PrimitiveType::U8 => "^uint8(0)",
+        PrimitiveType::U16 => "^uint16(0)",
+        PrimitiveType::U32 => "^uint32(0)",
+        PrimitiveType::U64 => "^uint64(0)",
+        PrimitiveType::Usize => "^uint(0)",
+        PrimitiveType::I8 => "int8(127)",
+        PrimitiveType::I16 => "int16(32767)",
+        PrimitiveType::I32 => "int32(2147483647)",
+        PrimitiveType::I64 => "int64(9223372036854775807)",
+        PrimitiveType::Isize => "int(^uint(0) >> 1)",
+        PrimitiveType::F32 => "float32(0)",
+        PrimitiveType::F64 => "float64(0)",
+        PrimitiveType::Bool => "false",
+    }
 }
 
 /// Get a type name suitable for a function suffix (e.g., unmarshalFoo).

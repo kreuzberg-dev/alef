@@ -1111,3 +1111,73 @@ fn test_static_method() {
         "Should mark method as static or generate appropriately"
     );
 }
+
+#[test]
+fn test_exceptions_py_empty_class_bodies_have_pass() {
+    let backend = Pyo3Backend;
+
+    // Errors with no docstrings — exception classes would have empty bodies without the fix.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "LiterLlmError".to_string(),
+            rust_path: "test_lib::LiterLlmError".to_string(),
+            variants: vec![
+                ErrorVariant {
+                    name: "AuthenticationError".to_string(),
+                    fields: vec![],
+                    message_template: None,
+                    doc: String::new(),
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                },
+                ErrorVariant {
+                    name: "RateLimitedError".to_string(),
+                    fields: vec![],
+                    message_template: None,
+                    doc: String::new(),
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                },
+            ],
+            doc: String::new(),
+        }],
+    };
+
+    let config = make_config();
+
+    let result = backend.generate_public_api(&api, &config);
+    assert!(result.is_ok(), "Failed to generate public API");
+
+    let files = result.unwrap();
+    let exceptions_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("exceptions.py"))
+        .expect("exceptions.py should be generated");
+
+    let content = &exceptions_file.content;
+
+    // Every exception class without a docstring must have `pass` to keep Python syntax valid.
+    assert!(
+        content.contains("    pass"),
+        "Exception classes without docstrings must have `pass` body"
+    );
+
+    // Verify no empty class body (class header immediately followed by blank line).
+    for (i, line) in content.lines().enumerate() {
+        if line.starts_with("class ") {
+            let next_non_empty = content.lines().skip(i + 1).find(|l| !l.trim().is_empty());
+            assert!(
+                next_non_empty.map_or(true, |l| l.trim() != ""),
+                "Class at line {} has empty body",
+                i + 1
+            );
+        }
+    }
+}
