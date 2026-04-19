@@ -144,13 +144,23 @@ pub fn readme(api: &ApiSurface, config: &AlefConfig, languages: &[Language]) -> 
 
 /// Write standalone generated files (not grouped by language) to disk.
 ///
-/// Scaffold files are create-only: if the target file already exists on disk
-/// it is left untouched so that user customisations are preserved.
+/// Scaffold files are create-only by default: if the target file already exists
+/// on disk it is left untouched so that user customisations are preserved.
+/// Pass `overwrite = true` (e.g. via `--clean`) to force-write all files.
 pub fn write_scaffold_files(files: &[GeneratedFile], base_dir: &Path) -> anyhow::Result<usize> {
+    write_scaffold_files_with_overwrite(files, base_dir, false)
+}
+
+/// Like [`write_scaffold_files`] but with an explicit `overwrite` flag.
+pub fn write_scaffold_files_with_overwrite(
+    files: &[GeneratedFile],
+    base_dir: &Path,
+    overwrite: bool,
+) -> anyhow::Result<usize> {
     let mut count = 0;
     for file in files {
         let full_path = base_dir.join(&file.path);
-        if full_path.exists() {
+        if !overwrite && full_path.exists() {
             debug!("  skipped (already exists): {}", full_path.display());
             continue;
         }
