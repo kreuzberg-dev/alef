@@ -91,6 +91,8 @@ impl Backend for FfiBackend {
 
 fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     let mut builder = RustFileBuilder::new().with_generated_header();
+    builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables, unused_mut)");
+    builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::redundant_locals, clippy::drop_ref)");
 
     // Imports
     builder.add_import("std::ffi::{c_char, CStr, CString}");
