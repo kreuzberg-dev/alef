@@ -547,9 +547,7 @@ fn json_to_js(value: &serde_json::Value) -> String {
             let entries: Vec<String> = map
                 .iter()
                 .map(|(k, v)| {
-                    let key = if k
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                    let key = if k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
                         && !k.starts_with(|c: char| c.is_ascii_digit())
                     {
                         k.clone()

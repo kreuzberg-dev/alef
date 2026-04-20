@@ -1688,18 +1688,25 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             // Data variant → sealed record with fields as constructor params
             out.push_str(&format!("    public sealed record {pascal}(\n"));
             for (i, field) in variant.fields.iter().enumerate() {
-                let json_name = field.name.trim_start_matches('_');
                 let cs_type = csharp_type(&field.ty);
                 let cs_type = if field.optional && !cs_type.ends_with('?') {
                     format!("{cs_type}?")
                 } else {
                     cs_type.to_string()
                 };
-                let cs_name = to_csharp_name(json_name);
                 let comma = if i < variant.fields.len() - 1 { "," } else { "" };
-                out.push_str(&format!(
-                    "        [property: JsonPropertyName(\"{json_name}\")] {cs_type} {cs_name}{comma}\n"
-                ));
+                if is_tuple_field(field) {
+                    // Newtype/tuple variant: serde inlines the inner type's fields alongside the tag.
+                    // Use "Value" as the parameter name with no JsonPropertyName — the converter
+                    // handles unwrapping by deserializing the inner type from the full JSON object.
+                    out.push_str(&format!("        {cs_type} Value{comma}\n"));
+                } else {
+                    let json_name = field.name.trim_start_matches('_');
+                    let cs_name = to_csharp_name(json_name);
+                    out.push_str(&format!(
+                        "        [property: JsonPropertyName(\"{json_name}\")] {cs_type} {cs_name}{comma}\n"
+                    ));
+                }
             }
             out.push_str(&format!("    ) : {enum_pascal};\n\n"));
         }
@@ -1740,12 +1747,28 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             .clone()
             .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
         let pascal = variant.name.to_pascal_case();
-        out.push_str(&format!(
-            "            \"{discriminator}\" => JsonSerializer.Deserialize<{enum_pascal}.{pascal}>(json, options)!\n"
-        ));
-        out.push_str(&format!(
-            "                ?? throw new JsonException(\"Failed to deserialize {enum_pascal}.{pascal}\"),\n"
-        ));
+        // Newtype/tuple variants have their inner type's fields inlined alongside the tag in JSON.
+        // Deserialize the inner type from the full JSON object and wrap it in the record constructor.
+        let is_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
+        if is_newtype {
+            let inner_cs_type = csharp_type(&variant.fields[0].ty);
+            out.push_str(&format!(
+                "            \"{discriminator}\" => new {enum_pascal}.{pascal}(\n"
+            ));
+            out.push_str(&format!(
+                "                JsonSerializer.Deserialize<{inner_cs_type}>(json, options)!\n"
+            ));
+            out.push_str(&format!(
+                "                    ?? throw new JsonException(\"Failed to deserialize {enum_pascal}.{pascal}.Value\")),\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "            \"{discriminator}\" => JsonSerializer.Deserialize<{enum_pascal}.{pascal}>(json, options)!\n"
+            ));
+            out.push_str(&format!(
+                "                ?? throw new JsonException(\"Failed to deserialize {enum_pascal}.{pascal}\"),\n"
+            ));
+        }
     }
 
     out.push_str(&format!(
@@ -1771,9 +1794,15 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             .clone()
             .unwrap_or_else(|| apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
         let pascal = variant.name.to_pascal_case();
+        // Newtype/tuple variants: serialize the inner Value's fields inline alongside the tag.
+        let is_newtype = variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]);
         out.push_str(&format!("            case {enum_pascal}.{pascal} v:\n"));
         out.push_str("            {\n");
-        out.push_str("                var doc = JsonSerializer.SerializeToDocument(v, options);\n");
+        if is_newtype {
+            out.push_str("                var doc = JsonSerializer.SerializeToDocument(v.Value, options);\n");
+        } else {
+            out.push_str("                var doc = JsonSerializer.SerializeToDocument(v, options);\n");
+        }
         out.push_str("                writer.WriteStartObject();\n");
         out.push_str(&format!(
             "                writer.WriteString(\"{tag_field}\", \"{discriminator}\");\n"

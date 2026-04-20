@@ -363,7 +363,7 @@ fn render_test_function(
     let has_active_assertions = fixture.assertions.iter().any(|a| {
         a.field
             .as_ref()
-            .map_or(true, |f| f.is_empty() || field_resolver.is_valid_for_result(f))
+            .is_none_or(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
     });
 
     // Capture output (only if there are active assertions that reference it).

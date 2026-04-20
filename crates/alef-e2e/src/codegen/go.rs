@@ -426,7 +426,7 @@ fn build_args_and_setup(
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
                 setup_lines.push(format!(
-                    "{name}, createErr := {import_alias}.{constructor_name}()\n\tif createErr != nil {{\n\t\tt.Fatalf(\"create handle failed: %v\", createErr)\n\t}}",
+                    "{name}, createErr := {import_alias}.{constructor_name}(nil)\n\tif createErr != nil {{\n\t\tt.Fatalf(\"create handle failed: %v\", createErr)\n\t}}",
                     name = arg.name,
                 ));
             } else {

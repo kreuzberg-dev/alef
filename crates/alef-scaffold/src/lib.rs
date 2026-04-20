@@ -2252,7 +2252,10 @@ mod tests {
         assert!(files[4].content.contains("create_rust_makefile"));
         assert!(files[4].content.contains("rb_sys/mkmf"));
         // Check for Cargo.toml generation
-        assert_eq!(files[5].path, PathBuf::from("packages/ruby/ext/my-lib_rb/Cargo.toml"));
+        assert_eq!(
+            files[5].path,
+            PathBuf::from("packages/ruby/ext/my-lib_rb/native/Cargo.toml")
+        );
         assert!(files[5].content.contains("magnus"));
     }
 

@@ -859,7 +859,11 @@ fn gen_method_wrapper(
             } else {
                 format!(
                     "C.{}_{}_{} ({}, {})",
-                    ffi_prefix, type_snake, method_snake, c_receiver, c_params.join(", ")
+                    ffi_prefix,
+                    type_snake,
+                    method_snake,
+                    c_receiver,
+                    c_params.join(", ")
                 )
             }
         } else {
@@ -891,7 +895,10 @@ fn gen_method_wrapper(
             } else {
                 format!(
                     "C.{}_{}_{} (cRecv, {})",
-                    ffi_prefix, type_snake, method_snake, c_params.join(", ")
+                    ffi_prefix,
+                    type_snake,
+                    method_snake,
+                    c_params.join(", ")
                 )
             }
         };

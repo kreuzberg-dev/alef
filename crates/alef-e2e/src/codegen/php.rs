@@ -40,15 +40,20 @@ impl E2eCodegen for PhpCodegen {
             .and_then(|o| o.function.as_ref())
             .cloned()
             .unwrap_or_else(|| call.function.clone());
+        let extension_name = alef_config.php_extension_name();
         let class_name = overrides
             .and_then(|o| o.class.as_ref())
             .cloned()
-            .unwrap_or_else(|| alef_config.crate_config.name.to_upper_camel_case());
+            .unwrap_or_else(|| extension_name.to_upper_camel_case());
         let namespace = overrides.and_then(|o| o.module.as_ref()).cloned().unwrap_or_else(|| {
-            if call.module.is_empty() {
-                "Kreuzberg".to_string()
+            if extension_name.contains('_') {
+                extension_name
+                    .split('_')
+                    .map(|p| p.to_upper_camel_case())
+                    .collect::<Vec<_>>()
+                    .join("\\")
             } else {
-                call.module.to_upper_camel_case()
+                extension_name.to_upper_camel_case()
             }
         });
         let empty_enum_fields = HashMap::new();
