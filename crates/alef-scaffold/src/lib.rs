@@ -498,7 +498,7 @@ tokio = {{ version = "1", features = ["rt-multi-thread"] }}
     );
 
     Ok(vec![GeneratedFile {
-        path: PathBuf::from(format!("packages/ruby/ext/{}_rb/Cargo.toml", core_crate_dir)),
+        path: PathBuf::from(format!("packages/ruby/ext/{}_rb/native/Cargo.toml", core_crate_dir)),
         content,
         generated_header: true,
     }])
@@ -1025,9 +1025,9 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
         <junit.version>5.11.4</junit.version>
-        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+        <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.5</maven-surefire-plugin.version>
-        <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
+        <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-clean-plugin.version>3.4.1</maven-clean-plugin.version>
@@ -1035,7 +1035,7 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         <maven-jar-plugin.version>3.4.2</maven-jar-plugin.version>
         <maven-install-plugin.version>3.1.3</maven-install-plugin.version>
         <maven-deploy-plugin.version>3.1.3</maven-deploy-plugin.version>
-        <maven-site-plugin.version>4.0.0</maven-site-plugin.version>
+        <maven-site-plugin.version>3.21.0</maven-site-plugin.version>
         <central-publishing-plugin.version>0.10.0</central-publishing-plugin.version>
         <spotless-maven-plugin.version>3.4.0</spotless-maven-plugin.version>
         <gpg.skip>true</gpg.skip>

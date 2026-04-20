@@ -846,29 +846,54 @@ fn gen_method_wrapper(
                     c_params.join(", ")
                 )
             }
-        } else if c_params.is_empty() {
+        } else if typ.is_opaque {
+            // Opaque types have a ptr field — cast it directly.
             let c_receiver = format!(
                 "(*C.{}{})(unsafe.Pointer({}.ptr))",
                 ffi_prefix.to_uppercase(),
                 typ.name.to_pascal_case(),
                 receiver_name
             );
-            format!("C.{}_{}_{} ({})", ffi_prefix, type_snake, method_snake, c_receiver)
+            if c_params.is_empty() {
+                format!("C.{}_{}_{} ({})", ffi_prefix, type_snake, method_snake, c_receiver)
+            } else {
+                format!(
+                    "C.{}_{}_{} ({}, {})",
+                    ffi_prefix, type_snake, method_snake, c_receiver, c_params.join(", ")
+                )
+            }
         } else {
-            let c_receiver = format!(
-                "(*C.{}{})(unsafe.Pointer({}.ptr))",
-                ffi_prefix.to_uppercase(),
-                typ.name.to_pascal_case(),
-                receiver_name
-            );
-            format!(
-                "C.{}_{}_{} ({}, {})",
-                ffi_prefix,
-                type_snake,
-                method_snake,
-                c_receiver,
-                c_params.join(", ")
+            // Non-opaque structs: marshal to JSON, create a temporary handle, use it, and free it.
+            let err_prefix = if returns_value_and_error { "nil, " } else { "" };
+            let err_action = if can_return_error {
+                format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)")
+            } else {
+                "panic(fmt.Sprintf(\"failed to marshal receiver: %v\", err))".to_string()
+            };
+            writeln!(
+                out,
+                "    jsonBytesRecv, err := json.Marshal({recv})\n    \
+                 if err != nil {{\n        \
+                 {err_action}\n    \
+                 }}\n    \
+                 tmpStrRecv := C.CString(string(jsonBytesRecv))\n    \
+                 cRecv := C.{ffi_prefix}_{type_snake}_from_json(tmpStrRecv)\n    \
+                 C.free(unsafe.Pointer(tmpStrRecv))\n    \
+                 defer C.{ffi_prefix}_{type_snake}_free(cRecv)",
+                recv = receiver_name,
+                err_action = err_action,
+                ffi_prefix = ffi_prefix,
+                type_snake = type_snake,
             )
+            .ok();
+            if c_params.is_empty() {
+                format!("C.{}_{}_{} (cRecv)", ffi_prefix, type_snake, method_snake)
+            } else {
+                format!(
+                    "C.{}_{}_{} (cRecv, {})",
+                    ffi_prefix, type_snake, method_snake, c_params.join(", ")
+                )
+            }
         };
 
         if method.error_type.is_some() {

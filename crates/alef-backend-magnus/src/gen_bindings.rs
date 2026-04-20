@@ -237,7 +237,7 @@ impl Backend for MagnusBackend {
         let output_dir = resolve_output_dir(
             config.output.ruby.as_ref(),
             &config.crate_config.name,
-            "packages/ruby/ext/{name}_rb/src/",
+            "packages/ruby/ext/{name}_rb/native/src/",
         );
 
         Ok(vec![GeneratedFile {
