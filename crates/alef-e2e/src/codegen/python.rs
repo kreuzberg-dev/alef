@@ -562,7 +562,24 @@ fn render_test_function(
                     .collect();
                 // Use the options_type if configured, otherwise "CrawlConfig".
                 let config_class = options_type.unwrap_or("CrawlConfig");
-                arg_bindings.push(format!("    {var_name}_config = {config_class}({})", kwargs.join(", ")));
+                let single_line = format!("    {var_name}_config = {config_class}({})", kwargs.join(", "));
+                if single_line.len() <= 120 {
+                    arg_bindings.push(single_line);
+                } else {
+                    // Split into multi-line for readability and E501 compliance.
+                    let mut lines = format!("    {var_name}_config = {config_class}(\n");
+                    for (i, kw) in kwargs.iter().enumerate() {
+                        lines.push_str(&format!("        {kw}"));
+                        if i < kwargs.len() - 1 {
+                            lines.push(',');
+                        } else {
+                            lines.push(',');
+                        }
+                        lines.push('\n');
+                    }
+                    lines.push_str("    )");
+                    arg_bindings.push(lines);
+                }
                 arg_bindings.push(format!("    {var_name} = {constructor_name}({var_name}_config)"));
             } else {
                 let literal = json_to_python_literal(config_value);
