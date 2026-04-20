@@ -25,6 +25,12 @@ const JAVA_OBJECT_METHOD_NAMES: &[&str] = &[
 /// Returns true if `name` is a tuple/unnamed field index such as `"0"`, `"1"`, `"_0"`, `"_1"`.
 /// Serde represents tuple and newtype variant fields with these numeric names. They are not
 /// real JSON keys and must not be used as Java identifiers.
+/// Escape a string for use inside a Javadoc comment.
+/// Replaces `*/` (which would close the comment) and `@` (which starts a tag).
+fn escape_javadoc_line(s: &str) -> String {
+    s.replace("*/", "* /").replace('@', "{@literal @}")
+}
+
 fn is_tuple_field_name(name: &str) -> bool {
     let stripped = name.trim_start_matches('_');
     !stripped.is_empty() && stripped.chars().all(|c| c.is_ascii_digit())
