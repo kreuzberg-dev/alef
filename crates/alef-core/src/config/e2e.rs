@@ -366,6 +366,19 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub php_client_factory: Option<String>,
+    /// Client factory function name for instance-method languages (WASM, etc.).
+    ///
+    /// When set, the generated test imports this function, creates a client,
+    /// and calls API methods on the instance instead of as top-level functions.
+    ///
+    /// E.g., `"createClient"` generates:
+    /// ```typescript
+    /// import { createClient } from 'pkg';
+    /// const client = createClient('test-key');
+    /// const result = await client.chat(request);
+    /// ```
+    #[serde(default)]
+    pub client_factory: Option<String>,
     /// Static CLI arguments appended to every invocation (brew/CLI generator only).
     ///
     /// E.g., `["--format", "json"]` appends `--format json` to every CLI call.
