@@ -12,8 +12,13 @@ pub struct TraitBridgeConfig {
     pub super_trait: Option<String>,
     /// Rust path to the registry getter function
     /// (e.g., `"kreuzberg::plugins::registry::get_ocr_backend_registry"`).
-    pub registry_getter: String,
+    /// Optional — when set, the generated registration function inserts the bridge into a registry.
+    #[serde(default)]
+    pub registry_getter: Option<String>,
     /// Name of the registration function to generate
     /// (e.g., `"register_ocr_backend"`).
-    pub register_fn: String,
+    /// Optional — when set, a `#[pyfunction]` registration function is generated.
+    /// When absent, only the wrapper struct and trait impl are emitted (per-call bridge pattern).
+    #[serde(default)]
+    pub register_fn: Option<String>,
 }

@@ -79,13 +79,32 @@ pub(crate) fn gen_instance_method(
                     "{let_bindings}{core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok(())"
                 )
             } else {
-                let wrap = php_wrap_return("result", &method.return_type, type_name, opaque_types, true, method.returns_ref, method.returns_cow);
+                let wrap = php_wrap_return(
+                    "result",
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    true,
+                    method.returns_ref,
+                    method.returns_cow,
+                );
                 format!(
                     "{let_bindings}let result = {core_call}.map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    Ok({wrap})"
                 )
             }
         } else {
-            format!("{let_bindings}{}", php_wrap_return(&core_call, &method.return_type, type_name, opaque_types, true, method.returns_ref, method.returns_cow))
+            format!(
+                "{let_bindings}{}",
+                php_wrap_return(
+                    &core_call,
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    true,
+                    method.returns_ref,
+                    method.returns_cow
+                )
+            )
         }
     } else {
         gen_php_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
