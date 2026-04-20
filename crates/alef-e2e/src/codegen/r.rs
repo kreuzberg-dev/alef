@@ -234,7 +234,8 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
     let parts: Vec<String> = args
         .iter()
         .filter_map(|arg| {
-            let val = input.get(&arg.field)?;
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field)?;
             if val.is_null() && arg.optional {
                 return None;
             }

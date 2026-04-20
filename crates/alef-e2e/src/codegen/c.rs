@@ -502,7 +502,8 @@ fn render_test_function(
     let mut has_options_handle = false;
     for arg in args {
         if arg.arg_type == "json_object" {
-            if let Some(val) = fixture.input.get(&arg.field) {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            if let Some(val) = fixture.input.get(field) {
                 if !val.is_null() {
                     // Fixture keys are camelCase; the FFI htm_conversion_options_from_json
                     // deserializes into the Rust ConversionOptions type which uses default
@@ -722,7 +723,8 @@ fn build_args_string_c(
     let parts: Vec<String> = args
         .iter()
         .filter_map(|arg| {
-            let val = input.get(&arg.field);
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field);
             match val {
                 // Field missing entirely and optional → pass NULL.
                 None if arg.optional => Some("NULL".to_string()),

@@ -341,7 +341,8 @@ fn build_args_and_setup(
         if arg.arg_type == "handle" {
             // Generate a CreateEngine (or equivalent) call and pass the variable.
             let constructor_name = format!("Create{}", arg.name.to_upper_camel_case());
-            let config_value = input.get(&arg.field).unwrap_or(&serde_json::Value::Null);
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
@@ -367,7 +368,8 @@ fn build_args_and_setup(
             continue;
         }
 
-        let val = input.get(&arg.field);
+        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        let val = input.get(field);
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Optional arg with no fixture value: pass null explicitly since

@@ -410,7 +410,8 @@ fn build_cli_command(
             _ => {
                 // Check if there is a cli_flags mapping for this field.
                 if let Some(flag) = cli_flags.get(&arg.field) {
-                    if let Some(val) = fixture.input.get(&arg.field) {
+                    let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                    if let Some(val) = fixture.input.get(field) {
                         if !val.is_null() {
                             let val_str = json_value_to_shell_arg(val);
                             parts.push(flag.clone());

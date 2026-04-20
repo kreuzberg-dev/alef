@@ -276,10 +276,11 @@ fn render_test_file(
                 if arg.arg_type != "json_object" {
                     return false;
                 }
-                let val = if arg.field == "input" {
+                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                let val = if field == "input" {
                     Some(&f.input)
                 } else {
-                    f.input.get(&arg.field)
+                    f.input.get(field)
                 };
                 val.is_some_and(|v| !v.is_null())
             })
@@ -291,10 +292,11 @@ fn render_test_file(
         for fixture in fixtures {
             for arg in args {
                 if arg.arg_type == "json_object" {
-                    let val = if arg.field == "input" {
+                    let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                    let val = if field == "input" {
                         Some(&fixture.input)
                     } else {
-                        fixture.input.get(&arg.field)
+                        fixture.input.get(field)
                     };
                     if let Some(val) = val {
                         if let Some(obj) = val.as_object() {
@@ -506,7 +508,8 @@ fn build_args_and_setup(
 
         if arg.arg_type == "handle" {
             let constructor_name = format!("create{}", arg.name.to_upper_camel_case());
-            let config_value = input.get(&arg.field).unwrap_or(&serde_json::Value::Null);
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
@@ -531,10 +534,11 @@ fn build_args_and_setup(
         }
 
         // When field == "input", the entire input object IS the value (not a nested key)
-        let val = if arg.field == "input" {
+        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        let val = if field == "input" {
             Some(input)
         } else {
-            input.get(&arg.field)
+            input.get(field)
         };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => continue,
