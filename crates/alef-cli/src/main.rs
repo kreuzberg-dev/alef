@@ -508,6 +508,15 @@ fn main() -> Result<()> {
             eprintln!("Generating type stubs...");
             let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
             let stub_count = pipeline::write_files(&stubs, &base_dir)?;
+            // Write stubs manifest so output hashes can be computed post-prek.
+            let stubs_paths: Vec<std::path::PathBuf> = stubs
+                .iter()
+                .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
+                .collect();
+            let stubs_ir = serde_json::to_string(&api)?;
+            let stubs_config = toml::to_string(&config).unwrap_or_default();
+            let stubs_hash = cache::compute_stage_hash(&stubs_ir, "stubs", &stubs_config, &[]);
+            cache::write_stage_hash("stubs", &stubs_hash, &stubs_paths)?;
 
             // Generate public API wrappers
             let mut api_count = 0;
