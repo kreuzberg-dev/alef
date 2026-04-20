@@ -185,10 +185,9 @@ fn render_cargo_toml(
     // In local mode the e2e crate is typically listed as a workspace member of
     // the parent project, so adding [workspace] would create a conflicting
     // second workspace root — omit it.
-    let workspace_section = match dep_mode {
-        crate::config::DependencyMode::Registry => "\n[workspace]\n",
-        crate::config::DependencyMode::Local => "",
-    };
+    // Always add [workspace] — both registry and local e2e crates are standalone
+    // projects that must not inherit the parent workspace.
+    let workspace_section = "\n[workspace]\n";
     // Mock server requires axum (HTTP router) and tokio-stream (SSE streaming).
     // The standalone binary additionally needs serde (derive) and walkdir.
     let mock_lines = if needs_mock_server {
