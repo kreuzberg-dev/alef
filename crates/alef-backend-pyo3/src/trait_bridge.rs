@@ -56,11 +56,16 @@ fn gen_bridge_struct(out: &mut String, struct_name: &str) {
 /// super-trait methods stored on the trait_type itself (methods with trait_source
 /// matching the super-trait name).
 fn gen_super_trait_impl(out: &mut String, struct_name: &str, super_type: &TypeDef, core_import: &str) {
-    let super_trait_name = &super_type.name;
+    // Use the rust_path if available, otherwise fall back to core_import::Name
+    let super_trait_path = if super_type.rust_path.is_empty() {
+        format!("kreuzberg::plugins::{}", super_type.name)
+    } else {
+        super_type.rust_path.replace('-', "_")
+    };
     writeln!(out, "#[async_trait]").unwrap();
     writeln!(
         out,
-        "impl {core_import}::{super_trait_name} for {struct_name} {{"
+        "impl {super_trait_path} for {struct_name} {{"
     )
     .unwrap();
 
@@ -74,12 +79,11 @@ fn gen_super_trait_impl(out: &mut String, struct_name: &str, super_type: &TypeDe
 
 /// Generate `impl Trait for Bridge` block for the main trait.
 fn gen_trait_impl(out: &mut String, struct_name: &str, trait_type: &TypeDef, core_import: &str) {
-    let trait_name = &trait_type.name;
+    let trait_path = trait_type.rust_path.replace('-', "_");
     writeln!(out, "#[async_trait]").unwrap();
-    writeln!(out, "impl {core_import}::{trait_name} for {struct_name} {{").unwrap();
+    writeln!(out, "impl {trait_path} for {struct_name} {{").unwrap();
 
     for method in &trait_type.methods {
-        // Skip methods that belong to a super-trait (already generated above)
         if method.trait_source.is_some() {
             continue;
         }
@@ -529,6 +533,7 @@ fn gen_registration_fn(
 ) {
     let register_fn = &bridge_cfg.register_fn;
     let trait_name = &bridge_cfg.trait_name;
+    let trait_path = trait_type.rust_path.replace('-', "_");
     let registry_getter = &bridge_cfg.registry_getter;
 
     // Collect required methods (those without default impls)
@@ -601,7 +606,7 @@ fn gen_registration_fn(
     .unwrap();
     writeln!(
         out,
-        "    let arc: Arc<dyn {core_import}::{trait_name}> = Arc::new(wrapper);"
+        "    let arc: Arc<dyn {trait_path}> = Arc::new(wrapper);"
     )
     .unwrap();
     writeln!(out).unwrap();
