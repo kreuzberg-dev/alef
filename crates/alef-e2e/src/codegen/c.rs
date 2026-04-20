@@ -165,13 +165,13 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
 
     // 3-path fallback: ffi/ (download script) -> local repo build -> pkg-config.
     let _ = writeln!(out, "ifneq ($(wildcard $(FFI_DIR)/include/{header_name}),)");
-    let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I$(FFI_DIR)/include");
+    let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I$(FFI_DIR)/include");
     let _ = writeln!(
         out,
         "    LDFLAGS = -L$(FFI_DIR)/lib -l{lib_name} -Wl,-rpath,$(FFI_DIR)/lib"
     );
     let _ = writeln!(out, "else ifneq ($(wildcard {ffi_crate_path}/include/{header_name}),)");
-    let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I{ffi_crate_path}/include");
+    let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I{ffi_crate_path}/include");
     let _ = writeln!(
         out,
         "    LDFLAGS = -L../../target/release -l{lib_name} -Wl,-rpath,../../target/release"
@@ -179,7 +179,7 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     let _ = writeln!(out, "else");
     let _ = writeln!(
         out,
-        "    CFLAGS = -Wall -Wextra $(shell pkg-config --cflags {lib_name} 2>/dev/null)"
+        "    CFLAGS = -Wall -Wextra -I. $(shell pkg-config --cflags {lib_name} 2>/dev/null)"
     );
     let _ = writeln!(out, "    LDFLAGS = $(shell pkg-config --libs {lib_name} 2>/dev/null)");
     let _ = writeln!(out, "endif");
