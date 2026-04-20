@@ -400,6 +400,16 @@ fn build_args_and_setup(
     options_via: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
+        // No args configuration: pass the whole input only if it's non-empty.
+        // Functions with no parameters (e.g. list_models) have empty input and get no args.
+        let is_empty_input = match input {
+            serde_json::Value::Null => true,
+            serde_json::Value::Object(m) => m.is_empty(),
+            _ => false,
+        };
+        if is_empty_input {
+            return (Vec::new(), String::new());
+        }
         return (Vec::new(), json_to_php(input));
     }
 
