@@ -9,14 +9,15 @@ target/
 .rumdl_cache/
 *.iml
 
-# AI Rules generated files
+# BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
+.agents/
 .claude/
-CLAUDE.md
-
-# AI Rules generated files
-.mcp.json
-
-# AI Rules generated files
 .codex/
-AGENTS.md
+.cursor/
+.github/agents/alef-developer.agent.md
 .github/copilot-instructions.md
+.mcp.json
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+# END ai-rulez

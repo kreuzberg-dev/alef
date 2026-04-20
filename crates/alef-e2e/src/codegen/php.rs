@@ -645,6 +645,16 @@ fn render_assertion(
                 }
             }
         }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "        $this->assertCount({n}, {field_expr});");
+                }
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(out, "        $this->assertTrue({field_expr});");
+        }
         "not_error" => {
             // Already handled by the call succeeding without exception.
         }

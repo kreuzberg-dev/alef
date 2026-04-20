@@ -915,6 +915,27 @@ fn render_assertion(
                 }
             }
         }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    {{");
+                    let _ = writeln!(out, "        /* count_equals: count elements in array */");
+                    let _ = writeln!(
+                        out,
+                        "        assert({field_expr} != NULL && \"expected non-null collection JSON\");"
+                    );
+                    let _ = writeln!(out, "        int elem_count = htm_json_array_count({field_expr});");
+                    let _ = writeln!(
+                        out,
+                        "        assert(elem_count == {n} && \"expected {n} elements\");"
+                    );
+                    let _ = writeln!(out, "    }}");
+                }
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(out, "    assert({field_expr});");
+        }
         "not_error" => {
             // Already handled — the NULL check above covers this.
         }

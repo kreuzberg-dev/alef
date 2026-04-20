@@ -544,6 +544,16 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
                 }
             }
         }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    expect({field_expr}.length).toBe({n});");
+                }
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(out, "    expect({field_expr}).toBe(true);");
+        }
         "not_error" => {
             // No-op — if we got here, the call succeeded.
         }

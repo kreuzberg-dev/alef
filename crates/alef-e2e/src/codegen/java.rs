@@ -718,6 +718,22 @@ fn render_assertion(
                 }
             }
         }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(
+                        out,
+                        "        assertEquals({n}, {field_expr}.size(), \"expected exactly {n} elements\");"
+                    );
+                }
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(
+                out,
+                "        assertTrue({field_expr}, \"expected true\");"
+            );
+        }
         "not_error" => {
             // Already handled by the call succeeding without exception.
         }

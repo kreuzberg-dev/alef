@@ -621,6 +621,16 @@ fn render_assertion(
                 }
             }
         }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    expect({field_expr}.length).to eq({n})");
+                }
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(out, "    expect({field_expr}).to be true");
+        }
         "not_error" => {
             // Already handled by the call succeeding without exception.
         }

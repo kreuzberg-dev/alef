@@ -780,6 +780,34 @@ fn render_assertion(
                 }
             }
         }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    if is_optional {
+                        let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                        let _ = writeln!(
+                            out_ref,
+                            "\t\tassert.Equal(t, len(*{field_expr}), {n}, \"expected exactly {n} elements\")"
+                        );
+                        let _ = writeln!(out_ref, "\t}}");
+                    } else {
+                        let _ = writeln!(
+                            out_ref,
+                            "\tassert.Equal(t, len({field_expr}), {n}, \"expected exactly {n} elements\")"
+                        );
+                    }
+                }
+            }
+        }
+        "is_true" => {
+            if is_optional {
+                let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                let _ = writeln!(out_ref, "\t\tassert.True(t, *{field_expr}, \"expected true\")");
+                let _ = writeln!(out_ref, "\t}}");
+            } else {
+                let _ = writeln!(out_ref, "\tassert.True(t, {field_expr}, \"expected true\")");
+            }
+        }
         "not_error" => {
             // Already handled by the `if err != nil` check above.
         }
