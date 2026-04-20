@@ -70,11 +70,14 @@ impl E2eCodegen for CCodegen {
             .collect();
 
         // Resolve FFI crate path for local repo builds.
+        // Default to `../../crates/{name}-ffi` derived from the crate name so that
+        // projects like `liter-llm` resolve to `../../crates/liter-llm-ffi/include/`
+        // rather than the generic (incorrect) `../../crates/ffi`.
         let ffi_crate_path = c_pkg
             .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
-            .unwrap_or_else(|| "../../crates/ffi".to_string());
+            .unwrap_or_else(|| format!("../../crates/{}-ffi", alef_config.crate_config.name));
 
         // Generate Makefile.
         let category_names: Vec<String> = active_groups
