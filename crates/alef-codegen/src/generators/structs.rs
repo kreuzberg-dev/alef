@@ -193,9 +193,19 @@ pub fn gen_struct_default_impl(typ: &TypeDef, name_prefix: &str) -> String {
     out
 }
 
+/// Check if any method on a type takes `&mut self`, meaning the opaque wrapper
+/// must use `Arc<Mutex<T>>` instead of `Arc<T>` to allow interior mutability.
+pub fn type_needs_mutex(typ: &TypeDef) -> bool {
+    typ.methods
+        .iter()
+        .any(|m| m.receiver == Some(alef_core::ir::ReceiverKind::RefMut))
+}
+
 /// Generate an opaque wrapper struct with `inner: Arc<core::Type>`.
 /// For trait types, uses `Arc<dyn Type + Send + Sync>`.
+/// For types with `&mut self` methods, uses `Arc<Mutex<core::Type>>`.
 pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
+    let needs_mutex = type_needs_mutex(typ);
     let mut out = String::with_capacity(512);
     if !cfg.struct_derives.is_empty() {
         writeln!(out, "#[derive(Clone)]").ok();
@@ -207,6 +217,8 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
     let core_path = typ.rust_path.replace('-', "_");
     if typ.is_trait {
         writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
+    } else if needs_mutex {
+        writeln!(out, "    inner: Arc<std::sync::Mutex<{core_path}>>,").ok();
     } else {
         writeln!(out, "    inner: Arc<{core_path}>,").ok();
     }
@@ -214,8 +226,10 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
     out
 }
 
-/// Generate an opaque wrapper struct with `inner: Arc<core::Type>` and a `Js` prefix.
+/// Generate an opaque wrapper struct with `inner: Arc<core::Type>` and a name prefix.
+/// For types with `&mut self` methods, uses `Arc<Mutex<core::Type>>`.
 pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix: &str) -> String {
+    let needs_mutex = type_needs_mutex(typ);
     let mut out = String::with_capacity(512);
     if !cfg.struct_derives.is_empty() {
         writeln!(out, "#[derive(Clone)]").ok();
@@ -227,6 +241,8 @@ pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix
     writeln!(out, "pub struct {}{} {{", prefix, typ.name).ok();
     if typ.is_trait {
         writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
+    } else if needs_mutex {
+        writeln!(out, "    inner: Arc<std::sync::Mutex<{core_path}>>,").ok();
     } else {
         writeln!(out, "    inner: Arc<{core_path}>,").ok();
     }

@@ -3,6 +3,18 @@ use ahash::AHashSet;
 use alef_core::ir::{ParamDef, TypeDef, TypeRef};
 use std::fmt::Write;
 
+/// Helper: wrap an opaque inner value in the correct smart pointer expression.
+///
+/// - Plain opaque types use `Arc::new(val)`.
+/// - Mutex-wrapped opaque types use `Arc::new(std::sync::Mutex::new(val))`.
+fn arc_wrap(val: &str, name: &str, mutex_types: &AHashSet<String>) -> String {
+    if mutex_types.contains(name) {
+        format!("Arc::new(std::sync::Mutex::new({val}))")
+    } else {
+        format!("Arc::new({val})")
+    }
+}
+
 /// Wrap a core-call result for opaque delegation methods.
 ///
 /// - `TypeRef::Named(n)` where `n == type_name` → re-wrap in `Self { inner: Arc::new(...) }`
@@ -13,33 +25,41 @@ use std::fmt::Write;
 ///
 /// When `returns_cow` is true the core method returns `Cow<'_, T>`. `.into_owned()` is emitted
 /// before any further type conversion to obtain an owned `T`.
-pub fn wrap_return(
+///
+/// `mutex_types` identifies opaque types that use `Arc<Mutex<T>>` instead of `Arc<T>`, so
+/// constructor expressions use `Arc::new(Mutex::new(...))` where needed.
+pub fn wrap_return_with_mutex(
     expr: &str,
     return_type: &TypeRef,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
     self_is_opaque: bool,
     returns_ref: bool,
     returns_cow: bool,
 ) -> String {
+    let self_arc = arc_wrap("", type_name, mutex_types); // used for pattern matching only
+    let _ = self_arc; // just to reference mutex_types in context
     match return_type {
         TypeRef::Named(n) if n == type_name && self_is_opaque => {
-            if returns_cow {
-                format!("Self {{ inner: Arc::new({expr}.into_owned()) }}")
+            let inner = if returns_cow {
+                format!("{expr}.into_owned()")
             } else if returns_ref {
-                format!("Self {{ inner: Arc::new({expr}.clone()) }}")
+                format!("{expr}.clone()")
             } else {
-                format!("Self {{ inner: Arc::new({expr}) }}")
-            }
+                expr.to_string()
+            };
+            format!("Self {{ inner: {} }}", arc_wrap(&inner, type_name, mutex_types))
         }
         TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-            if returns_cow {
-                format!("{n} {{ inner: Arc::new({expr}.into_owned()) }}")
+            let inner = if returns_cow {
+                format!("{expr}.into_owned()")
             } else if returns_ref {
-                format!("{n} {{ inner: Arc::new({expr}.clone()) }}")
+                format!("{expr}.clone()")
             } else {
-                format!("{n} {{ inner: Arc::new({expr}) }}")
-            }
+                expr.to_string()
+            };
+            format!("{n} {{ inner: {} }}", arc_wrap(&inner, n, mutex_types))
         }
         TypeRef::Named(_) => {
             // Non-opaque Named return type — use .into() for core→binding From conversion.
@@ -74,10 +94,14 @@ pub fn wrap_return(
         // Optional: wrap inner conversion in .map(...)
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                let wrap = arc_wrap("v", n, mutex_types);
                 if returns_ref {
-                    format!("{expr}.map(|v| {n} {{ inner: Arc::new(v.clone()) }})")
+                    format!(
+                        "{expr}.map(|v| {n} {{ inner: {} }})",
+                        arc_wrap("v.clone()", n, mutex_types)
+                    )
                 } else {
-                    format!("{expr}.map(|v| {n} {{ inner: Arc::new(v) }})")
+                    format!("{expr}.map(|v| {n} {{ inner: {wrap} }})")
                 }
             }
             TypeRef::Named(_) => {
@@ -103,9 +127,11 @@ pub fn wrap_return(
             TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                     if returns_ref {
-                        format!("{expr}.map(|v| v.into_iter().map(|x| {n} {{ inner: Arc::new(x.clone()) }}).collect())")
+                        let wrap = arc_wrap("x.clone()", n, mutex_types);
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {n} {{ inner: {wrap} }}).collect())")
                     } else {
-                        format!("{expr}.map(|v| v.into_iter().map(|x| {n} {{ inner: Arc::new(x) }}).collect())")
+                        let wrap = arc_wrap("x", n, mutex_types);
+                        format!("{expr}.map(|v| v.into_iter().map(|x| {n} {{ inner: {wrap} }}).collect())")
                     }
                 }
                 TypeRef::Named(_) => {
@@ -123,9 +149,11 @@ pub fn wrap_return(
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                 if returns_ref {
-                    format!("{expr}.into_iter().map(|v| {n} {{ inner: Arc::new(v.clone()) }}).collect()")
+                    let wrap = arc_wrap("v.clone()", n, mutex_types);
+                    format!("{expr}.into_iter().map(|v| {n} {{ inner: {wrap} }}).collect()")
                 } else {
-                    format!("{expr}.into_iter().map(|v| {n} {{ inner: Arc::new(v) }}).collect()")
+                    let wrap = arc_wrap("v", n, mutex_types);
+                    format!("{expr}.into_iter().map(|v| {n} {{ inner: {wrap} }}).collect()")
                 }
             }
             TypeRef::Named(_) => {
@@ -149,6 +177,31 @@ pub fn wrap_return(
         },
         _ => expr.to_string(),
     }
+}
+
+/// Wrap a core-call result for opaque delegation methods.
+///
+/// This is the backward-compatible wrapper that passes an empty `mutex_types` set.
+/// Use `wrap_return_with_mutex` when the type set contains mutex-wrapped opaque types.
+pub fn wrap_return(
+    expr: &str,
+    return_type: &TypeRef,
+    type_name: &str,
+    opaque_types: &AHashSet<String>,
+    self_is_opaque: bool,
+    returns_ref: bool,
+    returns_cow: bool,
+) -> String {
+    wrap_return_with_mutex(
+        expr,
+        return_type,
+        type_name,
+        opaque_types,
+        &AHashSet::new(),
+        self_is_opaque,
+        returns_ref,
+        returns_cow,
+    )
 }
 
 /// Unwrap a newtype return value when `return_newtype_wrapper` is set.
@@ -486,6 +539,15 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                         } else {
                             format!("{}_core", p.name)
                         }
+                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
+                        // Vec<String> with is_ref=true: core expects &[&str].
+                        // Let binding created {name}_refs: Vec<&str> (or Option<Vec<&str>>).
+                        // Pass &{name}_refs to coerce Vec<&str> -> &[&str].
+                        if p.optional {
+                            format!("{}_refs.as_deref()", p.name)
+                        } else {
+                            format!("&{}_refs", p.name)
+                        }
                     } else if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
                     } else if p.is_ref && p.optional {
@@ -629,6 +691,25 @@ fn gen_named_let_bindings_inner(
                     .ok();
                 }
             }
+            // Vec<String> with is_ref=true: core expects &[&str] but binding holds Vec<String>.
+            // Generate a Vec<&str> intermediate so &{name}_refs coerces to &[&str].
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
+                if p.optional {
+                    write!(
+                        bindings,
+                        "let {}_refs: Option<Vec<&str>> = {}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());\n    ",
+                        p.name, p.name
+                    )
+                    .ok();
+                } else {
+                    write!(
+                        bindings,
+                        "let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n    ",
+                        p.name, p.name
+                    )
+                    .ok();
+                }
+            }
             _ => {}
         }
     }
@@ -685,12 +766,16 @@ pub fn gen_serde_let_bindings(
 }
 
 /// Check if params contain any non-opaque Named types that need let bindings.
-/// This includes both direct Named types and Vec<Named> types.
+/// This includes direct Named types, Vec<Named> types, and Vec<String> params
+/// with is_ref=true (which need a Vec<&str> intermediate to pass as &[&str]).
 pub fn has_named_params(params: &[ParamDef], opaque_types: &AHashSet<String>) -> bool {
     params.iter().any(|p| match &p.ty {
         TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => true,
         TypeRef::Vec(inner) => {
+            // Vec<Named> always needs a conversion let binding.
+            // Vec<String> with is_ref=true needs a Vec<&str> intermediate for &[&str] coercion.
             matches!(inner.as_ref(), TypeRef::Named(name) if !opaque_types.contains(name.as_str()))
+                || (matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref)
         }
         _ => false,
     })

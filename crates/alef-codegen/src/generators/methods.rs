@@ -2,6 +2,7 @@ use crate::generators::binding_helpers::{
     apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_with_let_bindings,
     gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_named_let_bindings_pub,
     gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param, wrap_return,
+    wrap_return_with_mutex,
 };
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::shared::{constructor_parts, function_params, function_sig_defaults, partition_methods};
@@ -56,6 +57,8 @@ pub fn gen_constructor(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBinding
 /// instead of converting self to core type.
 ///
 /// `opaque_types` is the set of opaque type names, used for correct return wrapping.
+/// `mutex_types` is the subset of opaque types whose `inner` field is `Arc<Mutex<T>>`;
+/// method dispatch uses `.lock().unwrap()` for these types.
 pub fn gen_method(
     method: &MethodDef,
     mapper: &dyn TypeMapper,
@@ -63,6 +66,7 @@ pub fn gen_method(
     typ: &TypeDef,
     is_opaque: bool,
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
     adapter_bodies: &AdapterBodies,
 ) -> String {
     let type_name = &typ.name;
@@ -76,12 +80,10 @@ pub fn gen_method(
 
     let core_import = cfg.core_import;
 
-    // When non-opaque Named params have is_ref=true, we need let bindings so the
-    // converted value outlives the borrow. Use gen_call_args_with_let_bindings in that case.
-    let has_ref_named_params = method
-        .params
-        .iter()
-        .any(|p| p.is_ref && matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+    // When non-opaque Named params have is_ref=true, or Vec<String> params have is_ref=true,
+    // we need let bindings so the converted/intermediate value outlives the borrow.
+    // Use has_named_params which covers both Named types and Vec<String> with is_ref=true.
+    let has_ref_named_params = has_named_params(&method.params, opaque_types);
     let (call_args, ref_let_bindings) = if has_ref_named_params {
         (
             gen_call_args_with_let_bindings(&method.params, opaque_types),
@@ -113,14 +115,18 @@ pub fn gen_method(
     // Skip these unless there's an adapter body that can handle them.
     let is_trait_method = method.trait_source.is_some();
 
+    // Whether this opaque type uses Arc<Mutex<T>> for interior mutability.
+    let self_needs_mutex = is_opaque && mutex_types.contains(type_name.as_str());
+
     // Auto-delegate opaque methods: unwrap Arc for params, wrap Arc for returns.
     // Owned receivers require the type to implement Clone (builder pattern).
-    // RefMut receivers can't be delegated on Arc<T> (Arc only gives &self, not &mut self).
+    // RefMut receivers normally can't be delegated on Arc<T>, but Arc<Mutex<T>> allows
+    // &mut T via .lock().unwrap(), so mutex types CAN delegate RefMut methods.
     // Trait methods can't be delegated on opaque types (Arc deref doesn't expose trait methods).
     // Async methods are allowed — gen_async_body handles them below.
     let opaque_can_delegate = is_opaque
         && !method.sanitized
-        && !is_ref_mut_receiver
+        && (!is_ref_mut_receiver || self_needs_mutex)
         && !is_trait_method
         && (!is_owned_receiver || typ.is_clone)
         && method
@@ -131,11 +137,20 @@ pub fn gen_method(
 
     // Build the core call expression: opaque types delegate to self.inner directly,
     // non-opaque types convert self to core type first.
+    // For mutex types, acquire the lock before calling the method.
     let make_core_call = |method_name: &str| -> String {
         if is_opaque {
             if is_owned_receiver {
-                // Owned receiver: clone out of Arc to get an owned value
-                format!("(*self.inner).clone().{method_name}({call_args})")
+                // Owned receiver: clone out of Arc/Mutex to get an owned value.
+                // For Mutex types, lock first then clone the inner value.
+                if self_needs_mutex {
+                    format!("self.inner.lock().unwrap().clone().{method_name}({call_args})")
+                } else {
+                    format!("(*self.inner).clone().{method_name}({call_args})")
+                }
+            } else if self_needs_mutex {
+                // Mutex type: lock to get &mut T (works for both &self and &mut self methods).
+                format!("self.inner.lock().unwrap().{method_name}({call_args})")
             } else {
                 format!("self.inner.{method_name}({call_args})")
             }
@@ -145,9 +160,14 @@ pub fn gen_method(
     };
 
     // For async opaque methods, we clone the Arc before moving into the future.
+    // For mutex types, the cloned Arc<Mutex<T>> is locked inside the async block.
     let make_async_core_call = |method_name: &str| -> String {
         if is_opaque {
-            format!("inner.{method_name}({call_args})")
+            if self_needs_mutex {
+                format!("inner.lock().unwrap().{method_name}({call_args})")
+            } else {
+                format!("inner.{method_name}({call_args})")
+            }
         } else {
             format!("{core_type_path}::from(self.clone()).{method_name}({call_args})")
         }
@@ -161,11 +181,12 @@ pub fn gen_method(
     //   - primitives/String/Vec/Unit → pass through
     let result_expr = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
     let async_result_wrap = if is_opaque {
-        wrap_return(
+        wrap_return_with_mutex(
             &result_expr,
             &method.return_type,
             type_name,
             opaque_types,
+            mutex_types,
             is_opaque,
             method.returns_ref,
             method.returns_cow,
@@ -207,15 +228,20 @@ pub fn gen_method(
             let serde_bindings =
                 gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
             let serde_call_args = gen_call_args_with_let_bindings(&method.params, opaque_types);
-            let core_call = format!("self.inner.{}({serde_call_args})", method.name);
+            let core_call = if self_needs_mutex {
+                format!("self.inner.lock().unwrap().{}({serde_call_args})", method.name)
+            } else {
+                format!("self.inner.{}({serde_call_args})", method.name)
+            };
             if matches!(method.return_type, TypeRef::Unit) {
                 format!("{serde_bindings}{core_call}{err_conv}?;\n        Ok(())")
             } else {
-                let wrap = wrap_return(
+                let wrap = wrap_return_with_mutex(
                     "result",
                     &method.return_type,
                     type_name,
                     opaque_types,
+                    mutex_types,
                     is_opaque,
                     method.returns_ref,
                     method.returns_cow,
@@ -325,7 +351,7 @@ pub fn gen_method(
             }
         } else if is_opaque
             && !method.sanitized
-            && !is_ref_mut_receiver
+            && (!is_ref_mut_receiver || self_needs_mutex)
             && (!is_owned_receiver || typ.is_clone)
             && method.error_type.is_none()
             && method
@@ -337,12 +363,23 @@ pub fn gen_method(
             // Builder pattern for opaque types: method returns Self without error type.
             // Delegate to core method and wrap result back in Self { inner: Arc::new(...) }.
             let core_call = if is_owned_receiver {
-                format!("(*self.inner).clone().{}({call_args})", method.name)
+                if self_needs_mutex {
+                    format!("self.inner.lock().unwrap().clone().{}({call_args})", method.name)
+                } else {
+                    format!("(*self.inner).clone().{}({call_args})", method.name)
+                }
+            } else if self_needs_mutex {
+                format!("self.inner.lock().unwrap().{}({call_args})", method.name)
             } else {
                 format!("self.inner.{}({call_args})", method.name)
             };
             let unwrapped = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
-            format!("Self {{ inner: Arc::new({unwrapped}) }}")
+            let arc_expr = if self_needs_mutex {
+                format!("Arc::new(std::sync::Mutex::new({unwrapped}))")
+            } else {
+                format!("Arc::new({unwrapped})")
+            };
+            format!("Self {{ inner: {arc_expr} }}")
         } else if !is_opaque
             && !method.sanitized
             && !is_ref_mut_receiver
@@ -419,11 +456,12 @@ pub fn gen_method(
                     // Unit return: avoid let_unit_value by not binding the result
                     format!("{core_call}{err_conv}?;\n        Ok(())")
                 } else {
-                    let wrap = wrap_return(
+                    let wrap = wrap_return_with_mutex(
                         &result_expr,
                         &method.return_type,
                         type_name,
                         opaque_types,
+                        mutex_types,
                         is_opaque,
                         method.returns_ref,
                         method.returns_cow,
@@ -435,11 +473,12 @@ pub fn gen_method(
             }
         } else if is_opaque {
             let unwrapped_call = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
-            wrap_return(
+            wrap_return_with_mutex(
                 &unwrapped_call,
                 &method.return_type,
                 type_name,
                 opaque_types,
+                mutex_types,
                 is_opaque,
                 method.returns_ref,
                 method.returns_cow,
@@ -754,8 +793,18 @@ pub fn gen_impl_block(
     }
 
     // Instance methods
+    let empty_mutex_types: AHashSet<String> = AHashSet::new();
     for m in &instance {
-        out.push_str(&gen_method(m, mapper, cfg, typ, false, opaque_types, adapter_bodies));
+        out.push_str(&gen_method(
+            m,
+            mapper,
+            cfg,
+            typ,
+            false,
+            opaque_types,
+            &empty_mutex_types,
+            adapter_bodies,
+        ));
         out.push_str("\n\n");
     }
 
@@ -776,11 +825,14 @@ pub fn gen_impl_block(
 ///
 /// `opaque_types` is the set of type names that are opaque wrappers (use `Arc<inner>`).
 /// This is needed so that return-type wrapping uses the correct pattern for cross-type returns.
+/// `mutex_types` is the subset of opaque types whose inner field uses `Arc<Mutex<T>>`;
+/// method dispatch uses `.lock().unwrap()` for these types.
 pub fn gen_opaque_impl_block(
     typ: &TypeDef,
     mapper: &dyn TypeMapper,
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
     adapter_bodies: &AdapterBodies,
 ) -> String {
     let (instance, statics) = partition_methods(&typ.methods);
@@ -797,7 +849,16 @@ pub fn gen_opaque_impl_block(
 
     // Instance methods — delegate to self.inner
     for m in &instance {
-        out.push_str(&gen_method(m, mapper, cfg, typ, true, opaque_types, adapter_bodies));
+        out.push_str(&gen_method(
+            m,
+            mapper,
+            cfg,
+            typ,
+            true,
+            opaque_types,
+            mutex_types,
+            adapter_bodies,
+        ));
         out.push_str("\n\n");
     }
 

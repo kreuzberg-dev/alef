@@ -149,8 +149,17 @@ impl Backend for Pyo3Backend {
             .filter(|t| t.is_opaque)
             .map(|t| t.name.clone())
             .collect();
+        let mutex_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
+            .map(|t| t.name.clone())
+            .collect();
         if !opaque_types.is_empty() {
             builder.add_import("std::sync::Arc");
+            if !mutex_types.is_empty() {
+                builder.add_import("std::sync::Mutex");
+            }
         }
 
         // Check if we have Map types and add HashMap import if needed
@@ -208,7 +217,8 @@ impl Backend for Pyo3Backend {
             }
             if typ.is_opaque {
                 builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
-                let impl_block = generators::gen_opaque_impl_block(typ, &mapper, &cfg, &opaque_types, &adapter_bodies);
+                let impl_block =
+                    generators::gen_opaque_impl_block(typ, &mapper, &cfg, &opaque_types, &mutex_types, &adapter_bodies);
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }

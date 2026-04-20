@@ -827,8 +827,9 @@ fn gen_method(
     }
 
     if method.is_async {
+        // WASM does not use optional promotion, so use gen_named_let_bindings_no_promote.
         let let_bindings = if alef_codegen::generators::has_named_params(&method.params, opaque_types) {
-            alef_codegen::generators::gen_named_let_bindings_pub(&method.params, opaque_types, core_import)
+            alef_codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
         } else {
             String::new()
         };
@@ -864,8 +865,9 @@ fn gen_method(
         )
     } else if method.is_static {
         let body = if can_delegate {
+            // WASM does not use optional promotion, so use gen_named_let_bindings_no_promote.
             let let_bindings = if alef_codegen::generators::has_named_params(&method.params, opaque_types) {
-                alef_codegen::generators::gen_named_let_bindings_pub(&method.params, opaque_types, core_import)
+                alef_codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
             } else {
                 String::new()
             };
@@ -916,8 +918,9 @@ fn gen_method(
         )
     } else {
         let body = if can_delegate {
+            // WASM does not use optional promotion, so use gen_named_let_bindings_no_promote.
             let let_bindings = if alef_codegen::generators::has_named_params(&method.params, opaque_types) {
-                alef_codegen::generators::gen_named_let_bindings_pub(&method.params, opaque_types, core_import)
+                alef_codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
             } else {
                 String::new()
             };

@@ -20,7 +20,7 @@ pub fn can_auto_delegate_function(func: &alef_core::ir::FunctionDef, opaque_type
         && func
             .params
             .iter()
-            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types))
+            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types) && !is_named_ref_param(p, opaque_types))
         && is_delegatable_return(&func.return_type)
 }
 
@@ -35,8 +35,21 @@ pub fn can_auto_delegate(method: &MethodDef, opaque_types: &AHashSet<String>) ->
         && method
             .params
             .iter()
-            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types))
+            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types) && !is_named_ref_param(p, opaque_types))
         && is_delegatable_return(&method.return_type)
+}
+
+/// A Named param with is_ref=true needs a let-binding (can't inline .into() + borrow).
+/// A Vec<String> param with is_ref=true needs conversion to Vec<&str>.
+fn is_named_ref_param(p: &alef_core::ir::ParamDef, opaque_types: &AHashSet<String>) -> bool {
+    if !p.is_ref {
+        return false;
+    }
+    match &p.ty {
+        TypeRef::Named(name) => !opaque_types.contains(name.as_str()),
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::String | TypeRef::Char),
+        _ => false,
+    }
 }
 
 /// A param type is delegatable if it's simple, or a Named type (opaque → Arc unwrap, non-opaque → .into()).

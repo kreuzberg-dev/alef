@@ -82,7 +82,7 @@ pub(super) const TRAIT_METHOD_NAMES: &[&str] = &[
 pub use binding_helpers::{
     gen_async_body, gen_call_args, gen_call_args_with_let_bindings, gen_lossy_binding_to_core_fields,
     gen_named_let_bindings_no_promote, gen_named_let_bindings_pub, gen_serde_let_bindings, gen_unimplemented_body,
-    has_named_params, is_simple_non_opaque_param, wrap_return,
+    has_named_params, is_simple_non_opaque_param, wrap_return, wrap_return_with_mutex,
 };
 pub use enums::{enum_has_data_variants, gen_enum, gen_pyo3_data_enum};
 pub use functions::{collect_explicit_core_imports, collect_trait_imports, gen_function, has_unresolved_trait_methods};
@@ -91,5 +91,5 @@ pub use methods::{
 };
 pub use structs::{
     can_generate_default_impl, gen_opaque_struct, gen_opaque_struct_prefixed, gen_struct, gen_struct_default_impl,
-    gen_struct_with_per_field_attrs,
+    gen_struct_with_per_field_attrs, type_needs_mutex,
 };

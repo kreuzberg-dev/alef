@@ -7,7 +7,7 @@ use heck::ToSnakeCase;
 
 use crate::type_map::{c_param_type_with_paths, c_return_type_with_paths, is_void_return};
 
-use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, gen_value_to_c, null_return_value};
+use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value};
 
 // ---------------------------------------------------------------------------
 // Method wrappers
@@ -169,6 +169,24 @@ pub(super) fn gen_method_wrapper(
         .ok();
     }
 
+    // Emit Vec<&str> intermediate bindings for Vec<String> params with is_ref=true.
+    // gen_param_conversion produces a Vec<String> ({name}_rs), but the core expects &[&str].
+    // A &Vec<String> cannot coerce to &[&str], so we collect a Vec<&str> first.
+    for p in &method.params {
+        if p.is_ref && !p.optional {
+            if let TypeRef::Vec(inner) = &p.ty {
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                    let rs = format!("{}_rs", p.name);
+                    writeln!(
+                        out,
+                        "    let {rs}_refs: Vec<&str> = {rs}.iter().map(|s| s.as_str()).collect();"
+                    )
+                    .ok();
+                }
+            }
+        }
+    }
+
     // Build the call expression — pass &ref for String/Bytes params, owned for Path/Named
     let is_owned_receiver = method.receiver.as_ref() == Some(&ReceiverKind::Owned);
     let arg_names: Vec<String> = method
@@ -227,9 +245,22 @@ pub(super) fn gen_method_wrapper(
                     // If is_ref=true, convert to Option<&Value>; else pass owned
                     if p.is_ref { format!("{rs}.as_ref()") } else { rs }
                 }
-                TypeRef::Vec(_) | TypeRef::Map(_, _) if !p.optional => {
-                    // When is_ref=true, pass &vec as a slice. When is_mut=true, pass &mut vec.
-                    // Otherwise pass the vec owned.
+                TypeRef::Vec(inner) if !p.optional => {
+                    // Vec<String> with is_ref=true: core expects &[&str].
+                    // Use the {rs}_refs intermediate (Vec<&str>) and pass as slice.
+                    if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                        format!("&{rs}_refs")
+                    } else if p.is_mut {
+                        format!("&mut {rs}")
+                    } else if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
+                }
+                TypeRef::Map(_, _) if !p.optional => {
+                    // When is_ref=true, pass &map. When is_mut=true, pass &mut map.
+                    // Otherwise pass the map owned.
                     if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref {
@@ -333,7 +364,12 @@ pub(super) fn gen_method_wrapper(
                 } else {
                     "val"
                 };
-            write!(out, "{}", gen_value_to_c(val_expr, &method.return_type, "            ")).ok();
+            write!(
+                out,
+                "{}",
+                gen_owned_value_to_c(val_expr, &method.return_type, "            ")
+            )
+            .ok();
             writeln!(out, "        }}").ok();
         }
         writeln!(out, "        Err(e) => {{").ok();
@@ -472,6 +508,24 @@ pub(super) fn gen_free_function(
         .ok();
     }
 
+    // Emit Vec<&str> intermediate bindings for Vec<String> params with is_ref=true.
+    // gen_param_conversion produces a Vec<String> ({name}_rs), but the core expects &[&str].
+    // A &Vec<String> cannot coerce to &[&str], so we collect a Vec<&str> first.
+    for p in &func.params {
+        if p.is_ref && !p.optional {
+            if let TypeRef::Vec(inner) = &p.ty {
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                    let rs = format!("{}_rs", p.name);
+                    writeln!(
+                        out,
+                        "    let {rs}_refs: Vec<&str> = {rs}.iter().map(|s| s.as_str()).collect();"
+                    )
+                    .ok();
+                }
+            }
+        }
+    }
+
     // Call — pass &ref for String/Bytes/Named params, owned for Path
     let arg_names: Vec<String> = func
         .params
@@ -525,9 +579,22 @@ pub(super) fn gen_free_function(
                     // If is_ref=true, convert to Option<&Value>; else pass owned
                     if p.is_ref { format!("{rs}.as_ref()") } else { rs }
                 }
-                TypeRef::Vec(_) | TypeRef::Map(_, _) if !p.optional => {
-                    // When is_ref=true, pass &vec as a slice. When is_mut=true, pass &mut vec.
-                    // Otherwise pass the vec owned.
+                TypeRef::Vec(inner) if !p.optional => {
+                    // Vec<String> with is_ref=true: core expects &[&str].
+                    // Use the {rs}_refs intermediate (Vec<&str>) and pass as slice.
+                    if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                        format!("&{rs}_refs")
+                    } else if p.is_mut {
+                        format!("&mut {rs}")
+                    } else if p.is_ref {
+                        format!("&{rs}")
+                    } else {
+                        rs
+                    }
+                }
+                TypeRef::Map(_, _) if !p.optional => {
+                    // When is_ref=true, pass &map. When is_mut=true, pass &mut map.
+                    // Otherwise pass the map owned.
                     if p.is_mut {
                         format!("&mut {rs}")
                     } else if p.is_ref {
@@ -597,7 +664,12 @@ pub(super) fn gen_free_function(
             } else {
                 "val"
             };
-            write!(out, "{}", gen_value_to_c(val_expr, &func.return_type, "            ")).ok();
+            write!(
+                out,
+                "{}",
+                gen_owned_value_to_c(val_expr, &func.return_type, "            ")
+            )
+            .ok();
             writeln!(out, "        }}").ok();
         }
         writeln!(out, "        Err(e) => {{").ok();
@@ -617,6 +689,50 @@ pub(super) fn gen_free_function(
 
     write!(out, "}}").ok();
     out
+}
+
+// ---------------------------------------------------------------------------
+// Type helpers
+// ---------------------------------------------------------------------------
+
+/// Returns a concrete Rust type string for a [`TypeRef`], used to build turbofish
+/// annotations in `serde_json::from_str::<T>()` calls.
+///
+/// Using `_` in these positions causes type-inference failures when the deserialized
+/// value is immediately coerced (e.g. `Vec<String>` converted to `Vec<&str>`).
+/// Concrete types let the compiler resolve the full chain without ambiguity.
+fn type_ref_to_rust_type(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::String | TypeRef::Char => "String".to_string(),
+        TypeRef::Bytes => "Vec<u8>".to_string(),
+        TypeRef::Primitive(prim) => match prim {
+            alef_core::ir::PrimitiveType::Bool => "bool".to_string(),
+            alef_core::ir::PrimitiveType::U8 => "u8".to_string(),
+            alef_core::ir::PrimitiveType::U16 => "u16".to_string(),
+            alef_core::ir::PrimitiveType::U32 => "u32".to_string(),
+            alef_core::ir::PrimitiveType::U64 => "u64".to_string(),
+            alef_core::ir::PrimitiveType::I8 => "i8".to_string(),
+            alef_core::ir::PrimitiveType::I16 => "i16".to_string(),
+            alef_core::ir::PrimitiveType::I32 => "i32".to_string(),
+            alef_core::ir::PrimitiveType::I64 => "i64".to_string(),
+            alef_core::ir::PrimitiveType::F32 => "f32".to_string(),
+            alef_core::ir::PrimitiveType::F64 => "f64".to_string(),
+            alef_core::ir::PrimitiveType::Usize => "usize".to_string(),
+            alef_core::ir::PrimitiveType::Isize => "isize".to_string(),
+        },
+        TypeRef::Named(name) => name.clone(),
+        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_rust_type(inner)),
+        TypeRef::Map(key, val) => format!(
+            "std::collections::HashMap<{}, {}>",
+            type_ref_to_rust_type(key),
+            type_ref_to_rust_type(val)
+        ),
+        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_rust_type(inner)),
+        TypeRef::Path => "std::path::PathBuf".to_string(),
+        TypeRef::Json => "serde_json::Value".to_string(),
+        TypeRef::Duration => "std::time::Duration".to_string(),
+        TypeRef::Unit => "()".to_string(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -716,7 +832,13 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "    let {rs_name} = if {name}.is_null() {{").ok();
                 writeln!(out, "        None").ok();
                 writeln!(out, "    }} else {{").ok();
-                writeln!(out, "        Some(unsafe {{ &*{name} }}.clone())").ok();
+                if param.is_ref {
+                    // Core function takes Option<&T> — pass a reference, no clone needed.
+                    writeln!(out, "        Some(unsafe {{ &*{name} }})").ok();
+                } else {
+                    // Core function takes Option<T> — clone out of the pointer.
+                    writeln!(out, "        Some(unsafe {{ &*{name} }}.clone())").ok();
+                }
                 writeln!(out, "    }};").ok();
             }
             TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool) => {
@@ -766,9 +888,10 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "        match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{").ok();
                 writeln!(out, "            Ok(s) => {{").ok();
                 let type_hint = match &param.ty {
-                    TypeRef::Vec(_) => "::<Vec<_>>",
-                    TypeRef::Map(_, _) => "::<std::collections::HashMap<_, _>>",
-                    _ => "",
+                    TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty))
+                    }
+                    _ => String::new(),
                 };
                 writeln!(out, "                match serde_json::from_str{type_hint}(s) {{").ok();
                 writeln!(out, "                    Ok(v) => Some(v),").ok();
@@ -922,7 +1045,13 @@ pub(super) fn gen_param_conversion(
                 .ok();
                 writeln!(out, "        {fail_ret}").ok();
                 writeln!(out, "    }}").ok();
-                writeln!(out, "    let {rs_name} = unsafe {{ &*{name} }}.clone();").ok();
+                if param.is_ref {
+                    // Core function takes &T — pass a reference, no clone needed.
+                    writeln!(out, "    let {rs_name} = unsafe {{ &*{name} }};").ok();
+                } else {
+                    // Core function takes owned T — clone out of the pointer.
+                    writeln!(out, "    let {rs_name} = unsafe {{ &*{name} }}.clone();").ok();
+                }
             }
             TypeRef::Bytes => {
                 // Bytes come as (*const u8, len: usize) — the len param is a separate
@@ -972,12 +1101,13 @@ pub(super) fn gen_param_conversion(
                 let mut_keyword = if param.is_mut { "mut " } else { "" };
                 let type_hint = if param.is_ref || param.is_mut {
                     match &param.ty {
-                        TypeRef::Vec(_) => "::<Vec<_>>",
-                        TypeRef::Map(_, _) => "::<std::collections::HashMap<_, _>>",
-                        _ => "",
+                        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                            format!("::<{}>", type_ref_to_rust_type(&param.ty))
+                        }
+                        _ => String::new(),
                     }
                 } else {
-                    ""
+                    String::new()
                 };
                 writeln!(
                     out,

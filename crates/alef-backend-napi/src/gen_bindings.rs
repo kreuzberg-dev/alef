@@ -469,14 +469,6 @@ fn gen_opaque_instance_method(
             .all(|p| !p.sanitized && alef_codegen::shared::is_delegatable_param(&p.ty, opaque_types))
         && alef_codegen::shared::is_opaque_delegatable_type(&method.return_type);
 
-    let make_core_call = |method_name: &str| -> String {
-        if is_owned_receiver {
-            format!("(*self.inner).clone().{method_name}({call_args})")
-        } else {
-            format!("self.inner.{method_name}({call_args})")
-        }
-    };
-
     let make_async_core_call = |method_name: &str| -> String { format!("inner.{method_name}({call_args})") };
 
     let async_result_wrap = napi_wrap_return(
@@ -539,11 +531,29 @@ fn gen_opaque_instance_method(
             Some(&return_type),
         )
     } else {
-        let core_call = make_core_call(&method.name);
+        // When any non-opaque Named param has is_ref=true, generate let-bindings before the call
+        // to avoid E0716 ("temporary value dropped while borrowed"). The inline `.into()` pattern
+        // creates a temporary that Rust can't borrow for the duration of the call expression.
+        let use_let_bindings = generators::has_named_params(&method.params, opaque_types);
+        let (let_bindings, call_args_for_call) = if use_let_bindings {
+            let bindings = generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import);
+            let args = napi_apply_primitive_casts_to_call_args(
+                &generators::gen_call_args_with_let_bindings(&method.params, opaque_types),
+                &method.params,
+            );
+            (bindings, args)
+        } else {
+            (String::new(), napi_gen_call_args(&method.params, opaque_types))
+        };
+        let core_call = if is_owned_receiver {
+            format!("(*self.inner).clone().{}({})", method.name, call_args_for_call)
+        } else {
+            format!("self.inner.{}({})", method.name, call_args_for_call)
+        };
         if method.error_type.is_some() {
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
             if matches!(method.return_type, TypeRef::Unit) {
-                format!("{core_call}{err_conv}?;\n    Ok(())")
+                format!("{let_bindings}{core_call}{err_conv}?;\n    Ok(())")
             } else {
                 let wrap = napi_wrap_return(
                     "result",
@@ -554,17 +564,20 @@ fn gen_opaque_instance_method(
                     method.returns_ref,
                     prefix,
                 );
-                format!("let result = {core_call}{err_conv}?;\n    Ok({wrap})")
+                format!("{let_bindings}let result = {core_call}{err_conv}?;\n    Ok({wrap})")
             }
         } else {
-            napi_wrap_return(
-                &core_call,
-                &method.return_type,
-                type_name,
-                opaque_types,
-                true,
-                method.returns_ref,
-                prefix,
+            format!(
+                "{let_bindings}{}",
+                napi_wrap_return(
+                    &core_call,
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    true,
+                    method.returns_ref,
+                    prefix,
+                )
             )
         }
     };
