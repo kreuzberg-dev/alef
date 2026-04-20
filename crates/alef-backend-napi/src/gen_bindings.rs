@@ -255,11 +255,11 @@ impl Backend for NapiBackend {
             type_exports.push(format!("{prefix}{}", typ.name));
         }
 
-        // Collect all enums as value exports (runtime objects).
-        // NAPI generates const enum in .d.ts, but we post-process it to regular enum
-        // so they can be re-exported as values with verbatimModuleSyntax.
+        // Collect all enums as type exports.
+        // With verbatimModuleSyntax enabled, re-exporting const enums as values causes
+        // TS2748/TS1205; using `export type` avoids both errors.
         for enum_def in &api.enums {
-            function_exports.push(format!("{prefix}{}", enum_def.name));
+            type_exports.push(format!("{prefix}{}", enum_def.name));
         }
 
         // NAPI errors are thrown as native JS Error objects, not exported as TS types.
@@ -283,8 +283,8 @@ impl Backend for NapiBackend {
             "".to_string(),
         ];
 
-        // Separate value and type exports for isolatedModules compatibility.
-        // Value exports (functions + enums) in one block, type exports (structs) in another.
+        // Separate value and type exports for verbatimModuleSyntax compatibility.
+        // Value exports (functions) in one block, type exports (structs + enums) in another.
         if !function_exports.is_empty() {
             lines.push("export {".to_string());
             for name in &function_exports {
