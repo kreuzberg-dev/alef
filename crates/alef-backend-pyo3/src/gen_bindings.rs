@@ -620,14 +620,15 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
                     (hint, default)
                 };
 
+                let safe_name = python_safe_name(&field.name);
                 if !field.doc.is_empty() {
-                    out.push_str(&format!("    {}: {} = {}\n", field.name, type_hint_with_none, default));
+                    out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
                     out.push_str(&format!(
                         "    \"\"\"{}\"\"\"\n\n",
                         field.doc.lines().next().unwrap_or("")
                     ));
                 } else {
-                    out.push_str(&format!("    {}: {} = {}\n", field.name, type_hint_with_none, default));
+                    out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
                 }
             }
             out.push('\n');
@@ -675,14 +676,15 @@ fn gen_typeddict(
         } else {
             type_hint
         };
+        let safe_name = python_safe_name(&field.name);
         if !field.doc.is_empty() {
-            out.push_str(&format!("    {}: {}\n", field.name, type_hint_with_none));
+            out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
             out.push_str(&format!(
                 "    \"\"\"{}\"\"\"\n\n",
                 field.doc.lines().next().unwrap_or("")
             ));
         } else {
-            out.push_str(&format!("    {}: {}\n", field.name, type_hint_with_none));
+            out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
         }
     }
     out.push('\n');
@@ -743,7 +745,10 @@ fn typed_default_to_python(
     match td {
         DefaultValue::BoolLiteral(true) => "True".to_string(),
         DefaultValue::BoolLiteral(false) => "False".to_string(),
-        DefaultValue::StringLiteral(s) => format!("\"{}\"", s),
+        DefaultValue::StringLiteral(s) => {
+            let escaped = s.replace('\\', "\\\\").replace('\"', "\\\"").replace('\n', "\\n").replace('\r', "\\r");
+            format!("\"{}\"", escaped)
+        }
         DefaultValue::IntLiteral(i) => i.to_string(),
         DefaultValue::FloatLiteral(f) => format!("{}", f),
         DefaultValue::EnumVariant(v) => {
@@ -1170,9 +1175,10 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
 
     // Generate wrapper for each function
     for func in &api.functions {
-        // Build Python-side params (using option dataclasses)
+        // Build Python-side params — required first, then optional (Python syntax rule)
         let mut sig_parts = Vec::new();
-        for param in &func.params {
+        let (required, optional): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
+        for param in required.iter().chain(optional.iter()) {
             let py_type = if param.optional {
                 format!("{} | None = None", crate::type_map::python_type(&param.ty))
             } else {
@@ -1347,7 +1353,7 @@ fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str, dto: &DtoConf
     // type seen by static analysis tools matches the actual runtime object returned by functions.
     let mut native_return_types: Vec<String> = Vec::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        if typ.has_default && !typ.name.ends_with("Update") {
+        if typ.has_default && !typ.name.ends_with("Update") && !typ.fields.is_empty() {
             let is_native_return = typ.is_return_type && output_style != PythonDtoStyle::TypedDict;
             if is_native_return {
                 native_return_types.push(typ.name.clone());
