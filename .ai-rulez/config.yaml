@@ -14,5 +14,7 @@ builtins:
 
 presets:
   - claude
+  - codex
+  - copilot
 
 version: "3.0"
