@@ -409,13 +409,21 @@ fn render_test_case(
         format!("{function_name}({args_str})")
     };
 
+    // Check if any arg is a base_url to determine if we need fixture path
+    let has_base_url_arg = args.iter().any(|arg| arg.arg_type == "base_url");
+    let base_url_expr = if has_base_url_arg {
+        format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id)
+    } else {
+        "process.env.MOCK_SERVER_URL".to_string()
+    };
+
     if expects_error {
         let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
         if let Some(factory) = client_factory {
             let factory_camel = factory.to_lower_camel_case();
             let _ = writeln!(
                 out,
-                "    const client = {await_kw}{factory_camel}('test-key', process.env.MOCK_SERVER_URL);"
+                "    const client = {await_kw}{factory_camel}('test-key', {base_url_expr});"
             );
         }
         for line in &setup_lines {
@@ -438,7 +446,7 @@ fn render_test_case(
         let factory_camel = factory.to_lower_camel_case();
         let _ = writeln!(
             out,
-            "    const client = {await_kw}{factory_camel}('test-key', process.env.MOCK_SERVER_URL);"
+            "    const client = {await_kw}{factory_camel}('test-key', {base_url_expr});"
         );
     }
     for line in &setup_lines {
@@ -476,6 +484,18 @@ fn build_args_and_setup(
 
     for arg in args {
         if arg.arg_type == "mock_url" {
+            setup_lines.push(format!(
+                "const {} = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;",
+                arg.name,
+            ));
+            parts.push(arg.name.clone());
+            continue;
+        }
+
+        if arg.arg_type == "base_url" {
+            // When mock server is in use, set base_url to include the fixture path
+            // so that client requests like /v1/chat/completions become
+            // /fixtures/{fixture_id}/v1/chat/completions which match the prefix
             setup_lines.push(format!(
                 "const {} = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;",
                 arg.name,

@@ -885,40 +885,53 @@ type RouteTable = Arc<HashMap<String, MockRoute>>;
 // ---------------------------------------------------------------------------
 
 async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) -> Response {
-    // Expected path pattern: /fixtures/{fixture_id}
     let path = req.uri().path().to_owned();
+
+    // Try exact match first
     if let Some(route) = routes.get(&path) {
-        let status = StatusCode::from_u16(route.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        return serve_route(route);
+    }
 
-        if !route.stream_chunks.is_empty() {
-            let mut sse = String::new();
-            for chunk in &route.stream_chunks {
-                sse.push_str("data: ");
-                sse.push_str(chunk);
-                sse.push_str("\n\n");
-            }
-            sse.push_str("data: [DONE]\n\n");
-
-            return Response::builder()
-                .status(status)
-                .header("content-type", "text/event-stream")
-                .header("cache-control", "no-cache")
-                .body(Body::from(sse))
-                .unwrap()
-                .into_response();
+    // Try prefix match: find a route that is a prefix of the request path
+    // This allows /fixtures/basic_chat/v1/chat/completions to match /fixtures/basic_chat
+    for (route_path, route) in routes.iter() {
+        if path.starts_with(route_path) && (path.len() == route_path.len() || path.as_bytes()[route_path.len()] == b'/') {
+            return serve_route(route);
         }
-
-        return Response::builder()
-            .status(status)
-            .header("content-type", "application/json")
-            .body(Body::from(route.body.clone()))
-            .unwrap()
-            .into_response();
     }
 
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Body::from(format!("No mock route for {path}")))
+        .unwrap()
+        .into_response()
+}
+
+fn serve_route(route: &MockRoute) -> Response {
+    let status = StatusCode::from_u16(route.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+    if !route.stream_chunks.is_empty() {
+        let mut sse = String::new();
+        for chunk in &route.stream_chunks {
+            sse.push_str("data: ");
+            sse.push_str(chunk);
+            sse.push_str("\n\n");
+        }
+        sse.push_str("data: [DONE]\n\n");
+
+        return Response::builder()
+            .status(status)
+            .header("content-type", "text/event-stream")
+            .header("cache-control", "no-cache")
+            .body(Body::from(sse))
+            .unwrap()
+            .into_response();
+    }
+
+    Response::builder()
+        .status(status)
+        .header("content-type", "application/json")
+        .body(Body::from(route.body.clone()))
         .unwrap()
         .into_response()
 }
