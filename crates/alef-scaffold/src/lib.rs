@@ -841,7 +841,7 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
 fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let app_name = config.elixir_app_name();
-    let nif_name = format!("{app_name}_nif");
+    let nif_name = format!("{app_name}_rustler");
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let ws = detect_workspace_inheritance();
@@ -922,7 +922,7 @@ end
 "#,
         module = capitalize_first(&app_name),
         app_name = app_name,
-        nif_atom = format_args!("{app_name}_nif"),
+        nif_atom = format_args!("{app_name}_rustler"),
         version = version,
         description = meta.description,
         license = meta.license,

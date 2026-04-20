@@ -229,7 +229,7 @@ impl Backend for RustlerBackend {
         let output_dir = resolve_output_dir(
             config.output.elixir.as_ref(),
             &config.crate_config.name,
-            "packages/elixir/native/{name}_nif/src/",
+            "packages/elixir/native/{name}_rustler/src/",
         );
 
         Ok(vec![GeneratedFile {
@@ -1349,7 +1349,7 @@ fn gen_native_ex(
     let _ = writeln!(out);
     let _ = writeln!(out, "  use RustlerPrecompiled,");
     let _ = writeln!(out, "    otp_app: :{app_name},");
-    let _ = writeln!(out, "    crate: \"{app_name}_nif\",");
+    let _ = writeln!(out, "    crate: \"{app_name}_rustler\",");
     let _ = writeln!(
         out,
         "    base_url: \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
