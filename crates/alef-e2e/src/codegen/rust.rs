@@ -1073,6 +1073,19 @@ fn render_assertion(
                 }
             }
         }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(
+                        out,
+                        "    assert_eq!({field_access}.len(), {n}, \"expected exactly {n} elements, got {{}}\", {field_access}.len());"
+                    );
+                }
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(out, "    assert!({field_access}, \"expected true\");");
+        }
         other => {
             let _ = writeln!(out, "    // TODO: unsupported assertion type: {other}");
         }

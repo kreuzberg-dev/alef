@@ -983,6 +983,16 @@ fn render_assertion(
                 }
             }
         }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    assert len({field_access}) == {n}  # noqa: S101");
+                }
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(out, "    assert {field_access} is True  # noqa: S101");
+        }
         other => {
             let _ = writeln!(out, "    # TODO: unsupported assertion type: {other}");
         }

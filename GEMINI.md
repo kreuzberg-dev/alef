@@ -1,7 +1,7 @@
 <!--
 🤖 AI-RULEZ :: GENERATED FILE — DO NOT EDIT DIRECTLY
 Project: Alef
-Generated: 2026-04-20 08:48:58
+Generated: 2026-04-20 09:50:19
 Source: .ai-rulez/config.yaml
 Target: GEMINI.md
 Content: rules=27, sections=0, agents=1
@@ -46,6 +46,7 @@ INSTRUCTIONS FOR AI AGENTS
    c. Commit both .ai-rulez/ and generated files
 
 Documentation: https://github.com/Goldziher/ai-rulez
+Content-Hash: blake3:e490aa1d92293d12d4925e4018ed674e8a1fe007e3f38a5c6c2b1a2b2d2db661
 -->
 
 # Alef
@@ -108,6 +109,30 @@ Tests must be independent and idempotent — runnable in any order, in parallel.
 
 Name tests to describe behavior: `should_return_error_when_input_is_empty`, `test_parse_handles_nested_objects`. Use `describe`/`it` blocks for grouping in languages that support them. Follow `given_when_then` or `should_when` patterns. Test names are specifications — a reader should understand the expected behavior without reading the test body.
 
+### atomic-commits
+
+**Priority:** high
+
+Each commit represents one logical change. Don't mix unrelated changes. Use conventional commits format (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`). Keep commits small and focused for easier review and bisection.
+
+### branch-hygiene
+
+**Priority:** medium
+
+Use descriptive branch names. Keep branches short-lived. Delete merged branches. Rebase or merge from main regularly to avoid drift.
+
+### commit-messages
+
+**Priority:** high
+
+Use conventional commits: `feat: add user auth`, `fix: handle null input`, `chore: update deps`, `refactor: extract parser`, `docs: add API guide`, `test: cover edge case`. First line under 72 chars, imperative mood. Body explains *why*, not *what*. Add scope when useful: `feat(api): add pagination`.
+
+### safe-git-operations
+
+**Priority:** critical
+
+Never force-push to shared branches. Always pull before pushing. Use `--force-with-lease` instead of `--force` when necessary. Confirm destructive operations with the user.
+
 ### batch-operations
 
 **Priority:** medium
@@ -161,30 +186,6 @@ Read and understand existing files before editing them. Understand the codebase 
 **Priority:** critical
 
 Verify assumptions before taking action. Check current state (branch, working directory, running processes) before making changes. Confirm file existence before editing. Test that build passes before committing. Never assume — confirm.
-
-### atomic-commits
-
-**Priority:** high
-
-Each commit represents one logical change. Don't mix unrelated changes. Use conventional commits format (`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`). Keep commits small and focused for easier review and bisection.
-
-### branch-hygiene
-
-**Priority:** medium
-
-Use descriptive branch names. Keep branches short-lived. Delete merged branches. Rebase or merge from main regularly to avoid drift.
-
-### commit-messages
-
-**Priority:** high
-
-Use conventional commits: `feat: add user auth`, `fix: handle null input`, `chore: update deps`, `refactor: extract parser`, `docs: add API guide`, `test: cover edge case`. First line under 72 chars, imperative mood. Body explains *why*, not *what*. Add scope when useful: `feat(api): add pagination`.
-
-### safe-git-operations
-
-**Priority:** critical
-
-Never force-push to shared branches. Always pull before pushing. Use `--force-with-lease` instead of `--force` when necessary. Confirm destructive operations with the user.
 
 ### rust-conventions
 

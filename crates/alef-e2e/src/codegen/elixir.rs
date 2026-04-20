@@ -567,6 +567,16 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
                 }
             }
         }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "      assert length({field_expr}) == {n}");
+                }
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(out, "      assert {field_expr} == true");
+        }
         "not_error" => {
             // Already handled — the call would fail if it returned {:error, _}.
         }
