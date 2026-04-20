@@ -473,7 +473,7 @@ fn build_args_and_setup(
                 // WASM bindings use _assertClass validation, so we must construct
                 // a proper class instance instead of passing a plain JS object.
                 let config_var = format!("{}Config", arg.name);
-                setup_lines.push(format!("const {config_var} = {hct}.default();"));
+                setup_lines.push(format!("const {config_var} = new {hct}();"));
                 for (k, field_val) in obj {
                     let camel_key = k.to_lower_camel_case();
                     let js_val = json_to_js(field_val);
@@ -510,7 +510,7 @@ fn build_args_and_setup(
                 if arg.arg_type == "json_object" && !v.is_null() {
                     if let Some(opts_type) = options_type {
                         if let Some(obj) = v.as_object() {
-                            setup_lines.push(format!("const options = {opts_type}.default();"));
+                            setup_lines.push(format!("const options = new {opts_type}();"));
                             for (k, field_val) in obj {
                                 let camel_key = k.to_lower_camel_case();
                                 let js_val = if let Some(enum_type) = enum_fields.get(k) {
