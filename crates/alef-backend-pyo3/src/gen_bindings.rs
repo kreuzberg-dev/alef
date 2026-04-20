@@ -973,12 +973,43 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
         .map(|t| t.name.clone())
         .collect();
     let error_names: std::collections::BTreeSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
+    // Collect types that appear as return types of functions/methods — these live in the
+    // native module, not options.py.
+    let return_type_names: std::collections::BTreeSet<String> = {
+        fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut std::collections::BTreeSet<String>) {
+            match ty {
+                alef_core::ir::TypeRef::Named(name) => {
+                    out.insert(name.clone());
+                }
+                alef_core::ir::TypeRef::Optional(inner) | alef_core::ir::TypeRef::Vec(inner) => {
+                    collect_named_types(inner, out)
+                }
+                alef_core::ir::TypeRef::Map(k, v) => {
+                    collect_named_types(k, out);
+                    collect_named_types(v, out);
+                }
+                _ => {}
+            }
+        }
+        let mut names = std::collections::BTreeSet::new();
+        for func in &api.functions {
+            collect_named_types(&func.return_type, &mut names);
+        }
+        for ty in &api.types {
+            for method in &ty.methods {
+                collect_named_types(&method.return_type, &mut names);
+            }
+        }
+        names
+    };
     // Types that exist in options.py: has_default structs (excluding Update types and return
     // types — return types are defined in the native module, not options.py).
     let options_type_names: std::collections::BTreeSet<String> = api
         .types
         .iter()
-        .filter(|t| t.has_default && !t.name.ends_with("Update") && !t.is_return_type)
+        .filter(|t| {
+            t.has_default && !t.name.ends_with("Update") && !t.is_return_type && !return_type_names.contains(&t.name)
+        })
         .map(|t| t.name.clone())
         .collect();
     // All non-enum IR type names (used to distinguish structs from enums in classification).

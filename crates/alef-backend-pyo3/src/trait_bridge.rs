@@ -51,8 +51,10 @@ pub fn gen_trait_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Registration function
-    gen_registration_fn(&mut out, bridge_cfg, &struct_name, &trait_path);
+    // Registration function — only generated when register_fn is configured
+    if bridge_cfg.register_fn.is_some() {
+        gen_registration_fn(&mut out, bridge_cfg, &struct_name, &trait_path);
+    }
 
     out
 }
@@ -448,8 +450,14 @@ fn is_named(ty: &TypeRef) -> bool {
 }
 
 fn gen_registration_fn(out: &mut String, cfg: &TraitBridgeConfig, struct_name: &str, trait_path: &str) {
-    let register_fn = &cfg.register_fn;
-    let registry_getter = &cfg.registry_getter;
+    let register_fn = cfg
+        .register_fn
+        .as_deref()
+        .expect("gen_registration_fn called without register_fn");
+    let registry_getter = cfg
+        .registry_getter
+        .as_deref()
+        .expect("gen_registration_fn called without registry_getter");
     let trait_name = &cfg.trait_name;
 
     writeln!(out, "#[pyfunction]").unwrap();
@@ -509,8 +517,10 @@ fn gen_registration_fn(out: &mut String, cfg: &TraitBridgeConfig, struct_name: &
 }
 
 /// Collect registration function names for module init.
+///
+/// Bridges without a `register_fn` (per-call visitor pattern) are skipped.
 pub fn collect_bridge_register_fns(configs: &[TraitBridgeConfig]) -> Vec<String> {
-    configs.iter().map(|c| c.register_fn.clone()).collect()
+    configs.iter().filter_map(|c| c.register_fn.clone()).collect()
 }
 
 /// Imports needed by trait bridge generated code.

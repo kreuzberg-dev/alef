@@ -294,8 +294,10 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
 
 /// Generate the `register_xxx()` function that wraps a foreign object and
 /// inserts it into the plugin registry.
-pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
-    let reg_fn = &spec.bridge_config.register_fn;
+///
+/// Returns `None` when `bridge_config.register_fn` is absent (per-call bridge pattern).
+pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
+    let reg_fn = spec.bridge_config.register_fn.as_deref()?;
     let attr = generator.registration_fn_attr();
     let mut out = String::with_capacity(1024);
 
@@ -308,11 +310,14 @@ pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitB
     }
 
     writeln!(out, "}}").ok();
-    out
+    Some(out)
 }
 
 /// Generate the complete trait bridge code block: imports, struct, impls, and
-/// registration function.
+/// optionally a registration function.
+///
+/// The registration function is only emitted when `bridge_config.register_fn` is set.
+/// Bridges without a `register_fn` use the per-call visitor pattern instead.
 pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let mut out = String::with_capacity(4096);
 
@@ -339,11 +344,13 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 
     // Trait impl
     out.push_str(&gen_bridge_trait_impl(spec, generator));
-    writeln!(out).ok();
-    writeln!(out).ok();
 
-    // Registration function
-    out.push_str(&gen_bridge_registration_fn(spec, generator));
+    // Registration function — only when register_fn is configured
+    if let Some(reg_fn_code) = gen_bridge_registration_fn(spec, generator) {
+        writeln!(out).ok();
+        writeln!(out).ok();
+        out.push_str(&reg_fn_code);
+    }
 
     out
 }
