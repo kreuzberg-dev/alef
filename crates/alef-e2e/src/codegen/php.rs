@@ -36,10 +36,14 @@ impl E2eCodegen for PhpCodegen {
         // Resolve call config with overrides.
         let call = &e2e_config.call;
         let overrides = call.overrides.get(lang);
-        let function_name = overrides
+        let mut function_name = overrides
             .and_then(|o| o.function.as_ref())
             .cloned()
             .unwrap_or_else(|| call.function.clone());
+        // PHP ext-php-rs async methods have an _async suffix
+        if call.r#async {
+            function_name = format!("{function_name}_async");
+        }
         let extension_name = alef_config.php_extension_name();
         let class_name = overrides
             .and_then(|o| o.class.as_ref())
