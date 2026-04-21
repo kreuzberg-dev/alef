@@ -13,4 +13,3 @@ readme = "README.md"
 ahash = { workspace = true }
 alef-core = { workspace = true }
 heck = { workspace = true }
-minijinja = { workspace = true }

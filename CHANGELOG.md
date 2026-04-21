@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-04-21
+
+### Changed
+
+- CLI: parallelize code generation, build, lint, and test loops with rayon
+- CLI: parallelize file writing and diff checks across languages
+- CLI: build commands within independent and FFI-dependent groups run concurrently
+- CLI: switch rustfmt to stdin-based piping with explicit `--config-path` (thread-safe, respects `rustfmt.toml` from any CWD)
+- CLI: lazy-compile fixed regex patterns in version sync with `LazyLock`
+- Docs: replace `push_str(&format!())` with `write!()` macro to eliminate temporary string allocations
+- Docs: pre-allocate `String::with_capacity(8192)` for markdown output buffers
+- PyO3: use `ahash::AHashSet<&str>` instead of `std::collections::HashSet<String>` in code generation hot paths
+
+### Fixed
+
+- CLI: remove redundant double rustfmt pass on generated Rust files
+- CLI: fix post-build file patch race condition by running patches sequentially after parallel builds
+- CLI: fix lint/test output truncation — all language output is now printed before reporting errors
+- E2E: resolve `field='input'` correctly in TypeScript codegen
+- E2E: Tree method mapping, bytes arg type, features, json_object ref
+- E2E: Option return handling, `default-features`, `is_none`/`is_some`
+- Java: escape `*/` in Javadoc comments; TypeScript codegen updates
+- PHP: per-fixture call routing and `json_encode` arg passing in PHP e2e
+- PHP: add let-binding support for `Named` ref and `Vec<String>` ref params
+- Python: resolve call config per fixture for correct function dispatch
+- C#: fix `CS0029` type shadowing, `CS1503` nullable unwrap, `Vec<String>` serde conversion
+- C#: add `using System`, fix `CS8910` copy constructor clash for newtype variants
+- Rustler: use `_rustler` crate name in `native.ex` (not `_nif`)
+- Adapters: use `_core` locals in streaming adapter body (not `.into()` on moved param)
+- Codegen: fix codegen for opaque types, ref params, and `Vec<&str>`
+- FFI: unnecessary clone removal; NAPI/Rustler/scaffold improvements
+- Sync: don't blanket-replace versions in `pyproject.toml` `extra_paths`
+
+### Removed
+
+- Codegen: remove unused `create_env()` from templates module
+
+## [0.4.3] - 2026-04-20
+
+### Added
+
+- Codegen: trait bridge generation for NAPI, Magnus, Rustler, WASM, and PHP backends
+- Codegen: `gen_error_class` for structured Python error hierarchies
+- E2E: C codegen backend for e2e test generation
+- E2E: Python e2e improvements (fixture handling, codegen updates)
+
+### Fixed
+
+- E2E: various codegen fixes across C and Python backends
+- PHP: binding function generation fixes
+
 ## [0.4.2] - 2026-04-20
 
 ### Added

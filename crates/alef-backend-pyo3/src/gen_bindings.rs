@@ -571,7 +571,8 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
 
     // Generate stub classes for non-enum Named types that are referenced
     for type_name in &referenced_types {
-        if !enum_names.contains(type_name.as_str()) && !api.types.iter().any(|t| &t.name == type_name && t.has_default) {
+        if !enum_names.contains(type_name.as_str()) && !api.types.iter().any(|t| &t.name == type_name && t.has_default)
+        {
             out.push_str(&format!("class {}:\n", type_name));
             out.push_str(&format!("    \"\"\"Placeholder for {} type.\"\"\"\n", type_name));
             out.push_str("\n\n");
