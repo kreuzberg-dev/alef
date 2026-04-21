@@ -245,14 +245,14 @@ fn main() -> Result<()> {
                 let lang_hash = cache::compute_lang_hash(&post_ir, &lang_str, &post_config);
                 if let Ok(paths) = cache::read_manifest_paths(&lang_str) {
                     let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
-                    let _ = cache::write_output_hashes(&lang_str, &paths);
+
                 }
             }
             // Update stubs hashes post-prek (prek may have modified stub files).
             let post_stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
             if let Ok(paths) = cache::read_manifest_paths("stubs") {
                 let _ = cache::write_stage_hash("stubs", &post_stubs_hash, &paths);
-                let _ = cache::write_output_hashes("stubs", &paths);
+
             }
 
             println!("Generated {count} files");
@@ -278,7 +278,7 @@ fn main() -> Result<()> {
                 .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
                 .collect();
             cache::write_stage_hash("stubs", &stage_hash, &output_paths)?;
-            let _ = cache::write_output_hashes("stubs", &output_paths);
+
             println!("Generated {count} stub files");
             Ok(())
         }
@@ -332,9 +332,9 @@ fn main() -> Result<()> {
             let config = load_config(config_path)?;
             let languages = resolve_doc_languages(&config, lang.as_deref())?;
             let config_toml = std::fs::read_to_string(config_path)?;
-            // Use unfiltered IR for docs so ALL public types are documented,
-            // not just the subset that survives [include]/[exclude] binding filters.
-            let api = pipeline::extract_unfiltered(&config, config_path)?;
+            // Use the same filtered IR as binding generation so docs only
+            // cover the public API surface declared in [include].
+            let api = pipeline::extract(&config, config_path, false)?;
             let ir_json = serde_json::to_string(&api)?;
             let stage_hash = cache::compute_stage_hash(&ir_json, "docs", &config_toml, &[]);
             if cache::is_stage_cached("docs", &stage_hash) {
@@ -419,35 +419,11 @@ fn main() -> Result<()> {
                     let bindings = pipeline::generate(&api, &config, &[*lang], true)?;
                     let base_dir = std::env::current_dir()?;
                     all_stale.extend(pipeline::diff_files(&bindings, &base_dir)?);
-                    continue;
-                }
-
-                match cache::verify_output_hashes(&lang_str) {
-                    Ok(stale_files) => {
-                        for f in stale_files {
-                            all_stale.push(format!("[{lang_str}] {f}"));
-                        }
-                    }
-                    Err(e) => {
-                        all_stale.push(format!("[{lang_str}] failed to verify: {e}"));
-                    }
                 }
             }
 
-            // Verify stubs
-            if cache::has_output_hashes("stubs") {
-                match cache::verify_output_hashes("stubs") {
-                    Ok(stale_files) => {
-                        for f in stale_files {
-                            all_stale.push(format!("[stubs] {f}"));
-                        }
-                    }
-                    Err(e) => {
-                        all_stale.push(format!("[stubs] failed to verify: {e}"));
-                    }
-                }
-            } else {
-                // Fallback: regenerate stubs and diff
+            // Verify stubs by regenerating and diffing
+            {
                 let api = pipeline::extract(&config, config_path, false)?;
                 let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
                 let base_dir = std::env::current_dir()?;
@@ -589,14 +565,14 @@ fn main() -> Result<()> {
                 let lang_hash = cache::compute_lang_hash(&post_ir, &lang_str, &post_config);
                 if let Ok(paths) = cache::read_manifest_paths(&lang_str) {
                     let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
-                    let _ = cache::write_output_hashes(&lang_str, &paths);
+
                 }
             }
             // Stubs
             let stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
             if let Ok(paths) = cache::read_manifest_paths("stubs") {
                 let _ = cache::write_stage_hash("stubs", &stubs_hash, &paths);
-                let _ = cache::write_output_hashes("stubs", &paths);
+
             }
 
             println!(

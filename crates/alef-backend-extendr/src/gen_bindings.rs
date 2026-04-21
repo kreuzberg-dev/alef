@@ -108,23 +108,44 @@ impl Backend for ExtendrBackend {
             .filter(|t| t.is_opaque)
             .map(|t| t.name.clone())
             .collect();
+        let mutex_types: ahash::AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
+            .map(|t| t.name.clone())
+            .collect();
+
+        // Import Arc when there are opaque types (builder-pattern types use Arc<CoreType>).
+        if !opaque_types.is_empty() {
+            builder.add_import("std::sync::Arc");
+        }
 
         // Generate type bindings
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            // gen_struct already emits #[derive(Default)] for all structs.
-            // Emitting gen_struct_default_impl here would produce a conflicting
-            // `impl Default` compile error. The derive covers all types where
-            // can_generate_default_impl is true (all field types implement Default).
-            builder.add_item(&generators::gen_struct(typ, self, &cfg));
-            let impl_block = generators::gen_impl_block(typ, self, &cfg, &adapter_bodies, &opaque_types);
-            if !impl_block.is_empty() {
-                builder.add_item(&impl_block);
-            }
-            // Generate config constructor if type has Default
-            if typ.has_default && !typ.fields.is_empty() {
-                let map_fn = |ty: &alef_core::ir::TypeRef| self.map_type(ty);
-                let config_fn = alef_codegen::config_gen::gen_extendr_kwargs_constructor(typ, &map_fn);
-                builder.add_item(&config_fn);
+            if typ.is_opaque {
+                // Opaque types wrap the core type in Arc<T> and delegate methods to self.inner.
+                builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
+                let impl_block =
+                    generators::gen_opaque_impl_block(typ, self, &cfg, &opaque_types, &mutex_types, &adapter_bodies);
+                if !impl_block.is_empty() {
+                    builder.add_item(&impl_block);
+                }
+            } else {
+                // gen_struct already emits #[derive(Default)] for all structs.
+                // Emitting gen_struct_default_impl here would produce a conflicting
+                // `impl Default` compile error. The derive covers all types where
+                // can_generate_default_impl is true (all field types implement Default).
+                builder.add_item(&generators::gen_struct(typ, self, &cfg));
+                let impl_block = generators::gen_impl_block(typ, self, &cfg, &adapter_bodies, &opaque_types);
+                if !impl_block.is_empty() {
+                    builder.add_item(&impl_block);
+                }
+                // Generate config constructor if type has Default
+                if typ.has_default && !typ.fields.is_empty() {
+                    let map_fn = |ty: &alef_core::ir::TypeRef| self.map_type(ty);
+                    let config_fn = alef_codegen::config_gen::gen_extendr_kwargs_constructor(typ, &map_fn);
+                    builder.add_item(&config_fn);
+                }
             }
         }
 
