@@ -1081,7 +1081,10 @@ fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &Call
         _ => "self, ctx, *args",
     };
 
-    let _ = writeln!(out, "        def {method_name}({params}):");
+    let _ = writeln!(
+        out,
+        "        def {method_name}({params}):  # noqa: A002, ANN001, ANN202, ARG002"
+    );
     match action {
         CallbackAction::Skip => {
             let _ = writeln!(out, "            return \"skip\"");
