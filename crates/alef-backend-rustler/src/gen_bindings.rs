@@ -419,7 +419,7 @@ impl Backend for RustlerBackend {
                 if spec_inline.len() > 98 {
                     content.push_str(&format!("  @spec {nif_fn_name}(\n"));
                     let len = arity_types.len();
-                    for (i, t) in arity_types.into_iter().enumerate() {
+                    for (i, t) in arity_types.iter().enumerate() {
                         if i + 1 < len {
                             content.push_str(&format!("          {t},\n"));
                         } else {
