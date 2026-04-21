@@ -2,6 +2,7 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
 use anyhow::Context as _;
+use rayon::prelude::*;
 use std::path::Path;
 use tracing::{debug, info};
 
@@ -28,29 +29,38 @@ pub fn generate(
 
     let ir_json = serde_json::to_string(api)?;
     let config_toml = toml::to_string(config).unwrap_or_default();
-    let mut results = vec![];
 
-    for &lang in languages {
-        let lang_str = lang.to_string();
-        let lang_hash = cache::compute_lang_hash(&ir_json, &lang_str, &config_toml);
+    let to_generate: Vec<_> = languages
+        .par_iter()
+        .filter_map(|&lang| {
+            let lang_str = lang.to_string();
+            let lang_hash = cache::compute_lang_hash(&ir_json, &lang_str, &config_toml);
 
-        if !clean && cache::is_lang_cached(&lang_str, &lang_hash) {
-            debug!("  {}: cached, skipping", lang_str);
-            continue;
-        }
+            if !clean && cache::is_lang_cached(&lang_str, &lang_hash) {
+                debug!("  {}: cached, skipping", lang_str);
+                return None;
+            }
 
-        let backend = registry::get_backend(lang);
-        info!("  {}: generating...", lang_str);
+            Some((lang, lang_str, lang_hash))
+        })
+        .collect();
 
-        let files = backend
-            .generate_bindings(api, config)
-            .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
-        let base_dir = std::env::current_dir().unwrap_or_default();
-        let output_paths: Vec<std::path::PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
-        cache::write_lang_hash(&lang_str, &lang_hash, &output_paths)
-            .with_context(|| format!("failed to write language hash for {lang_str}"))?;
-        results.push((lang, files));
-    }
+    let results: Vec<(Language, Vec<GeneratedFile>)> = to_generate
+        .into_iter()
+        .map(|(lang, lang_str, lang_hash)| {
+            let backend = registry::get_backend(lang);
+            info!("  {}: generating...", lang_str);
+
+            let files = backend
+                .generate_bindings(api, config)
+                .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
+            let base_dir = std::env::current_dir().unwrap_or_default();
+            let output_paths: Vec<std::path::PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
+            cache::write_lang_hash(&lang_str, &lang_hash, &output_paths)
+                .with_context(|| format!("failed to write language hash for {lang_str}"))?;
+            Ok((lang, files))
+        })
+        .collect::<anyhow::Result<_>>()?;
 
     Ok(results)
 }
@@ -61,14 +71,17 @@ pub fn generate_stubs(
     config: &AlefConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
-    let mut results = vec![];
-    for &lang in languages {
-        let backend = registry::get_backend(lang);
-        let files = backend.generate_type_stubs(api, config)?;
-        if !files.is_empty() {
-            results.push((lang, files));
-        }
-    }
+    let results: Vec<(Language, Vec<GeneratedFile>)> = languages
+        .par_iter()
+        .map(|&lang| {
+            let backend = registry::get_backend(lang);
+            let files = backend.generate_type_stubs(api, config)?;
+            Ok((lang, files))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|(_, files)| !files.is_empty())
+        .collect();
     Ok(results)
 }
 
@@ -78,14 +91,17 @@ pub fn generate_public_api(
     config: &AlefConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
-    let mut results = vec![];
-    for &lang in languages {
-        let backend = registry::get_backend(lang);
-        let files = backend.generate_public_api(api, config)?;
-        if !files.is_empty() {
-            results.push((lang, files));
-        }
-    }
+    let results: Vec<(Language, Vec<GeneratedFile>)> = languages
+        .par_iter()
+        .map(|&lang| {
+            let backend = registry::get_backend(lang);
+            let files = backend.generate_public_api(api, config)?;
+            Ok((lang, files))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|(_, files)| !files.is_empty())
+        .collect();
     Ok(results)
 }
 
@@ -96,26 +112,33 @@ pub fn generate_public_api(
 /// This also means `cargo fmt` (run by prek) becomes a no-op for generated
 /// files, making `alef all` idempotent.
 pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> anyhow::Result<usize> {
-    let mut count = 0;
-    for (_lang, lang_files) in files {
-        for file in lang_files {
-            let full_path = base_dir.join(&file.path);
-            if let Some(parent) = full_path.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("failed to create directory {}", parent.display()))?;
-            }
-            let content = if file.path.extension().is_some_and(|ext| ext == "rs") {
-                format_rust_content(&file.content)
-            } else {
-                normalize_whitespace(&file.content)
-            };
-            std::fs::write(&full_path, &content)
-                .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
-            count += 1;
-            debug!("  wrote: {}", full_path.display());
-        }
+    // First pass: create all needed directories (sequential, deduped)
+    let dirs: std::collections::BTreeSet<_> = files
+        .iter()
+        .flat_map(|(_, lang_files)| lang_files.iter())
+        .filter_map(|f| base_dir.join(&f.path).parent().map(|p| p.to_path_buf()))
+        .collect();
+    for dir in &dirs {
+        std::fs::create_dir_all(dir).with_context(|| format!("failed to create directory {}", dir.display()))?;
     }
-    Ok(count)
+
+    // Second pass: format and write files in parallel
+    let all_files: Vec<_> = files.iter().flat_map(|(_, lang_files)| lang_files.iter()).collect();
+
+    all_files.par_iter().try_for_each(|file| -> anyhow::Result<()> {
+        let full_path = base_dir.join(&file.path);
+        let content = if file.path.extension().is_some_and(|ext| ext == "rs") {
+            format_rust_content(&file.content)
+        } else {
+            normalize_whitespace(&file.content)
+        };
+        std::fs::write(&full_path, &content)
+            .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
+        debug!("  wrote: {}", full_path.display());
+        Ok(())
+    })?;
+
+    Ok(all_files.len())
 }
 
 /// Diff generated files against what's on disk.
@@ -124,9 +147,14 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
 /// For all files, whitespace is normalized (trailing whitespace stripped,
 /// trailing newline ensured) so that formatter-only diffs are ignored.
 pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> anyhow::Result<Vec<String>> {
-    let mut diffs = vec![];
-    for (lang, lang_files) in files {
-        for file in lang_files {
+    let all_items: Vec<_> = files
+        .iter()
+        .flat_map(|(lang, lang_files)| lang_files.iter().map(move |f| (*lang, f)))
+        .collect();
+
+    let diffs: Vec<String> = all_items
+        .par_iter()
+        .filter_map(|(lang, file)| {
             let full_path = base_dir.join(&file.path);
             let existing = std::fs::read_to_string(&full_path).unwrap_or_default();
             let is_rust = file.path.extension().is_some_and(|ext| ext == "rs");
@@ -141,10 +169,13 @@ pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> 
                 existing
             };
             if normalize_whitespace(&on_disk) != normalize_whitespace(&generated) {
-                diffs.push(format!("[{lang}] {}", file.path.display()));
+                Some(format!("[{lang}] {}", file.path.display()))
+            } else {
+                None
             }
-        }
-    }
+        })
+        .collect();
+
     Ok(diffs)
 }
 
