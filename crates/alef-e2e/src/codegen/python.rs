@@ -6,7 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_python, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -681,6 +681,15 @@ fn render_test_function(
         kwarg_exprs.push(format!("{var_name}={var_name}"));
     }
 
+    // Generate visitor class if the fixture has a visitor spec.
+    if let Some(visitor_spec) = &fixture.visitor {
+        let _ = writeln!(out, "    class _TestVisitor:");
+        for (method_name, action) in &visitor_spec.callbacks {
+            emit_python_visitor_method(out, method_name, action);
+        }
+        kwarg_exprs.push("visitor=_TestVisitor()".to_string());
+    }
+
     for binding in &arg_bindings {
         let _ = writeln!(out, "{binding}");
     }
@@ -1037,5 +1046,53 @@ fn python_string_literal(s: &str) -> String {
         format!("'{escaped}'")
     } else {
         format!("\"{}\"", escape_python(s))
+    }
+}
+
+/// Emit a Python visitor method for a callback action.
+fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
+    let params = match method_name {
+        "visit_link" => "self, ctx, href, text, title",
+        "visit_image" => "self, ctx, src, alt, title",
+        "visit_heading" => "self, ctx, level, text, id",
+        "visit_code_block" => "self, ctx, lang, code",
+        "visit_code_inline" | "visit_strong" | "visit_emphasis"
+        | "visit_strikethrough" | "visit_underline" | "visit_subscript"
+        | "visit_superscript" | "visit_mark" | "visit_button"
+        | "visit_summary" | "visit_figcaption"
+        | "visit_definition_term" | "visit_definition_description" => "self, ctx, text",
+        "visit_text" => "self, ctx, text",
+        "visit_list_item" => "self, ctx, ordered, marker, text",
+        "visit_blockquote" => "self, ctx, content, depth",
+        "visit_table_row" => "self, ctx, cells, is_header",
+        "visit_custom_element" => "self, ctx, tag_name, html",
+        "visit_form" => "self, ctx, action_url, method",
+        "visit_input" => "self, ctx, input_type, name, value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "self, ctx, src",
+        "visit_details" => "self, ctx, is_open",
+        _ => "self, ctx, *args",
+    };
+
+    let _ = writeln!(out, "        def {method_name}({params}):");
+    match action {
+        CallbackAction::Skip => {
+            let _ = writeln!(out, "            return \"skip\"");
+        }
+        CallbackAction::Continue => {
+            let _ = writeln!(out, "            return \"continue\"");
+        }
+        CallbackAction::PreserveHtml => {
+            let _ = writeln!(out, "            return \"preserve_html\"");
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = escape_python(output);
+            let _ = writeln!(out, "            return {{\"custom\": \"{escaped}\"}}");
+        }
+        CallbackAction::CustomTemplate { template } => {
+            let _ = writeln!(
+                out,
+                "            return {{\"custom\": f\"{template}\"}}"
+            );
+        }
     }
 }

@@ -220,82 +220,50 @@ pub fn write_scaffold_files_with_overwrite(
     Ok(count)
 }
 
-/// Format a Rust source string using `rustfmt` via a temporary file.
+/// Format a Rust source string by piping through `rustfmt`.
 ///
-/// Uses a temp file in the current directory so that `rustfmt` discovers the
-/// project's `rustfmt.toml` (e.g. `max_width = 120`).  This produces output
-/// identical to `cargo fmt` / `prek`, ensuring `alef verify` matches.
+/// Reads from stdin and writes to stdout, avoiding temp files.  `rustfmt`
+/// discovers the project's `rustfmt.toml` from the working directory.
 ///
 /// Returns the formatted content on success, or the original content if
 /// rustfmt is unavailable or fails (best-effort).
 pub fn format_rust_content(content: &str) -> String {
-    use std::process::Command;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
 
-    // Write to a temp file in cwd so rustfmt picks up rustfmt.toml.
-    let tmp_name = format!(".alef_fmt_{}.rs", std::process::id());
-    let tmp_path = std::env::current_dir().unwrap_or_default().join(&tmp_name);
-
-    if std::fs::write(&tmp_path, content).is_err() {
-        return content.to_string();
-    }
-
-    let result = Command::new("rustfmt")
+    let mut child = match Command::new("rustfmt")
         .arg("--edition")
         .arg("2024")
-        .arg(&tmp_path)
-        .output();
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => {
+            debug!("rustfmt not available: {e}");
+            return content.to_string();
+        }
+    };
 
-    let formatted = match result {
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(content.as_bytes());
+    }
+
+    match child.wait_with_output() {
         Ok(output) if output.status.success() => {
-            std::fs::read_to_string(&tmp_path).unwrap_or_else(|_| content.to_string())
+            String::from_utf8(output.stdout).unwrap_or_else(|_| content.to_string())
         }
         Ok(output) => {
-            debug!("rustfmt failed: {}", String::from_utf8_lossy(&output.stderr));
+            debug!(
+                "rustfmt failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             content.to_string()
         }
         Err(e) => {
             debug!("rustfmt process error: {e}");
             content.to_string()
-        }
-    };
-
-    let _ = std::fs::remove_file(&tmp_path);
-    formatted
-}
-
-/// Auto-format generated Rust files using `rustfmt` (best-effort, doesn't fail on error).
-pub fn format_rust_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) {
-    let rs_files: Vec<_> = files
-        .iter()
-        .flat_map(|(_, lang_files)| lang_files.iter())
-        .filter(|f| f.path.extension().is_some_and(|ext| ext == "rs"))
-        .map(|f| base_dir.join(&f.path))
-        .collect();
-
-    if rs_files.is_empty() {
-        return;
-    }
-
-    // Run rustfmt on each file individually (more reliable than cargo fmt for specific files)
-    for path in &rs_files {
-        let result = std::process::Command::new("rustfmt")
-            .arg("--edition")
-            .arg("2024")
-            .arg(path)
-            .output();
-        match result {
-            Ok(output) if !output.status.success() => {
-                debug!(
-                    "rustfmt warning on {}: {}",
-                    path.display(),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            Err(e) => {
-                debug!("rustfmt not available: {e}");
-                return; // Don't try other files if rustfmt isn't installed
-            }
-            _ => {}
         }
     }
 }

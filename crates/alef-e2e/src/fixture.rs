@@ -19,6 +19,40 @@ pub struct MockResponse {
     pub stream_chunks: Option<Vec<serde_json::Value>>,
 }
 
+/// Visitor specification for visitor pattern tests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisitorSpec {
+    /// Map of callback method name to action.
+    pub callbacks: HashMap<String, CallbackAction>,
+}
+
+/// Action a visitor callback should take.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action")]
+pub enum CallbackAction {
+    /// Return VisitResult::Skip.
+    #[serde(rename = "skip")]
+    Skip,
+    /// Return VisitResult::Continue.
+    #[serde(rename = "continue")]
+    Continue,
+    /// Return VisitResult::PreserveHtml.
+    #[serde(rename = "preserve_html")]
+    PreserveHtml,
+    /// Return VisitResult::Custom with static output.
+    #[serde(rename = "custom")]
+    Custom {
+        /// The static replacement string.
+        output: String,
+    },
+    /// Return VisitResult::Custom with template interpolation.
+    #[serde(rename = "custom_template")]
+    CustomTemplate {
+        /// Template with placeholders like {text}, {href}.
+        template: String,
+    },
+}
+
 /// A single e2e test fixture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Fixture {
@@ -45,6 +79,9 @@ pub struct Fixture {
     /// Optional mock HTTP response for testing HTTP clients.
     #[serde(default)]
     pub mock_response: Option<MockResponse>,
+    /// Optional visitor specification for visitor pattern tests.
+    #[serde(default)]
+    pub visitor: Option<VisitorSpec>,
     /// List of assertions to check.
     #[serde(default)]
     pub assertions: Vec<Assertion>,
