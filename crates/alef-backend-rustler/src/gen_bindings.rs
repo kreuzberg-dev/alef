@@ -46,7 +46,7 @@ impl Backend for RustlerBackend {
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
-        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits)");
+        builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit)");
         builder.add_import("rustler::ResourceArc");
 
         // Import traits needed for trait method dispatch
@@ -1252,6 +1252,7 @@ fn gen_rustler_unimplemented_body(return_type: &alef_core::ir::TypeRef, fn_name:
             TypeRef::Bytes => "Vec::new()".to_string(),
             TypeRef::Primitive(p) => match p {
                 alef_core::ir::PrimitiveType::Bool => "false".to_string(),
+                alef_core::ir::PrimitiveType::F32 | alef_core::ir::PrimitiveType::F64 => "0.0".to_string(),
                 _ => "0".to_string(),
             },
             TypeRef::Optional(_) => "None".to_string(),

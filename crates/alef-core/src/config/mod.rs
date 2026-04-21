@@ -124,6 +124,16 @@ pub struct CrateConfig {
     /// Example: { "spikard" = "spikard_http" } rewrites "spikard::ServerConfig" to "spikard_http::ServerConfig"
     #[serde(default)]
     pub path_mappings: HashMap<String, String>,
+    /// Additional Cargo dependencies added to ALL binding crate Cargo.tomls.
+    /// Each entry is a crate name mapping to a TOML dependency spec
+    /// (string for version-only, or inline table for path/features/etc.).
+    #[serde(default)]
+    pub extra_dependencies: HashMap<String, toml::Value>,
+    /// When true (default), automatically derive path_mappings from source file locations.
+    /// For each source file matching `crates/{name}/src/`, adds a mapping from
+    /// `{name}` to the configured `core_import`.
+    #[serde(default = "default_true")]
+    pub auto_path_mappings: bool,
 }
 
 fn default_version_from() -> String {
@@ -204,6 +214,25 @@ impl AlefConfig {
             extras::Language::Rust => None, // Rust doesn't have binding-specific features
         };
         override_features.unwrap_or(&self.crate_config.features)
+    }
+
+    /// Get the merged extra dependencies for a specific language's binding crate.
+    /// Merges crate-level `extra_dependencies` with per-language overrides.
+    /// Language-specific entries override crate-level entries with the same key.
+    pub fn extra_deps_for_language(&self, lang: extras::Language) -> HashMap<String, toml::Value> {
+        let mut deps = self.crate_config.extra_dependencies.clone();
+        let lang_deps = match lang {
+            extras::Language::Python => self.python.as_ref().map(|c| &c.extra_dependencies),
+            extras::Language::Node => self.node.as_ref().map(|c| &c.extra_dependencies),
+            extras::Language::Ruby => self.ruby.as_ref().map(|c| &c.extra_dependencies),
+            extras::Language::Php => self.php.as_ref().map(|c| &c.extra_dependencies),
+            extras::Language::Elixir => self.elixir.as_ref().map(|c| &c.extra_dependencies),
+            _ => None,
+        };
+        if let Some(lang_deps) = lang_deps {
+            deps.extend(lang_deps.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+        deps
     }
 
     /// Get the core crate import path (e.g., "liter_llm"). Used by codegen to call into the core crate.

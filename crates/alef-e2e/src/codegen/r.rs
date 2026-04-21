@@ -3,7 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_r, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -209,15 +209,34 @@ fn render_test_case(
 
     let args_str = build_args_string(&fixture.input, args);
 
+    // Build visitor setup and args if present
+    let mut setup_lines = Vec::new();
+    let final_args = if let Some(visitor_spec) = &fixture.visitor {
+        build_r_visitor(&mut setup_lines, visitor_spec);
+        if args_str.is_empty() {
+            "visitor".to_string()
+        } else {
+            format!("{args_str}, visitor = visitor")
+        }
+    } else {
+        args_str
+    };
+
     if expects_error {
         let _ = writeln!(out, "test_that(\"{test_name}: {description}\", {{");
-        let _ = writeln!(out, "  expect_error({function_name}({args_str}))");
+        for line in &setup_lines {
+            let _ = writeln!(out, "  {line}");
+        }
+        let _ = writeln!(out, "  expect_error({function_name}({final_args}))");
         let _ = writeln!(out, "}})");
         return;
     }
 
     let _ = writeln!(out, "test_that(\"{test_name}: {description}\", {{");
-    let _ = writeln!(out, "  {result_var} <- {function_name}({args_str})");
+    for line in &setup_lines {
+        let _ = writeln!(out, "  {line}");
+    }
+    let _ = writeln!(out, "  {result_var} <- {function_name}({final_args})");
 
     for assertion in &fixture.assertions {
         render_assertion(out, assertion, result_var, field_resolver, result_is_simple);
@@ -446,4 +465,75 @@ fn json_to_r(value: &serde_json::Value, lowercase_enum_values: bool) -> String {
             format!("list({})", entries.join(", "))
         }
     }
+}
+
+/// Build an R visitor list and add setup line.
+fn build_r_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) {
+    use std::fmt::Write as FmtWrite;
+    let mut visitor_obj = String::new();
+    let _ = writeln!(visitor_obj, "list(");
+    for (method_name, action) in &visitor_spec.callbacks {
+        emit_r_visitor_method(&mut visitor_obj, method_name, action);
+    }
+    let _ = writeln!(visitor_obj, "  )");
+
+    setup_lines.push(format!("visitor <- {visitor_obj}"));
+}
+
+/// Emit an R visitor method for a callback action.
+fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
+    use std::fmt::Write as FmtWrite;
+
+    // R uses visit_ prefix (matches binding signature)
+    let params = match method_name {
+        "visit_link" => "ctx, href, text, title",
+        "visit_image" => "ctx, src, alt, title",
+        "visit_heading" => "ctx, level, text, id",
+        "visit_code_block" => "ctx, lang, code",
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description" => "ctx, text",
+        "visit_text" => "ctx, text",
+        "visit_list_item" => "ctx, ordered, marker, text",
+        "visit_blockquote" => "ctx, content, depth",
+        "visit_table_row" => "ctx, cells, is_header",
+        "visit_custom_element" => "ctx, tag_name, html",
+        "visit_form" => "ctx, action_url, method",
+        "visit_input" => "ctx, input_type, name, value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
+        "visit_details" => "ctx, is_open",
+        _ => "ctx",
+    };
+
+    let _ = writeln!(out, "    {method_name} = function({params}) {{");
+    match action {
+        CallbackAction::Skip => {
+            let _ = writeln!(out, "      \"skip\"");
+        }
+        CallbackAction::Continue => {
+            let _ = writeln!(out, "      \"continue\"");
+        }
+        CallbackAction::PreserveHtml => {
+            let _ = writeln!(out, "      \"preserve_html\"");
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = escape_r(output);
+            let _ = writeln!(out, "      list(custom = {escaped})");
+        }
+        CallbackAction::CustomTemplate { template } => {
+            let escaped = escape_r(template);
+            let _ = writeln!(out, "      list(custom = {escaped})");
+        }
+    }
+    let _ = writeln!(out, "    }},");
 }

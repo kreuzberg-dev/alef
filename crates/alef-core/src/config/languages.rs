@@ -37,6 +37,12 @@ pub struct PythonConfig {
     /// Types to exclude from Python binding generation.
     #[serde(default)]
     pub exclude_types: Vec<String>,
+    /// Additional Cargo dependencies for this language's binding crate only.
+    #[serde(default)]
+    pub extra_dependencies: HashMap<String, toml::Value>,
+    /// Override the scaffold output directory for this language's Cargo.toml and package files.
+    #[serde(default)]
+    pub scaffold_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +71,12 @@ pub struct NodeConfig {
     /// Types to exclude from Node binding generation.
     #[serde(default)]
     pub exclude_types: Vec<String>,
+    /// Additional Cargo dependencies for this language's binding crate only.
+    #[serde(default)]
+    pub extra_dependencies: HashMap<String, toml::Value>,
+    /// Override the scaffold output directory for this language's Cargo.toml and package files.
+    #[serde(default)]
+    pub scaffold_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +91,12 @@ pub struct RubyConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Additional Cargo dependencies for this language's binding crate only.
+    #[serde(default)]
+    pub extra_dependencies: HashMap<String, toml::Value>,
+    /// Override the scaffold output directory for this language's Cargo.toml and package files.
+    #[serde(default)]
+    pub scaffold_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +121,12 @@ pub struct PhpConfig {
     /// Types to exclude from PHP binding generation.
     #[serde(default)]
     pub exclude_types: Vec<String>,
+    /// Additional Cargo dependencies for this language's binding crate only.
+    #[serde(default)]
+    pub extra_dependencies: HashMap<String, toml::Value>,
+    /// Override the scaffold output directory for this language's Cargo.toml and package files.
+    #[serde(default)]
+    pub scaffold_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +144,12 @@ pub struct ElixirConfig {
     /// Types to exclude from Elixir NIF generation.
     #[serde(default)]
     pub exclude_types: Vec<String>,
+    /// Additional Cargo dependencies for this language's binding crate only.
+    #[serde(default)]
+    pub extra_dependencies: HashMap<String, toml::Value>,
+    /// Override the scaffold output directory for this language's Cargo.toml and package files.
+    #[serde(default)]
+    pub scaffold_output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

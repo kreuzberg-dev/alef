@@ -1097,7 +1097,11 @@ fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &Call
             let _ = writeln!(out, "            return {{\"custom\": \"{escaped}\"}}");
         }
         CallbackAction::CustomTemplate { template } => {
-            let _ = writeln!(out, "            return {{\"custom\": f\"{template}\"}}");
+            // Use single-quoted f-string so that double quotes inside the template
+            // (e.g. `QUOTE: "{text}"`) are not misinterpreted as string delimiters.
+            // Escape any single quotes in the template to avoid breaking the literal.
+            let escaped_template = template.replace('\'', "\\'");
+            let _ = writeln!(out, "            return {{\"custom\": f'{escaped_template}'}}");
         }
     }
 }

@@ -34,6 +34,8 @@ fn make_config() -> AlefConfig {
             skip_core_import: false,
             features: vec![],
             path_mappings: std::collections::HashMap::new(),
+            auto_path_mappings: Default::default(),
+            extra_dependencies: Default::default(),
         },
         languages: vec![],
         exclude: Default::default(),
@@ -823,5 +825,63 @@ fn test_optional_primitive_uses_cgo_types() {
     assert!(
         !content.contains("var cMaxRetries uint32"),
         "Should not declare cMaxRetries as Go uint32 — must use C.uint32_t"
+    );
+}
+
+#[test]
+fn test_optional_return_type_no_double_pointer() {
+    // Regression test: a function returning Option<String> (TypeRef::Optional(String))
+    // must produce a *string return type, not **string.
+    // go_type(Optional(String)) already emits "*string"; adding an extra "*" prefix
+    // in the return type calculation produced "**string" which is invalid Go.
+    let backend = GoBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "detect_language".to_string(),
+            rust_path: "test_lib::detect_language".to_string(),
+            params: vec![ParamDef {
+                name: "ext".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+            }],
+            return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+            is_async: false,
+            error_type: None,
+            doc: "Detect language from extension".to_string(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config).unwrap();
+    let content = &result[0].content;
+
+    // Must NOT contain a double-pointer return type
+    assert!(
+        !content.contains("**string"),
+        "Optional<String> return must not produce **string, got:\n{}",
+        content
+    );
+    // Must contain the correct single-pointer return type
+    assert!(
+        content.contains("*string"),
+        "Optional<String> return should produce *string, got:\n{}",
+        content
     );
 }

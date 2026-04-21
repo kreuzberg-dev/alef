@@ -96,7 +96,7 @@ impl Backend for Pyo3Backend {
         // PyO3 0.22+ deprecates auto-derived FromPyObject; silence until upstream stabilises.
         builder.add_inner_attribute("allow(deprecated, dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute(
-            "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::let_unit_value, clippy::needless_borrow, clippy::too_many_arguments)",
+            "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::let_unit_value, clippy::needless_borrow, clippy::too_many_arguments, clippy::map_identity)",
         );
         builder.add_import("pyo3::prelude::*");
         // Note: core_import and path_mapping crates are referenced via fully-qualified paths
@@ -311,8 +311,13 @@ impl Backend for Pyo3Backend {
 
         // Error types (create_exception! macros + converter functions)
         let module_name = config.python_module_name();
+        let mut seen_exceptions = AHashSet::new();
         for error in &api.errors {
-            builder.add_item(&alef_codegen::error_gen::gen_pyo3_error_types(error, &module_name));
+            builder.add_item(&alef_codegen::error_gen::gen_pyo3_error_types(
+                error,
+                &module_name,
+                &mut seen_exceptions,
+            ));
             builder.add_item(&alef_codegen::error_gen::gen_pyo3_error_converter(error, &core_import));
         }
 
@@ -1340,6 +1345,7 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
 
         // For each param that has a converter, emit a local conversion variable
         let mut call_args = Vec::new();
+        let mut has_converter_args = false;
         for param in &func.params {
             let type_name = match &param.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
@@ -1359,14 +1365,22 @@ fn gen_api_py(api: &ApiSurface, module_name: &str, package_name: &str) -> String
                     let var = format!("_rust_{}", param.name);
                     out.push_str(&format!("    {var} = _to_rust_{snake}({})\n", param.name));
                     call_args.push(var);
+                    has_converter_args = true;
                     continue;
                 }
             }
             call_args.push(param.name.clone());
         }
 
+        // Converter functions return `T | None` (to handle optional callers), but the Rust
+        // stub only accepts `T` for required parameters. Suppress the mypy false positive.
+        let type_ignore = if has_converter_args {
+            "  # type: ignore[arg-type]"
+        } else {
+            ""
+        };
         out.push_str(&format!(
-            "    return _rust.{}({})\n\n\n",
+            "    return _rust.{}({}){type_ignore}\n\n\n",
             func.name,
             call_args.join(", ")
         ));
@@ -1652,12 +1666,27 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
         }
     }
 
+    let mod_exclude_functions: ahash::AHashSet<String> = config
+        .python
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().cloned().collect())
+        .unwrap_or_default();
+    let mod_exclude_types: ahash::AHashSet<String> = config
+        .python
+        .as_ref()
+        .map(|c| c.exclude_types.iter().cloned().collect())
+        .unwrap_or_default();
+
     // Error types are registered via m.add(...) with the exception types, not m.add_class.
     let error_type_names: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
 
     // Deduplicate registered types and enums
     let mut registered: AHashSet<String> = AHashSet::new();
-    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+    for typ in api
+        .types
+        .iter()
+        .filter(|typ| !typ.is_trait && !mod_exclude_types.contains(&typ.name))
+    {
         // Error types are handled by gen_pyo3_error_registration below.
         if error_type_names.contains(typ.name.as_str()) {
             continue;
@@ -1671,7 +1700,11 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
             lines.push(format!("    m.add_class::<{}>()?;", enum_def.name));
         }
     }
+
     for func in &api.functions {
+        if mod_exclude_functions.contains(&func.name) {
+            continue;
+        }
         lines.push(format!("    m.add_function(wrap_pyfunction!({}, m)?)?;", func.name));
     }
 
@@ -1681,8 +1714,11 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     }
 
     // Register error exception types
+    let mut seen_registrations = AHashSet::new();
     for error in &api.errors {
-        for reg_line in alef_codegen::error_gen::gen_pyo3_error_registration(error) {
+        for reg_line in
+            alef_codegen::error_gen::gen_pyo3_error_registration(error, &mut seen_registrations)
+        {
             lines.push(reg_line);
         }
     }

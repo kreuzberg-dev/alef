@@ -3,7 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_elixir, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -258,7 +258,7 @@ fn render_test_case(
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) = build_args_and_setup(
+    let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
         module_path,
@@ -277,10 +277,18 @@ fn render_test_case(
         let _ = writeln!(out, "      {line}");
     }
 
+    // Build visitor if present
+    let final_args = if let Some(visitor_spec) = &fixture.visitor {
+        let visitor_var = build_elixir_visitor(&mut setup_lines, visitor_spec);
+        format!("{args_str}, {visitor_var}")
+    } else {
+        args_str
+    };
+
     if expects_error {
         let _ = writeln!(
             out,
-            "      assert {{:error, _}} = {module_path}.{function_name}({args_str})"
+            "      assert {{:error, _}} = {module_path}.{function_name}({final_args})"
         );
         let _ = writeln!(out, "    end");
         let _ = writeln!(out, "  end");
@@ -289,7 +297,7 @@ fn render_test_case(
 
     let _ = writeln!(
         out,
-        "      {{:ok, {result_var}}} = {module_path}.{function_name}({args_str})"
+        "      {{:ok, {result_var}}} = {module_path}.{function_name}({final_args})"
     );
 
     for assertion in &fixture.assertions {
@@ -617,4 +625,78 @@ fn json_to_elixir(value: &serde_json::Value) -> String {
             format!("%{{{}}}", entries.join(", "))
         }
     }
+}
+
+/// Build an Elixir visitor map and add setup line. Returns the visitor variable name.
+fn build_elixir_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) -> String {
+    use std::fmt::Write as FmtWrite;
+    let mut visitor_obj = String::new();
+    let _ = writeln!(visitor_obj, "%{{");
+    for (method_name, action) in &visitor_spec.callbacks {
+        emit_elixir_visitor_method(&mut visitor_obj, method_name, action);
+    }
+    let _ = writeln!(visitor_obj, "    }}");
+
+    setup_lines.push(format!("visitor = {visitor_obj}"));
+    "visitor".to_string()
+}
+
+/// Emit an Elixir visitor method for a callback action.
+fn emit_elixir_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
+    use std::fmt::Write as FmtWrite;
+
+    // Elixir uses atom keys and handle_ prefix
+    let handle_method = format!("handle_{}", &method_name[6..]); // strip "visit_" prefix
+    let params = match method_name {
+        "visit_link" => "_ctx, _href, _text, _title",
+        "visit_image" => "_ctx, _src, _alt, _title",
+        "visit_heading" => "_ctx, _level, text, _id",
+        "visit_code_block" => "_ctx, _lang, _code",
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description" => "_ctx, _text",
+        "visit_text" => "_ctx, _text",
+        "visit_list_item" => "_ctx, _ordered, _marker, _text",
+        "visit_blockquote" => "_ctx, _content, _depth",
+        "visit_table_row" => "_ctx, _cells, _is_header",
+        "visit_custom_element" => "_ctx, _tag_name, _html",
+        "visit_form" => "_ctx, _action_url, _method",
+        "visit_input" => "_ctx, _input_type, _name, _value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "_ctx, _src",
+        "visit_details" => "_ctx, _is_open",
+        _ => "_ctx",
+    };
+
+    let _ = writeln!(out, "      :{handle_method} => fn({params}) ->");
+    match action {
+        CallbackAction::Skip => {
+            let _ = writeln!(out, "        :skip");
+        }
+        CallbackAction::Continue => {
+            let _ = writeln!(out, "        :continue");
+        }
+        CallbackAction::PreserveHtml => {
+            let _ = writeln!(out, "        :preserve_html");
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = escape_elixir(output);
+            let _ = writeln!(out, "        {{:custom, \"{escaped}\"}}");
+        }
+        CallbackAction::CustomTemplate { template } => {
+            // For template, use string interpolation in Elixir (but simplified without arg binding)
+            let escaped = escape_elixir(template);
+            let _ = writeln!(out, "        {{:custom, \"{escaped}\"}}");
+        }
+    }
+    let _ = writeln!(out, "      end,");
 }
