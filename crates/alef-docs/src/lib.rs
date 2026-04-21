@@ -483,7 +483,7 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
             let fty = doc_type_with_optional(&field.ty, lang, field.optional, ffi_prefix);
             let fdefault = format_field_default(field, lang, api, ffi_prefix);
             let fdoc = {
-                let raw = clean_doc_inline(&field.doc);
+                let raw = clean_doc_inline(&field.doc, lang);
                 if raw.is_empty() {
                     generate_field_description(&field.name, &field.ty)
                 } else {
@@ -641,7 +641,16 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                     format!("{pty} {pname}")
                 })
                 .collect();
-            format!("public {} {}({})", ret, name, params.join(", "))
+            if method.is_async {
+                let async_name = if name.ends_with("Async") {
+                    name.clone()
+                } else {
+                    format!("{name}Async")
+                };
+                format!("public async Task<{}> {}({})", ret, async_name, params.join(", "))
+            } else {
+                format!("public {} {}({})", ret, name, params.join(", "))
+            }
         }
         Language::Php => {
             let params: Vec<String> = method
@@ -689,7 +698,11 @@ fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Langua
                     if p.optional {
                         format!("{pname}: Option<{pty}>")
                     } else {
-                        format!("{pname}: {pty}")
+                        match &p.ty {
+                            TypeRef::String | TypeRef::Char => format!("{pname}: &str"),
+                            TypeRef::Bytes => format!("{pname}: &[u8]"),
+                            _ => format!("{pname}: {pty}"),
+                        }
                     }
                 })
                 .collect();
@@ -734,7 +747,7 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
     for variant in &en.variants {
         let vname = enum_variant_name(&variant.name, lang, ffi_prefix);
         let mut vdoc = if !variant.doc.is_empty() {
-            clean_doc_inline(&variant.doc)
+            clean_doc_inline(&variant.doc, lang)
         } else {
             generate_enum_variant_description(&variant.name)
         };
@@ -788,9 +801,9 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
         for variant in &err.variants {
             let vname = variant.name.to_pascal_case();
             let vdoc = if !variant.doc.is_empty() {
-                clean_doc_inline(&variant.doc)
+                clean_doc_inline(&variant.doc, lang)
             } else if let Some(tmpl) = &variant.message_template {
-                clean_doc_inline(tmpl)
+                clean_doc_inline(tmpl, lang)
             } else {
                 generate_error_variant_description(&variant.name)
             };
@@ -802,9 +815,9 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
         for variant in &err.variants {
             let vname = enum_variant_name(&variant.name, lang, ffi_prefix);
             let vdoc = if !variant.doc.is_empty() {
-                clean_doc_inline(&variant.doc)
+                clean_doc_inline(&variant.doc, lang)
             } else if let Some(tmpl) = &variant.message_template {
-                clean_doc_inline(tmpl)
+                clean_doc_inline(tmpl, lang)
             } else {
                 generate_error_variant_description(&variant.name)
             };
@@ -858,7 +871,7 @@ fn generate_configuration_doc(
                 let fty = doc_type_with_optional(&field.ty, Language::Python, field.optional, "");
                 let fdefault = format_field_default(field, Language::Python, api, "");
                 let fdoc = {
-                    let raw = clean_doc_inline(&field.doc);
+                    let raw = clean_doc_inline(&field.doc, Language::Python);
                     if raw.is_empty() {
                         generate_field_description(&field.name, &field.ty)
                     } else {
@@ -971,7 +984,7 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
                     // falling back to the raw string default.
                     let fdefault = format_field_default(field, Language::Rust, api, "");
                     let fdoc = {
-                        let raw = clean_doc_inline(&field.doc);
+                        let raw = clean_doc_inline(&field.doc, Language::Rust);
                         if raw.is_empty() {
                             generate_field_description(&field.name, &field.ty)
                         } else {
@@ -1066,7 +1079,7 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
         for variant in &err.variants {
             let tmpl = variant.message_template.as_deref().unwrap_or("").replace('|', "\\|");
             let vdoc = if !variant.doc.is_empty() {
-                clean_doc_inline(&variant.doc)
+                clean_doc_inline(&variant.doc, Language::Python)
             } else {
                 generate_error_variant_description(&variant.name)
             };
@@ -1297,7 +1310,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Ffi => "void".to_string(),
         },
         TypeRef::Json => match lang {
-            Language::Python => "Any".to_string(),
+            Language::Python => "dict[str, Any]".to_string(),
             Language::Node | Language::Wasm => "unknown".to_string(),
             Language::Go => "interface{}".to_string(),
             Language::Java => "Object".to_string(),
@@ -1872,7 +1885,7 @@ fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: bool, ffi_pref
             Language::Python => format!("{inner} | None"),
             Language::Node | Language::Wasm => format!("{inner} | null"),
             Language::Go => format!("*{inner}"),
-            Language::Java => format!("Optional<{inner}>"),
+            Language::Java => format!("Optional<{}>", java_boxed_type(ty)),
             Language::Csharp => format!("{inner}?"),
             Language::Ruby => format!("{inner}?"),
             Language::Php => format!("?{inner}"),
@@ -2053,12 +2066,11 @@ fn rust_paths_to_dot_notation(doc: &str, lang: Language) -> String {
 }
 
 /// Inline version that also strips newlines for use in table cells.
-fn clean_doc_inline(doc: &str) -> String {
+fn clean_doc_inline(doc: &str, lang: Language) -> String {
     if doc.is_empty() {
         return String::new();
     }
-    // Use Python as a representative non-Rust language for inline cleaning
-    let cleaned = clean_doc(doc, Language::Python);
+    let cleaned = clean_doc(doc, lang);
     // Collapse to single line for table cells
     cleaned
         .lines()
@@ -2430,6 +2442,7 @@ fn determine_enum_variant_suffix(readable: &str, is_screaming: bool) -> &'static
         return "";
     }
 
+    // No category suffix applicable
     ""
 }
 
@@ -2495,7 +2508,12 @@ fn generate_field_description(field_name: &str, type_ref: &TypeRef) -> String {
     // Prefix-based patterns
     if let Some(rest) = field_name.strip_suffix("_count") {
         let readable = rest.replace('_', " ");
-        return format!("Number of {readable}");
+        let pluralized = if readable.ends_with('s') {
+            readable
+        } else {
+            format!("{readable}s")
+        };
+        return format!("Number of {pluralized}");
     }
     if let Some(rest) = field_name.strip_prefix("is_") {
         let readable = rest.replace('_', " ");
@@ -2885,7 +2903,7 @@ mod tests {
     #[test]
     fn test_generate_field_description_prefix_patterns() {
         let ty = TypeRef::String;
-        assert_eq!(generate_field_description("row_count", &ty), "Number of row");
+        assert_eq!(generate_field_description("row_count", &ty), "Number of rows");
         assert_eq!(generate_field_description("is_valid", &ty), "Whether valid");
         assert_eq!(generate_field_description("has_errors", &ty), "Whether errors");
         assert_eq!(generate_field_description("max_retries", &ty), "Maximum retries");

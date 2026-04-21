@@ -203,12 +203,8 @@ pub fn gen_method(
 
     let body = if !opaque_can_delegate {
         // Check if an adapter provides the body
-        let adapter_key = format!("{}.{}", type_name, method.name);
-        eprintln!(
-            "[DEBUG] Checking adapter key: {adapter_key} (available: {:?})",
-            adapter_bodies.keys().collect::<Vec<_>>()
-        );
-        if let Some(adapter_body) = adapter_bodies.get(&adapter_key) {
+        let adapter_key_inner = format!("{}.{}", type_name, method.name);
+        if let Some(adapter_body) = adapter_bodies.get(&adapter_key_inner) {
             adapter_body.clone()
         } else if cfg.has_serde
             && is_opaque
@@ -493,8 +489,15 @@ pub fn gen_method(
             core_call
         }
     };
-    // Prepend let bindings for non-opaque Named ref params (needed for borrow lifetime)
-    let body = if ref_let_bindings.is_empty() {
+    let adapter_key = format!("{}.{}", type_name, method.name);
+    let has_adapter = adapter_bodies.contains_key(&adapter_key);
+
+    // Prepend let bindings for non-opaque Named ref params (needed for borrow lifetime).
+    // Skip when an adapter body is used: the adapter body is self-contained and already
+    // includes its own parameter conversions (via core_let_bindings). Prepending the
+    // normal {name}_core bindings would produce a duplicate .into() call on a moved value
+    // (E0382 use of moved value).
+    let body = if ref_let_bindings.is_empty() || has_adapter {
         body
     } else {
         format!("{ref_let_bindings}{body}")
@@ -508,8 +511,6 @@ pub fn gen_method(
     // `PyResult<Bound<'py, PyAny>>`. Return `Err` directly — wrapping in
     // `future_into_py` would cause E0283 because the async block only returns `Err`
     // and Rust cannot infer the generic `T` parameter.
-    let adapter_key = format!("{}.{}", type_name, method.name);
-    let has_adapter = adapter_bodies.contains_key(&adapter_key);
     let body = if needs_py && !opaque_can_delegate && !has_adapter {
         let err_msg = format!("Not implemented: {type_name}.{}", method.name);
         // Suppress unused parameter warnings — params are not used in the stub body.

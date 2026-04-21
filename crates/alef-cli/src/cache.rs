@@ -209,73 +209,44 @@ pub fn write_ir_cache_as(api: &alef_core::ir::ApiSurface, source_hash: &str, nam
 
 // ---------------------------------------------------------------------------
 // Generation content hashing — used by `alef verify` for idempotent staleness
-// checking.  We blake3-hash the raw codegen output strings BEFORE writing to
-// disk and store `path\thash` entries in `.alef/hashes/<name>.output_hashes`.
-// During verify we regenerate in-memory, hash the new content, and compare.
-// Because codegen is deterministic (same IR + config → same output), on-disk
-// formatting is irrelevant and formatter re-runs during commit hooks cannot
-// produce false-positive staleness.
+// checking.  We blake3-hash the raw codegen output strings and store
+// `path\thash` entries in `.alef/hashes/<name>.output_hashes`.  During verify
+// we regenerate in-memory, hash the new content, and compare against stored
+// hashes.  Because codegen is deterministic (same IR + config → same output),
+// on-disk formatting is irrelevant and formatter re-runs during commit hooks
+// cannot produce false-positive staleness.
 // ---------------------------------------------------------------------------
 
-/// Compute blake3 hash of a raw content string.
+/// Blake3 hash of a content string.
 pub fn hash_content(content: &str) -> String {
     blake3::hash(content.as_bytes()).to_hex().to_string()
 }
 
-/// Store `path\thash` pairs derived from the raw generated content strings.
+/// Store generation content hashes: Vec of (path_display, content_hash).
 ///
-/// `files` is a slice of `(path_string, content_string)` pairs.  Call this
-/// BEFORE writing to disk so the stored hashes reflect pure codegen output,
-/// independent of any on-disk formatter that may run afterwards.
-pub fn write_generation_hashes(name: &str, files: &[(String, String)]) -> anyhow::Result<()> {
-    let hashes_dir = Path::new(CACHE_DIR).join("hashes");
-    fs::create_dir_all(&hashes_dir)?;
-    let lines: Vec<String> = files
-        .iter()
-        .map(|(path, content)| format!("{path}\t{}", hash_content(content)))
-        .collect();
-    fs::write(hashes_dir.join(format!("{name}.output_hashes")), lines.join("\n"))?;
+/// Call this with pre-computed hashes — use [`hash_content`] on each file's
+/// content string before calling.  Stored before writing to disk so hashes
+/// reflect pure codegen output, independent of any on-disk formatter.
+pub fn write_generation_hashes(name: &str, hashes: &[(String, String)]) -> anyhow::Result<()> {
+    let dir = Path::new(CACHE_DIR).join("hashes");
+    fs::create_dir_all(&dir)?;
+    let lines: Vec<String> = hashes.iter().map(|(p, h)| format!("{p}\t{h}")).collect();
+    fs::write(dir.join(format!("{name}.output_hashes")), lines.join("\n"))?;
     Ok(())
 }
 
-/// Compare current generation content hashes against the stored ones.
-///
-/// `current_files` is a slice of `(path_string, content_string)` pairs
-/// produced by the latest in-memory codegen run.  Returns the list of paths
-/// whose hash differs from the stored value, or paths that are new/missing in
-/// the stored set.  An empty return value means the generation is up to date.
-pub fn verify_generation_hashes(name: &str, current_files: &[(String, String)]) -> anyhow::Result<Vec<String>> {
-    let hash_file = Path::new(CACHE_DIR)
+/// Load stored generation hashes as `HashMap<path, hash>`.
+pub fn read_generation_hashes(name: &str) -> anyhow::Result<std::collections::HashMap<String, String>> {
+    let path = Path::new(CACHE_DIR)
         .join("hashes")
         .join(format!("{name}.output_hashes"));
-    let stored_content = fs::read_to_string(&hash_file)?;
-
-    // Build a map of path → expected hash from the stored file.
-    let mut stored: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for line in stored_content.lines().filter(|l| !l.is_empty()) {
-        if let Some((path_str, hash)) = line.split_once('\t') {
-            stored.insert(path_str.to_string(), hash.to_string());
-        }
-    }
-
-    let mut stale = Vec::new();
-    for (path, content) in current_files {
-        let current_hash = hash_content(content);
-        match stored.get(path.as_str()) {
-            Some(expected) if expected == &current_hash => {}
-            Some(_) => stale.push(path.clone()),
-            None => stale.push(path.clone()),
-        }
-    }
-    Ok(stale)
-}
-
-/// Check whether generation hashes have been stored for a given name.
-pub fn has_output_hashes(name: &str) -> bool {
-    Path::new(CACHE_DIR)
-        .join("hashes")
-        .join(format!("{name}.output_hashes"))
-        .exists()
+    let content = fs::read_to_string(&path)?;
+    Ok(content
+        .lines()
+        .filter(|l| !l.is_empty())
+        .filter_map(|l| l.split_once('\t'))
+        .map(|(p, h)| (p.to_string(), h.to_string()))
+        .collect())
 }
 
 /// Read the manifest for a given name and return the list of file paths.
