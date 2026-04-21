@@ -233,6 +233,22 @@ pub fn field_conversion_from_core(
             }
             return format!("{name}: format!(\"{{:?}}\", val.{name})");
         }
+        // Named (optional or non-optional): sanitized from excluded types
+        // (e.g. Optional<Arc<SchemaValidator>> → optional=true, ty=Named("SchemaValidator")).
+        // These types may not implement Debug, so we cannot use format!("{:?}").
+        // Return None for optional, empty String for non-optional.
+        if matches!(ty, TypeRef::Named(_)) {
+            if optional {
+                return format!("{name}: None");
+            }
+            return format!("{name}: String::new()");
+        }
+        // Optional<Named>: double-optional case (Option<Option<Arc<T>>>).
+        if let TypeRef::Optional(inner) = ty {
+            if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                return format!("{name}: None");
+            }
+        }
         // Fallback for truly unknown sanitized types — the core type may not implement Display,
         // so use Debug formatting which is always available (required by the sanitized field's derive).
         if optional {

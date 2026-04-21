@@ -192,7 +192,9 @@ fn derive_crate_name_from_path(path: &Path, default: &str) -> String {
 /// Inject declared opaque types from config into the API surface.
 /// These are external crate types that alef can't extract but needs to generate wrappers for.
 fn inject_declared_opaque_types(api: &mut ApiSurface, config: &AlefConfig) {
-    for (name, rust_path) in &config.opaque_types {
+    let mut sorted_opaques: Vec<_> = config.opaque_types.iter().collect();
+    sorted_opaques.sort_by_key(|(name, _)| name.clone());
+    for (name, rust_path) in sorted_opaques {
         // Only add if not already in the API surface
         if !api.types.iter().any(|t| t.name == *name) && !api.enums.iter().any(|e| e.name == *name) {
             api.types.push(alef_core::ir::TypeDef {

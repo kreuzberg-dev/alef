@@ -130,6 +130,32 @@ impl Backend for WasmBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Build adapter body map before type iteration so bodies are available for method generation.
+        let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Wasm)?;
+
+        // Emit adapter-generated standalone items (streaming iterators, callback bridges).
+        for adapter in &config.adapters {
+            match adapter.pattern {
+                alef_core::config::AdapterPattern::Streaming => {
+                    let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
+                    if let Some(struct_code) = adapter_bodies.get(&key) {
+                        builder.add_item(struct_code);
+                    }
+                }
+                alef_core::config::AdapterPattern::CallbackBridge => {
+                    let struct_key = format!("{}.__bridge_struct__", adapter.name);
+                    let impl_key = format!("{}.__bridge_impl__", adapter.name);
+                    if let Some(struct_code) = adapter_bodies.get(&struct_key) {
+                        builder.add_item(struct_code);
+                    }
+                    if let Some(impl_code) = adapter_bodies.get(&impl_key) {
+                        builder.add_item(impl_code);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if exclude_types.contains(&typ.name) {
                 continue;
@@ -142,6 +168,7 @@ impl Backend for WasmBackend {
                     &opaque_types,
                     &core_import,
                     &prefix,
+                    &adapter_bodies,
                 ));
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,

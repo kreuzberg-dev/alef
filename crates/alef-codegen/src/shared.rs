@@ -1,5 +1,5 @@
 use ahash::AHashSet;
-use alef_core::ir::{DefaultValue, FieldDef, MethodDef, ParamDef, ReceiverKind, TypeRef};
+use alef_core::ir::{DefaultValue, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeRef};
 
 /// Returns true if this parameter is required but must be promoted to optional
 /// because it follows an optional parameter in the list.
@@ -221,8 +221,11 @@ pub fn function_params(params: &[ParamDef], type_mapper: &dyn Fn(&TypeRef) -> St
 
 /// Build a function signature defaults string (for pyo3 signature etc.).
 pub fn function_sig_defaults(params: &[ParamDef]) -> String {
-    // After the first optional param, all subsequent params must also use =None
+    // After the first optional param, all subsequent params must also carry a default
     // to satisfy PyO3's signature constraint (required params can't follow optional ones).
+    // For optional params and Named/non-primitive promoted params: use `=None`.
+    // For promoted non-optional primitive params: use a type-appropriate zero/false default
+    // so PyO3 does not wrap the Rust type in Option<T> (which would cause a `?` unwrap error).
     let mut seen_optional = false;
     params
         .iter()
@@ -230,8 +233,17 @@ pub fn function_sig_defaults(params: &[ParamDef]) -> String {
             if p.optional {
                 seen_optional = true;
             }
-            if p.optional || seen_optional {
+            if p.optional {
                 format!("{}=None", p.name)
+            } else if seen_optional {
+                // Promoted non-optional param: emit a type-appropriate default instead of None
+                // so PyO3 keeps the Rust parameter type as T (not Option<T>).
+                let default = match &p.ty {
+                    TypeRef::Primitive(PrimitiveType::Bool) => "false",
+                    TypeRef::Primitive(_) => "0",
+                    _ => "None",
+                };
+                format!("{}={}", p.name, default)
             } else {
                 p.name.clone()
             }

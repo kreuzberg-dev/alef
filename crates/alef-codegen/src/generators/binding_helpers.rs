@@ -1,6 +1,6 @@
 use crate::generators::{AsyncPattern, RustBindingConfig};
 use ahash::AHashSet;
-use alef_core::ir::{ParamDef, TypeDef, TypeRef};
+use alef_core::ir::{CoreWrapper, ParamDef, TypeDef, TypeRef};
 use std::fmt::Write;
 
 /// Helper: wrap an opaque inner value in the correct smart pointer expression.
@@ -890,7 +890,17 @@ fn gen_lossy_binding_to_core_fields_inner(
                         format!("std::time::Duration::from_millis(self.{name})")
                     }
                 }
-                TypeRef::String | TypeRef::Bytes => format!("self.{name}.clone()"),
+                TypeRef::String => format!("self.{name}.clone()"),
+                // Bytes: binding stores Vec<u8>. When core_wrapper == Bytes, core expects
+                // bytes::Bytes so we must call .into() to convert Vec<u8> → Bytes.
+                // When core_wrapper == None, the core field is also Vec<u8> (plain clone).
+                TypeRef::Bytes => {
+                    if field.core_wrapper == CoreWrapper::Bytes {
+                        format!("self.{name}.clone().into()")
+                    } else {
+                        format!("self.{name}.clone()")
+                    }
+                }
                 TypeRef::Char => {
                     if field.optional {
                         format!("self.{name}.as_ref().and_then(|s| s.chars().next())")
@@ -1187,7 +1197,7 @@ pub fn gen_unimplemented_body(
         // Backend-specific error return
         match cfg.async_pattern {
             AsyncPattern::Pyo3FutureIntoPy => {
-                format!("Err::<(), _>(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))")
+                format!("Err(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))")
             }
             AsyncPattern::NapiNativeAsync => {
                 format!("Err(napi::Error::new(napi::Status::GenericFailure, \"{err_msg}\"))")
