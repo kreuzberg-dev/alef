@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Extendr: opaque type support with Arc wrappers and mutex types
+- Skills: add designing-alef-toml guide with real-world configuration patterns
+
+### Fixed
+
+- Docs: use filtered IR for API reference generation (docs now match public API surface)
+- Docs: use `dict[str, Any]` instead of bare `Any` for Python JSON types
+- Docs: box Java primitives in `Optional` (e.g. `Optional<Integer>` not `Optional<int>`)
+- Docs: emit `async Task<T>` for C# async method signatures
+- Docs: use `&str`/`&[u8]` for Rust method params matching free-function style
+- Docs: pluralize nouns after stripping `_count` suffix (row -> rows)
+- Docs: thread `Language` param through `clean_doc_inline` instead of hardcoding Python
+- Codegen: skip `Default`/`Serialize`/`Deserialize` derives for structs with opaque fields
+- Codegen: public API surface audit — path mappings, R backend, serde derives
+- CLI: remove dead unfiltered extraction code and non-existent cache function references
+
 ## [0.5.1] - 2026-04-21
 
 ### Added
