@@ -104,8 +104,16 @@ fn gen_python_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
          }}"
     );
 
+    let let_bindings = core_let_bindings(adapter, &core_import);
+    let bindings_block = if let_bindings.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", let_bindings.join("\n    "))
+    };
+
     let method_body = format!(
         "let inner = self.inner.clone();\n    \
+         {bindings_block}\
          let stream = pyo3_async_runtimes::tokio::get_runtime()\n        \
              .block_on(inner.{core_path}({call_str}))\n        \
              .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;\n    \
