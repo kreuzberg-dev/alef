@@ -49,6 +49,7 @@ impl Pyo3Backend {
             // Duration fields on has_default types become Option<u64> so that unset fields
             // fall back to the core type's Default rather than Duration::ZERO.
             option_duration_on_defaults: true,
+            opaque_type_names: &[],
         }
     }
 }
@@ -74,7 +75,15 @@ impl Backend for Pyo3Backend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let mapper = Pyo3Mapper;
+        // Build trait type names set so the mapper can emit Py<PyAny> for trait parameters
+        // instead of bare trait names (which cause E0782 "bare trait used as type").
+        let trait_type_names: ahash::AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_trait)
+            .map(|t| t.name.clone())
+            .collect();
+        let mapper = Pyo3Mapper { trait_type_names };
         let core_import = config.core_import();
 
         // Detect serde availability from the output crate's Cargo.toml
@@ -84,7 +93,7 @@ impl Backend for Pyo3Backend {
             "crates/{name}-py/src/",
         );
         let has_serde = detect_serde_available(&output_dir);
-        let cfg = Self::binding_config(&core_import, has_serde);
+        let mut cfg = Self::binding_config(&core_import, has_serde);
 
         // Build adapter body map for method body substitution
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Python)?;
@@ -149,6 +158,8 @@ impl Backend for Pyo3Backend {
             .filter(|t| t.is_opaque)
             .map(|t| t.name.clone())
             .collect();
+        let opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
+        cfg.opaque_type_names = &opaque_names_vec;
         let mutex_types: AHashSet<String> = api
             .types
             .iter()
@@ -221,9 +232,19 @@ impl Backend for Pyo3Backend {
             .map(|c| c.exclude_types.iter().cloned().collect())
             .unwrap_or_default();
 
-        // Collect error type names — these are handled by create_exception! below and must not
-        // also be generated as #[pyclass] structs (doing both causes E0428/E0119/E0592).
-        let error_type_names: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
+        // Collect all names that will be emitted as pyo3::create_exception! macros.
+        // This includes both the base error enum name AND all variant exception names
+        // (which may differ from the variant name, e.g. "Validation" variant → "ValidationError"
+        // exception name via python_exception_name). Any struct type sharing one of these names
+        // must be skipped to avoid E0428 duplicate definition errors.
+        let mut error_type_names: AHashSet<String> = AHashSet::new();
+        for error in &api.errors {
+            error_type_names.insert(error.name.clone());
+            for variant in &error.variants {
+                let exc_name = alef_codegen::error_gen::python_exception_name(&variant.name, &error.name);
+                error_type_names.insert(exc_name);
+            }
+        }
 
         // Track emitted #[pyclass] struct names to prevent duplicate definitions (E0255/E0428).
         // Duplicates can slip through when path-mapping collapses two distinct raw paths onto

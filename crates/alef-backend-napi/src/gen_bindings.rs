@@ -33,6 +33,7 @@ impl NapiBackend {
             // NAPI napi(object) structs don't derive Serialize — disable serde bridge
             type_name_prefix: prefix,
             option_duration_on_defaults: true,
+            opaque_type_names: &[],
         }
     }
 }

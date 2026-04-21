@@ -88,12 +88,20 @@ pub fn gen_struct_with_per_field_attrs(
     for d in cfg.struct_derives {
         sb.add_derive(d);
     }
-    // Binding types always derive Default, Serialize, and Deserialize.
-    // Default: enables using unwrap_or_default() in constructors for types with has_default.
-    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
-    sb.add_derive("Default");
-    sb.add_derive("serde::Serialize");
-    sb.add_derive("serde::Deserialize");
+    // Binding types derive Default, Serialize, and Deserialize unless any field references
+    // an opaque type (Arc-wrapped). Opaque types don't implement serde traits, so structs
+    // containing them (even via Option<OpaqueType>) cannot derive Serialize/Deserialize.
+    let has_opaque_field = typ.fields.iter().any(|f| {
+        if f.cfg.is_some() {
+            return false;
+        }
+        field_references_opaque_type(&f.ty, cfg.opaque_type_names)
+    });
+    if !has_opaque_field {
+        sb.add_derive("Default");
+        sb.add_derive("serde::Serialize");
+        sb.add_derive("serde::Deserialize");
+    }
     for field in &typ.fields {
         if field.cfg.is_some() {
             continue;

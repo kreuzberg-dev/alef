@@ -199,6 +199,10 @@ impl Backend for CsharpBackend {
                 if !typ.fields.is_empty() && !has_named_fields {
                     continue;
                 }
+                // Skip types that gen_visitor handles with richer visitor-specific versions
+                if has_visitor_bridge && (typ.name == "NodeContext" || typ.name == "VisitResult") {
+                    continue;
+                }
 
                 let type_filename = typ.name.to_pascal_case();
                 files.push(GeneratedFile {
@@ -218,6 +222,10 @@ impl Backend for CsharpBackend {
 
         // 6. Generate enums
         for enum_def in &api.enums {
+            // Skip enums that gen_visitor handles with richer visitor-specific versions
+            if has_visitor_bridge && (enum_def.name == "VisitResult" || enum_def.name == "NodeContext") {
+                continue;
+            }
             let enum_filename = enum_def.name.to_pascal_case();
             files.push(GeneratedFile {
                 path: base_path.join(format!("{}.cs", enum_filename)),

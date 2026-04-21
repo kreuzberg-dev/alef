@@ -208,6 +208,10 @@ impl Backend for JavaBackend {
         // 4. Record types
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if !typ.is_opaque && !typ.fields.is_empty() {
+                // Skip types that gen_visitor handles with richer visitor-specific versions
+                if has_visitor_bridge && (typ.name == "NodeContext" || typ.name == "VisitResult") {
+                    continue;
+                }
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
                     content: gen_record_type(&package, typ, &complex_enums, &lang_rename_all),
@@ -246,6 +250,10 @@ impl Backend for JavaBackend {
 
         // 5. Enums
         for enum_def in &api.enums {
+            // Skip enums that gen_visitor handles with richer visitor-specific versions
+            if has_visitor_bridge && enum_def.name == "VisitResult" {
+                continue;
+            }
             files.push(GeneratedFile {
                 path: base_path.join(format!("{}.java", enum_def.name)),
                 content: gen_enum_class(&package, enum_def),

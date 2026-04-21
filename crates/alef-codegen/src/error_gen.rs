@@ -118,7 +118,18 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
     let rust_path = if error.rust_path.is_empty() {
         format!("{core_import}::{}", error.name)
     } else {
-        error.rust_path.replace('-', "_")
+        let normalized = error.rust_path.replace('-', "_");
+        // Paths with more than 2 segments (e.g. `spikard_core::di::error::DependencyError`)
+        // reference private internal modules that are not accessible from generated binding code.
+        // Fall back to the public re-export form `{crate}::{ErrorName}` (2 segments).
+        let segments: Vec<&str> = normalized.split("::").collect();
+        if segments.len() > 2 {
+            let crate_name = segments[0];
+            let error_name = segments[segments.len() - 1];
+            format!("{crate_name}::{error_name}")
+        } else {
+            normalized
+        }
     };
 
     let fn_name = format!("{}_to_py_err", to_snake_case(&error.name));

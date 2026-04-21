@@ -118,10 +118,9 @@ pub fn gen_stubs(api: &ApiSurface) -> String {
         lines.push("".to_string());
     }
 
-    // Generate function stubs
+    // Generate function stubs — no blank lines between consecutive stubs (ruff strips them)
     for func in &api.functions {
         lines.push(gen_function_stub(func));
-        lines.push("".to_string());
     }
 
     lines.join("\n")
@@ -147,9 +146,9 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
         }
     }
 
-    // If no methods at all, use `...` (PYI009: empty body should use `...` not `pass`)
+    // If no methods at all, emit as a one-liner (ruff collapses `class Foo:\n    ...` to `class Foo: ...`)
     if typ.methods.is_empty() {
-        lines.push("    ...".to_string());
+        return format!("class {}: ...", typ.name);
     }
 
     lines.join("\n")

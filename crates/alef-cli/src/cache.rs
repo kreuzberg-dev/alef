@@ -215,9 +215,13 @@ pub fn write_ir_cache_as(api: &alef_core::ir::ApiSurface, source_hash: &str, nam
 // ---------------------------------------------------------------------------
 
 /// Compute blake3 content hash of a single file on disk.
+/// The hash is formatting-agnostic: trailing whitespace per line and trailing
+/// newlines are stripped so that formatter auto-fixes (rustfmt, ruff, biome,
+/// etc.) do not cause false-positive staleness.
 pub fn hash_file_content(path: &Path) -> anyhow::Result<String> {
-    let content = fs::read(path)?;
-    Ok(blake3::hash(&content).to_hex().to_string())
+    let raw = fs::read_to_string(path).unwrap_or_default();
+    let normalized: String = raw.lines().map(|line| line.trim_end()).collect::<Vec<_>>().join("\n");
+    Ok(blake3::hash(normalized.as_bytes()).to_hex().to_string())
 }
 
 /// Hash all output files and write `path\thash` lines to `.output_hashes`.

@@ -68,6 +68,9 @@ pub struct RustBindingConfig<'a> {
     /// type's `Default` implementation rather than `Duration::ZERO`.
     /// Used by PyO3 to prevent validation failures when `request_timeout` is unset.
     pub option_duration_on_defaults: bool,
+    /// Opaque type names. Structs with non-optional fields of these types
+    /// skip `Default`/`Serialize`/`Deserialize` derives since opaque wrappers don't impl them.
+    pub opaque_type_names: &'a [String],
 }
 
 /// Method names that conflict with standard trait methods.
