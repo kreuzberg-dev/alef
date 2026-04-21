@@ -401,7 +401,12 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
             let has_named_val = matches!(v.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
             let has_json_val = matches!(v.as_ref(), TypeRef::Json);
             let has_json_key = matches!(k.as_ref(), TypeRef::Json);
-            if has_json_val || has_json_key || has_named_key || has_named_val {
+            // Vec<Named> values: each vector element needs Into conversion.
+            let has_vec_named_val =
+                matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n)));
+            // Vec<Json> values: each element needs serde deserialization.
+            let has_vec_json_val = matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Json));
+            if has_json_val || has_json_key || has_named_key || has_named_val || has_vec_named_val || has_vec_json_val {
                 let k_expr = if has_json_key {
                     "serde_json::from_str(&k).unwrap_or(serde_json::Value::String(k))"
                 } else if has_named_key {
@@ -413,6 +418,10 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                     "serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v))"
                 } else if has_named_val {
                     "v.into()"
+                } else if has_vec_named_val {
+                    "v.into_iter().map(Into::into).collect()"
+                } else if has_vec_json_val {
+                    "v.into_iter().filter_map(|s| serde_json::from_str(&s).ok()).collect()"
                 } else {
                     "v"
                 };

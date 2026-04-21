@@ -497,6 +497,34 @@ pub fn gen_method(
     };
 
     let needs_py = method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+
+    // When an async PyO3 method could not be auto-delegated (e.g. sanitized params,
+    // non-delegatable return type, or trait methods), the body was computed for a
+    // synchronous context but the generated signature will be
+    // `PyResult<Bound<'py, PyAny>>`. Replace it with a properly-typed stub that wraps
+    // the not-implemented error in a `future_into_py` block.
+    let body = if needs_py && !opaque_can_delegate {
+        let err_msg = format!("Not implemented: {type_name}.{}", method.name);
+        // Suppress unused parameter warnings inside the future — the params are captured
+        // in the outer scope via `let _ = (...)` but don't cross into the async block.
+        let suppress = if method.params.is_empty() {
+            String::new()
+        } else {
+            let names: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
+            if names.len() == 1 {
+                format!("let _ = {};\n            ", names[0])
+            } else {
+                format!("let _ = ({});\n            ", names.join(", "))
+            }
+        };
+        format!(
+            "pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n            \
+             {suppress}Err(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))\n        \
+             }})"
+        )
+    } else {
+        body
+    };
     let self_param = match (needs_py, params.is_empty()) {
         (true, true) => "&self, py: Python<'py>",
         (true, false) => "&self, py: Python<'py>, ",

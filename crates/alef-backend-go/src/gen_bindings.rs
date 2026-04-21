@@ -775,14 +775,18 @@ fn gen_function_wrapper(
 
     // Build the C call with converted parameters.
     // Bridge params pass nil (no visitor) in the plain Convert(); ConvertWithVisitor handles the visitor path.
+    // Bytes params expand to two C arguments: the pointer and the length.
     let c_params: Vec<String> = func
         .params
         .iter()
-        .map(|p| {
+        .flat_map(|p| -> Vec<String> {
             if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
-                "nil".to_string()
+                vec!["nil".to_string()]
+            } else if matches!(p.ty, TypeRef::Bytes) {
+                let c_name = format!("c{}", p.name.to_pascal_case());
+                vec![c_name.clone(), format!("{}Len", c_name)]
             } else {
-                format!("c{}", p.name.to_pascal_case())
+                vec![format!("c{}", p.name.to_pascal_case())]
             }
         })
         .collect();
@@ -969,10 +973,18 @@ fn gen_method_wrapper(
             .ok();
         }
 
+        // Bytes params expand to two C arguments: the pointer and the length.
         let c_params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("c{}", p.name.to_pascal_case()))
+            .flat_map(|p| -> Vec<String> {
+                if matches!(p.ty, TypeRef::Bytes) {
+                    let c_name = format!("c{}", p.name.to_pascal_case());
+                    vec![c_name.clone(), format!("{}Len", c_name)]
+                } else {
+                    vec![format!("c{}", p.name.to_pascal_case())]
+                }
+            })
             .collect();
 
         let type_snake = typ.name.to_snake_case();
@@ -1182,7 +1194,13 @@ fn gen_param_to_c(
             }
         }
         TypeRef::Bytes => {
-            writeln!(out, "    {} := (*C.uchar)(unsafe.Pointer(&{}[0]))", c_name, param.name).ok();
+            writeln!(out, "    {} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))", c_name, param.name).ok();
+            writeln!(
+                out,
+                "    {}Len := C.uintptr_t(len({}))",
+                c_name, param.name
+            )
+            .ok();
         }
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {
@@ -1286,6 +1304,21 @@ fn gen_param_to_c(
                     writeln!(out, "    var {} *C.char", c_name).ok();
                 }
             }
+        }
+        TypeRef::Primitive(prim) if !param.optional => {
+            // Non-optional primitive: cast to the CGo type so the value can be passed directly
+            // to C functions that expect C types (e.g., uintptr_t, uint32_t).
+            let cgo_ty = cgo_type_for_primitive(prim);
+            let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
+            writeln!(
+                out,
+                "    {c_name} := {cgo_ty}({go_ty}({param}))",
+                c_name = c_name,
+                cgo_ty = cgo_ty,
+                go_ty = go_ty,
+                param = param.name,
+            )
+            .ok();
         }
         TypeRef::Primitive(prim) if param.optional => {
             // Optional primitive: the Go param is a pointer (*T). Dereference it if non-nil,
