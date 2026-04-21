@@ -27,8 +27,11 @@ struct WorkspacePackageInheritance {
 ///
 /// Reads `Cargo.toml` from the current working directory. Returns a default
 /// (all false) struct if the file is absent or cannot be parsed.
-fn detect_workspace_inheritance() -> WorkspacePackageInheritance {
-    let Ok(contents) = std::fs::read_to_string("Cargo.toml") else {
+fn detect_workspace_inheritance(workspace_root: Option<&std::path::Path>) -> WorkspacePackageInheritance {
+    let cargo_toml_path = workspace_root
+        .map(|r| r.join("Cargo.toml"))
+        .unwrap_or_else(|| std::path::PathBuf::from("Cargo.toml"));
+    let Ok(contents) = std::fs::read_to_string(&cargo_toml_path) else {
         return WorkspacePackageInheritance::default();
     };
     let Ok(doc) = contents.parse::<toml::Value>() else {
@@ -223,7 +226,7 @@ fn scaffold_python_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Resul
     let version = &api.version;
     let module_name = config.python_module_name();
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance();
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-py"),
         version,
@@ -243,10 +246,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-pyo3 = {{ version = "0.28", features = ["extension-module"] }}
+pyo3 = {{ version = "0.28" }}
 pyo3-async-runtimes = {{ version = "0.28", features = ["tokio-runtime"] }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
+
+[features]
+extension-module = ["pyo3/extension-module"]
 "#,
         pkg_header = pkg_header,
         module_name = module_name,
@@ -346,7 +352,7 @@ fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance();
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-node"),
         version,
@@ -511,7 +517,7 @@ fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance();
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-rb"),
         version,
@@ -773,7 +779,7 @@ fn scaffold_php_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<V
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance();
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-php"),
         version,
@@ -909,7 +915,7 @@ fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Resul
     let nif_name = format!("{app_name}_nif");
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance();
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &nif_name,
         version,
@@ -1382,7 +1388,7 @@ fn scaffold_ffi(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance();
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-ffi"),
         version,
@@ -1539,7 +1545,7 @@ fn scaffold_wasm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance();
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-wasm"),
         version,
@@ -2069,7 +2075,7 @@ fn scaffold_r_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance();
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-r"),
         version,

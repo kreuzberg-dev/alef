@@ -707,12 +707,12 @@ fn gen_function_wrapper(
         if matches!(func.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
-            format!("(*{}, error)", go_type(&func.return_type))
+            format!("({}, error)", go_optional_type(&func.return_type))
         }
     } else if matches!(func.return_type, TypeRef::Unit) {
         "".to_string()
     } else {
-        format!("*{}", go_type(&func.return_type))
+        go_optional_type(&func.return_type).into_owned()
     };
 
     let func_snake = func.name.to_snake_case();
@@ -906,12 +906,12 @@ fn gen_method_wrapper(
         if matches!(method.return_type, TypeRef::Unit) {
             "error".to_string()
         } else {
-            format!("(*{}, error)", go_type(&method.return_type))
+            format!("({}, error)", go_optional_type(&method.return_type))
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
         "".to_string()
     } else {
-        format!("*{}", go_type(&method.return_type))
+        go_optional_type(&method.return_type).into_owned()
     };
 
     let receiver_name = "r";

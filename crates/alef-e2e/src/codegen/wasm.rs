@@ -6,7 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_js, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -393,7 +393,7 @@ fn render_test_case(
     let await_kw = if is_async { "await " } else { "" };
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-    let (setup_lines, arg_parts) = build_args_and_setup(
+    let (mut setup_lines, arg_parts) = build_args_and_setup(
         &fixture.input,
         args,
         options_type,
@@ -404,11 +404,25 @@ fn render_test_case(
     );
     let args_str = arg_parts.join(", ");
 
+    // Build visitor if present and add to setup
+    let mut visitor_arg = String::new();
+    if let Some(visitor_spec) = &fixture.visitor {
+        visitor_arg = build_wasm_visitor(&mut setup_lines, visitor_spec);
+    }
+
+    let final_args = if visitor_arg.is_empty() {
+        args_str
+    } else if args_str.is_empty() {
+        format!("{{ visitor: {visitor_arg} }}")
+    } else {
+        format!("{args_str}, {{ visitor: {visitor_arg} }}")
+    };
+
     // Build the call expression — either `client.method(args)` or `method(args)`
     let call_expr = if client_factory.is_some() {
-        format!("client.{function_name}({args_str})")
+        format!("client.{function_name}({final_args})")
     } else {
-        format!("{function_name}({args_str})")
+        format!("{function_name}({final_args})")
     };
 
     // Check if any arg is a base_url to determine if we need fixture path
@@ -734,4 +748,81 @@ fn json_to_js(value: &serde_json::Value) -> String {
             format!("{{ {} }}", entries.join(", "))
         }
     }
+}
+
+/// Build a WASM/JS visitor object and add setup line. Returns the visitor variable name.
+fn build_wasm_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) -> String {
+    use std::fmt::Write as FmtWrite;
+    let mut visitor_obj = String::new();
+    let _ = writeln!(visitor_obj, "{{");
+    for (method_name, action) in &visitor_spec.callbacks {
+        emit_wasm_visitor_method(&mut visitor_obj, method_name, action);
+    }
+    let _ = writeln!(visitor_obj, "    }}");
+
+    setup_lines.push(format!("const _testVisitor = {visitor_obj}"));
+    "_testVisitor".to_string()
+}
+
+/// Emit a WASM/JS visitor method for a callback action.
+fn emit_wasm_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
+    use std::fmt::Write as FmtWrite;
+
+    let camel_method = to_camel_case_wasm(method_name);
+    let params = match method_name {
+        "visit_link" => "ctx, href, text, title",
+        "visit_image" => "ctx, src, alt, title",
+        "visit_heading" => "ctx, level, text, id",
+        "visit_code_block" => "ctx, lang, code",
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description" => "ctx, text",
+        "visit_text" => "ctx, text",
+        "visit_list_item" => "ctx, ordered, marker, text",
+        "visit_blockquote" => "ctx, content, depth",
+        "visit_table_row" => "ctx, cells, isHeader",
+        "visit_custom_element" => "ctx, tagName, html",
+        "visit_form" => "ctx, actionUrl, method",
+        "visit_input" => "ctx, inputType, name, value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
+        "visit_details" => "ctx, isOpen",
+        _ => "ctx",
+    };
+
+    let _ = writeln!(out, "    {camel_method}({params}): string | {{ custom: string }} {{");
+    match action {
+        CallbackAction::Skip => {
+            let _ = writeln!(out, "        return \"skip\";");
+        }
+        CallbackAction::Continue => {
+            let _ = writeln!(out, "        return \"continue\";");
+        }
+        CallbackAction::PreserveHtml => {
+            let _ = writeln!(out, "        return \"preserve_html\";");
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = escape_js(output);
+            let _ = writeln!(out, "        return {{ custom: {escaped} }};");
+        }
+        CallbackAction::CustomTemplate { template } => {
+            let _ = writeln!(out, "        return {{ custom: `{template}` }};");
+        }
+    }
+    let _ = writeln!(out, "    }},");
+}
+
+/// Convert snake_case to camelCase for method names.
+fn to_camel_case_wasm(snake: &str) -> String {
+    use heck::ToLowerCamelCase;
+    snake.to_lower_camel_case()
 }

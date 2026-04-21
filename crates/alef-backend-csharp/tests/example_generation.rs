@@ -132,6 +132,8 @@ fn test_generated_code_example() {
             skip_core_import: false,
             features: vec![],
             path_mappings: std::collections::HashMap::new(),
+            auto_path_mappings: Default::default(),
+            extra_dependencies: Default::default(),
         },
         languages: vec![],
         exclude: Default::default(),

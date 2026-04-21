@@ -33,6 +33,8 @@ fn make_config_with_stubs() -> AlefConfig {
             skip_core_import: false,
             features: vec![],
             path_mappings: std::collections::HashMap::new(),
+            auto_path_mappings: Default::default(),
+            extra_dependencies: Default::default(),
         },
         languages: vec![],
         exclude: Default::default(),
@@ -779,9 +781,19 @@ fn test_static_method_stubs() {
         "Static method should have @staticmethod decorator"
     );
 
+    // `input` shadows the Python builtin, so the stub is forced to multi-line with noqa.
+    assert!(content.contains("def parse("), "Static method should be defined");
     assert!(
-        content.contains("def parse(input: str) -> str:"),
+        !content.contains("def parse(self"),
         "Static method should not have 'self' parameter"
+    );
+    assert!(
+        content.contains("input: str"),
+        "Static method should have input parameter"
+    );
+    assert!(
+        content.contains("# noqa: A002"),
+        "input param shadows builtin, must have noqa comment"
     );
 }
 

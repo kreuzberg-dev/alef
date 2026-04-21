@@ -162,6 +162,19 @@ fn render_test_file(
             })
         });
 
+    // Determine if we need the "fmt" import (CustomTemplate visitor actions with placeholders).
+    let needs_fmt = fixtures.iter().any(|f| {
+        f.visitor.as_ref().is_some_and(|v| {
+            v.callbacks.values().any(|action| {
+                if let CallbackAction::CustomTemplate { template } = action {
+                    template.contains('{')
+                } else {
+                    false
+                }
+            })
+        })
+    });
+
     // Determine if we need the "strings" import.
     // Only count assertions whose fields are actually valid for the result type.
     let needs_strings = fixtures.iter().any(|f| {
@@ -203,6 +216,9 @@ fn render_test_file(
     if needs_json {
         let _ = writeln!(out, "\t\"encoding/json\"");
     }
+    if needs_fmt {
+        let _ = writeln!(out, "\t\"fmt\"");
+    }
     if needs_os {
         let _ = writeln!(out, "\t\"os\"");
     }
@@ -218,6 +234,15 @@ fn render_test_file(
     let _ = writeln!(out, "\t{import_alias} \"{go_module_path}\"");
     let _ = writeln!(out, ")");
     let _ = writeln!(out);
+
+    // Emit package-level visitor structs (must be outside any function in Go).
+    for fixture in fixtures.iter() {
+        if let Some(visitor_spec) = &fixture.visitor {
+            let struct_name = visitor_struct_name(&fixture.id);
+            emit_go_visitor_struct(&mut out, &struct_name, visitor_spec, import_alias);
+            let _ = writeln!(out);
+        }
+    }
 
     for (i, fixture) in fixtures.iter().enumerate() {
         render_test_function(
@@ -263,10 +288,12 @@ fn render_test_function(
 
     let (mut setup_lines, args_str) = build_args_and_setup(&fixture.input, args, import_alias, e2e_config, &fixture.id);
 
-    // Build visitor if present and add to setup
+    // Build visitor if present — struct is at package level, just instantiate here.
     let mut visitor_arg = String::new();
-    if let Some(visitor_spec) = &fixture.visitor {
-        visitor_arg = build_go_visitor(&mut setup_lines, visitor_spec, import_alias);
+    if fixture.visitor.is_some() {
+        let struct_name = visitor_struct_name(&fixture.id);
+        setup_lines.push(format!("visitor := &{struct_name}{{}}"));
+        visitor_arg = "visitor".to_string();
     }
 
     let final_args = if visitor_arg.is_empty() {
@@ -906,35 +933,43 @@ fn json_to_go(value: &serde_json::Value) -> String {
 // Visitor generation
 // ---------------------------------------------------------------------------
 
-/// Build a Go visitor struct and add setup lines. Returns the visitor variable name.
-fn build_go_visitor(
-    setup_lines: &mut Vec<String>,
-    visitor_spec: &crate::fixture::VisitorSpec,
-    import_alias: &str,
-) -> String {
-    setup_lines.push("type _TestVisitor struct {}".to_string());
-    for (method_name, action) in &visitor_spec.callbacks {
-        let mut method_lines = String::new();
-        emit_go_visitor_method(&mut method_lines, method_name, action, import_alias);
-        // Split multi-line method into separate setup lines
-        for line in method_lines.lines() {
-            if !line.is_empty() {
-                setup_lines.push(line.to_string());
-            }
-        }
-    }
-    setup_lines.push("visitor := &_TestVisitor{}".to_string());
-    "visitor".to_string()
+/// Derive a unique, exported Go struct name for a visitor from a fixture ID.
+///
+/// E.g. `visitor_continue_default` → `visitorContinueDefault` (unexported, avoids
+/// polluting the exported API of the test package while still being package-level).
+fn visitor_struct_name(fixture_id: &str) -> String {
+    use heck::ToUpperCamelCase;
+    // Use UpperCamelCase so Go treats it as exported — required for method sets.
+    format!("testVisitor{}", fixture_id.to_upper_camel_case())
 }
 
-/// Emit a Go visitor method for a callback action.
-fn emit_go_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction, import_alias: &str) {
+/// Emit a package-level Go struct declaration and all its visitor methods.
+fn emit_go_visitor_struct(
+    out: &mut String,
+    struct_name: &str,
+    visitor_spec: &crate::fixture::VisitorSpec,
+    import_alias: &str,
+) {
+    let _ = writeln!(out, "type {struct_name} struct{{}}");
+    for (method_name, action) in &visitor_spec.callbacks {
+        emit_go_visitor_method(out, struct_name, method_name, action, import_alias);
+    }
+}
+
+/// Emit a Go visitor method for a callback action on the named struct.
+fn emit_go_visitor_method(
+    out: &mut String,
+    struct_name: &str,
+    method_name: &str,
+    action: &CallbackAction,
+    import_alias: &str,
+) {
     let camel_method = method_to_camel(method_name);
     let params = match method_name {
-        "visit_link" => "ctx context.Context, href, text, title string",
-        "visit_image" => "ctx context.Context, src, alt, title string",
-        "visit_heading" => "ctx context.Context, level int, text, id string",
-        "visit_code_block" => "ctx context.Context, lang, code string",
+        "visit_link" => format!("_ {import_alias}.NodeContext, href, text, title string"),
+        "visit_image" => format!("_ {import_alias}.NodeContext, src, alt, title string"),
+        "visit_heading" => format!("_ {import_alias}.NodeContext, level int, text, id string"),
+        "visit_code_block" => format!("_ {import_alias}.NodeContext, lang, code string"),
         "visit_code_inline"
         | "visit_strong"
         | "visit_emphasis"
@@ -947,22 +982,26 @@ fn emit_go_visitor_method(out: &mut String, method_name: &str, action: &Callback
         | "visit_summary"
         | "visit_figcaption"
         | "visit_definition_term"
-        | "visit_definition_description" => "ctx context.Context, text string",
-        "visit_text" => "ctx context.Context, text string",
-        "visit_list_item" => "ctx context.Context, ordered bool, marker, text string",
-        "visit_blockquote" => "ctx context.Context, content string, depth int",
-        "visit_table_row" => "ctx context.Context, cells []string, isHeader bool",
-        "visit_custom_element" => "ctx context.Context, tagName, html string",
-        "visit_form" => "ctx context.Context, actionUrl, method string",
-        "visit_input" => "ctx context.Context, inputType, name, value string",
-        "visit_audio" | "visit_video" | "visit_iframe" => "ctx context.Context, src string",
-        "visit_details" => "ctx context.Context, isOpen bool",
-        _ => "ctx context.Context",
+        | "visit_definition_description" => format!("_ {import_alias}.NodeContext, text string"),
+        "visit_text" => format!("_ {import_alias}.NodeContext, text string"),
+        "visit_list_item" => {
+            format!("_ {import_alias}.NodeContext, ordered bool, marker, text string")
+        }
+        "visit_blockquote" => format!("_ {import_alias}.NodeContext, content string, depth int"),
+        "visit_table_row" => format!("_ {import_alias}.NodeContext, cells []string, isHeader bool"),
+        "visit_custom_element" => format!("_ {import_alias}.NodeContext, tagName, html string"),
+        "visit_form" => format!("_ {import_alias}.NodeContext, actionUrl, method string"),
+        "visit_input" => format!("_ {import_alias}.NodeContext, inputType, name, value string"),
+        "visit_audio" | "visit_video" | "visit_iframe" => {
+            format!("_ {import_alias}.NodeContext, src string")
+        }
+        "visit_details" => format!("_ {import_alias}.NodeContext, isOpen bool"),
+        _ => format!("_ {import_alias}.NodeContext"),
     };
 
     let _ = writeln!(
         out,
-        "func (v *_TestVisitor) {camel_method}({params}) {import_alias}.VisitResult {{"
+        "func (v *{struct_name}) {camel_method}({params}) {import_alias}.VisitResult {{"
     );
     match action {
         CallbackAction::Skip => {
@@ -979,13 +1018,48 @@ fn emit_go_visitor_method(out: &mut String, method_name: &str, action: &Callback
             let _ = writeln!(out, "\treturn {import_alias}.VisitResultCustom({escaped})");
         }
         CallbackAction::CustomTemplate { template } => {
-            let _ = writeln!(
-                out,
-                "\treturn {import_alias}.VisitResultCustom(fmt.Sprintf({template}))"
-            );
+            // Convert {var} placeholders to %s format verbs and collect arg names.
+            // E.g. `QUOTE: "{text}"` → fmt.Sprintf("QUOTE: \"%s\"", text)
+            let (fmt_str, fmt_args) = template_to_sprintf(template);
+            let escaped_fmt = go_string_literal(&fmt_str);
+            if fmt_args.is_empty() {
+                let _ = writeln!(out, "\treturn {import_alias}.VisitResultCustom({escaped_fmt})");
+            } else {
+                let args_str = fmt_args.join(", ");
+                let _ = writeln!(
+                    out,
+                    "\treturn {import_alias}.VisitResultCustom(fmt.Sprintf({escaped_fmt}, {args_str}))"
+                );
+            }
         }
     }
     let _ = writeln!(out, "}}");
+}
+
+/// Convert a `{var}` template string into a `fmt.Sprintf` format string and argument list.
+///
+/// For example, `QUOTE: "{text}"` becomes `("QUOTE: \"%s\"", vec!["text"])`.
+fn template_to_sprintf(template: &str) -> (String, Vec<String>) {
+    let mut fmt_str = String::new();
+    let mut args: Vec<String> = Vec::new();
+    let mut chars = template.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '{' {
+            // Collect placeholder name until '}'.
+            let mut name = String::new();
+            for inner in chars.by_ref() {
+                if inner == '}' {
+                    break;
+                }
+                name.push(inner);
+            }
+            fmt_str.push_str("%s");
+            args.push(name);
+        } else {
+            fmt_str.push(c);
+        }
+    }
+    (fmt_str, args)
 }
 
 /// Convert snake_case method names to Go camelCase.

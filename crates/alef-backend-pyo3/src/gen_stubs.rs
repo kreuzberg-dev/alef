@@ -279,6 +279,26 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
     let indent = "    ";
     let safe_name = python_safe_name(&method.name);
 
+    // Force multi-line wrapping whenever a param shadows a Python builtin so we can
+    // append `# noqa: A002` on those lines (the suppression is invalid on a single-line def).
+    let has_builtin_param = params
+        .iter()
+        .any(|p| is_python_builtin_name(p.split(':').next().unwrap_or("").trim()));
+
+    let emit_params_wrapped = |prefix: &str, suffix: &str| -> String {
+        let mut wrapped = format!("{prefix}\n");
+        for param in &params {
+            let name = param.split(':').next().unwrap_or("").trim();
+            if is_python_builtin_name(name) {
+                wrapped.push_str(&format!("{}    {},  # noqa: A002\n", indent, param));
+            } else {
+                wrapped.push_str(&format!("{}    {},\n", indent, param));
+            }
+        }
+        wrapped.push_str(suffix);
+        wrapped
+    };
+
     if is_static {
         if params.is_empty() {
             format!(
@@ -286,14 +306,8 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
                 indent, indent, safe_name, return_type
             )
         } else {
-            let single_line = format!(
-                "{}@staticmethod\n{}def {}({}) -> {}: ...",
-                indent,
-                indent,
-                safe_name,
-                params.join(", "),
-                return_type
-            );
+            let prefix = format!("{}@staticmethod\n{}def {}(", indent, indent, safe_name);
+            let suffix = format!("{}) -> {}: ...", indent, return_type);
             // Check the def line (second line) for length
             let def_line = format!(
                 "{}def {}({}) -> {}: ...",
@@ -302,15 +316,17 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
                 params.join(", "),
                 return_type
             );
-            if def_line.len() <= 100 {
-                single_line
+            if def_line.len() <= 100 && !has_builtin_param {
+                format!(
+                    "{}@staticmethod\n{}def {}({}) -> {}: ...",
+                    indent,
+                    indent,
+                    safe_name,
+                    params.join(", "),
+                    return_type
+                )
             } else {
-                let mut wrapped = format!("{}@staticmethod\n{}def {}(\n", indent, indent, safe_name);
-                for param in &params {
-                    wrapped.push_str(&format!("{}    {},\n", indent, param));
-                }
-                wrapped.push_str(&format!("{}) -> {}: ...", indent, return_type));
-                wrapped
+                emit_params_wrapped(&prefix, &suffix)
             }
         }
     } else if params.is_empty() {
@@ -323,16 +339,12 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
             params.join(", "),
             return_type
         );
-        if single_line.len() <= 100 {
+        if single_line.len() <= 100 && !has_builtin_param {
             single_line
         } else {
-            let mut wrapped = format!("{}def {}(\n", indent, safe_name);
-            wrapped.push_str(&format!("{}    self,\n", indent));
-            for param in &params {
-                wrapped.push_str(&format!("{}    {},\n", indent, param));
-            }
-            wrapped.push_str(&format!("{}) -> {}: ...", indent, return_type));
-            wrapped
+            let prefix = format!("{}def {}(\n{}    self,", indent, safe_name, indent);
+            let suffix = format!("{}) -> {}: ...", indent, return_type);
+            emit_params_wrapped(&prefix, &suffix)
         }
     }
 }

@@ -488,6 +488,16 @@ fn render_test_file(
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
+        // Skip fixtures with visitor specs: C visitor support not yet implemented.
+        if fixture.visitor.is_some() {
+            let _ = writeln!(
+                out,
+                "/* TODO: {} - visitor pattern not supported in C yet */",
+                fixture.id
+            );
+            continue;
+        }
+
         let call_info = resolve_fixture_call_info(fixture, e2e_config, lang);
         render_test_function(
             &mut out,

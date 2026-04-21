@@ -1,3 +1,4 @@
+use ahash::AHashSet;
 use alef_core::ir::{ErrorDef, ErrorVariant};
 
 use crate::conversions::is_tuple_variant;
@@ -85,24 +86,32 @@ pub fn python_exception_name(variant_name: &str, error_name: &str) -> String {
 /// Generate `pyo3::create_exception!` macros for each error variant plus the base error type.
 /// Appends "Error" suffix to variant names that don't already have it (N818 compliance).
 /// Prefixes names that would shadow Python builtins (A004 compliance).
-pub fn gen_pyo3_error_types(error: &ErrorDef, module_name: &str) -> String {
+pub fn gen_pyo3_error_types(
+    error: &ErrorDef,
+    module_name: &str,
+    seen_exceptions: &mut AHashSet<String>,
+) -> String {
     let mut lines = Vec::with_capacity(error.variants.len() + 2);
     lines.push("// Error types".to_string());
 
     // One exception per variant (with Error suffix if needed, prefixed if shadowing builtins)
     for variant in &error.variants {
         let variant_name = python_exception_name(&variant.name, &error.name);
-        lines.push(format!(
-            "pyo3::create_exception!({module_name}, {}, pyo3::exceptions::PyException);",
-            variant_name
-        ));
+        if seen_exceptions.insert(variant_name.clone()) {
+            lines.push(format!(
+                "pyo3::create_exception!({module_name}, {}, pyo3::exceptions::PyException);",
+                variant_name
+            ));
+        }
     }
 
     // Base exception for the enum itself
-    lines.push(format!(
-        "pyo3::create_exception!({module_name}, {}, pyo3::exceptions::PyException);",
-        error.name
-    ));
+    if seen_exceptions.insert(error.name.clone()) {
+        lines.push(format!(
+            "pyo3::create_exception!({module_name}, {}, pyo3::exceptions::PyException);",
+            error.name
+        ));
+    }
 
     lines.join("\n")
 }
@@ -141,22 +150,29 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
 /// Generate `m.add(...)` registration calls for each exception type.
 /// Uses Error-suffixed names for variant exceptions (N818 compliance).
 /// Prefixes names that would shadow Python builtins (A004 compliance).
-pub fn gen_pyo3_error_registration(error: &ErrorDef) -> Vec<String> {
+pub fn gen_pyo3_error_registration(
+    error: &ErrorDef,
+    seen_registrations: &mut AHashSet<String>,
+) -> Vec<String> {
     let mut registrations = Vec::with_capacity(error.variants.len() + 1);
 
     for variant in &error.variants {
         let variant_exc_name = python_exception_name(&variant.name, &error.name);
-        registrations.push(format!(
-            "    m.add(\"{}\", m.py().get_type::<{}>())?;",
-            variant_exc_name, variant_exc_name
-        ));
+        if seen_registrations.insert(variant_exc_name.clone()) {
+            registrations.push(format!(
+                "    m.add(\"{}\", m.py().get_type::<{}>())?;",
+                variant_exc_name, variant_exc_name
+            ));
+        }
     }
 
     // Base exception
-    registrations.push(format!(
-        "    m.add(\"{}\", m.py().get_type::<{}>())?;",
-        error.name, error.name
-    ));
+    if seen_registrations.insert(error.name.clone()) {
+        registrations.push(format!(
+            "    m.add(\"{}\", m.py().get_type::<{}>())?;",
+            error.name, error.name
+        ));
+    }
 
     registrations
 }
@@ -722,7 +738,7 @@ mod tests {
     #[test]
     fn test_gen_error_types() {
         let error = sample_error();
-        let output = gen_pyo3_error_types(&error, "_module");
+        let output = gen_pyo3_error_types(&error, "_module", &mut AHashSet::new());
         assert!(output.contains("pyo3::create_exception!(_module, ParseError, pyo3::exceptions::PyException);"));
         assert!(output.contains("pyo3::create_exception!(_module, IoError, pyo3::exceptions::PyException);"));
         assert!(output.contains("pyo3::create_exception!(_module, OtherError, pyo3::exceptions::PyException);"));
@@ -743,7 +759,7 @@ mod tests {
     #[test]
     fn test_gen_error_registration() {
         let error = sample_error();
-        let regs = gen_pyo3_error_registration(&error);
+        let regs = gen_pyo3_error_registration(&error, &mut AHashSet::new());
         assert_eq!(regs.len(), 4); // 3 variants + 1 base
         assert!(regs[0].contains("\"ParseError\""));
         assert!(regs[3].contains("\"ConversionError\""));
