@@ -6,7 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_csharp, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -264,8 +264,20 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) =
+    let (mut setup_lines, args_str) =
         build_args_and_setup(&fixture.input, args, class_name, e2e_config, enum_fields, &fixture.id);
+
+    // Build visitor if present and add to setup
+    let mut visitor_arg = String::new();
+    if let Some(visitor_spec) = &fixture.visitor {
+        visitor_arg = build_csharp_visitor(&mut setup_lines, visitor_spec);
+    }
+
+    let final_args = if visitor_arg.is_empty() {
+        args_str
+    } else {
+        format!("{args_str}, {visitor_arg}")
+    };
 
     let return_type = if is_async { "async Task" } else { "void" };
     let await_kw = if is_async { "await " } else { "" };
@@ -283,12 +295,12 @@ fn render_test_method(
         if is_async {
             let _ = writeln!(
                 out,
-                "        await Assert.ThrowsAsync<{exception_class}>(() => {class_name}.{function_name}({args_str}));"
+                "        await Assert.ThrowsAsync<{exception_class}>(() => {class_name}.{function_name}({final_args}));"
             );
         } else {
             let _ = writeln!(
                 out,
-                "        Assert.Throws<{exception_class}>(() => {class_name}.{function_name}({args_str}));"
+                "        Assert.Throws<{exception_class}>(() => {class_name}.{function_name}({final_args}));"
             );
         }
         let _ = writeln!(out, "    }}");
@@ -297,7 +309,7 @@ fn render_test_method(
 
     let _ = writeln!(
         out,
-        "        var {result_var} = {await_kw}{class_name}.{function_name}({args_str});"
+        "        var {result_var} = {await_kw}{class_name}.{function_name}({final_args});"
     );
 
     for assertion in &fixture.assertions {
@@ -687,4 +699,82 @@ fn json_to_csharp(value: &serde_json::Value) -> String {
             format!("\"{}\"", escape_csharp(&json_str))
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Visitor generation
+// ---------------------------------------------------------------------------
+
+/// Build a C# visitor class and add setup lines. Returns the visitor variable name.
+fn build_csharp_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) -> String {
+    setup_lines.push("var _testVisitor = new TestVisitor();".to_string());
+    setup_lines.push("class TestVisitor : IVisitor".to_string());
+    setup_lines.push("{".to_string());
+    for (method_name, action) in &visitor_spec.callbacks {
+        emit_csharp_visitor_method(setup_lines, method_name, action);
+    }
+    setup_lines.push("}".to_string());
+    "_testVisitor".to_string()
+}
+
+/// Emit a C# visitor method for a callback action.
+fn emit_csharp_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, action: &CallbackAction) {
+    let camel_method = method_to_camel(method_name);
+    let params = match method_name {
+        "visit_link" => "VisitContext ctx, string href, string text, string title",
+        "visit_image" => "VisitContext ctx, string src, string alt, string title",
+        "visit_heading" => "VisitContext ctx, int level, string text, string id",
+        "visit_code_block" => "VisitContext ctx, string lang, string code",
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description" => "VisitContext ctx, string text",
+        "visit_text" => "VisitContext ctx, string text",
+        "visit_list_item" => "VisitContext ctx, bool ordered, string marker, string text",
+        "visit_blockquote" => "VisitContext ctx, string content, int depth",
+        "visit_table_row" => "VisitContext ctx, IReadOnlyList<string> cells, bool isHeader",
+        "visit_custom_element" => "VisitContext ctx, string tagName, string html",
+        "visit_form" => "VisitContext ctx, string actionUrl, string method",
+        "visit_input" => "VisitContext ctx, string inputType, string name, string value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "VisitContext ctx, string src",
+        "visit_details" => "VisitContext ctx, bool isOpen",
+        _ => "VisitContext ctx",
+    };
+
+    setup_lines.push(format!("    public VisitResult {camel_method}({params})"));
+    setup_lines.push("    {".to_string());
+    match action {
+        CallbackAction::Skip => {
+            setup_lines.push("        return VisitResult.Skip();".to_string());
+        }
+        CallbackAction::Continue => {
+            setup_lines.push("        return VisitResult.Continue();".to_string());
+        }
+        CallbackAction::PreserveHtml => {
+            setup_lines.push("        return VisitResult.PreserveHtml();".to_string());
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = escape_csharp(output);
+            setup_lines.push(format!("        return VisitResult.Custom(\"{escaped}\");"));
+        }
+        CallbackAction::CustomTemplate { template } => {
+            setup_lines.push(format!("        return VisitResult.Custom($\"{template}\");"));
+        }
+    }
+    setup_lines.push("    }".to_string());
+}
+
+/// Convert snake_case method names to C# PascalCase.
+fn method_to_camel(snake: &str) -> String {
+    use heck::ToUpperCamelCase;
+    snake.to_upper_camel_case()
 }

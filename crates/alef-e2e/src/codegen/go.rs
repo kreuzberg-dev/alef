@@ -3,7 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{go_string_literal, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -261,7 +261,19 @@ fn render_test_function(
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, import_alias, e2e_config, &fixture.id);
+    let (mut setup_lines, args_str) = build_args_and_setup(&fixture.input, args, import_alias, e2e_config, &fixture.id);
+
+    // Build visitor if present and add to setup
+    let mut visitor_arg = String::new();
+    if let Some(visitor_spec) = &fixture.visitor {
+        visitor_arg = build_go_visitor(&mut setup_lines, visitor_spec, import_alias);
+    }
+
+    let final_args = if visitor_arg.is_empty() {
+        args_str
+    } else {
+        format!("{args_str}, {visitor_arg}")
+    };
 
     let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
     let _ = writeln!(out, "\t// {description}");
@@ -271,7 +283,7 @@ fn render_test_function(
     }
 
     if expects_error {
-        let _ = writeln!(out, "\t_, err := {import_alias}.{function_name}({args_str})");
+        let _ = writeln!(out, "\t_, err := {import_alias}.{function_name}({final_args})");
         let _ = writeln!(out, "\tif err == nil {{");
         let _ = writeln!(out, "\t\tt.Errorf(\"expected an error, but call succeeded\")");
         let _ = writeln!(out, "\t}}");
@@ -301,7 +313,7 @@ fn render_test_function(
     // Normal call: check for error assertions first.
     let _ = writeln!(
         out,
-        "\t{result_binding}, err := {import_alias}.{function_name}({args_str})"
+        "\t{result_binding}, err := {import_alias}.{function_name}({final_args})"
     );
     let _ = writeln!(out, "\tif err != nil {{");
     let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
@@ -888,4 +900,96 @@ fn json_to_go(value: &serde_json::Value) -> String {
         // For complex types, serialize to JSON string and pass as literal.
         other => go_string_literal(&other.to_string()),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Visitor generation
+// ---------------------------------------------------------------------------
+
+/// Build a Go visitor struct and add setup lines. Returns the visitor variable name.
+fn build_go_visitor(
+    setup_lines: &mut Vec<String>,
+    visitor_spec: &crate::fixture::VisitorSpec,
+    import_alias: &str,
+) -> String {
+    setup_lines.push("type _TestVisitor struct {}".to_string());
+    for (method_name, action) in &visitor_spec.callbacks {
+        let mut method_lines = String::new();
+        emit_go_visitor_method(&mut method_lines, method_name, action, import_alias);
+        // Split multi-line method into separate setup lines
+        for line in method_lines.lines() {
+            if !line.is_empty() {
+                setup_lines.push(line.to_string());
+            }
+        }
+    }
+    setup_lines.push("visitor := &_TestVisitor{}".to_string());
+    "visitor".to_string()
+}
+
+/// Emit a Go visitor method for a callback action.
+fn emit_go_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction, import_alias: &str) {
+    let camel_method = method_to_camel(method_name);
+    let params = match method_name {
+        "visit_link" => "ctx context.Context, href, text, title string",
+        "visit_image" => "ctx context.Context, src, alt, title string",
+        "visit_heading" => "ctx context.Context, level int, text, id string",
+        "visit_code_block" => "ctx context.Context, lang, code string",
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description" => "ctx context.Context, text string",
+        "visit_text" => "ctx context.Context, text string",
+        "visit_list_item" => "ctx context.Context, ordered bool, marker, text string",
+        "visit_blockquote" => "ctx context.Context, content string, depth int",
+        "visit_table_row" => "ctx context.Context, cells []string, isHeader bool",
+        "visit_custom_element" => "ctx context.Context, tagName, html string",
+        "visit_form" => "ctx context.Context, actionUrl, method string",
+        "visit_input" => "ctx context.Context, inputType, name, value string",
+        "visit_audio" | "visit_video" | "visit_iframe" => "ctx context.Context, src string",
+        "visit_details" => "ctx context.Context, isOpen bool",
+        _ => "ctx context.Context",
+    };
+
+    let _ = writeln!(
+        out,
+        "func (v *_TestVisitor) {camel_method}({params}) {import_alias}.VisitResult {{"
+    );
+    match action {
+        CallbackAction::Skip => {
+            let _ = writeln!(out, "\treturn {import_alias}.VisitResultSkip");
+        }
+        CallbackAction::Continue => {
+            let _ = writeln!(out, "\treturn {import_alias}.VisitResultContinue");
+        }
+        CallbackAction::PreserveHtml => {
+            let _ = writeln!(out, "\treturn {import_alias}.VisitResultPreserveHtml");
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = go_string_literal(output);
+            let _ = writeln!(out, "\treturn {import_alias}.VisitResultCustom({escaped})");
+        }
+        CallbackAction::CustomTemplate { template } => {
+            let _ = writeln!(
+                out,
+                "\treturn {import_alias}.VisitResultCustom(fmt.Sprintf({template}))"
+            );
+        }
+    }
+    let _ = writeln!(out, "}}");
+}
+
+/// Convert snake_case method names to Go camelCase.
+fn method_to_camel(snake: &str) -> String {
+    use heck::ToUpperCamelCase;
+    snake.to_upper_camel_case()
 }

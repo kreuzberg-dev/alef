@@ -207,7 +207,9 @@ pub fn field_conversion_from_core(
         if let TypeRef::Vec(inner) = ty {
             if matches!(inner.as_ref(), TypeRef::String) {
                 if optional {
-                    return format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())");
+                    return format!(
+                        "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())"
+                    );
                 }
                 return format!("{name}: val.{name}.iter().map(|i| format!(\"{{:?}}\", i)).collect()");
             }
@@ -216,7 +218,9 @@ pub fn field_conversion_from_core(
         if let TypeRef::Optional(opt_inner) = ty {
             if let TypeRef::Vec(vec_inner) = opt_inner.as_ref() {
                 if matches!(vec_inner.as_ref(), TypeRef::String) {
-                    return format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())");
+                    return format!(
+                        "{name}: val.{name}.as_ref().map(|v| v.iter().map(|i| format!(\"{{:?}}\", i)).collect())"
+                    );
                 }
             }
         }

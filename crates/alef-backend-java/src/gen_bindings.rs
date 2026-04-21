@@ -5,6 +5,7 @@ use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -129,6 +130,20 @@ impl Backend for JavaBackend {
 
         let base_path = PathBuf::from(&output_dir).join(&package_path);
 
+        // Collect bridge param names and type aliases so we can strip them from generated
+        // function signatures and emit convertWithVisitor instead.
+        let bridge_param_names: HashSet<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.param_name.clone())
+            .collect();
+        let bridge_type_aliases: HashSet<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.type_alias.clone())
+            .collect();
+        let has_visitor_bridge = !config.trait_bridges.is_empty();
+
         let mut files = Vec::new();
 
         // 0. package-info.java - required by Checkstyle
@@ -150,14 +165,23 @@ impl Backend for JavaBackend {
         // 1. NativeLib.java - FFI method handles
         files.push(GeneratedFile {
             path: base_path.join("NativeLib.java"),
-            content: gen_native_lib(api, config, &package, &prefix),
+            content: gen_native_lib(api, config, &package, &prefix, has_visitor_bridge),
             generated_header: true,
         });
 
         // 2. Main wrapper class
         files.push(GeneratedFile {
             path: base_path.join(format!("{}.java", main_class)),
-            content: gen_main_class(api, config, &package, &main_class, &prefix),
+            content: gen_main_class(
+                api,
+                config,
+                &package,
+                &main_class,
+                &prefix,
+                &bridge_param_names,
+                &bridge_type_aliases,
+                has_visitor_bridge,
+            ),
             generated_header: true,
         });
 
@@ -240,6 +264,17 @@ impl Backend for JavaBackend {
             }
         }
 
+        // 7. Visitor support files (when a trait bridge is configured)
+        if has_visitor_bridge {
+            for (filename, content) in crate::gen_visitor::gen_visitor_files(&package, &main_class) {
+                files.push(GeneratedFile {
+                    path: base_path.join(filename),
+                    content,
+                    generated_header: false, // already has header comment
+                });
+            }
+        }
+
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Java)?;
 
@@ -260,10 +295,32 @@ impl Backend for JavaBackend {
 
         let base_path = PathBuf::from(&output_dir).join(&package_path);
 
+        // Collect bridge param names/aliases to strip from the public facade.
+        let bridge_param_names: HashSet<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.param_name.clone())
+            .collect();
+        let bridge_type_aliases: HashSet<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.type_alias.clone())
+            .collect();
+        let has_visitor_bridge = !config.trait_bridges.is_empty();
+
         // Generate a high-level public API class that wraps the raw FFI class.
         // Class name = main_class without "Rs" suffix (e.g., HtmlToMarkdownRs -> HtmlToMarkdown)
         let public_class = main_class.trim_end_matches("Rs").to_string();
-        let facade_content = gen_facade_class(api, &package, &public_class, &main_class, &prefix);
+        let facade_content = gen_facade_class(
+            api,
+            &package,
+            &public_class,
+            &main_class,
+            &prefix,
+            &bridge_param_names,
+            &bridge_type_aliases,
+            has_visitor_bridge,
+        );
 
         Ok(vec![GeneratedFile {
             path: base_path.join(format!("{}.java", public_class)),
@@ -286,7 +343,13 @@ impl Backend for JavaBackend {
 // NativeLib.java - FFI method handles
 // ---------------------------------------------------------------------------
 
-fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: &str) -> String {
+fn gen_native_lib(
+    api: &ApiSurface,
+    config: &AlefConfig,
+    package: &str,
+    prefix: &str,
+    has_visitor_bridge: bool,
+) -> String {
     // Generate the class body first, then scan it to determine which imports are needed.
     let mut body = String::with_capacity(2048);
     // Derive the native library name from the FFI output path (directory name with hyphens replaced
@@ -864,6 +927,11 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
         }
     }
 
+    // Inject visitor FFI method handles when a trait bridge is configured.
+    if has_visitor_bridge {
+        body.push_str(&crate::gen_visitor::gen_native_lib_visitor_handles(prefix));
+    }
+
     writeln!(body, "}}").ok();
 
     // Now assemble the file with only the imports that are actually used in the body.
@@ -914,7 +982,17 @@ fn gen_native_lib(api: &ApiSurface, config: &AlefConfig, package: &str, prefix: 
 // Main wrapper class
 // ---------------------------------------------------------------------------
 
-fn gen_main_class(api: &ApiSurface, _config: &AlefConfig, package: &str, class_name: &str, prefix: &str) -> String {
+#[allow(clippy::too_many_arguments)]
+fn gen_main_class(
+    api: &ApiSurface,
+    _config: &AlefConfig,
+    package: &str,
+    class_name: &str,
+    prefix: &str,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+    has_visitor_bridge: bool,
+) -> String {
     // Build the set of opaque type names so we can distinguish opaque handles from records
     let opaque_types: AHashSet<String> = api
         .types
@@ -932,15 +1010,29 @@ fn gen_main_class(api: &ApiSurface, _config: &AlefConfig, package: &str, class_n
 
     // Generate static methods for free functions
     for func in &api.functions {
-        // Always generate sync method
-        gen_sync_function_method(&mut body, func, prefix, class_name, &opaque_types);
+        // Always generate sync method (bridge params stripped from signature)
+        gen_sync_function_method(
+            &mut body,
+            func,
+            prefix,
+            class_name,
+            &opaque_types,
+            bridge_param_names,
+            bridge_type_aliases,
+        );
         writeln!(body).ok();
 
         // Also generate async wrapper if marked as async
         if func.is_async {
-            gen_async_wrapper_method(&mut body, func);
+            gen_async_wrapper_method(&mut body, func, bridge_param_names, bridge_type_aliases);
             writeln!(body).ok();
         }
+    }
+
+    // Inject convertWithVisitor when a visitor bridge is configured.
+    if has_visitor_bridge {
+        body.push_str(&crate::gen_visitor::gen_convert_with_visitor_method(class_name, prefix));
+        writeln!(body).ok();
     }
 
     // Add helper methods only if they are referenced in the body
@@ -1003,16 +1095,42 @@ fn gen_main_class(api: &ApiSurface, _config: &AlefConfig, package: &str, class_n
     out
 }
 
+fn is_bridge_param_java(
+    param: &alef_core::ir::ParamDef,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+) -> bool {
+    if bridge_param_names.contains(param.name.as_str()) {
+        return true;
+    }
+    let type_name = match &param.ty {
+        TypeRef::Named(n) => Some(n.as_str()),
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Named(n) = inner.as_ref() {
+                Some(n.as_str())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    type_name.is_some_and(|n| bridge_type_aliases.contains(n))
+}
+
 fn gen_sync_function_method(
     out: &mut String,
     func: &FunctionDef,
     prefix: &str,
     class_name: &str,
     opaque_types: &AHashSet<String>,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
 ) {
+    // Exclude bridge params from the public Java signature.
     let params: Vec<String> = func
         .params
         .iter()
+        .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
         .map(|p| {
             let ptype = java_type(&p.ty);
             format!("{} {}", ptype, to_java_name(&p.name))
@@ -1035,9 +1153,11 @@ fn gen_sync_function_method(
 
     // Collect non-opaque Named params that need FFI pointer cleanup after the call.
     // These are Rust-allocated by _from_json and must be freed with _free.
+    // Bridge params are excluded — they are passed as NULL.
     let ffi_ptr_params: Vec<(String, String)> = func
         .params
         .iter()
+        .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
         .filter_map(|p| {
             let inner_name = match &p.ty {
                 TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => Some(n.clone()),
@@ -1063,18 +1183,28 @@ fn gen_sync_function_method(
         })
         .collect();
 
-    // Marshal parameters (use camelCase Java names)
+    // Marshal non-bridge parameters (use camelCase Java names)
     for param in &func.params {
+        if is_bridge_param_java(param, bridge_param_names, bridge_type_aliases) {
+            continue;
+        }
         marshal_param_to_ffi(out, &to_java_name(&param.name), &param.ty, opaque_types, prefix);
     }
 
     // Call FFI
     let ffi_handle = format!("NativeLib.{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
 
+    // Build call args: bridge params get MemorySegment.NULL, others are marshalled normally.
     let call_args: Vec<String> = func
         .params
         .iter()
-        .map(|p| ffi_param_name(&to_java_name(&p.name), &p.ty, opaque_types))
+        .map(|p| {
+            if is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
+                "MemorySegment.NULL".to_string()
+            } else {
+                ffi_param_name(&to_java_name(&p.name), &p.ty, opaque_types)
+            }
+        })
         .collect();
 
     // Emit a helper closure to free FFI-allocated param pointers (e.g. options created by _from_json)
@@ -1261,10 +1391,16 @@ fn gen_sync_function_method(
     writeln!(out, "    }}").ok();
 }
 
-fn gen_async_wrapper_method(out: &mut String, func: &FunctionDef) {
+fn gen_async_wrapper_method(
+    out: &mut String,
+    func: &FunctionDef,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+) {
     let params: Vec<String> = func
         .params
         .iter()
+        .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
         .map(|p| {
             let ptype = java_type(&p.ty);
             format!("{} {}", ptype, to_java_name(&p.name))
@@ -1278,7 +1414,12 @@ fn gen_async_wrapper_method(out: &mut String, func: &FunctionDef) {
 
     let sync_method_name = to_java_name(&func.name);
     let async_method_name = format!("{}Async", sync_method_name);
-    let param_names: Vec<String> = func.params.iter().map(|p| to_java_name(&p.name)).collect();
+    let param_names: Vec<String> = func
+        .params
+        .iter()
+        .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
+        .map(|p| to_java_name(&p.name))
+        .collect();
 
     writeln!(
         out,
@@ -1345,7 +1486,17 @@ fn gen_exception_class(package: &str, class_name: &str) -> String {
 // High-level facade class (public API)
 // ---------------------------------------------------------------------------
 
-fn gen_facade_class(api: &ApiSurface, package: &str, public_class: &str, raw_class: &str, _prefix: &str) -> String {
+#[allow(clippy::too_many_arguments)]
+fn gen_facade_class(
+    api: &ApiSurface,
+    package: &str,
+    public_class: &str,
+    raw_class: &str,
+    _prefix: &str,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+    has_visitor_bridge: bool,
+) -> String {
     let mut body = String::with_capacity(4096);
 
     writeln!(body, "public final class {} {{", public_class).ok();
@@ -1354,10 +1505,11 @@ fn gen_facade_class(api: &ApiSurface, package: &str, public_class: &str, raw_cla
 
     // Generate static methods for free functions
     for func in &api.functions {
-        // Sync method
+        // Sync method — bridge params stripped from public signature
         let params: Vec<String> = func
             .params
             .iter()
+            .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
             .map(|p| {
                 let ptype = java_type(&p.ty);
                 format!("{} {}", ptype, to_java_name(&p.name))
@@ -1384,9 +1536,9 @@ fn gen_facade_class(api: &ApiSurface, package: &str, public_class: &str, raw_cla
         )
         .ok();
 
-        // Null checks for required parameters
+        // Null checks for required non-bridge parameters
         for param in &func.params {
-            if !param.optional {
+            if !param.optional && !is_bridge_param_java(param, bridge_param_names, bridge_type_aliases) {
                 let pname = to_java_name(&param.name);
                 writeln!(
                     body,
@@ -1397,8 +1549,18 @@ fn gen_facade_class(api: &ApiSurface, package: &str, public_class: &str, raw_cla
             }
         }
 
-        // Delegate to the raw FFI class
-        let call_args: Vec<String> = func.params.iter().map(|p| to_java_name(&p.name)).collect();
+        // Delegate to raw FFI class — bridge params always passed as null
+        let call_args: Vec<String> = func
+            .params
+            .iter()
+            .map(|p| {
+                if is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
+                    "null".to_string()
+                } else {
+                    to_java_name(&p.name)
+                }
+            })
+            .collect();
 
         if matches!(func.return_type, TypeRef::Unit) {
             writeln!(
@@ -1423,13 +1585,17 @@ fn gen_facade_class(api: &ApiSurface, package: &str, public_class: &str, raw_cla
         writeln!(body, "    }}").ok();
         writeln!(body).ok();
 
-        // Generate overload without optional params (convenience method)
-        let has_optional = func.params.iter().any(|p| p.optional);
+        // Generate overload without optional params (convenience method).
+        // Only non-bridge params are considered here.
+        let has_optional = func
+            .params
+            .iter()
+            .any(|p| p.optional && !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases));
         if has_optional {
             let required_params: Vec<String> = func
                 .params
                 .iter()
-                .filter(|p| !p.optional)
+                .filter(|p| !p.optional && !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
                 .map(|p| {
                     let ptype = java_type(&p.ty);
                     format!("{} {}", ptype, to_java_name(&p.name))
@@ -1446,12 +1612,12 @@ fn gen_facade_class(api: &ApiSurface, package: &str, public_class: &str, raw_cla
             )
             .ok();
 
-            // Build call with null for optional params
+            // Build call with null for optional params and bridge params
             let full_args: Vec<String> = func
                 .params
                 .iter()
                 .map(|p| {
-                    if p.optional {
+                    if p.optional || is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
                         "null".to_string()
                     } else {
                         to_java_name(&p.name)
@@ -1474,6 +1640,31 @@ fn gen_facade_class(api: &ApiSurface, package: &str, public_class: &str, raw_cla
             writeln!(body, "    }}").ok();
             writeln!(body).ok();
         }
+    }
+
+    // Expose convertWithVisitor in the public facade when visitor bridge is configured.
+    if has_visitor_bridge {
+        writeln!(body, "    /**").ok();
+        writeln!(
+            body,
+            "     * Convert HTML to Markdown, invoking visitor callbacks during processing."
+        )
+        .ok();
+        writeln!(body, "     */").ok();
+        writeln!(
+            body,
+            "    public static ConversionResult convertWithVisitor(String html, ConversionOptions options, Visitor visitor)"
+        )
+        .ok();
+        writeln!(body, "            throws {}Exception {{", raw_class).ok();
+        writeln!(
+            body,
+            "        return {}.convertWithVisitor(html, options, visitor);",
+            raw_class
+        )
+        .ok();
+        writeln!(body, "    }}").ok();
+        writeln!(body).ok();
     }
 
     writeln!(body, "}}").ok();

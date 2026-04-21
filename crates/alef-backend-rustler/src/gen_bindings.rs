@@ -1600,7 +1600,15 @@ fn gen_elixir_enum_module(enum_def: &EnumDef, app_module: &str) -> String {
                 let field_types: Vec<String> = variant
                     .fields
                     .iter()
-                    .map(|f| format!("{}: term()", f.name.to_snake_case()))
+                    .map(|f| {
+                        let name = f.name.to_snake_case();
+                        let safe_name = if name.starts_with(|c: char| c.is_ascii_digit()) {
+                            format!("value_{name}")
+                        } else {
+                            name
+                        };
+                        format!("{safe_name}: term()")
+                    })
                     .collect();
                 let _ = writeln!(
                     out,

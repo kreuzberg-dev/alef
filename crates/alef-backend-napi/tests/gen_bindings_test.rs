@@ -43,6 +43,8 @@ fn make_config() -> AlefConfig {
             features: None,
             serde_rename_all: None,
             type_prefix: None,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         ruby: None,
         php: None,

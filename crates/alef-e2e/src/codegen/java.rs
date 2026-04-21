@@ -6,7 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_java, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -399,16 +399,28 @@ fn render_test_method(
         }
     }
 
-    let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, options_type, &fixture.id);
+    let (mut setup_lines, args_str) = build_args_and_setup(&fixture.input, args, class_name, options_type, &fixture.id);
+
+    // Build visitor if present and add to setup
+    let mut visitor_arg = String::new();
+    if let Some(visitor_spec) = &fixture.visitor {
+        visitor_arg = build_java_visitor(&mut setup_lines, visitor_spec, class_name);
+    }
 
     for line in &setup_lines {
         let _ = writeln!(out, "        {line}");
     }
 
+    let final_args = if visitor_arg.is_empty() {
+        args_str
+    } else {
+        format!("{args_str}, {visitor_arg}")
+    };
+
     if expects_error {
         let _ = writeln!(
             out,
-            "        assertThrows(Exception.class, () -> {class_name}.{function_name}({args_str}));"
+            "        assertThrows(Exception.class, () -> {class_name}.{function_name}({final_args}));"
         );
         let _ = writeln!(out, "    }}");
         return;
@@ -416,7 +428,7 @@ fn render_test_method(
 
     let _ = writeln!(
         out,
-        "        var {result_var} = {class_name}.{function_name}({args_str});"
+        "        var {result_var} = {class_name}.{function_name}({final_args});"
     );
 
     for assertion in &fixture.assertions {
@@ -770,4 +782,91 @@ fn json_to_java(value: &serde_json::Value) -> String {
             format!("\"{}\"", escape_java(&json_str))
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Visitor generation
+// ---------------------------------------------------------------------------
+
+/// Build a Java visitor class and add setup lines. Returns the visitor variable name.
+fn build_java_visitor(
+    setup_lines: &mut Vec<String>,
+    visitor_spec: &crate::fixture::VisitorSpec,
+    class_name: &str,
+) -> String {
+    setup_lines.push("class _TestVisitor implements TestVisitor {".to_string());
+    for (method_name, action) in &visitor_spec.callbacks {
+        emit_java_visitor_method(setup_lines, method_name, action, class_name);
+    }
+    setup_lines.push("}".to_string());
+    setup_lines.push("var visitor = new _TestVisitor();".to_string());
+    "visitor".to_string()
+}
+
+/// Emit a Java visitor method for a callback action.
+fn emit_java_visitor_method(
+    setup_lines: &mut Vec<String>,
+    method_name: &str,
+    action: &CallbackAction,
+    _class_name: &str,
+) {
+    let camel_method = method_to_camel(method_name);
+    let params = match method_name {
+        "visit_link" => "VisitContext ctx, String href, String text, String title",
+        "visit_image" => "VisitContext ctx, String src, String alt, String title",
+        "visit_heading" => "VisitContext ctx, int level, String text, String id",
+        "visit_code_block" => "VisitContext ctx, String lang, String code",
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description" => "VisitContext ctx, String text",
+        "visit_text" => "VisitContext ctx, String text",
+        "visit_list_item" => "VisitContext ctx, boolean ordered, String marker, String text",
+        "visit_blockquote" => "VisitContext ctx, String content, int depth",
+        "visit_table_row" => "VisitContext ctx, java.util.List<String> cells, boolean isHeader",
+        "visit_custom_element" => "VisitContext ctx, String tagName, String html",
+        "visit_form" => "VisitContext ctx, String actionUrl, String method",
+        "visit_input" => "VisitContext ctx, String inputType, String name, String value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "VisitContext ctx, String src",
+        "visit_details" => "VisitContext ctx, boolean isOpen",
+        _ => "VisitContext ctx",
+    };
+
+    setup_lines.push(format!("    @Override public VisitResult {camel_method}({params}) {{"));
+    match action {
+        CallbackAction::Skip => {
+            setup_lines.push("        return VisitResult.skip();".to_string());
+        }
+        CallbackAction::Continue => {
+            setup_lines.push("        return VisitResult.continue_();".to_string());
+        }
+        CallbackAction::PreserveHtml => {
+            setup_lines.push("        return VisitResult.preserveHtml();".to_string());
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = escape_java(output);
+            setup_lines.push(format!("        return VisitResult.custom(\"{escaped}\");"));
+        }
+        CallbackAction::CustomTemplate { template } => {
+            setup_lines.push(format!(
+                "        return VisitResult.custom(String.format(\"{template}\"));"
+            ));
+        }
+    }
+    setup_lines.push("    }".to_string());
+}
+
+/// Convert snake_case method names to Java camelCase.
+fn method_to_camel(snake: &str) -> String {
+    use heck::ToLowerCamelCase;
+    snake.to_lower_camel_case()
 }

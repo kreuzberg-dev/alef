@@ -131,7 +131,11 @@ impl Backend for NapiBackend {
         // NAPI has some unique patterns: Js-prefixed names, Option-wrapped fields,
         // and custom constructor. Use shared generators for enums and functions,
         // but keep struct/method generation custom.
-        for typ in api.types.iter().filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name)) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name))
+        {
             if typ.is_opaque {
                 builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(
                     typ, &cfg, &prefix,
