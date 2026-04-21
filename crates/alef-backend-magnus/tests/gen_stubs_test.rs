@@ -53,6 +53,7 @@ fn make_config_with_stubs() -> AlefConfig {
             path_mappings: HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -68,6 +69,7 @@ fn make_config_with_stubs() -> AlefConfig {
             features: None,
             serde_rename_all: None,
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         php: None,
@@ -107,6 +109,7 @@ fn test_basic_rbs_stubs() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true),
                 make_field("backend", TypeRef::String, false),
@@ -127,6 +130,7 @@ fn test_basic_rbs_stubs() {
         functions: vec![FunctionDef {
             name: "process".to_string(),
             rust_path: "test_lib::process".to_string(),
+            original_rust_path: String::new(),
             params: vec![
                 ParamDef {
                     name: "input".to_string(),
@@ -164,6 +168,7 @@ fn test_basic_rbs_stubs() {
         enums: vec![EnumDef {
             name: "Backend".to_string(),
             rust_path: "test_lib::Backend".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Tesseract".to_string(),
@@ -263,6 +268,7 @@ fn test_type_mapping_in_stubs() {
         types: vec![TypeDef {
             name: "Numbers".to_string(),
             rust_path: "test_lib::Numbers".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("u32_val", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("i64_val", TypeRef::Primitive(PrimitiveType::I64), false),
@@ -352,6 +358,7 @@ fn test_enum_stubs() {
         enums: vec![EnumDef {
             name: "Status".to_string(),
             rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Pending".to_string(),
@@ -442,6 +449,7 @@ fn test_opaque_type_stubs() {
         types: vec![TypeDef {
             name: "Processor".to_string(),
             rust_path: "test_lib::Processor".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![
                 MethodDef {
@@ -575,6 +583,7 @@ fn test_rbs_stubs_without_config() {
             path_mappings: HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -588,6 +597,7 @@ fn test_rbs_stubs_without_config() {
             features: None,
             serde_rename_all: None,
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         php: None,
@@ -637,6 +647,7 @@ fn test_type_with_methods_and_fields() {
         types: vec![TypeDef {
             name: "Store".to_string(),
             rust_path: "test_lib::Store".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("name", TypeRef::String, false),
                 make_field("count", TypeRef::Primitive(PrimitiveType::U32), false),
@@ -761,6 +772,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
         types: vec![TypeDef {
             name: "Client".to_string(),
             rust_path: "test_lib::Client".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],
             is_opaque: true,
@@ -779,6 +791,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
         enums: vec![EnumDef {
             name: "Mode".to_string(),
             rust_path: "test_lib::Mode".to_string(),
+            original_rust_path: String::new(),
             variants: vec![EnumVariant {
                 name: "Fast".to_string(),
                 fields: vec![],
@@ -865,6 +878,7 @@ fn test_module_naming_from_crate_name() {
             path_mappings: HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -880,6 +894,7 @@ fn test_module_naming_from_crate_name() {
             features: None,
             serde_rename_all: None,
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         php: None,

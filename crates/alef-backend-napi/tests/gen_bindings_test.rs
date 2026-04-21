@@ -34,6 +34,7 @@ fn make_config() -> AlefConfig {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -48,6 +49,7 @@ fn make_config() -> AlefConfig {
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         ruby: None,
@@ -87,6 +89,7 @@ fn test_basic_generation() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true),
                 make_field("backend", TypeRef::String, true),
@@ -107,6 +110,7 @@ fn test_basic_generation() {
         functions: vec![FunctionDef {
             name: "extract_file".to_string(),
             rust_path: "test_lib::extract_file".to_string(),
+            original_rust_path: String::new(),
             params: vec![
                 ParamDef {
                     name: "path".to_string(),
@@ -144,6 +148,7 @@ fn test_basic_generation() {
         enums: vec![EnumDef {
             name: "Mode".to_string(),
             rust_path: "test_lib::Mode".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Fast".to_string(),
@@ -223,6 +228,7 @@ fn test_type_mapping() {
         types: vec![TypeDef {
             name: "Numbers".to_string(),
             rust_path: "test_lib::Numbers".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("u32_val", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("i64_val", TypeRef::Primitive(PrimitiveType::I64), false),
@@ -288,6 +294,7 @@ fn test_enum_generation() {
         enums: vec![EnumDef {
             name: "Status".to_string(),
             rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Pending".to_string(),
@@ -383,6 +390,7 @@ fn test_async_function() {
         functions: vec![FunctionDef {
             name: "process_async".to_string(),
             rust_path: "test_lib::process_async".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "input".to_string(),
                 ty: TypeRef::String,
@@ -443,6 +451,7 @@ fn test_methods_generation() {
         types: vec![TypeDef {
             name: "Processor".to_string(),
             rust_path: "test_lib::Processor".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![
                 MethodDef {
@@ -550,6 +559,7 @@ fn test_error_types() {
         functions: vec![FunctionDef {
             name: "risky_operation".to_string(),
             rust_path: "test_lib::risky_operation".to_string(),
+            original_rust_path: String::new(),
             params: vec![],
             return_type: TypeRef::String,
             is_async: false,
@@ -565,6 +575,7 @@ fn test_error_types() {
         errors: vec![ErrorDef {
             name: "ProcessError".to_string(),
             rust_path: "test_lib::ProcessError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
                     name: "NotFound".to_string(),
@@ -627,6 +638,7 @@ fn test_opaque_type() {
         types: vec![TypeDef {
             name: "Handle".to_string(),
             rust_path: "test_lib::Handle".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
                 name: "get_value".to_string(),
@@ -704,6 +716,7 @@ fn test_optional_and_default_fields() {
         types: vec![TypeDef {
             name: "Options".to_string(),
             rust_path: "test_lib::Options".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true),
                 make_field("retries", TypeRef::Primitive(PrimitiveType::U32), false),
@@ -770,6 +783,7 @@ fn test_async_method() {
         types: vec![TypeDef {
             name: "AsyncWorker".to_string(),
             rust_path: "test_lib::AsyncWorker".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
                 name: "process_async".to_string(),
@@ -852,6 +866,7 @@ fn test_static_method_with_error() {
         types: vec![TypeDef {
             name: "Factory".to_string(),
             rust_path: "test_lib::Factory".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
                 name: "from_config".to_string(),
@@ -931,6 +946,7 @@ fn test_map_types() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field(
                 "settings",
                 TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
@@ -1010,6 +1026,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
     let make_type = |name: &str| TypeDef {
         name: name.to_string(),
         rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
         fields: vec![make_field("content", TypeRef::String, false)],
         methods: vec![],
         is_opaque: false,
@@ -1033,6 +1050,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
         enums: vec![EnumDef {
             name: "Message".to_string(),
             rust_path: "test_lib::Message".to_string(),
+            original_rust_path: String::new(),
             serde_tag: Some("role".to_string()),
             serde_rename_all: None,
             doc: String::new(),

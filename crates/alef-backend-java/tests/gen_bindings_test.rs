@@ -18,6 +18,7 @@ fn make_test_config(package: &str) -> AlefConfig {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -96,6 +97,7 @@ fn test_basic_generation() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![FieldDef {
                 name: "timeout".to_string(),
                 ty: TypeRef::Primitive(PrimitiveType::U32),
@@ -127,6 +129,7 @@ fn test_basic_generation() {
         functions: vec![FunctionDef {
             name: "extract".to_string(),
             rust_path: "test_lib::extract".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "path".to_string(),
                 ty: TypeRef::String,
@@ -151,6 +154,7 @@ fn test_basic_generation() {
         enums: vec![EnumDef {
             name: "Mode".to_string(),
             rust_path: "test_lib::Mode".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Fast".to_string(),
@@ -188,6 +192,7 @@ fn test_basic_generation() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -330,6 +335,7 @@ fn test_package_default() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -397,6 +403,7 @@ fn test_optional_field_defaults_in_builder() {
         types: vec![TypeDef {
             name: "ConfigWithDefaults".to_string(),
             rust_path: "test_lib::ConfigWithDefaults".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
                     name: "list_indent_width".to_string(),
@@ -490,6 +497,7 @@ fn test_optional_field_defaults_in_builder() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -606,6 +614,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
         enums: vec![EnumDef {
             name: "Message".to_string(),
             rust_path: "test_lib::Message".to_string(),
+            original_rust_path: String::new(),
             serde_tag: Some("role".to_string()),
             serde_rename_all: Some("snake_case".to_string()),
             doc: String::new(),
@@ -637,6 +646,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
         errors: vec![ErrorDef {
             name: "Error".to_string(),
             rust_path: "test_lib::Error".to_string(),
+            original_rust_path: String::new(),
             variants: vec![],
             doc: String::new(),
         }],

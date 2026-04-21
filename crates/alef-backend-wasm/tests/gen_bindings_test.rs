@@ -39,6 +39,7 @@ fn make_config() -> AlefConfig {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -93,6 +94,7 @@ fn test_basic_generation() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false),
@@ -113,6 +115,7 @@ fn test_basic_generation() {
         functions: vec![FunctionDef {
             name: "process".to_string(),
             rust_path: "test_lib::process".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "input".to_string(),
                 ty: TypeRef::String,
@@ -137,6 +140,7 @@ fn test_basic_generation() {
         enums: vec![EnumDef {
             name: "Mode".to_string(),
             rust_path: "test_lib::Mode".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Fast".to_string(),
@@ -210,6 +214,7 @@ fn test_type_mapping() {
         types: vec![TypeDef {
             name: "TypeTest".to_string(),
             rust_path: "test_lib::TypeTest".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("u32_field", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("i64_field", TypeRef::Primitive(PrimitiveType::I64), false),
@@ -271,6 +276,7 @@ fn test_enum_generation() {
         enums: vec![EnumDef {
             name: "Level".to_string(),
             rust_path: "test_lib::Level".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Low".to_string(),
@@ -334,6 +340,7 @@ fn test_generated_header() {
         types: vec![TypeDef {
             name: "Data".to_string(),
             rust_path: "test_lib::Data".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("value", TypeRef::String, false)],
             methods: vec![],
             is_opaque: false,
@@ -389,6 +396,7 @@ fn test_async_function() {
         functions: vec![FunctionDef {
             name: "fetch_data".to_string(),
             rust_path: "test_lib::fetch_data".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "url".to_string(),
                 ty: TypeRef::String,
@@ -439,6 +447,7 @@ fn test_async_function_with_error() {
         functions: vec![FunctionDef {
             name: "parse_json".to_string(),
             rust_path: "test_lib::parse_json".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "json".to_string(),
                 ty: TypeRef::String,
@@ -488,6 +497,7 @@ fn test_methods_generation() {
         types: vec![TypeDef {
             name: "Counter".to_string(),
             rust_path: "test_lib::Counter".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("value", TypeRef::Primitive(PrimitiveType::U32), false)],
             methods: vec![
                 MethodDef {
@@ -569,6 +579,7 @@ fn test_async_methods() {
         types: vec![TypeDef {
             name: "AsyncWorker".to_string(),
             rust_path: "test_lib::AsyncWorker".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("name", TypeRef::String, false)],
             methods: vec![MethodDef {
                 name: "process".to_string(),
@@ -640,6 +651,7 @@ fn test_error_types() {
         errors: vec![ErrorDef {
             name: "ValidationError".to_string(),
             rust_path: "test_lib::ValidationError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
                     name: "InvalidInput".to_string(),
@@ -689,6 +701,7 @@ fn test_opaque_type() {
         types: vec![TypeDef {
             name: "OpaqueHandle".to_string(),
             rust_path: "test_lib::OpaqueHandle".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],
             is_opaque: true,
@@ -734,6 +747,7 @@ fn test_exclude_functions() {
             FunctionDef {
                 name: "public_func".to_string(),
                 rust_path: "test_lib::public_func".to_string(),
+                original_rust_path: String::new(),
                 params: vec![],
                 return_type: TypeRef::String,
                 is_async: false,
@@ -748,6 +762,7 @@ fn test_exclude_functions() {
             FunctionDef {
                 name: "hidden_func".to_string(),
                 rust_path: "test_lib::hidden_func".to_string(),
+                original_rust_path: String::new(),
                 params: vec![],
                 return_type: TypeRef::String,
                 is_async: false,
@@ -798,6 +813,7 @@ fn test_exclude_types() {
             TypeDef {
                 name: "PublicType".to_string(),
                 rust_path: "test_lib::PublicType".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![make_field("field", TypeRef::String, false)],
                 methods: vec![],
                 is_opaque: false,
@@ -815,6 +831,7 @@ fn test_exclude_types() {
             TypeDef {
                 name: "HiddenType".to_string(),
                 rust_path: "test_lib::HiddenType".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![make_field("secret", TypeRef::String, false)],
                 methods: vec![],
                 is_opaque: false,

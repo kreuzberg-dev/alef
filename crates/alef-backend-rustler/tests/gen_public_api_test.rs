@@ -20,6 +20,7 @@ fn make_config(app_name: &str) -> AlefConfig {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -36,6 +37,7 @@ fn make_config(app_name: &str) -> AlefConfig {
             exclude_functions: vec![],
             exclude_types: vec![],
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         wasm: None,
@@ -150,6 +152,7 @@ fn test_generate_public_api_creates_all_files() {
         types: vec![TypeDef {
             name: "ConversionOptions".to_string(),
             rust_path: "my_lib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("heading_style", TypeRef::Named("HeadingStyle".to_string()), false),
                 make_field("wrap_width", TypeRef::Primitive(PrimitiveType::U32), false),
@@ -174,6 +177,7 @@ fn test_generate_public_api_creates_all_files() {
         functions: vec![FunctionDef {
             name: "convert".to_string(),
             rust_path: "my_lib::convert".to_string(),
+            original_rust_path: String::new(),
             params: vec![
                 ParamDef {
                     name: "html".to_string(),
@@ -211,6 +215,7 @@ fn test_generate_public_api_creates_all_files() {
         enums: vec![EnumDef {
             name: "HeadingStyle".to_string(),
             rust_path: "my_lib::HeadingStyle".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Setext".to_string(),
@@ -278,6 +283,7 @@ fn test_native_ex_has_all_nif_stubs() {
         types: vec![TypeDef {
             name: "ConversionOptions".to_string(),
             rust_path: "my_lib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("debug", TypeRef::Primitive(PrimitiveType::Bool), false)],
             methods: vec![
                 make_static_method("default", TypeRef::Named("ConversionOptions".to_string())),
@@ -298,6 +304,7 @@ fn test_native_ex_has_all_nif_stubs() {
         functions: vec![FunctionDef {
             name: "convert".to_string(),
             rust_path: "my_lib::convert".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "html".to_string(),
                 ty: TypeRef::String,
@@ -380,6 +387,7 @@ fn test_struct_module_has_defstruct() {
         types: vec![TypeDef {
             name: "ConversionOptions".to_string(),
             rust_path: "my_lib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field_with_default(
                     "heading_style",
@@ -415,6 +423,7 @@ fn test_struct_module_has_defstruct() {
         enums: vec![EnumDef {
             name: "HeadingStyle".to_string(),
             rust_path: "my_lib::HeadingStyle".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Setext".to_string(),
@@ -491,6 +500,7 @@ fn test_main_module_has_method_wrappers() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "my_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("value", TypeRef::Primitive(PrimitiveType::U32), false)],
             methods: vec![
                 make_static_method("default", TypeRef::Named("Config".to_string())),
@@ -558,6 +568,7 @@ fn test_opaque_types_not_get_struct_module() {
         types: vec![TypeDef {
             name: "Engine".to_string(),
             rust_path: "my_lib::Engine".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],
             is_opaque: true,
@@ -603,6 +614,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
         enums: vec![EnumDef {
             name: "HeadingStyle".to_string(),
             rust_path: "my_lib::HeadingStyle".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Setext".to_string(),
@@ -677,6 +689,7 @@ fn test_generate_bindings_nif_init_uses_native_module() {
         functions: vec![FunctionDef {
             name: "convert".to_string(),
             rust_path: "my_lib::convert".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "html".to_string(),
                 ty: TypeRef::String,

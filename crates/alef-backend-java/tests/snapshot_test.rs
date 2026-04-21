@@ -20,6 +20,7 @@ fn print_generated_java_code() {
             TypeDef {
                 name: "ExtractionConfig".to_string(),
                 rust_path: "kreuzberg::ExtractionConfig".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![
                     FieldDef {
                         name: "ocrBackend".to_string(),
@@ -68,6 +69,7 @@ fn print_generated_java_code() {
             TypeDef {
                 name: "ExtractionResult".to_string(),
                 rust_path: "kreuzberg::ExtractionResult".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![
                     FieldDef {
                         name: "text".to_string(),
@@ -118,6 +120,7 @@ fn print_generated_java_code() {
             FunctionDef {
                 name: "extractFileSync".to_string(),
                 rust_path: "kreuzberg::extract_file_sync".to_string(),
+                original_rust_path: String::new(),
                 params: vec![
                     ParamDef {
                         name: "path".to_string(),
@@ -155,6 +158,7 @@ fn print_generated_java_code() {
             FunctionDef {
                 name: "extractFileAsync".to_string(),
                 rust_path: "kreuzberg::extract_file_async".to_string(),
+                original_rust_path: String::new(),
                 params: vec![
                     ParamDef {
                         name: "path".to_string(),
@@ -193,6 +197,7 @@ fn print_generated_java_code() {
         enums: vec![EnumDef {
             name: "OcrBackend".to_string(),
             rust_path: "kreuzberg::OcrBackend".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Tesseract".to_string(),
@@ -224,6 +229,7 @@ fn print_generated_java_code() {
         errors: vec![ErrorDef {
             name: "Error".to_string(),
             rust_path: "kreuzberg::Error".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
                     name: "IoError".to_string(),
@@ -260,6 +266,7 @@ fn print_generated_java_code() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),

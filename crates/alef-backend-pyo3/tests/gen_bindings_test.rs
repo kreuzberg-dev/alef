@@ -34,6 +34,7 @@ fn make_config() -> AlefConfig {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -51,6 +52,7 @@ fn make_config() -> AlefConfig {
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         node: None,
@@ -92,6 +94,7 @@ fn test_basic_generation() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("name", TypeRef::String, false),
@@ -112,6 +115,7 @@ fn test_basic_generation() {
         functions: vec![FunctionDef {
             name: "process".to_string(),
             rust_path: "test_lib::process".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "input".to_string(),
                 ty: TypeRef::String,
@@ -136,6 +140,7 @@ fn test_basic_generation() {
         enums: vec![EnumDef {
             name: "Mode".to_string(),
             rust_path: "test_lib::Mode".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Fast".to_string(),
@@ -219,6 +224,7 @@ fn test_type_mapping() {
         types: vec![TypeDef {
             name: "DataTypes".to_string(),
             rust_path: "test_lib::DataTypes".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("count", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("value", TypeRef::Primitive(PrimitiveType::I64), false),
@@ -287,6 +293,7 @@ fn test_enum_generation() {
         enums: vec![EnumDef {
             name: "Status".to_string(),
             rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Pending".to_string(),
@@ -395,6 +402,7 @@ fn test_function_with_error_type() {
         functions: vec![FunctionDef {
             name: "validate".to_string(),
             rust_path: "test_lib::validate".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "input".to_string(),
                 ty: TypeRef::String,
@@ -489,6 +497,7 @@ fn test_module_registration() {
         types: vec![TypeDef {
             name: "MyType".to_string(),
             rust_path: "test_lib::MyType".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("id", TypeRef::Primitive(PrimitiveType::U32), false)],
             methods: vec![],
             is_opaque: false,
@@ -506,6 +515,7 @@ fn test_module_registration() {
         functions: vec![FunctionDef {
             name: "get_type".to_string(),
             rust_path: "test_lib::get_type".to_string(),
+            original_rust_path: String::new(),
             params: vec![],
             return_type: TypeRef::Named("MyType".to_string()),
             is_async: false,
@@ -520,6 +530,7 @@ fn test_module_registration() {
         enums: vec![EnumDef {
             name: "Kind".to_string(),
             rust_path: "test_lib::Kind".to_string(),
+            original_rust_path: String::new(),
             variants: vec![EnumVariant {
                 name: "First".to_string(),
                 fields: vec![],
@@ -594,6 +605,7 @@ fn test_async_function() {
         functions: vec![FunctionDef {
             name: "fetch_data".to_string(),
             rust_path: "test_lib::fetch_data".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "url".to_string(),
                 ty: TypeRef::String,
@@ -661,6 +673,7 @@ fn test_async_function_with_error() {
         functions: vec![FunctionDef {
             name: "process_async".to_string(),
             rust_path: "test_lib::process_async".to_string(),
+            original_rust_path: String::new(),
             params: vec![],
             return_type: TypeRef::String,
             is_async: true,
@@ -708,6 +721,7 @@ fn test_methods_generation() {
         types: vec![TypeDef {
             name: "Processor".to_string(),
             rust_path: "test_lib::Processor".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("id", TypeRef::Primitive(PrimitiveType::U32), false)],
             methods: vec![
                 MethodDef {
@@ -810,6 +824,7 @@ fn test_async_method() {
         types: vec![TypeDef {
             name: "AsyncHandler".to_string(),
             rust_path: "test_lib::AsyncHandler".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
                 name: "handle_async".to_string(),
@@ -882,6 +897,7 @@ fn test_error_types() {
         errors: vec![ErrorDef {
             name: "ProcessError".to_string(),
             rust_path: "test_lib::ProcessError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
                     name: "NotFound".to_string(),
@@ -952,6 +968,7 @@ fn test_opaque_type() {
         types: vec![TypeDef {
             name: "OpaqueHandle".to_string(),
             rust_path: "test_lib::OpaqueHandle".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],
             is_opaque: true,
@@ -1008,6 +1025,7 @@ fn test_optional_and_vec_fields() {
         types: vec![TypeDef {
             name: "Container".to_string(),
             rust_path: "test_lib::Container".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("optional_text", TypeRef::Optional(Box::new(TypeRef::String)), true),
                 make_field("items", TypeRef::Vec(Box::new(TypeRef::String)), false),
@@ -1075,6 +1093,7 @@ fn test_static_method() {
         types: vec![TypeDef {
             name: "Factory".to_string(),
             rust_path: "test_lib::Factory".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
                 name: "create_default".to_string(),
@@ -1147,6 +1166,7 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
         errors: vec![ErrorDef {
             name: "LiterLlmError".to_string(),
             rust_path: "test_lib::LiterLlmError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
                     name: "AuthenticationError".to_string(),
@@ -1236,6 +1256,7 @@ fn test_return_type_exported_from_native_module_not_options() {
     let conversion_result = TypeDef {
         name: "ConversionResult".to_string(),
         rust_path: "my_lib::ConversionResult".to_string(),
+        original_rust_path: String::new(),
         fields: vec![
             make_field("content", TypeRef::String, false),
             make_field("title", TypeRef::Optional(Box::new(TypeRef::String)), true),
@@ -1257,6 +1278,7 @@ fn test_return_type_exported_from_native_module_not_options() {
     let conversion_options = TypeDef {
         name: "ConversionOptions".to_string(),
         rust_path: "my_lib::ConversionOptions".to_string(),
+        original_rust_path: String::new(),
         fields: vec![make_field("verbose", TypeRef::Primitive(PrimitiveType::Bool), false)],
         methods: vec![],
         is_opaque: false,
@@ -1279,6 +1301,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         functions: vec![FunctionDef {
             name: "convert".to_string(),
             rust_path: "my_lib::convert".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "input".to_string(),
                 ty: TypeRef::String,
@@ -1319,6 +1342,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         exclude_functions: Vec::new(),
         exclude_types: Vec::new(),
         extra_dependencies: Default::default(),
+        source_crates: vec![],
         scaffold_output: Default::default(),
     });
 
