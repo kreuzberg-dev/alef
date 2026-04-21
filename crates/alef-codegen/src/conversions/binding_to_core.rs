@@ -402,8 +402,7 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
             let has_json_val = matches!(v.as_ref(), TypeRef::Json);
             let has_json_key = matches!(k.as_ref(), TypeRef::Json);
             // Vec<Named> values: each vector element needs Into conversion.
-            let has_vec_named_val =
-                matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n)));
+            let has_vec_named_val = matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n)));
             // Vec<Json> values: each element needs serde deserialization.
             let has_vec_json_val = matches!(v.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Json));
             if has_json_val || has_json_key || has_named_key || has_named_val || has_vec_named_val || has_vec_json_val {

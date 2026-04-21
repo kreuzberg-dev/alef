@@ -69,9 +69,7 @@ impl E2eCodegen for CSharpCodegen {
             .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
-            .unwrap_or_else(|| {
-                format!("../../packages/csharp/{pkg_name}.csproj")
-            });
+            .unwrap_or_else(|| format!("../../packages/csharp/{pkg_name}.csproj"));
         let pkg_version = cs_pkg
             .as_ref()
             .and_then(|p| p.version.as_ref())

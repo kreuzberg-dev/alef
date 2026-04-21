@@ -651,6 +651,7 @@ mod tests {
                 path_mappings: std::collections::HashMap::new(),
                 auto_path_mappings: Default::default(),
                 extra_dependencies: Default::default(),
+                source_crates: vec![],
             },
             languages: vec![Language::Python, Language::Node],
             exclude: ExcludeConfig::default(),

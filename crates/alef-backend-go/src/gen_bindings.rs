@@ -1194,13 +1194,13 @@ fn gen_param_to_c(
             }
         }
         TypeRef::Bytes => {
-            writeln!(out, "    {} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))", c_name, param.name).ok();
             writeln!(
                 out,
-                "    {}Len := C.uintptr_t(len({}))",
+                "    {} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))",
                 c_name, param.name
             )
             .ok();
+            writeln!(out, "    {}Len := C.uintptr_t(len({}))", c_name, param.name).ok();
         }
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {

@@ -846,6 +846,7 @@ mod tests {
         TypeDef {
             name: "Config".to_string(),
             rust_path: "my_crate::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
                     name: "timeout".to_string(),

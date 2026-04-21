@@ -221,6 +221,15 @@ fn main() -> Result<()> {
             if !stub_files.is_empty() {
                 let stub_count = pipeline::write_files(&stub_files, &base_dir)?;
                 eprintln!("Generated {stub_count} type stub files");
+                // Write stubs manifest so output hashes can be computed post-prek.
+                let stubs_paths: Vec<std::path::PathBuf> = stub_files
+                    .iter()
+                    .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
+                    .collect();
+                let stubs_ir = serde_json::to_string(&api)?;
+                let stubs_config = toml::to_string(&config).unwrap_or_default();
+                let stubs_hash = cache::compute_stage_hash(&stubs_ir, "stubs", &stubs_config, &[]);
+                let _ = cache::write_stage_hash("stubs", &stubs_hash, &stubs_paths);
             }
 
             // Format and lint all generated files via prek (best-effort)
@@ -238,6 +247,12 @@ fn main() -> Result<()> {
                     let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
                     let _ = cache::write_output_hashes(&lang_str, &paths);
                 }
+            }
+            // Update stubs hashes post-prek (prek may have modified stub files).
+            let post_stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
+            if let Ok(paths) = cache::read_manifest_paths("stubs") {
+                let _ = cache::write_stage_hash("stubs", &post_stubs_hash, &paths);
+                let _ = cache::write_output_hashes("stubs", &paths);
             }
 
             println!("Generated {count} files");

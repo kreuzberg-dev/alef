@@ -134,6 +134,21 @@ pub struct CrateConfig {
     /// `{name}` to the configured `core_import`.
     #[serde(default = "default_true")]
     pub auto_path_mappings: bool,
+    /// Multi-crate source groups for workspaces with types spread across crates.
+    /// Each entry has a crate `name` and `sources` list. Types extracted from each
+    /// group get `rust_path` reflecting the actual defining crate, not the facade.
+    /// When non-empty, the top-level `sources` field is ignored.
+    #[serde(default)]
+    pub source_crates: Vec<SourceCrate>,
+}
+
+/// A source crate group for multi-crate extraction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceCrate {
+    /// Crate name (hyphens converted to underscores for rust_path).
+    pub name: String,
+    /// Source files belonging to this crate.
+    pub sources: Vec<PathBuf>,
 }
 
 fn default_version_from() -> String {

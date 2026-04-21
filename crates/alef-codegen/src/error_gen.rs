@@ -695,6 +695,7 @@ mod tests {
         ErrorDef {
             name: "ConversionError".to_string(),
             rust_path: "html_to_markdown_rs::ConversionError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
                     name: "ParseError".to_string(),
@@ -763,6 +764,7 @@ mod tests {
         let error = ErrorDef {
             name: "MyError".to_string(),
             rust_path: "my_crate::MyError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![ErrorVariant {
                 name: "NotFound".to_string(),
                 message_template: Some("not found".to_string()),
@@ -785,6 +787,7 @@ mod tests {
         let error = ErrorDef {
             name: "MyError".to_string(),
             rust_path: "my_crate::MyError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![ErrorVariant {
                 name: "Parsing".to_string(),
                 message_template: Some("parsing error: {message}".to_string()),
@@ -837,6 +840,7 @@ mod tests {
         let error = ErrorDef {
             name: "MyError".to_string(),
             rust_path: "my_crate::MyError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![ErrorVariant {
                 name: "NotFound".to_string(),
                 message_template: None,

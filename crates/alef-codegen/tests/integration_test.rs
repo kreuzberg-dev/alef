@@ -49,6 +49,7 @@ fn simple_type_def() -> TypeDef {
     TypeDef {
         name: "MyConfig".to_string(),
         rust_path: "my_crate::MyConfig".to_string(),
+        original_rust_path: String::new(),
         fields: vec![
             FieldDef {
                 name: "name".to_string(),
@@ -100,6 +101,7 @@ fn simple_function_def() -> FunctionDef {
     FunctionDef {
         name: "process".to_string(),
         rust_path: "my_crate::process".to_string(),
+        original_rust_path: String::new(),
         params: vec![ParamDef {
             name: "input".to_string(),
             ty: TypeRef::String,
@@ -127,6 +129,7 @@ fn simple_enum_def() -> EnumDef {
     EnumDef {
         name: "OutputFormat".to_string(),
         rust_path: "my_crate::OutputFormat".to_string(),
+        original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
                 name: "Json".to_string(),
@@ -237,6 +240,7 @@ fn test_gen_struct_with_empty_fields() {
     let typ = TypeDef {
         name: "Empty".to_string(),
         rust_path: "my_crate::Empty".to_string(),
+        original_rust_path: String::new(),
         fields: vec![],
         methods: vec![],
         is_opaque: false,

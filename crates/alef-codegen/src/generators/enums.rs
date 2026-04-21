@@ -15,10 +15,7 @@ pub fn enum_has_data_variants(enum_def: &EnumDef) -> bool {
 /// core enum does NOT implement `Serialize`, `Deserialize`, or `Default`, so the
 /// binding must not try to forward those impls.
 fn enum_has_sanitized_fields(enum_def: &EnumDef) -> bool {
-    enum_def
-        .variants
-        .iter()
-        .any(|v| v.fields.iter().any(|f| f.sanitized))
+    enum_def.variants.iter().any(|v| v.fields.iter().any(|f| f.sanitized))
 }
 
 /// Generate a PyO3 data enum as a `#[pyclass]` struct wrapping the core type.

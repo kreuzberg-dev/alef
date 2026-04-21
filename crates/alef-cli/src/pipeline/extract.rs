@@ -179,11 +179,21 @@ fn extract_raw(config: &AlefConfig, _config_path: &Path) -> anyhow::Result<ApiSu
     let workspace_root = config.crate_config.workspace_root.as_deref();
     let default_name = &config.crate_config.name;
 
-    // Group sources by crate name derived from file path
+    // Build source groups: use explicit source_crates config when available,
+    // otherwise derive crate names from file paths in the flat sources list.
     let mut groups: std::collections::HashMap<String, Vec<&Path>> = std::collections::HashMap::new();
-    for source in &config.crate_config.sources {
-        let crate_name = derive_crate_name_from_path(source, default_name);
-        groups.entry(crate_name).or_default().push(source.as_path());
+    if !config.crate_config.source_crates.is_empty() {
+        for sc in &config.crate_config.source_crates {
+            let crate_name = sc.name.replace('-', "_");
+            for source in &sc.sources {
+                groups.entry(crate_name.clone()).or_default().push(source.as_path());
+            }
+        }
+    } else {
+        for source in &config.crate_config.sources {
+            let crate_name = derive_crate_name_from_path(source, default_name);
+            groups.entry(crate_name).or_default().push(source.as_path());
+        }
     }
 
     // Extract each group with its own crate name, then merge

@@ -101,7 +101,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
 
 fn render_pyproject(
     pkg_name: &str,
-    pkg_path: &str,
+    _pkg_path: &str,
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
 ) -> String {

@@ -9,8 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.1] - 2026-04-21
 
+### Added
+
+- Extract: per-crate extraction for multi-crate workspaces
+- IR: `original_rust_path` field for orphan-safe `From` impls
+- Codegen: dedup after path mapping, generic/enum generation improvements
+
 ### Fixed
 
+- Codegen: Python workspace source path, C# paths/TFM, Go version resolution
 - CI: add `contents: write` permission to publish-homebrew job for bottle upload
 
 ## [0.5.0] - 2026-04-21

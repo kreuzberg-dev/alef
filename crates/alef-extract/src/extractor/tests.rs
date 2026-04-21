@@ -413,6 +413,7 @@ fn test_merge_surface_no_duplicates() {
         types: vec![TypeDef {
             name: "Existing".into(),
             rust_path: "test::Existing".into(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],
             is_opaque: true,
@@ -439,6 +440,7 @@ fn test_merge_surface_no_duplicates() {
             TypeDef {
                 name: "Existing".into(),
                 rust_path: "test::Existing".into(),
+                original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
                 is_opaque: true,
@@ -456,6 +458,7 @@ fn test_merge_surface_no_duplicates() {
             TypeDef {
                 name: "NewType".into(),
                 rust_path: "test::NewType".into(),
+                original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
                 is_opaque: true,
@@ -500,6 +503,7 @@ fn test_merge_surface_filtered() {
             TypeDef {
                 name: "Wanted".into(),
                 rust_path: "test::Wanted".into(),
+                original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
                 is_opaque: true,
@@ -517,6 +521,7 @@ fn test_merge_surface_filtered() {
             TypeDef {
                 name: "NotWanted".into(),
                 rust_path: "test::NotWanted".into(),
+                original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
                 is_opaque: true,
