@@ -1,0 +1,398 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - v[0-9]+.*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to publish (e.g. v0.4.6)"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run — build everything but skip registry publishes"
+        required: false
+        default: false
+        type: boolean
+      force_republish:
+        description: "Force publish even if version already exists"
+        required: false
+        default: false
+        type: boolean
+      targets:
+        description: "Comma-separated targets (empty = all). Values: crates,cli,homebrew"
+        required: false
+        default: ""
+        type: string
+  repository_dispatch:
+    types: [publish-release]
+
+concurrency:
+  group: publish-${{ github.event.inputs.tag || github.ref_name || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      checkout_ref: ${{ steps.meta.outputs.checkout_ref }}
+      dry_run: ${{ steps.meta.outputs.dry_run }}
+      force_republish: ${{ steps.meta.outputs.force_republish }}
+      release_crates: ${{ steps.meta.outputs.release_crates }}
+      release_cli: ${{ steps.meta.outputs.release_cli }}
+      release_homebrew: ${{ steps.meta.outputs.release_homebrew }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Prepare release metadata
+        id: meta
+        uses: kreuzberg-dev/actions/prepare-release-metadata@v1
+        with:
+          available-targets: crates,cli,homebrew
+
+  validate-versions:
+    name: Validate versions
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Validate manifest versions
+        uses: kreuzberg-dev/actions/validate-versions@v1
+        with:
+          version: ${{ needs.prepare.outputs.version }}
+          manifest-paths: |
+            cargo=Cargo.toml
+
+  check-cratesio:
+    name: Check crates.io
+    needs: prepare
+    if: needs.prepare.outputs.release_crates == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - name: Check crates.io for alef-cli
+        id: check
+        uses: kreuzberg-dev/actions/check-registry@v1
+        with:
+          registry: cratesio
+          package: alef-cli
+          version: ${{ needs.prepare.outputs.version }}
+
+  check-github-release:
+    name: Check GitHub release
+    needs: prepare
+    if: needs.prepare.outputs.release_cli == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - name: Check GitHub release assets
+        id: check
+        uses: kreuzberg-dev/actions/check-registry@v1
+        with:
+          registry: github-release
+          package: alef
+          version: ${{ needs.prepare.outputs.version }}
+          tag: ${{ needs.prepare.outputs.tag }}
+          asset-prefix: alef-
+          repo: kreuzberg-dev/alef
+
+  build-cli:
+    name: Build CLI (${{ matrix.label }})
+    needs: [prepare, validate-versions, check-github-release]
+    if: |
+      always() &&
+      needs.prepare.outputs.release_cli == 'true' &&
+      needs.validate-versions.result == 'success' &&
+      (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - label: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - label: macos-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+          - label: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Setup Rust
+        uses: kreuzberg-dev/actions/setup-rust@v1
+        with:
+          target: ${{ matrix.target }}
+          cache-key-prefix: publish-cli-${{ matrix.label }}
+          install-llvm-cov: "false"
+          macos-dynamic-lookup: "false"
+          disable-cache: ${{ runner.os == 'Windows' && 'true' || 'false' }}
+
+      - name: Build CLI
+        id: build
+        uses: kreuzberg-dev/actions/build-rust-cli@v1
+        with:
+          package-name: alef-cli
+          binary-name: alef
+          target: ${{ matrix.target }}
+
+      - name: Create release archive
+        id: archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE_DIR="alef-${{ matrix.target }}"
+          mkdir -p "${ARCHIVE_DIR}"
+          cp "${{ steps.build.outputs.binary-path }}" "${ARCHIVE_DIR}/"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            ARCHIVE_NAME="alef-${{ matrix.target }}.zip"
+            7z a "${ARCHIVE_NAME}" "${ARCHIVE_DIR}"
+          else
+            ARCHIVE_NAME="alef-${{ matrix.target }}.tar.gz"
+            tar -czf "${ARCHIVE_NAME}" "${ARCHIVE_DIR}"
+          fi
+          echo "path=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "name=${ARCHIVE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.label }}
+          path: ${{ steps.archive.outputs.path }}
+          retention-days: 14
+
+  build-homebrew-bottles:
+    name: Build Homebrew bottles
+    needs: [prepare, build-cli]
+    if: |
+      always() &&
+      needs.prepare.outputs.release_homebrew == 'true' &&
+      needs.build-cli.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Download macOS arm64 artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: cli-macos-arm64
+          path: cli-artifacts
+
+      - name: Extract binary
+        id: extract
+        shell: bash
+        run: |
+          tar -xzf cli-artifacts/alef-aarch64-apple-darwin.tar.gz
+          BINARY_PATH="$(pwd)/alef-aarch64-apple-darwin/alef"
+          chmod +x "${BINARY_PATH}"
+          echo "binary-path=${BINARY_PATH}" >> "$GITHUB_OUTPUT"
+
+      - name: Build bottle
+        id: bottle
+        uses: kreuzberg-dev/actions/build-homebrew-bottle@v1
+        with:
+          binary-path: ${{ steps.extract.outputs.binary-path }}
+          formula-name: alef
+          version: ${{ needs.prepare.outputs.version }}
+          bottle-tag: arm64_sequoia
+
+      - name: Upload bottle artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: homebrew-bottle-arm64_sequoia
+          path: ${{ steps.bottle.outputs.path }}
+          retention-days: 14
+
+  upload-release-assets:
+    name: Upload release assets
+    needs: [prepare, validate-versions, check-github-release, build-cli]
+    if: |
+      always() &&
+      needs.prepare.outputs.release_cli == 'true' &&
+      needs.validate-versions.result == 'success' &&
+      needs.build-cli.result == 'success' &&
+      (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Download all CLI artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: cli-*
+          path: dist/cli
+          merge-multiple: true
+
+      - name: Create GitHub release
+        uses: kreuzberg-dev/actions/publish-github-release@v1
+        with:
+          tag: ${{ needs.prepare.outputs.tag }}
+          title: ${{ needs.prepare.outputs.tag }}
+          artifacts: "dist/cli/*"
+          generate-notes: "true"
+          draft: "true"
+          dry-run: ${{ needs.prepare.outputs.dry_run }}
+
+  publish-crates:
+    name: Publish crates.io
+    needs: [prepare, validate-versions, check-cratesio]
+    if: |
+      always() &&
+      needs.prepare.outputs.release_crates == 'true' &&
+      needs.validate-versions.result == 'success' &&
+      (needs.check-cratesio.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Setup Rust
+        uses: kreuzberg-dev/actions/setup-rust@v1
+        with:
+          install-llvm-cov: "false"
+
+      - name: Publish to crates.io
+        uses: kreuzberg-dev/actions/publish-crates@v1
+        with:
+          crates: >-
+            alef-core
+            alef-extract
+            alef-codegen
+            alef-adapters
+            alef-docs
+            alef-e2e
+            alef-readme
+            alef-scaffold
+            alef-backend-pyo3
+            alef-backend-napi
+            alef-backend-wasm
+            alef-backend-ffi
+            alef-backend-magnus
+            alef-backend-php
+            alef-backend-rustler
+            alef-backend-extendr
+            alef-backend-go
+            alef-backend-java
+            alef-backend-csharp
+            alef-cli
+          version: ${{ needs.prepare.outputs.version }}
+          dry-run: ${{ needs.prepare.outputs.dry_run }}
+
+  publish-homebrew:
+    name: Publish Homebrew
+    needs: [prepare, validate-versions, build-homebrew-bottles, upload-release-assets]
+    if: |
+      always() &&
+      needs.prepare.outputs.dry_run != 'true' &&
+      needs.prepare.outputs.release_homebrew == 'true' &&
+      needs.validate-versions.result == 'success' &&
+      needs.build-homebrew-bottles.result == 'success' &&
+      needs.upload-release-assets.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Download bottle artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: homebrew-bottle-*
+          path: dist/homebrew
+          merge-multiple: true
+
+      - name: Setup Git credentials
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
+        run: |
+          git config --global credential.helper store
+          echo "https://x-access-token:${GH_TOKEN}@github.com" > ~/.git-credentials
+          git config --global user.name "kreuzberg-bot"
+          git config --global user.email "bot@kreuzberg.dev"
+
+      - name: Publish to Homebrew
+        uses: kreuzberg-dev/actions/publish-homebrew@v1
+        with:
+          bottles-dir: dist/homebrew
+          formula-name: alef
+          tap-repo: kreuzberg-dev/homebrew-tap
+          tag: ${{ needs.prepare.outputs.tag }}
+          version: ${{ needs.prepare.outputs.version }}
+          github-repo: kreuzberg-dev/alef
+
+  finalize:
+    name: Finalize release
+    needs: [prepare, upload-release-assets, publish-crates, publish-homebrew]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Undraft GitHub release
+        if: needs.prepare.outputs.dry_run != 'true' && needs.upload-release-assets.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ needs.prepare.outputs.tag }}" --draft=false
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## Release ${{ needs.prepare.outputs.tag }}"
+            echo ""
+            echo "| Registry | Status |"
+            echo "|----------|--------|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          report() {
+            local name="$1" result="$2"
+            case "$result" in
+              success)  echo "| $name | :white_check_mark: Published |" ;;
+              skipped)  echo "| $name | :fast_forward: Skipped |" ;;
+              *)        echo "| $name | :x: $result |" ;;
+            esac
+          }
+          {
+            report "crates.io"       "${{ needs.publish-crates.result }}"
+            report "GitHub Release"  "${{ needs.upload-release-assets.result }}"
+            report "Homebrew"        "${{ needs.publish-homebrew.result }}"
+          } >> "$GITHUB_STEP_SUMMARY"

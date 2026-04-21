@@ -1271,7 +1271,15 @@ fn test_gen_unimplemented_body_with_error() {
         newtype_wrapper: None,
     }];
 
-    let result = binding_helpers::gen_unimplemented_body(&TypeRef::String, "unimplemented_fn", true, &cfg, &params);
+    let empty_opaque = AHashSet::new();
+    let result = binding_helpers::gen_unimplemented_body(
+        &TypeRef::String,
+        "unimplemented_fn",
+        true,
+        &cfg,
+        &params,
+        &empty_opaque,
+    );
 
     assert!(result.contains("let _ = input;"));
     assert!(result.contains("Err(\"Not implemented"));
@@ -1281,8 +1289,16 @@ fn test_gen_unimplemented_body_with_error() {
 fn test_gen_unimplemented_body_string_return() {
     let cfg = default_cfg();
     let params = vec![];
+    let empty_opaque = AHashSet::new();
 
-    let result = binding_helpers::gen_unimplemented_body(&TypeRef::String, "unimplemented_fn", false, &cfg, &params);
+    let result = binding_helpers::gen_unimplemented_body(
+        &TypeRef::String,
+        "unimplemented_fn",
+        false,
+        &cfg,
+        &params,
+        &empty_opaque,
+    );
 
     assert!(result.contains("[unimplemented"));
 }
@@ -1291,6 +1307,7 @@ fn test_gen_unimplemented_body_string_return() {
 fn test_gen_unimplemented_body_bool_return() {
     let cfg = default_cfg();
     let params = vec![];
+    let empty_opaque = AHashSet::new();
 
     let result = binding_helpers::gen_unimplemented_body(
         &TypeRef::Primitive(PrimitiveType::Bool),
@@ -1298,6 +1315,7 @@ fn test_gen_unimplemented_body_bool_return() {
         false,
         &cfg,
         &params,
+        &empty_opaque,
     );
 
     assert!(result.contains("false"));
@@ -1307,6 +1325,7 @@ fn test_gen_unimplemented_body_bool_return() {
 fn test_gen_unimplemented_body_vec_return() {
     let cfg = default_cfg();
     let params = vec![];
+    let empty_opaque = AHashSet::new();
 
     let result = binding_helpers::gen_unimplemented_body(
         &TypeRef::Vec(Box::new(TypeRef::String)),
@@ -1314,6 +1333,7 @@ fn test_gen_unimplemented_body_vec_return() {
         false,
         &cfg,
         &params,
+        &empty_opaque,
     );
 
     assert!(result.contains("Vec::new()"));

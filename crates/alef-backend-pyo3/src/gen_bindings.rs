@@ -162,19 +162,20 @@ impl Backend for Pyo3Backend {
             }
         }
 
-        // Check if we have Map types and add HashMap import if needed
+        // Check if we have Map types and add HashMap import if needed.
+        // Maps can appear in: struct fields, function parameters/returns, and opaque type methods.
+        let type_ref_is_map = |ty: &alef_core::ir::TypeRef| matches!(ty, alef_core::ir::TypeRef::Map(_, _));
         let has_maps = api.types.iter().any(|t| {
-            t.fields
-                .iter()
-                .any(|f| matches!(&f.ty, alef_core::ir::TypeRef::Map(_, _)))
-        }) || api.functions.iter().any(|f| {
-            f.params
-                .iter()
-                .any(|p| matches!(&p.ty, alef_core::ir::TypeRef::Map(_, _)))
-                || matches!(&f.return_type, alef_core::ir::TypeRef::Map(_, _))
-        });
+            t.fields.iter().any(|f| type_ref_is_map(&f.ty))
+                || t.methods
+                    .iter()
+                    .any(|m| m.params.iter().any(|p| type_ref_is_map(&p.ty)) || type_ref_is_map(&m.return_type))
+        }) || api
+            .functions
+            .iter()
+            .any(|f| f.params.iter().any(|p| type_ref_is_map(&p.ty)) || type_ref_is_map(&f.return_type));
         if has_maps {
-            builder.add_import("std::collections::HashMap"); // Used in Map field conversions
+            builder.add_import("std::collections::HashMap"); // Used in Map field conversions and method returns
         }
 
         // Custom module declarations

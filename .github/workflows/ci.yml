@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: kreuzberg-dev/actions/setup-rust@v1
+        with:
+          components: "rustfmt, clippy"
+          install-llvm-cov: "false"
+          macos-dynamic-lookup: "false"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,taplo-cli,cargo-machete,cargo-sort
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Check unused dependencies
+        run: cargo machete
+      - name: Security and license audit
+        run: cargo deny check
+      - name: Check Cargo.toml sorting
+        run: cargo sort --check --workspace
+      - name: Check TOML formatting
+        run: taplo fmt --check
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: kreuzberg-dev/actions/setup-rust@v1
+        with:
+          install-llvm-cov: "false"
+          cache-key-prefix: ci-test
+      - name: Run tests
+        run: cargo test --workspace
+
+  build:
+    name: Build release
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: kreuzberg-dev/actions/setup-rust@v1
+        with:
+          install-llvm-cov: "false"
+          cache-key-prefix: ci-build
+      - uses: kreuzberg-dev/actions/build-rust-cli@v1
+        id: build-cli
+        with:
+          package-name: alef-cli
+          binary-name: alef
+      - name: Verify binary
+        run: ${{ steps.build-cli.outputs.binary-path }} --help

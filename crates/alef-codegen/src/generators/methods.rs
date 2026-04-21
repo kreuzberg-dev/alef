@@ -419,6 +419,7 @@ pub fn gen_method(
                 method.error_type.is_some(),
                 cfg,
                 &method.params,
+                opaque_types,
             )
         }
     } else if method.is_async {
@@ -621,6 +622,7 @@ pub fn gen_static_method(
                 method.error_type.is_some(),
                 cfg,
                 &method.params,
+                opaque_types,
             )
         }
     } else if method.is_async {

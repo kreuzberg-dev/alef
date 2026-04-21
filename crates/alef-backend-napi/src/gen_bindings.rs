@@ -556,6 +556,7 @@ fn gen_opaque_instance_method(
                 method.error_type.is_some(),
                 cfg,
                 &method.params,
+                opaque_types,
             )
         }
     } else if method.is_async {
@@ -677,6 +678,7 @@ fn gen_static_method(
             method.error_type.is_some(),
             cfg,
             &method.params,
+            opaque_types,
         )
     } else if method.is_async {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
@@ -972,6 +974,7 @@ fn gen_function(
                 func.error_type.is_some(),
                 cfg,
                 &func.params,
+                opaque_types,
             )
         }
     } else if func.is_async {

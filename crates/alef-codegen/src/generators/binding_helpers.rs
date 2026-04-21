@@ -1159,12 +1159,17 @@ pub fn gen_async_body(
 
 /// Generate a compilable body for functions that can't be auto-delegated.
 /// Returns a default value or error instead of `todo!()` which would panic.
+///
+/// `opaque_types` is the set of opaque type names (Arc-wrapped). Opaque types do not
+/// implement `Default`, so returning `Default::default()` for their Named return types
+/// would fail to compile. For those cases a `todo!()` body is emitted instead.
 pub fn gen_unimplemented_body(
     return_type: &TypeRef,
     fn_name: &str,
     has_error: bool,
     cfg: &RustBindingConfig,
     params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
 ) -> String {
     // Suppress unused_variables by binding all params to `_`
     let suppress = if params.is_empty() {
@@ -1208,9 +1213,18 @@ pub fn gen_unimplemented_body(
             TypeRef::Vec(_) => "Vec::new()".to_string(),
             TypeRef::Map(_, _) => "Default::default()".to_string(),
             TypeRef::Duration => "0".to_string(),
-            TypeRef::Named(_) | TypeRef::Json => {
-                // Named/Json return without error type: return Default::default()
-                // This works for builder methods (return Self) and getter methods returning complex types
+            TypeRef::Named(name) => {
+                // Opaque types (Arc-wrapped) do not implement Default — use todo!() to
+                // produce a compilable placeholder that panics at runtime if called.
+                // Non-opaque Named types (config structs) do derive Default, so use that.
+                if opaque_types.contains(name.as_str()) {
+                    format!("todo!(\"{err_msg}\")")
+                } else {
+                    "Default::default()".to_string()
+                }
+            }
+            TypeRef::Json => {
+                // Json return without error type: return Default::default()
                 "Default::default()".to_string()
             }
         }
