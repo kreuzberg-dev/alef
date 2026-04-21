@@ -126,6 +126,38 @@ fn to_pep440(version: &str) -> String {
     }
 }
 
+/// Render extra dependencies from `AlefConfig` for a specific language into TOML dependency lines.
+///
+/// Merges crate-level `extra_dependencies` with per-language overrides via
+/// `extra_deps_for_language`, then serializes each entry as a TOML line suitable
+/// for appending to a `[dependencies]` section.
+///
+/// Each value is either:
+/// - A string (version only): `cratename = "1.0"`
+/// - A TOML table (with path/features/etc.): `cratename = { path = "../foo", features = ["bar"] }`
+///
+/// Returns an empty string if no extra dependencies are configured.
+fn render_extra_deps(config: &AlefConfig, lang: Language) -> String {
+    let deps = config.extra_deps_for_language(lang);
+    if deps.is_empty() {
+        return String::new();
+    }
+    let mut lines: Vec<String> = deps
+        .iter()
+        .map(|(name, value)| match value {
+            toml::Value::String(version) => format!("{name} = \"{version}\""),
+            other => {
+                // Serialize as inline TOML table. toml::to_string wraps in a [table] header,
+                // so we use the Display of the Value directly which gives the inline form.
+                format!("{name} = {other}")
+            }
+        })
+        .collect();
+    // Sort for deterministic output.
+    lines.sort();
+    lines.join("\n")
+}
+
 /// Format the features clause for the core crate dependency in generated Cargo.toml files.
 ///
 /// Checks for per-language feature overrides first, then falls back to `[crate] features`.
@@ -237,6 +269,12 @@ fn scaffold_python_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Resul
         &ws,
     );
 
+    let extra_deps = render_extra_deps(config, Language::Python);
+    let extra_deps_section = if extra_deps.is_empty() {
+        String::new()
+    } else {
+        format!("\n{extra_deps}")
+    };
     let content = format!(
         r#"{pkg_header}
 
@@ -249,7 +287,7 @@ crate-type = ["cdylib"]
 pyo3 = {{ version = "0.28" }}
 pyo3-async-runtimes = {{ version = "0.28", features = ["tokio-runtime"] }}
 serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"
+serde_json = "1"{extra_deps_section}
 
 [features]
 extension-module = ["pyo3/extension-module"]
@@ -259,6 +297,7 @@ extension-module = ["pyo3/extension-module"]
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Python),
+        extra_deps_section = extra_deps_section,
     );
 
     Ok(vec![GeneratedFile {
@@ -363,6 +402,12 @@ fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
         &ws,
     );
 
+    let extra_deps = render_extra_deps(config, Language::Node);
+    let extra_deps_section = if extra_deps.is_empty() {
+        String::new()
+    } else {
+        format!("\n{extra_deps}")
+    };
     let content = format!(
         r#"{pkg_header}
 
@@ -374,7 +419,7 @@ crate-type = ["cdylib"]
 napi = {{ version = "3", features = ["async"] }}
 napi-derive = "3"
 serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"
+serde_json = "1"{extra_deps_section}
 
 [build-dependencies]
 napi-build = "2"
@@ -383,6 +428,7 @@ napi-build = "2"
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Node),
+        extra_deps_section = extra_deps_section,
     );
 
     Ok(vec![GeneratedFile {
@@ -528,6 +574,12 @@ fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<
         &ws,
     );
 
+    let extra_deps = render_extra_deps(config, Language::Ruby);
+    let extra_deps_section = if extra_deps.is_empty() {
+        String::new()
+    } else {
+        format!("\n{extra_deps}")
+    };
     let content = format!(
         r#"{pkg_header}
 
@@ -539,12 +591,13 @@ crate-type = ["cdylib"]
 magnus = "0.8"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
-tokio = {{ version = "1", features = ["rt-multi-thread"] }}
+tokio = {{ version = "1", features = ["rt-multi-thread"] }}{extra_deps_section}
 "#,
         pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ruby),
+        extra_deps_section = extra_deps_section,
     );
 
     Ok(vec![GeneratedFile {
@@ -790,6 +843,12 @@ fn scaffold_php_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<V
         &ws,
     );
 
+    let extra_deps = render_extra_deps(config, Language::Php);
+    let extra_deps_section = if extra_deps.is_empty() {
+        String::new()
+    } else {
+        format!("\n{extra_deps}")
+    };
     let content = format!(
         r#"{pkg_header}
 
@@ -801,12 +860,13 @@ crate-type = ["cdylib"]
 ext-php-rs = "0.15"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
-tokio = {{ version = "1", features = ["full"] }}
+tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 "#,
         pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Php),
+        extra_deps_section = extra_deps_section,
     );
 
     Ok(vec![GeneratedFile {
@@ -926,6 +986,12 @@ fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Resul
         &ws,
     );
 
+    let extra_deps = render_extra_deps(config, Language::Elixir);
+    let extra_deps_section = if extra_deps.is_empty() {
+        String::new()
+    } else {
+        format!("\n{extra_deps}")
+    };
     let content = format!(
         r#"{pkg_header}
 
@@ -937,12 +1003,13 @@ crate-type = ["cdylib"]
 rustler = "0.37"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
-tokio = {{ version = "1", features = ["full"] }}
+tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 "#,
         pkg_header = pkg_header,
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Elixir),
+        extra_deps_section = extra_deps_section,
     );
 
     Ok(vec![GeneratedFile {
@@ -2210,11 +2277,13 @@ mod tests {
         let api = test_api();
         let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
         let files = language_files(&all_files);
-        assert_eq!(files.len(), 2);
+        // scaffold_node returns 2 package.json files; scaffold_node_cargo returns 1 Cargo.toml
+        assert_eq!(files.len(), 3);
         assert_eq!(files[0].path, PathBuf::from("packages/typescript/package.json"));
         assert!(files[0].content.contains("napi"));
-        assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
-        assert!(files[1].content.contains("napi-derive"));
+        assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/package.json"));
+        assert_eq!(files[2].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
+        assert!(files[2].content.contains("napi-derive"));
     }
 
     #[test]
@@ -2223,7 +2292,8 @@ mod tests {
         let api = test_api();
         let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
         let files = language_files(&all_files);
-        assert_eq!(files.len(), 4);
+        // Python: 2 files (pyproject.toml + Cargo.toml); Node: 3 files (2 package.json + Cargo.toml)
+        assert_eq!(files.len(), 5);
     }
 
     #[test]
@@ -2306,7 +2376,9 @@ mod tests {
         let api = test_api();
         let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
         let files = language_files(&all_files);
-        assert_eq!(files.len(), 6);
+        // scaffold_ruby: gemspec, rubocop, Rakefile, lib/*.rb, extconf.rb, Gemfile = 6 files
+        // scaffold_ruby_cargo: Cargo.toml = 1 file
+        assert_eq!(files.len(), 7);
         let content = &files[0].content;
         assert!(content.contains("spec.required_ruby_version"));
         assert!(content.contains("spec.extensions"));
@@ -2326,12 +2398,14 @@ mod tests {
         assert_eq!(files[4].path, PathBuf::from("packages/ruby/ext/my_lib_rb/extconf.rb"));
         assert!(files[4].content.contains("create_rust_makefile"));
         assert!(files[4].content.contains("rb_sys/mkmf"));
+        // files[5] is Gemfile; files[6] is the Cargo.toml from scaffold_ruby_cargo
+        assert_eq!(files[5].path, PathBuf::from("packages/ruby/Gemfile"));
         // Check for Cargo.toml generation
         assert_eq!(
-            files[5].path,
-            PathBuf::from("packages/ruby/ext/my-lib_rb/native/Cargo.toml")
+            files[6].path,
+            PathBuf::from("packages/ruby/ext/my_lib_rb/native/Cargo.toml")
         );
-        assert!(files[5].content.contains("magnus"));
+        assert!(files[6].content.contains("magnus"));
     }
 
     #[test]
@@ -2424,5 +2498,144 @@ mod tests {
         assert!(content.contains("php-lint"));
         assert!(content.contains("r-lintr"));
         assert!(content.contains("r-styler"));
+    }
+
+    fn config_with_extra_deps() -> AlefConfig {
+        let mut config = test_config();
+        config.crate_config.extra_dependencies.insert(
+            "anyhow".to_string(),
+            toml::Value::String("1.0".to_string()),
+        );
+        config.crate_config.extra_dependencies.insert(
+            "tracing".to_string(),
+            toml::Value::Table({
+                let mut t = toml::map::Map::new();
+                t.insert("version".to_string(), toml::Value::String("0.1".to_string()));
+                t.insert(
+                    "features".to_string(),
+                    toml::Value::Array(vec![toml::Value::String("log".to_string())]),
+                );
+                t
+            }),
+        );
+        config
+    }
+
+    #[test]
+    fn test_render_extra_deps_empty() {
+        let config = test_config();
+        assert_eq!(render_extra_deps(&config, Language::Python), "");
+    }
+
+    #[test]
+    fn test_render_extra_deps_string_version() {
+        let config = config_with_extra_deps();
+        let rendered = render_extra_deps(&config, Language::Python);
+        assert!(rendered.contains("anyhow = \"1.0\""), "got: {rendered}");
+    }
+
+    #[test]
+    fn test_render_extra_deps_table_value() {
+        let config = config_with_extra_deps();
+        let rendered = render_extra_deps(&config, Language::Python);
+        assert!(rendered.contains("tracing = "), "got: {rendered}");
+        assert!(rendered.contains("\"log\""), "got: {rendered}");
+    }
+
+    #[test]
+    fn test_render_extra_deps_sorted() {
+        let config = config_with_extra_deps();
+        let rendered = render_extra_deps(&config, Language::Python);
+        let anyhow_pos = rendered.find("anyhow").expect("anyhow missing");
+        let tracing_pos = rendered.find("tracing").expect("tracing missing");
+        assert!(anyhow_pos < tracing_pos, "deps should be sorted alphabetically");
+    }
+
+    #[test]
+    fn test_scaffold_python_cargo_extra_deps() {
+        let config = config_with_extra_deps();
+        let api = test_api();
+        let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
+        let files = language_files(&all_files);
+        let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
+        assert!(cargo_toml.content.contains("tracing"), "content: {}", cargo_toml.content);
+        // Extra deps should appear in [dependencies] section, before [features]
+        let deps_pos = cargo_toml.content.find("[dependencies]").unwrap();
+        let features_pos = cargo_toml.content.find("[features]").unwrap();
+        let anyhow_pos = cargo_toml.content.find("anyhow").unwrap();
+        assert!(anyhow_pos > deps_pos && anyhow_pos < features_pos);
+    }
+
+    #[test]
+    fn test_scaffold_node_cargo_extra_deps() {
+        let config = config_with_extra_deps();
+        let api = test_api();
+        let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+        let files = language_files(&all_files);
+        let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
+    }
+
+    #[test]
+    fn test_scaffold_ruby_cargo_extra_deps() {
+        let config = config_with_extra_deps();
+        let api = test_api();
+        let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
+        let files = language_files(&all_files);
+        let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
+    }
+
+    #[test]
+    fn test_scaffold_php_cargo_extra_deps() {
+        let config = config_with_extra_deps();
+        let api = test_api();
+        let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
+        let files = language_files(&all_files);
+        let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
+    }
+
+    #[test]
+    fn test_scaffold_elixir_cargo_extra_deps() {
+        let config = config_with_extra_deps();
+        let api = test_api();
+        let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
+        let files = language_files(&all_files);
+        let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
+    }
+
+    #[test]
+    fn test_scaffold_language_level_extra_deps_override_crate_level() {
+        let mut config = test_config();
+        // Crate-level dep with version "1.0"
+        config.crate_config.extra_dependencies.insert(
+            "shared-dep".to_string(),
+            toml::Value::String("1.0".to_string()),
+        );
+        // Python-level override with a different version; inject via extra_deps_for_language
+        // by inserting directly into a Python extra_dependencies map.
+        let mut python_extra: std::collections::HashMap<String, toml::Value> = std::collections::HashMap::new();
+        python_extra.insert("shared-dep".to_string(), toml::Value::String("2.0".to_string()));
+        config.python = Some(PythonConfig {
+            module_name: None,
+            async_runtime: None,
+            stubs: None,
+            pip_name: None,
+            features: None,
+            serde_rename_all: None,
+            capsule_types: std::collections::HashMap::new(),
+            release_gil: false,
+            exclude_functions: vec![],
+            exclude_types: vec![],
+            extra_dependencies: python_extra,
+            scaffold_output: None,
+        });
+        let rendered = render_extra_deps(&config, Language::Python);
+        // Python-level "2.0" should win over crate-level "1.0"
+        assert!(rendered.contains("shared-dep = \"2.0\""), "got: {rendered}");
+        assert!(!rendered.contains("1.0"), "crate-level version should be overridden, got: {rendered}");
     }
 }

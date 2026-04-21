@@ -538,20 +538,24 @@ fn rewrite_path(path: &str, mappings: &HashMap<String, String>) -> String {
 }
 
 /// Apply path_mappings to rewrite all rust_path fields in the API surface.
+///
+/// Uses [`AlefConfig::effective_path_mappings`] which merges auto-derived mappings
+/// (from `auto_path_mappings`) with explicit `path_mappings` entries.
 fn apply_path_mappings(api: &mut ApiSurface, config: &AlefConfig) {
-    if config.crate_config.path_mappings.is_empty() {
+    let mappings = config.effective_path_mappings();
+    if mappings.is_empty() {
         return;
     }
     for typ in &mut api.types {
-        typ.rust_path = rewrite_path(&typ.rust_path, &config.crate_config.path_mappings);
+        typ.rust_path = rewrite_path(&typ.rust_path, &mappings);
     }
     for func in &mut api.functions {
-        func.rust_path = rewrite_path(&func.rust_path, &config.crate_config.path_mappings);
+        func.rust_path = rewrite_path(&func.rust_path, &mappings);
     }
     for enum_def in &mut api.enums {
-        enum_def.rust_path = rewrite_path(&enum_def.rust_path, &config.crate_config.path_mappings);
+        enum_def.rust_path = rewrite_path(&enum_def.rust_path, &mappings);
     }
     for error_def in &mut api.errors {
-        error_def.rust_path = rewrite_path(&error_def.rust_path, &config.crate_config.path_mappings);
+        error_def.rust_path = rewrite_path(&error_def.rust_path, &mappings);
     }
 }

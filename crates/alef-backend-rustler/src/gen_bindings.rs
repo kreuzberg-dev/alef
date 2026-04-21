@@ -416,19 +416,17 @@ impl Backend for RustlerBackend {
 
                 content.push_str(&format!("  @doc \"{doc_line}\"\n"));
                 let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
-                if spec_inline.len() > 120 {
+                if spec_inline.len() > 98 {
                     content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                    let indent = " ".repeat(8 + nif_fn_name.len() + 1);
-                    let close_indent = " ".repeat(8 + nif_fn_name.len());
                     let len = arity_types.len();
                     for (i, t) in arity_types.into_iter().enumerate() {
                         if i + 1 < len {
-                            content.push_str(&format!("{indent}{t},\n"));
+                            content.push_str(&format!("          {t},\n"));
                         } else {
-                            content.push_str(&format!("{indent}{t}\n"));
+                            content.push_str(&format!("          {t}\n"));
                         }
                     }
-                    content.push_str(&format!("{close_indent}) :: {return_spec}\n"));
+                    content.push_str(&format!("        ) :: {return_spec}\n"));
                 } else {
                     content.push_str(&spec_inline);
                     content.push('\n');
@@ -503,19 +501,17 @@ impl Backend for RustlerBackend {
                     specs
                 };
                 let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", type_specs.join(", "));
-                if spec_inline.len() > 120 {
+                if spec_inline.len() > 98 {
                     content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                    let indent = " ".repeat(8 + nif_fn_name.len() + 1);
-                    let close_indent = " ".repeat(8 + nif_fn_name.len());
                     let len = type_specs.len();
                     for (i, t) in type_specs.iter().enumerate() {
                         if i + 1 < len {
-                            content.push_str(&format!("{indent}{t},\n"));
+                            content.push_str(&format!("          {t},\n"));
                         } else {
-                            content.push_str(&format!("{indent}{t}\n"));
+                            content.push_str(&format!("          {t}\n"));
                         }
                     }
-                    content.push_str(&format!("{close_indent}) :: {return_spec}\n"));
+                    content.push_str(&format!("        ) :: {return_spec}\n"));
                 } else {
                     content.push_str(&spec_inline);
                     content.push('\n');
@@ -1419,10 +1415,9 @@ fn gen_native_ex(
         "      \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
     );
     let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
-    let _ = writeln!(out, "    force_build:");
     let _ = writeln!(
         out,
-        "      System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev],"
+        "    force_build: System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev],"
     );
     let _ = writeln!(out, "    targets:");
     let _ = writeln!(

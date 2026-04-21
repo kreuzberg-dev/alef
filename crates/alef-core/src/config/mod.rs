@@ -569,6 +569,65 @@ impl AlefConfig {
         }
         rust_path.to_string()
     }
+
+    /// Return the effective path mappings for this config.
+    ///
+    /// When `auto_path_mappings` is true, automatically derives a mapping from each source
+    /// crate to the configured `core_import` facade.  For each source file whose path contains
+    /// `crates/{crate-name}/src/`, a mapping `{crate_name}` → `{core_import}` is added
+    /// (hyphens in the crate name are converted to underscores).  Source crates that already
+    /// equal `core_import` are skipped.
+    ///
+    /// Explicit entries in `path_mappings` always override auto-derived ones.
+    pub fn effective_path_mappings(&self) -> HashMap<String, String> {
+        let mut mappings = HashMap::new();
+
+        if self.crate_config.auto_path_mappings {
+            let core_import = self.core_import();
+
+            for source in &self.crate_config.sources {
+                let source_str = source.to_string_lossy();
+                // Match `crates/{name}/src/` pattern in the path.
+                if let Some(after_crates) = find_after_crates_prefix(&source_str) {
+                    // Extract the crate directory name (everything before the next `/`).
+                    if let Some(slash_pos) = after_crates.find('/') {
+                        let crate_dir = &after_crates[..slash_pos];
+                        let crate_ident = crate_dir.replace('-', "_");
+                        // Only add a mapping when the source crate differs from the facade.
+                        if crate_ident != core_import && !mappings.contains_key(&crate_ident) {
+                            mappings.insert(crate_ident, core_import.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Explicit path_mappings always win — insert last so they overwrite auto entries.
+        for (from, to) in &self.crate_config.path_mappings {
+            mappings.insert(from.clone(), to.clone());
+        }
+
+        mappings
+    }
+}
+
+/// Find the path segment that comes after a `crates/` component.
+///
+/// Handles both absolute paths (e.g., `/workspace/repo/crates/foo/src/lib.rs`)
+/// and relative paths (e.g., `crates/foo/src/lib.rs`).  Returns the slice
+/// starting immediately after the `crates/` prefix, or `None` if the path
+/// does not contain such a component.
+fn find_after_crates_prefix(path: &str) -> Option<&str> {
+    // Normalise to forward slashes for cross-platform matching.
+    // We search for `/crates/` (with leading slash) first, then fall back to
+    // a leading `crates/` for relative paths that start with that component.
+    if let Some(pos) = path.find("/crates/") {
+        return Some(&path[pos + "/crates/".len()..]);
+    }
+    if path.starts_with("crates/") {
+        return Some(&path["crates/".len()..]);
+    }
+    None
 }
 
 /// Helper function to resolve output directory path from config.
