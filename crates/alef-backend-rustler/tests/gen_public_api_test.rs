@@ -37,7 +37,6 @@ fn make_config(app_name: &str) -> AlefConfig {
             exclude_functions: vec![],
             exclude_types: vec![],
             extra_dependencies: Default::default(),
-            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         wasm: None,
