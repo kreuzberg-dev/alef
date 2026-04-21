@@ -367,7 +367,7 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
                     },
                     TypeRef::Json => match language {
                         "python" | "ruby" => "{}".to_string(),
-                        "go" => "map[string]interface{}{}".to_string(),
+                        "go" => "json.RawMessage(nil)".to_string(),
                         "java" => "new com.fasterxml.jackson.databind.node.ObjectNode(null)".to_string(),
                         "csharp" => "JObject.Parse(\"{}\")".to_string(),
                         "php" => "[]".to_string(),
@@ -492,7 +492,7 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
         TypeRef::Json => match language {
             "python" => "{}".to_string(),
             "ruby" => "{}".to_string(),
-            "go" => "make(map[string]interface{})".to_string(),
+            "go" => "json.RawMessage(nil)".to_string(),
             "java" => "new com.fasterxml.jackson.databind.JsonNode()".to_string(),
             "csharp" => "JObject.Parse(\"{}\")".to_string(),
             "php" => "[]".to_string(),

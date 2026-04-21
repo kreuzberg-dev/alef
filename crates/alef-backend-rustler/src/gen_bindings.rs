@@ -415,9 +415,17 @@ impl Backend for RustlerBackend {
                 let arity_types = &param_types[..*arity];
 
                 content.push_str(&format!("  @doc \"{doc_line}\"\n"));
-                content.push_str(&format!("  @spec {nif_fn_name}("));
-                content.push_str(&arity_types.join(", "));
-                content.push_str(&format!(") :: {return_spec}\n"));
+                let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
+                if spec_inline.len() > 120 {
+                    content.push_str(&format!("  @spec {nif_fn_name}(\n"));
+                    for t in arity_types {
+                        content.push_str(&format!("    {t},\n"));
+                    }
+                    content.push_str(&format!("  ) :: {return_spec}\n"));
+                } else {
+                    content.push_str(&spec_inline);
+                    content.push('\n');
+                }
 
                 // Build the call: fill missing optional params with nil
                 let nif_call_args: Vec<String> = all_params
@@ -475,7 +483,6 @@ impl Backend for RustlerBackend {
                     &opaque_types,
                     &default_types,
                 );
-                content.push_str(&format!("  @spec {nif_fn_name}("));
                 let type_specs: Vec<String> = {
                     let mut specs: Vec<String> = Vec::new();
                     if method.receiver.is_some() {
@@ -488,8 +495,17 @@ impl Backend for RustlerBackend {
                     }
                     specs
                 };
-                content.push_str(&type_specs.join(", "));
-                content.push_str(&format!(") :: {return_spec}\n"));
+                let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", type_specs.join(", "));
+                if spec_inline.len() > 120 {
+                    content.push_str(&format!("  @spec {nif_fn_name}(\n"));
+                    for t in &type_specs {
+                        content.push_str(&format!("    {t},\n"));
+                    }
+                    content.push_str(&format!("  ) :: {return_spec}\n"));
+                } else {
+                    content.push_str(&spec_inline);
+                    content.push('\n');
+                }
 
                 if param_names.is_empty() {
                     content.push_str(&format!("  def {nif_fn_name} do\n"));
@@ -1403,7 +1419,7 @@ fn gen_native_ex(
     let _ = writeln!(out);
 
     // Stubs for top-level API functions
-    let mut last_was_multiline = false;
+    let mut last_was_multiline = true;
     for func in api
         .functions
         .iter()

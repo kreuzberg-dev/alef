@@ -576,7 +576,13 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
         }
         out.push_str(&format!("class {}(str, Enum):\n", enum_def.name));
         let enum_doc = if !enum_def.doc.is_empty() {
-            enum_def.doc.lines().next().unwrap_or("").to_string()
+            let first = enum_def.doc.lines().next().unwrap_or("").trim();
+            let content = if first.len() > 89 { &first[..89] } else { first };
+            if content.ends_with(['.', '?', '!']) {
+                content.to_string()
+            } else {
+                format!("{}.", content)
+            }
         } else {
             class_name_to_docstring(&enum_def.name)
         };
@@ -630,7 +636,13 @@ fn gen_options_py(api: &ApiSurface, _package_name: &str, dto: &DtoConfig) -> Str
             out.push_str("@dataclass\n");
             out.push_str(&format!("class {}:\n", typ.name));
             let class_doc = if !typ.doc.is_empty() {
-                typ.doc.lines().next().unwrap_or("").to_string()
+                let first = typ.doc.lines().next().unwrap_or("").trim();
+                let content = if first.len() > 89 { &first[..89] } else { first };
+                if content.ends_with(['.', '?', '!']) {
+                    content.to_string()
+                } else {
+                    format!("{}.", content)
+                }
             } else {
                 class_name_to_docstring(&typ.name)
             };
@@ -717,7 +729,13 @@ fn gen_typeddict(
     let mut out = String::new();
     out.push_str(&format!("class {}(TypedDict, total=False):\n", typ.name));
     let typeddict_doc = if !typ.doc.is_empty() {
-        typ.doc.lines().next().unwrap_or("").to_string()
+        let first = typ.doc.lines().next().unwrap_or("").trim();
+        let content = if first.len() > 89 { &first[..89] } else { first };
+        if content.ends_with(['.', '?', '!']) {
+            content.to_string()
+        } else {
+            format!("{}.", content)
+        }
     } else {
         class_name_to_docstring(&typ.name)
     };

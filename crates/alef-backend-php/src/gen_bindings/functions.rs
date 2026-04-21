@@ -450,6 +450,11 @@ fn gen_function_body(
                 )
             )
         }
+    } else if func.sanitized {
+        // Sanitized functions have return types mapped from unknown types (e.g. tuples) to String.
+        // Calling the core function directly would be a type mismatch, so return an unimplemented
+        // stub — consistent with the pyo3 and napi backends.
+        gen_php_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     } else {
         // Not auto-delegatable but try serde-based conversion
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);

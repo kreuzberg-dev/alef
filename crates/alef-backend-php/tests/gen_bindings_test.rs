@@ -1098,3 +1098,100 @@ fn test_generate_public_api_delegates_to_api_class() {
         "Should have @throws annotation for TestLibException; content:\n{content}"
     );
 }
+
+#[test]
+fn test_sanitized_function_generates_stub_not_direct_call() {
+    // Regression test for functions whose return types were sanitized from unknown types
+    // (e.g. tuples) to String/Vec<String>/Option<String>.  The PHP backend must NOT emit a
+    // direct core call (which would be a type mismatch), but instead generate an unimplemented
+    // stub body — consistent with the pyo3 and napi backends.
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![
+            // Mimics `extension_ambiguity`: core returns Option<(&str, &[&str])>,
+            // sanitized to Option<String> in the IR.
+            FunctionDef {
+                name: "extension_ambiguity".to_string(),
+                rust_path: "test_lib::extension_ambiguity".to_string(),
+                params: vec![ParamDef {
+                    name: "ext".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                }],
+                return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: true,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+            // Mimics `split_code`: core returns Vec<(usize, usize)>,
+            // sanitized to Vec<String> in the IR.
+            FunctionDef {
+                name: "split_code".to_string(),
+                rust_path: "test_lib::split_code".to_string(),
+                params: vec![ParamDef {
+                    name: "source".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                }],
+                return_type: TypeRef::Vec(Box::new(TypeRef::String)),
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: true,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_rs.content;
+
+    // The generated bodies must NOT contain a direct delegating call to the core function.
+    // Sanitized functions emit unimplemented stubs instead.
+    assert!(
+        !content.contains("test_lib::extension_ambiguity("),
+        "extension_ambiguity must not delegate to core (type mismatch); content:\n{content}"
+    );
+    assert!(
+        !content.contains("test_lib::split_code("),
+        "split_code must not delegate to core (type mismatch); content:\n{content}"
+    );
+
+    // The generated bodies should emit safe stub values.
+    // Option<String> stub → None; Vec<String> stub → Vec::new().
+    assert!(
+        content.contains("None") || content.contains("Vec::new()"),
+        "sanitized functions should emit unimplemented stub bodies; content:\n{content}"
+    );
+}
