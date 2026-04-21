@@ -456,11 +456,55 @@ fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         name = name,
     );
 
-    Ok(vec![GeneratedFile {
-        path: PathBuf::from("packages/typescript/package.json"),
-        content,
-        generated_header: false,
-    }])
+    // Crate-level package.json required by `napi build`
+    let crate_dir = config.core_crate_dir();
+    let crate_pkg = format!(
+        r#"{{
+  "name": "{package_name}",
+  "version": "{version}",
+  "description": "{description}",
+  "license": "{license}",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "index.d.ts", "*.node"],
+  "napi": {{
+    "binaryName": "{crate_dir}-node",
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc"
+    ]
+  }},
+  "scripts": {{
+    "build": "napi build --platform --release",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm --skip-optional-publish"
+  }},
+  "engines": {{ "node": ">= 18" }},
+  "devDependencies": {{ "@napi-rs/cli": "^3.6.2" }}
+}}
+"#,
+        package_name = package_name,
+        version = version,
+        description = meta.description,
+        license = meta.license,
+        crate_dir = crate_dir,
+    );
+
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from("packages/typescript/package.json"),
+            content,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("crates/{crate_dir}-node/package.json")),
+            content: crate_pkg,
+            generated_header: false,
+        },
+    ])
 }
 
 fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -703,6 +747,25 @@ end
             path: PathBuf::from(format!("packages/ruby/ext/{ext_name}/extconf.rb", ext_name = ext_name)),
             content: extconf_content,
             generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/ruby/Gemfile"),
+            content: format!(
+                r#"# frozen_string_literal: true
+
+source 'https://rubygems.org'
+
+gemspec
+
+group :development do
+  gem 'rake-compiler', '~> 1.2'
+  gem 'rb_sys', '~> 0.9'
+  gem 'rspec', '~> 3.0'
+  gem 'rubocop', '~> 1.0'
+end
+"#
+            ),
+            generated_header: false,
         },
     ])
 }
