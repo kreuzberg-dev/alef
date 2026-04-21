@@ -160,8 +160,13 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         if f.cfg.is_some() {
             return false;
         }
-        field_references_opaque_type(&f.ty, cfg.opaque_type_names)
+        let r = field_references_opaque_type(&f.ty, cfg.opaque_type_names);
+        if r { eprintln!("[DEBUG] {}.{} references opaque type", typ.name, f.name); }
+        r
     });
+    if cfg.opaque_type_names.is_empty() {
+        eprintln!("[DEBUG] gen_struct({}) opaque_type_names is EMPTY", typ.name);
+    }
     if !has_opaque_field {
         sb.add_derive("Default");
         sb.add_derive("serde::Serialize");
