@@ -41,6 +41,28 @@ node = "interface"
 | `skip_core_import` | bool | `false` | Skip adding `use {core_import};` to generated bindings |
 | `features` | string[] | `[]` | Cargo features treated as always-present (`#[cfg(feature)]` fields are included) |
 | `path_mappings` | map | `{}` | Rewrite extracted Rust path prefixes (e.g., `{ "spikard" = "spikard_http" }`) |
+| `extra_dependencies` | map | `{}` | Additional Cargo dependencies added to all binding crate Cargo.tomls (crate name to TOML dep spec) |
+| `auto_path_mappings` | bool | `true` | Auto-derive path_mappings from source file locations (`crates/{name}/src/` to `core_import`) |
+| `source_crates` | array | `[]` | Multi-crate source groups for workspaces (overrides top-level `sources` when non-empty) |
+
+---
+
+## `[[crate.source_crates]]` -- Multi-Crate Extraction
+
+For workspaces where types are spread across multiple crates, `source_crates` lets you extract from each crate separately while preserving the actual defining crate in `rust_path`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Crate name (hyphens converted to underscores for `rust_path`) |
+| `sources` | string[] | Source files belonging to this crate |
+
+```toml
+[[crate.source_crates]]
+name = "tree-sitter-language-pack"
+sources = ["crates/ts-pack-core/src/lib.rs"]
+```
+
+When `source_crates` is non-empty, the top-level `[crate] sources` field is ignored.
 
 ---
 

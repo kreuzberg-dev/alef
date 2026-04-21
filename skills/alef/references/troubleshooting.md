@@ -241,7 +241,7 @@ The `alef-verify` hook runs `alef verify --exit-code` and fails if any generated
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.4.0
+    rev: v0.5.1
     hooks:
       - id: alef-verify    # Check only (CI-friendly)
       # OR
