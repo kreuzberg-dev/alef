@@ -1,8 +1,17 @@
 use alef_core::config::{AlefConfig, Language};
 use anyhow::Context as _;
+use std::sync::LazyLock;
 use tracing::{debug, info};
 
 use super::helpers::run_command;
+
+/// Regex for matching version field in Cargo.toml format files.
+static CARGO_VERSION_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r#"(?m)^(version\s*=\s*)"[^"]*""#).expect("valid regex"));
+
+/// Regex for matching semantic version strings.
+static SEMVER_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\d+\.\d+\.\d+(-[a-zA-Z0-9._]+)*").expect("valid regex"));
 
 /// Read the version from a Cargo.toml file (workspace or regular package).
 pub(crate) fn read_version(version_from: &str) -> anyhow::Result<String> {
@@ -69,9 +78,7 @@ fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &str) -> anyh
         std::fs::read_to_string(cargo_toml_path).with_context(|| format!("Failed to read {cargo_toml_path}"))?;
 
     // Match `version = "..."` as a standalone line (covers both [package] and [workspace.package])
-    let re =
-        regex::Regex::new(r#"(?m)^(version\s*=\s*)"[^"]*""#).context("failed to compile version replacement regex")?;
-    let new_content = re
+    let new_content = CARGO_VERSION_RE
         .replace(&content, format!(r#"version = "{new_version}""#).as_str())
         .to_string();
 
@@ -374,7 +381,6 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
 
     // Process extra_paths from config [sync] section (glob patterns)
     if let Some(sync_config) = &config.sync {
-        let version_re = regex::Regex::new(r"\d+\.\d+\.\d+(-[a-zA-Z0-9._]+)*").ok();
         for pattern in &sync_config.extra_paths {
             match glob::glob(pattern) {
                 Ok(paths) => {
@@ -418,8 +424,8 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
                                                 updated.push(path.to_string_lossy().to_string());
                                             }
                                         }
-                                    } else if let Some(ref re) = version_re {
-                                        let new_content = re.replace_all(&content, version.as_str()).to_string();
+                                    } else {
+                                        let new_content = SEMVER_RE.replace_all(&content, version.as_str()).to_string();
                                         if new_content != content {
                                             if let Err(e) = std::fs::write(&path, &new_content) {
                                                 debug!("Could not write {}: {e}", path.display());

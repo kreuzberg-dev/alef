@@ -551,7 +551,8 @@ fn main() -> Result<()> {
             // not just the subset that survives [include]/[exclude] binding filters.
             eprintln!("Generating API docs...");
             let docs_api = pipeline::extract_unfiltered(&config, config_path)?;
-            let doc_files = alef_docs::generate_docs(&docs_api, &config, &languages, "docs/reference")?;
+            let doc_languages = resolve_doc_languages(&config, None)?;
+            let doc_files = alef_docs::generate_docs(&docs_api, &config, &doc_languages, "docs/reference")?;
             let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
 
             // Format and lint all generated files via prek (best-effort)

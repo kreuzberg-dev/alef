@@ -1,57 +1,97 @@
 use alef_core::config::{AlefConfig, Language};
 use anyhow::Context as _;
+use rayon::prelude::*;
 use std::path::Path;
 use tracing::{debug, info};
 
 use crate::registry;
 
-use super::helpers::run_command;
+use super::helpers::{run_command, run_command_captured};
 
 /// Run configured lint/format commands on generated output.
 pub fn lint(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
     let lint_config = config.lint.as_ref();
-    for lang in languages {
-        let lang_str = lang.to_string();
-        if let Some(lint_map) = lint_config {
-            if let Some(lang_lint) = lint_map.get(&lang_str) {
-                // Run format command if configured
-                if let Some(fmt_cmd) = &lang_lint.format {
-                    run_command(fmt_cmd)?;
+
+    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
+        .par_iter()
+        .map(|lang| {
+            let lang_str = lang.to_string();
+            let mut outputs = Vec::new();
+            if let Some(lint_map) = lint_config {
+                if let Some(lang_lint) = lint_map.get(&lang_str) {
+                    if let Some(fmt_cmd) = &lang_lint.format {
+                        let (stdout, stderr) = run_command_captured(fmt_cmd)?;
+                        outputs.push((fmt_cmd.clone(), stdout, stderr));
+                    }
+                    if let Some(check_cmd) = &lang_lint.check {
+                        let (stdout, stderr) = run_command_captured(check_cmd)?;
+                        outputs.push((check_cmd.clone(), stdout, stderr));
+                    }
+                    if let Some(typecheck_cmd) = &lang_lint.typecheck {
+                        let (stdout, stderr) = run_command_captured(typecheck_cmd)?;
+                        outputs.push((typecheck_cmd.clone(), stdout, stderr));
+                    }
                 }
-                // Run check command if configured
-                if let Some(check_cmd) = &lang_lint.check {
-                    run_command(check_cmd)?;
-                }
-                // Run typecheck command if configured
-                if let Some(typecheck_cmd) = &lang_lint.typecheck {
-                    run_command(typecheck_cmd)?;
-                }
+            }
+            Ok(outputs)
+        })
+        .collect();
+
+    // Print captured output and propagate first error
+    for result in results {
+        let outputs = result?;
+        for (cmd, stdout, stderr) in outputs {
+            if !stdout.is_empty() {
+                info!("[{cmd}] stdout:\n{stdout}");
+            }
+            if !stderr.is_empty() {
+                info!("[{cmd}] stderr:\n{stderr}");
             }
         }
     }
+
     Ok(())
 }
 
 /// Run configured test commands for each language.
 pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool) -> anyhow::Result<()> {
     let test_config = config.test.as_ref();
-    for lang in languages {
-        let lang_str = lang.to_string();
-        if let Some(test_map) = test_config {
-            if let Some(lang_test) = test_map.get(&lang_str) {
-                // Run unit/integration test command if configured
-                if let Some(cmd) = &lang_test.command {
-                    run_command(cmd)?;
-                }
-                // Run e2e test command if --e2e flag is set and command is configured
-                if e2e {
-                    if let Some(e2e_cmd) = &lang_test.e2e {
-                        run_command(e2e_cmd)?;
+
+    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
+        .par_iter()
+        .map(|lang| {
+            let lang_str = lang.to_string();
+            let mut outputs = Vec::new();
+            if let Some(test_map) = test_config {
+                if let Some(lang_test) = test_map.get(&lang_str) {
+                    if let Some(cmd) = &lang_test.command {
+                        let (stdout, stderr) = run_command_captured(cmd)?;
+                        outputs.push((cmd.clone(), stdout, stderr));
+                    }
+                    if e2e {
+                        if let Some(e2e_cmd) = &lang_test.e2e {
+                            let (stdout, stderr) = run_command_captured(e2e_cmd)?;
+                            outputs.push((e2e_cmd.clone(), stdout, stderr));
+                        }
                     }
                 }
             }
+            Ok(outputs)
+        })
+        .collect();
+
+    for result in results {
+        let outputs = result?;
+        for (cmd, stdout, stderr) in outputs {
+            if !stdout.is_empty() {
+                info!("[{cmd}] stdout:\n{stdout}");
+            }
+            if !stderr.is_empty() {
+                info!("[{cmd}] stderr:\n{stderr}");
+            }
         }
     }
+
     Ok(())
 }
 
@@ -105,25 +145,52 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
         run_command(&cmd).context("failed to build FFI crate")?;
     }
 
-    // Build independent languages
-    for (lang, bc) in &independent {
-        info!("Building {lang} ({})...", bc.tool);
-        let build_cmd = build_command_for(*lang, bc, config, release);
-        run_command(&build_cmd).with_context(|| format!("failed to build language bindings for {lang}"))?;
+    // Build independent languages in parallel
+    let independent_results: Vec<_> = independent
+        .par_iter()
+        .map(|(lang, bc)| {
+            info!("Building {lang} ({})...", bc.tool);
+            let build_cmd = build_command_for(*lang, bc, config, release);
+            let (stdout, stderr) = run_command_captured(&build_cmd)
+                .with_context(|| format!("failed to build language bindings for {lang}"))?;
+            run_post_build(*lang, bc, config, &base_dir)
+                .with_context(|| format!("failed to run post-build steps for {lang}"))?;
+            Ok((lang.to_string(), build_cmd, stdout, stderr))
+        })
+        .collect::<Vec<anyhow::Result<_>>>();
 
-        // Run post-build steps
-        run_post_build(*lang, bc, config, &base_dir)
-            .with_context(|| format!("failed to run post-build steps for {lang}"))?;
+    for result in independent_results {
+        let (lang, _cmd, stdout, stderr) = result?;
+        if !stdout.is_empty() {
+            info!("[{lang} build] {stdout}");
+        }
+        if !stderr.is_empty() {
+            debug!("[{lang} build] {stderr}");
+        }
     }
 
-    // Build FFI-dependent languages
-    for (lang, bc) in &ffi_dependent {
-        info!("Building {lang} ({})...", bc.tool);
-        let build_cmd = build_command_for(*lang, bc, config, release);
-        run_command(&build_cmd).with_context(|| format!("failed to build language bindings for {lang}"))?;
+    // Build FFI-dependent languages in parallel
+    let ffi_dep_results: Vec<_> = ffi_dependent
+        .par_iter()
+        .map(|(lang, bc)| {
+            info!("Building {lang} ({})...", bc.tool);
+            let build_cmd = build_command_for(*lang, bc, config, release);
+            let (stdout, stderr) = run_command_captured(&build_cmd)
+                .with_context(|| format!("failed to build language bindings for {lang}"))?;
+            run_post_build(*lang, bc, config, &base_dir)
+                .with_context(|| format!("failed to run post-build steps for {lang}"))?;
+            Ok((lang.to_string(), build_cmd, stdout, stderr))
+        })
+        .collect::<Vec<anyhow::Result<_>>>();
 
-        run_post_build(*lang, bc, config, &base_dir)
-            .with_context(|| format!("failed to run post-build steps for {lang}"))?;
+    for result in ffi_dep_results {
+        let (lang, _cmd, stdout, stderr) = result?;
+        if !stdout.is_empty() {
+            info!("[{lang} build] {stdout}");
+        }
+        if !stderr.is_empty() {
+            debug!("[{lang} build] {stderr}");
+        }
     }
 
     Ok(())

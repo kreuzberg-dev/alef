@@ -11,6 +11,24 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Run a shell command, capturing stdout and stderr.
+///
+/// Returns the captured output on success.  On failure the error includes
+/// the command string and captured stderr for diagnostics.
+pub(crate) fn run_command_captured(cmd: &str) -> anyhow::Result<(String, String)> {
+    info!("Running: {cmd}");
+    let output = std::process::Command::new("sh")
+        .args(["-c", cmd])
+        .output()
+        .with_context(|| format!("failed to spawn: {cmd}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if !output.status.success() {
+        anyhow::bail!("Command failed: {cmd}\n{stderr}");
+    }
+    Ok((stdout, stderr))
+}
+
 /// Run `prek run --all-files` to format and lint all generated files (best-effort).
 ///
 /// If prek is not installed or the command fails, a warning is logged but
