@@ -497,28 +497,11 @@ pub(crate) fn is_tuple_type_name(name: &str) -> bool {
 /// so that `From` impls reference the actual defining crate, avoiding orphan
 /// rule violations when `core_import` is a re-export facade.
 pub fn core_type_path(typ: &TypeDef, core_import: &str) -> String {
-    // Use original_rust_path when the type comes from a different crate than
-    // core_import (multi-crate facade scenario, e.g. spikard re-exports
-    // spikard_http::ServerConfig). This avoids orphan rule (E0117) by referencing
-    // the actual defining crate rather than the facade.
-    //
-    // When original_rust_path has the same crate root as core_import (i.e. the
-    // path mapping is just a crate rename, not a facade re-export), use rust_path
-    // which has the correct post-mapping crate name.
-    let raw = if !typ.original_rust_path.is_empty() {
-        let orig_root = typ.original_rust_path.split("::").next().unwrap_or("");
-        let mapped_root = typ.rust_path.split("::").next().unwrap_or("");
-        // Different crate roots after mapping → genuine multi-crate; use original
-        // Same root or original equals core_import → simple rename; use mapped
-        if orig_root != mapped_root && orig_root != core_import {
-            &typ.original_rust_path
-        } else {
-            &typ.rust_path
-        }
-    } else {
-        &typ.rust_path
-    };
-    let path = raw.replace('-', "_");
+    // Always use rust_path (post path-mapping) — this is the import name that
+    // binding crates can actually resolve. The original_rust_path preserves the
+    // pre-mapping crate name (e.g. "html_to_markdown") which may not be importable
+    // when the dependency is renamed (e.g. "html-to-markdown-rs" in Cargo.toml).
+    let path = typ.rust_path.replace('-', "_");
     if path.contains("::") {
         path
     } else {
