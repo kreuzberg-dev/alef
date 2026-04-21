@@ -177,6 +177,7 @@ pub fn gen_function(
                 func.error_type.is_some(),
                 cfg,
                 &func.params,
+                opaque_types,
             )
         }
     } else if func.is_async {
