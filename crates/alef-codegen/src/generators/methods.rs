@@ -204,6 +204,10 @@ pub fn gen_method(
     let body = if !opaque_can_delegate {
         // Check if an adapter provides the body
         let adapter_key = format!("{}.{}", type_name, method.name);
+        eprintln!(
+            "[DEBUG] Checking adapter key: {adapter_key} (available: {:?})",
+            adapter_bodies.keys().collect::<Vec<_>>()
+        );
         if let Some(adapter_body) = adapter_bodies.get(&adapter_key) {
             adapter_body.clone()
         } else if cfg.has_serde

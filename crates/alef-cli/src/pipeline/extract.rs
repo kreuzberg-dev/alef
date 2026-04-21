@@ -611,6 +611,13 @@ fn apply_path_mappings(api: &mut ApiSurface, config: &AlefConfig) {
             typ.original_rust_path = typ.rust_path.clone();
         }
         typ.rust_path = rewrite_path(&typ.rust_path, &mappings);
+        // Also rewrite type_rust_path on fields so that field-level path mismatch
+        // checks compare against the same (post-mapping) crate root.
+        for field in &mut typ.fields {
+            if let Some(ref mut path) = field.type_rust_path {
+                *path = rewrite_path(path, &mappings);
+            }
+        }
     }
     for func in &mut api.functions {
         if func.original_rust_path.is_empty() {
