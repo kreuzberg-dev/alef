@@ -106,20 +106,26 @@ fn gen_visitor_bridge(
     .unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "    let mut attrs_zval = ext_php_rs::types::Zval::new();").unwrap();
-    writeln!(out, "    attrs_zval.set_array(attrs);").unwrap();
+    writeln!(out, "    attrs_zval.set_hashtable(attrs);").unwrap();
     writeln!(out, "    arr.insert(\"attributes\", attrs_zval).ok();").unwrap();
     writeln!(out, "    arr").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Bridge struct
+    // Bridge struct — stores a raw pointer to the PHP object.
+    // The pointer is valid for the duration of the PHP function call that
+    // created the bridge, which spans the entire Rust trait method dispatch.
     writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(
-        out,
-        "    php_obj: ext_php_rs::boxed::ZBox<ext_php_rs::types::ZendObject>,"
-    )
-    .unwrap();
+    writeln!(out, "    php_obj: *mut ext_php_rs::types::ZendObject,").unwrap();
     writeln!(out, "}}").unwrap();
+    writeln!(out).unwrap();
+
+    // SAFETY: The raw pointer is only used while the PHP call stack frame is
+    // alive. The bridge is consumed before the PHP function returns.
+    writeln!(out, "// SAFETY: PHP objects are single-threaded; the bridge is used").unwrap();
+    writeln!(out, "// only within a single PHP request, never across threads.").unwrap();
+    writeln!(out, "unsafe impl Send for {struct_name} {{}}").unwrap();
+    writeln!(out, "unsafe impl Sync for {struct_name} {{}}").unwrap();
     writeln!(out).unwrap();
 
     // Manual Debug impl
@@ -134,14 +140,16 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Constructor
+    // Constructor takes &mut ZendObject, which is what ext-php-rs exposes via
+    // FromZvalMut. We store the raw pointer; the caller guarantees the object
+    // outlives this bridge.
     writeln!(out, "impl {struct_name} {{").unwrap();
     writeln!(
         out,
-        "    pub fn new(php_obj: ext_php_rs::boxed::ZBox<ext_php_rs::types::ZendObject>) -> Self {{"
+        "    pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {{"
     )
     .unwrap();
-    writeln!(out, "        Self {{ php_obj }}").unwrap();
+    writeln!(out, "        Self {{ php_obj: php_obj as *mut _ }}").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
@@ -199,15 +207,13 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &std
 
     writeln!(out, "    fn {name}({sig}) -> {ret_ty} {{").unwrap();
 
-    // Check if the PHP object has the method
+    // SAFETY: php_obj pointer is valid for the lifetime of the PHP call frame.
     writeln!(
         out,
-        "        let has_method = self.php_obj.has_method(\"{php_name}\").unwrap_or(false);"
+        "        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call."
     )
     .unwrap();
-    writeln!(out, "        if !has_method {{").unwrap();
-    writeln!(out, "            return {ret_ty}::Continue;").unwrap();
-    writeln!(out, "        }}").unwrap();
+    writeln!(out, "        let php_obj_ref = unsafe {{ &*self.php_obj }};").unwrap();
 
     // Build args array
     let has_args = !method.params.is_empty();
@@ -225,11 +231,22 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &std
                     .unwrap();
                     writeln!(
                         out,
-                        "        args.push(ext_php_rs::types::Zval::try_from(ctx_arr).unwrap_or_default());"
+                        "        args.push(ext_php_rs::convert::IntoZval::into_zval(ctx_arr, false).unwrap_or_default());"
                     )
                     .unwrap();
                     continue;
                 }
+            }
+            // Check optional string ref BEFORE non-optional string, since visitor_param_type
+            // returns Option<&str> for optional string ref params.
+            if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
+                writeln!(
+                    out,
+                    "        args.push(match {0} {{ Some(s) => ext_php_rs::types::Zval::try_from(s.to_string()).unwrap_or_default(), None => ext_php_rs::types::Zval::new() }});",
+                    p.name
+                )
+                .unwrap();
+                continue;
             }
             if matches!(&p.ty, TypeRef::String) {
                 if p.is_ref {
@@ -249,19 +266,10 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &std
                 }
                 continue;
             }
-            if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
-                writeln!(
-                    out,
-                    "        args.push(match {0} {{ Some(s) => ext_php_rs::types::Zval::try_from(s.to_string()).unwrap_or_default(), None => ext_php_rs::types::Zval::default() }});",
-                    p.name
-                )
-                .unwrap();
-                continue;
-            }
             if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
                 writeln!(
                     out,
-                    "        args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());",
+                    "        {{ let mut _zv = ext_php_rs::types::Zval::new(); _zv.set_bool({}); args.push(_zv); }}",
                     p.name
                 )
                 .unwrap();
@@ -277,22 +285,27 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &std
         }
     }
 
-    // Call the PHP method
-    let args_expr = if has_args {
-        "args.iter_mut().collect::<Vec<_>>().as_mut_slice()"
-    } else {
-        "&mut []"
-    };
+    // Call the PHP method via try_call_method which takes Vec<&dyn IntoZvalDyn>.
+    // If the method does not exist, try_call_method returns Err(Error::Callable),
+    // which we treat as a "no-op, return Continue" (same as the default impl).
+    if has_args {
+        writeln!(
+            out,
+            "        let dyn_args: Vec<&dyn ext_php_rs::convert::IntoZvalDyn> = args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect();"
+        )
+        .unwrap();
+    }
+    let args_expr = if has_args { "dyn_args" } else { "vec![]" };
     writeln!(
         out,
-        "        let result = self.php_obj.call_method(\"{php_name}\", {args_expr});"
+        "        let result = php_obj_ref.try_call_method(\"{php_name}\", {args_expr});"
     )
     .unwrap();
 
-    // Parse result
+    // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
     writeln!(out, "        match result {{").unwrap();
-    writeln!(out, "            Err(_) | Ok(None) => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "            Ok(Some(val)) => {{").unwrap();
+    writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
+    writeln!(out, "            Ok(val) => {{").unwrap();
     writeln!(
         out,
         "                let s = val.string().unwrap_or_default().to_lowercase();"
@@ -440,8 +453,10 @@ pub fn gen_bridge_function(
     let mut sig_parts = Vec::new();
     for (idx, p) in func.params.iter().enumerate() {
         if idx == bridge_param_idx {
-            // Bridge param is visible in PHP as an optional object
-            let php_obj_ty = "ext_php_rs::boxed::ZBox<ext_php_rs::types::ZendObject>";
+            // Bridge param: &mut ZendObject implements FromZvalMut in ext-php-rs 0.15,
+            // allowing PHP to pass any object. ZBox<ZendObject> does NOT implement
+            // FromZvalMut, so we must use the reference form here.
+            let php_obj_ty = "&mut ext_php_rs::types::ZendObject";
             if is_optional {
                 sig_parts.push(format!("{}: Option<{php_obj_ty}>", p.name));
             } else {

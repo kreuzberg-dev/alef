@@ -6,7 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{ruby_string_literal, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -319,7 +319,7 @@ fn render_example(
     let description = fixture.description.replace('\'', "\\'");
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) = build_args_and_setup(
+    let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
         call_receiver,
@@ -329,7 +329,21 @@ fn render_example(
         &fixture.id,
     );
 
-    let call_expr = format!("{call_receiver}.{function_name}({args_str})");
+    // Build visitor if present and add to setup
+    let mut visitor_arg = String::new();
+    if let Some(visitor_spec) = &fixture.visitor {
+        visitor_arg = build_ruby_visitor(&mut setup_lines, visitor_spec);
+    }
+
+    let final_args = if visitor_arg.is_empty() {
+        args_str
+    } else if args_str.is_empty() {
+        visitor_arg
+    } else {
+        format!("{args_str}, {visitor_arg}")
+    };
+
+    let call_expr = format!("{call_receiver}.{function_name}({final_args})");
 
     let _ = writeln!(out, "  it '{test_name}: {description}' do");
 
@@ -672,4 +686,73 @@ fn json_to_ruby(value: &serde_json::Value) -> String {
             format!("{{ {} }}", items.join(", "))
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Visitor generation
+// ---------------------------------------------------------------------------
+
+/// Build a Ruby visitor object and add setup lines. Returns the visitor expression.
+fn build_ruby_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) -> String {
+    setup_lines.push("visitor = Class.new do".to_string());
+    for (method_name, action) in &visitor_spec.callbacks {
+        emit_ruby_visitor_method(setup_lines, method_name, action);
+    }
+    setup_lines.push("end.new".to_string());
+    "visitor".to_string()
+}
+
+/// Emit a Ruby visitor method for a callback action.
+fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, action: &CallbackAction) {
+    let snake_method = method_name;
+    let params = match method_name {
+        "visit_link" => "ctx, href, text, title",
+        "visit_image" => "ctx, src, alt, title",
+        "visit_heading" => "ctx, level, text, id",
+        "visit_code_block" => "ctx, lang, code",
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description" => "ctx, text",
+        "visit_text" => "ctx, text",
+        "visit_list_item" => "ctx, ordered, marker, text",
+        "visit_blockquote" => "ctx, content, depth",
+        "visit_table_row" => "ctx, cells, is_header",
+        "visit_custom_element" => "ctx, tag_name, html",
+        "visit_form" => "ctx, action_url, method",
+        "visit_input" => "ctx, input_type, name, value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
+        "visit_details" => "ctx, is_open",
+        _ => "ctx",
+    };
+
+    setup_lines.push(format!("  def {snake_method}({params})"));
+    match action {
+        CallbackAction::Skip => {
+            setup_lines.push("    'skip'".to_string());
+        }
+        CallbackAction::Continue => {
+            setup_lines.push("    'continue'".to_string());
+        }
+        CallbackAction::PreserveHtml => {
+            setup_lines.push("    'preserve_html'".to_string());
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = ruby_string_literal(output);
+            setup_lines.push(format!("    {{ custom: {escaped} }}"));
+        }
+        CallbackAction::CustomTemplate { template } => {
+            setup_lines.push(format!("    {{ custom: \"{template}\" }}"));
+        }
+    }
+    setup_lines.push("  end".to_string());
 }

@@ -168,7 +168,9 @@ impl Backend for WasmBackend {
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
                 // Skip functions whose signature references excluded types
-                let refs_excluded = func.params.iter()
+                let refs_excluded = func
+                    .params
+                    .iter()
                     .any(|p| field_references_excluded_type(&p.ty, &exclude_types))
                     || field_references_excluded_type(&func.return_type, &exclude_types);
                 if refs_excluded {

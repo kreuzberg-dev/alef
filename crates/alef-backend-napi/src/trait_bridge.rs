@@ -73,10 +73,10 @@ fn gen_visitor_bridge(
     writeln!(out).unwrap();
 
     // Helper: convert NodeContext to a JS object
-    writeln!(out, "fn nodecontext_to_js_object(").unwrap();
-    writeln!(out, "    env: &napi::Env,").unwrap();
+    writeln!(out, "fn nodecontext_to_js_object<'e>(").unwrap();
+    writeln!(out, "    env: &'e napi::Env,").unwrap();
     writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
-    writeln!(out, ") -> napi::Result<napi::bindgen_prelude::Object> {{").unwrap();
+    writeln!(out, ") -> napi::Result<napi::bindgen_prelude::Object<'e>> {{").unwrap();
     writeln!(out, "    let mut obj = napi::bindgen_prelude::Object::new(env)?;").unwrap();
     writeln!(
         out,
@@ -129,10 +129,11 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Bridge struct
+    // Bridge struct: store Object<'static> to avoid Object<'env> lifetime constraints.
+    // SAFETY invariant: the Object is kept alive by the JS caller for the duration of the
+    // #[napi] function that created the bridge, and by extension for all visitor callbacks.
     writeln!(out, "pub struct {struct_name} {{").unwrap();
-    writeln!(out, "    env: napi::Env,").unwrap();
-    writeln!(out, "    js_obj: napi::bindgen_prelude::Object,").unwrap();
+    writeln!(out, "    obj: napi::bindgen_prelude::Object<'static>,").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
@@ -148,14 +149,51 @@ fn gen_visitor_bridge(
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
-    // Constructor
+    // Constructor: transmute Object<'_> to Object<'static> to bypass the lifetime.
     writeln!(out, "impl {struct_name} {{").unwrap();
     writeln!(
         out,
-        "    pub fn new(env: napi::Env, js_obj: napi::bindgen_prelude::Object) -> Self {{"
+        "    pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> Self {{"
     )
     .unwrap();
-    writeln!(out, "        Self {{ env, js_obj }}").unwrap();
+    writeln!(
+        out,
+        "        // SAFETY: The JS object is owned by the Node.js runtime and lives for"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        // the duration of the enclosing #[napi] call. The bridge is only used"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        // synchronously during that same call, so 'static is safe here."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        let obj: napi::bindgen_prelude::Object<'static> = unsafe {{ std::mem::transmute(js_obj) }};"
+    )
+    .unwrap();
+    writeln!(out, "        Self {{ obj }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out).unwrap();
+
+    // Helper: extract napi_env from the Object. Object<'static> stores napi_env as its
+    // first pointer-sized field. This is an internal layout assumption for napi-rs v3.
+    writeln!(out, "    fn env(&self) -> napi::Env {{").unwrap();
+    writeln!(
+        out,
+        "        // SAFETY: Object<'static> is 3 pointer-sized words; first word is napi_env."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        let raw: [*mut std::ffi::c_void; 3] = unsafe {{ std::mem::transmute_copy(&self.obj) }};"
+    )
+    .unwrap();
+    writeln!(out, "        napi::Env::from_raw(raw[0] as napi::sys::napi_env)").unwrap();
     writeln!(out, "    }}").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
@@ -233,7 +271,7 @@ fn gen_visitor_method_napi(
     // Check if JS object has the method
     writeln!(
         out,
-        "        let has_method = self.js_obj.has_named_property(\"{js_name}\").unwrap_or(false);"
+        "        let has_method = self.obj.has_named_property(\"{js_name}\").unwrap_or(false);"
     )
     .unwrap();
     writeln!(out, "        if !has_method {{").unwrap();
@@ -245,7 +283,7 @@ fn gen_visitor_method_napi(
     let args_tuple_ty = unknown_tuple_type(arg_count);
     writeln!(
         out,
-        "        let func: napi::bindgen_prelude::Function<{args_tuple_ty}, napi::bindgen_prelude::Unknown> = match self.js_obj.get_named_property(\"{js_name}\") {{"
+        "        let func: napi::bindgen_prelude::Function<{args_tuple_ty}, napi::bindgen_prelude::Unknown> = match self.obj.get_named_property(\"{js_name}\") {{"
     )
     .unwrap();
     writeln!(out, "            Ok(f) => f,").unwrap();
@@ -257,8 +295,12 @@ fn gen_visitor_method_napi(
     if arg_count == 0 {
         writeln!(out, "        let result = func.call(());").unwrap();
     } else {
+        // Bind env to a named variable so borrows from it outlive the statement.
+        writeln!(out, "        let __env = self.env();").unwrap();
         // Emit each arg as a let binding, then call with tuple
         for (i, expr) in js_args_exprs.iter().enumerate() {
+            // Replace __ENV__ placeholder with the bound variable
+            let expr = expr.replace("self.env()", "__env");
             writeln!(out, "        let arg_{i}: napi::bindgen_prelude::Unknown = {expr};").unwrap();
         }
         let tuple_args: Vec<String> = (0..arg_count).map(|i| format!("arg_{i}")).collect();
@@ -276,7 +318,7 @@ fn gen_visitor_method_napi(
     writeln!(out, "            Ok(val) => {{").unwrap();
     writeln!(
         out,
-        "                if let Ok(s) = val.coerce_to_string().and_then(|s| s.into_utf8()).map(|s| s.into_owned()) {{"
+        "                if let Ok(s) = val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{"
     )
     .unwrap();
     writeln!(out, "                    match s.to_lowercase().as_str() {{").unwrap();
@@ -313,9 +355,9 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
             if let TypeRef::Named(n) = &p.ty {
                 if n == "NodeContext" {
                     return format!(
-                        "nodecontext_to_js_object(&self.env, {}{}).map(|o| o.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                         let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                         napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
+                        "nodecontext_to_js_object(&self.env(), {}{}).map(|o| o.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                         let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                         napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
                         if p.is_ref { "" } else { "&" },
                         p.name
                     );
@@ -325,30 +367,30 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
             if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
                 return format!(
                     "match {name} {{ \
-                     Some(s) => self.env.create_string(s).map(|v| v.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }}), \
+                     Some(s) => self.env().create_string(s).map(|v| v.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}), \
                      None => unsafe {{ \
-                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }} }}",
+                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} }}",
                     name = p.name
                 );
             }
             // &str
             if matches!(&p.ty, TypeRef::String) && p.is_ref {
                 return format!(
-                    "self.env.create_string({name}).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
+                    "self.env().create_string({name}).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
                     name = p.name
                 );
             }
             // String (owned)
             if matches!(&p.ty, TypeRef::String) {
                 return format!(
-                    "self.env.create_string({name}.as_str()).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
+                    "self.env().create_string({name}.as_str()).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
                     name = p.name
                 );
             }
@@ -356,8 +398,8 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
             if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
                 return format!(
                     "unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), {name}).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }}",
+                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), {name}).unwrap_or(std::ptr::null_mut()); \
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}",
                     name = p.name
                 );
             }
@@ -368,18 +410,18 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
                     | TypeRef::Primitive(alef_core::ir::PrimitiveType::Usize)
             ) {
                 return format!(
-                    "self.env.create_uint32({name} as u32).map(|n| n.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
+                    "self.env().create_uint32({name} as u32).map(|n| n.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
                     name = p.name
                 );
             }
             // Vec<String> or &[String] - serialize to JSON string as fallback
             // Default: serialize as debug string
             format!(
-                "self.env.create_string(&format!(\"{{:?}}\", {name})).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
-                 let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env.raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                 napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env.raw(), r) }})",
+                "self.env().create_string(&format!(\"{{:?}}\", {name})).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                 let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                 napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
                 name = p.name
             )
         })
@@ -511,8 +553,9 @@ pub fn gen_bridge_function(
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
 
-    // Build parameter list: env as first param, bridge param becomes Option<Object>
-    let mut sig_parts = vec!["env: napi::Env".to_string()];
+    // Build parameter list: bridge param becomes Option<Object>, no explicit env param
+    // (napi v3 does not implement FromNapiValue for Env; env is obtained from the Object)
+    let mut sig_parts = vec![];
     for (idx, p) in func.params.iter().enumerate() {
         if idx == bridge_param_idx {
             if is_optional {
@@ -537,24 +580,24 @@ pub fn gen_bridge_function(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
 
-    // Bridge wrapping code
+    // Bridge wrapping code: constructor is infallible (transmute-based).
     let bridge_wrap = if is_optional {
         format!(
             "let {param_name} = {param_name}.map(|v| {{\n        \
-             let bridge = {struct_name}::new(env, v);\n        \
+             let bridge = {struct_name}::new(v);\n        \
              std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
              }});"
         )
     } else {
         format!(
             "let {param_name} = {{\n        \
-             let bridge = {struct_name}::new(env, {param_name});\n        \
+             let bridge = {struct_name}::new({param_name});\n        \
              std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
              }};"
         )
     };
 
-    // Serde-based let bindings for non-bridge Named params
+    // Use From/Into for non-bridge Named params — the generated bindings have From impls.
     let serde_bindings: String = func
         .params
         .iter()
@@ -592,17 +635,9 @@ pub fn gen_bridge_function(
                 }
             );
             if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
-                format!(
-                    "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
-                     let json = serde_json::to_string(&v){err_conv}?;\n        \
-                     serde_json::from_str(&json){err_conv}\n    \
-                     }}).transpose()?;\n    "
-                )
+                format!("let {name}_core: Option<{core_path}> = {name}.map(|v| v.into());\n    ")
             } else {
-                format!(
-                    "let {name}_json = serde_json::to_string(&{name}){err_conv}?;\n    \
-                     let {name}_core: {core_path} = serde_json::from_str(&{name}_json){err_conv}?;\n    "
-                )
+                format!("let {name}_core: {core_path} = {name}.into();\n    ")
             }
         })
         .collect();

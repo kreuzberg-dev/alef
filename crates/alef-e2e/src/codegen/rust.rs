@@ -6,7 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_rust, rust_raw_string, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -384,6 +384,21 @@ fn render_test_function(
         arg_exprs.push(expr);
     }
 
+    // Emit visitor if present in fixture.
+    if let Some(visitor_spec) = &fixture.visitor {
+        let _ = writeln!(out, "    struct _TestVisitor;");
+        let _ = writeln!(out, "    impl {} for _TestVisitor {{", resolve_visitor_trait(&module));
+        for (method_name, action) in &visitor_spec.callbacks {
+            emit_rust_visitor_method(out, method_name, action);
+        }
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(
+            out,
+            "    let visitor = std::rc::Rc::new(std::cell::RefCell::new(_TestVisitor));"
+        );
+        arg_exprs.push("Some(visitor)".to_string());
+    }
+
     let args_str = arg_exprs.join(", ");
 
     let await_suffix = if is_async { ".await" } else { "" };
@@ -432,9 +447,15 @@ fn render_test_function(
         "_".to_string()
     };
 
-    // Detect Option-returning functions: if there's an is_empty/is_false assertion
-    // without a not_error assertion, the function likely returns Option<T> — don't unwrap.
+    // Detect Option-returning functions: only skip unwrap when ALL assertions are
+    // pure emptiness/bool checks with NO field access (is_none/is_some on the result itself).
+    // If any assertion accesses a field (e.g. `html`), we need the inner value, so unwrap.
+    let has_field_access = fixture
+        .assertions
+        .iter()
+        .any(|a| a.field.as_ref().is_some_and(|f| !f.is_empty()));
     let only_emptiness_checks = !has_not_error
+        && !has_field_access
         && fixture.assertions.iter().all(|a| {
             matches!(
                 a.assertion_type.as_str(),
@@ -1648,4 +1669,73 @@ fn value_to_rust_string(value: &serde_json::Value) -> String {
             format!("\"{s}\"")
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Visitor generation
+// ---------------------------------------------------------------------------
+
+/// Resolve the visitor trait name based on module.
+fn resolve_visitor_trait(module: &str) -> String {
+    // For html_to_markdown modules, use HtmlVisitor
+    if module.contains("html_to_markdown") {
+        "HtmlVisitor".to_string()
+    } else {
+        // Default fallback for other modules
+        "Visitor".to_string()
+    }
+}
+
+/// Emit a Rust visitor method for a callback action.
+fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
+    let params = match method_name {
+        "visit_link" => "ctx, href, text, title",
+        "visit_image" => "ctx, src, alt, title",
+        "visit_heading" => "ctx, level, text, id",
+        "visit_code_block" => "ctx, lang, code",
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description" => "ctx, text",
+        "visit_text" => "ctx, text",
+        "visit_list_item" => "ctx, ordered, marker, text",
+        "visit_blockquote" => "ctx, content, depth",
+        "visit_table_row" => "ctx, cells, is_header",
+        "visit_custom_element" => "ctx, tag_name, html",
+        "visit_form" => "ctx, action_url, method",
+        "visit_input" => "ctx, input_type, name, value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
+        "visit_details" => "ctx, is_open",
+        _ => "ctx",
+    };
+
+    let _ = writeln!(out, "        fn {method_name}(&self, {params}) -> VisitResult {{");
+    match action {
+        CallbackAction::Skip => {
+            let _ = writeln!(out, "            VisitResult::Skip");
+        }
+        CallbackAction::Continue => {
+            let _ = writeln!(out, "            VisitResult::Continue");
+        }
+        CallbackAction::PreserveHtml => {
+            let _ = writeln!(out, "            VisitResult::PreserveHtml");
+        }
+        CallbackAction::Custom { output } => {
+            let escaped = escape_rust(output);
+            let _ = writeln!(out, "            VisitResult::Custom({escaped}.to_string())");
+        }
+        CallbackAction::CustomTemplate { template } => {
+            let _ = writeln!(out, "            VisitResult::Custom(format!(\"{template}\"))");
+        }
+    }
+    let _ = writeln!(out, "        }}");
 }

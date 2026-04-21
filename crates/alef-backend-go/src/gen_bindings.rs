@@ -4,6 +4,7 @@ use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, DefaultValue, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -119,6 +120,22 @@ impl Backend for GoBackend {
                     .map(|a| a.to_string_lossy().to_string())
             })
             .unwrap_or_else(|| format!("crates/{ffi_lib_name}"));
+        // Collect bridge param names from trait_bridges config so we can strip them
+        // from generated function signatures and emit ConvertWithVisitor instead.
+        let bridge_param_names: HashSet<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.param_name.clone())
+            .collect();
+        // Also collect type aliases used as bridge params (e.g. "VisitorHandle").
+        let bridge_type_aliases: HashSet<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.type_alias.clone())
+            .collect();
+        // Determine if any bridge is configured for the visitor pattern.
+        let has_visitor_bridge = !config.trait_bridges.is_empty();
+
         let content = strip_trailing_whitespace(&gen_go_file(
             api,
             &ffi_prefix,
@@ -127,16 +144,40 @@ impl Backend for GoBackend {
             &ffi_header,
             &ffi_crate_dir,
             &output_dir,
+            &bridge_param_names,
+            &bridge_type_aliases,
         ));
 
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Go)?;
 
-        Ok(vec![GeneratedFile {
+        // Compute relative path from Go output dir to project root.
+        let depth = output_dir.trim_end_matches('/').matches('/').count() + 1;
+        let to_root = "../".repeat(depth);
+
+        let mut files = vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("binding.go"),
             content,
             generated_header: true,
-        }])
+        }];
+
+        // Generate visitor.go when a visitor bridge is configured.
+        if has_visitor_bridge {
+            let visitor_content = strip_trailing_whitespace(&crate::gen_visitor::gen_visitor_file(
+                &pkg_name,
+                &ffi_prefix,
+                &ffi_header,
+                &ffi_crate_dir,
+                &to_root,
+            ));
+            files.push(GeneratedFile {
+                path: PathBuf::from(&output_dir).join("visitor.go"),
+                content: visitor_content,
+                generated_header: true,
+            });
+        }
+
+        Ok(files)
     }
 
     /// Go bindings are already the public API (single .go file wrapping C FFI).
@@ -171,6 +212,7 @@ fn strip_trailing_whitespace(content: &str) -> String {
 }
 
 /// Generate the complete Go binding file wrapping the C FFI layer.
+#[allow(clippy::too_many_arguments)]
 fn gen_go_file(
     api: &ApiSurface,
     ffi_prefix: &str,
@@ -179,6 +221,8 @@ fn gen_go_file(
     ffi_header: &str,
     ffi_crate_dir: &str,
     go_output_dir: &str,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(4096);
 
@@ -293,7 +337,12 @@ fn gen_go_file(
     // Generate free function wrappers.
     // Async functions are included — the underlying FFI uses block_on() for synchronous C calls.
     for func in &api.functions {
-        writeln!(out, "{}\n", gen_function_wrapper(func, ffi_prefix, &opaque_names)).ok();
+        writeln!(
+            out,
+            "{}\n",
+            gen_function_wrapper(func, ffi_prefix, &opaque_names, bridge_param_names, bridge_type_aliases)
+        )
+        .ok();
     }
 
     // Generate struct methods.
@@ -598,11 +647,37 @@ fn params_require_marshal(params: &[alef_core::ir::ParamDef], opaque_names: &std
     })
 }
 
+/// Returns true when `param` is a visitor bridge parameter that should be stripped from the
+/// generated Go function signature and replaced with a nil argument to the C function.
+fn is_bridge_param(
+    param: &alef_core::ir::ParamDef,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+) -> bool {
+    if bridge_param_names.contains(param.name.as_str()) {
+        return true;
+    }
+    let type_name = match &param.ty {
+        TypeRef::Named(n) => Some(n.as_str()),
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Named(n) = inner.as_ref() {
+                Some(n.as_str())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    type_name.is_some_and(|n| bridge_type_aliases.contains(n))
+}
+
 /// Generate a wrapper function for a free function.
 fn gen_function_wrapper(
     func: &FunctionDef,
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -618,7 +693,14 @@ fn gen_function_wrapper(
 
     // A function that marshals parameters to JSON can fail even without a declared error_type.
     // Synthesize an error return in those cases so we never panic on marshal failure.
-    let marshals_params = params_require_marshal(&func.params, opaque_names);
+    // Exclude bridge params — they are not marshalled (they're passed as nil).
+    let non_bridge_params: Vec<_> = func
+        .params
+        .iter()
+        .filter(|p| !is_bridge_param(p, bridge_param_names, bridge_type_aliases))
+        .cloned()
+        .collect();
+    let marshals_params = params_require_marshal(&non_bridge_params, opaque_names);
     let can_return_error = func.error_type.is_some() || marshals_params;
 
     let return_type = if can_return_error {
@@ -641,8 +723,13 @@ fn gen_function_wrapper(
     // All optional params (wherever they appear) are represented as pointer types in the Go
     // signature so callers can pass nil to omit them.  This is simpler and more correct than
     // the earlier variadic approach which broke when more than one trailing optional existed.
+    // Bridge params (visitor handles) are stripped from the public signature — ConvertWithVisitor
+    // provides the visitor-accepting variant separately.
     let mut param_strs: Vec<String> = Vec::new();
     for p in func.params.iter() {
+        if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
+            continue;
+        }
         let param_type: String = if p.optional {
             go_optional_type(&p.ty).into_owned()
         } else if let TypeRef::Named(name) = &p.ty {
@@ -669,6 +756,9 @@ fn gen_function_wrapper(
     // Note: can_return_error is set above (includes synthesized error for marshal-requiring params).
     let returns_value_and_error = can_return_error && !matches!(func.return_type, TypeRef::Unit);
     for param in func.params.iter() {
+        if is_bridge_param(param, bridge_param_names, bridge_type_aliases) {
+            continue;
+        }
         write!(
             out,
             "{}",
@@ -683,11 +773,18 @@ fn gen_function_wrapper(
         .ok();
     }
 
-    // Build the C call with converted parameters
+    // Build the C call with converted parameters.
+    // Bridge params pass nil (no visitor) in the plain Convert(); ConvertWithVisitor handles the visitor path.
     let c_params: Vec<String> = func
         .params
         .iter()
-        .map(|p| format!("c{}", p.name.to_pascal_case()))
+        .map(|p| {
+            if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
+                "nil".to_string()
+            } else {
+                format!("c{}", p.name.to_pascal_case())
+            }
+        })
         .collect();
 
     let c_call = format!("{}({})", ffi_name, c_params.join(", "));
