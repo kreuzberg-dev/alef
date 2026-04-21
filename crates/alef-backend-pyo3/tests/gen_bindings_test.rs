@@ -52,7 +52,6 @@ fn make_config() -> AlefConfig {
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
             extra_dependencies: Default::default(),
-            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         node: None,
@@ -1342,7 +1341,6 @@ fn test_return_type_exported_from_native_module_not_options() {
         exclude_functions: Vec::new(),
         exclude_types: Vec::new(),
         extra_dependencies: Default::default(),
-        source_crates: vec![],
         scaffold_output: Default::default(),
     });
 

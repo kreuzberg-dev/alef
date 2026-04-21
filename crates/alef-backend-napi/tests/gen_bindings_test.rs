@@ -49,7 +49,6 @@ fn make_config() -> AlefConfig {
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
             extra_dependencies: Default::default(),
-            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         ruby: None,

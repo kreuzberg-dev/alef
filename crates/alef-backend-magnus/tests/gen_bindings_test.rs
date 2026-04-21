@@ -51,7 +51,6 @@ fn make_config() -> AlefConfig {
             features: None,
             serde_rename_all: None,
             extra_dependencies: Default::default(),
-            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         php: None,

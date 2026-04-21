@@ -13,6 +13,7 @@ fn test_generated_code_example() {
         types: vec![TypeDef {
             name: "ExtractionConfig".to_string(),
             rust_path: "kreuzberg::ExtractionConfig".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
                     name: "ocr_backend".to_string(),
@@ -61,6 +62,7 @@ fn test_generated_code_example() {
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),
             rust_path: "kreuzberg::extract_file_sync".to_string(),
+            original_rust_path: String::new(),
             params: vec![
                 ParamDef {
                     name: "path".to_string(),
@@ -98,6 +100,7 @@ fn test_generated_code_example() {
         enums: vec![EnumDef {
             name: "OcrBackend".to_string(),
             rust_path: "kreuzberg::OcrBackend".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Tesseract".to_string(),
@@ -134,6 +137,7 @@ fn test_generated_code_example() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),

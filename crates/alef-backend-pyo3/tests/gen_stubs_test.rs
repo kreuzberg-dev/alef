@@ -55,7 +55,6 @@ fn make_config_with_stubs() -> AlefConfig {
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
             extra_dependencies: Default::default(),
-            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         node: None,

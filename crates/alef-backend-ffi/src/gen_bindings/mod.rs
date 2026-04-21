@@ -244,6 +244,7 @@ mod tests {
             types: vec![TypeDef {
                 name: "Config".to_string(),
                 rust_path: "my_lib::Config".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![
                     FieldDef {
                         name: "timeout".to_string(),
@@ -307,6 +308,7 @@ mod tests {
             functions: vec![FunctionDef {
                 name: "extract".to_string(),
                 rust_path: "my_lib::extract".to_string(),
+                original_rust_path: String::new(),
                 params: vec![ParamDef {
                     name: "path".to_string(),
                     ty: TypeRef::Path,
@@ -331,6 +333,7 @@ mod tests {
             enums: vec![EnumDef {
                 name: "OutputFormat".to_string(),
                 rust_path: "my_lib::OutputFormat".to_string(),
+                original_rust_path: String::new(),
                 variants: vec![
                     EnumVariant {
                         name: "Text".to_string(),
@@ -848,6 +851,7 @@ mod tests {
             types: vec![TypeDef {
                 name: "ConfigUpdate".to_string(),
                 rust_path: "my_lib::ConfigUpdate".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![FieldDef {
                     name: "max_depth".to_string(),
                     // field.ty = Optional(Primitive(Usize)), field.optional = true

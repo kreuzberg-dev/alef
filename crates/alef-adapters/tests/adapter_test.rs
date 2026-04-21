@@ -21,6 +21,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
             path_mappings: HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages,
         exclude: Default::default(),
