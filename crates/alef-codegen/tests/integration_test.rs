@@ -42,6 +42,7 @@ fn default_cfg<'a>() -> RustBindingConfig<'a> {
         has_serde: false,
         type_name_prefix: "",
         option_duration_on_defaults: false,
+        opaque_type_names: &[],
     }
 }
 
@@ -357,7 +358,16 @@ fn test_gen_static_method_without_receiver() {
     let adapter_bodies = AdapterBodies::default();
     let opaque_types = AHashSet::new();
 
-    let result = gen_static_method(&method, &mapper, &cfg, &typ, &adapter_bodies, &opaque_types);
+    let mutex_types = AHashSet::new();
+    let result = gen_static_method(
+        &method,
+        &mapper,
+        &cfg,
+        &typ,
+        &adapter_bodies,
+        &opaque_types,
+        &mutex_types,
+    );
 
     assert!(result.contains("pub fn create"), "should contain static method name");
     assert!(!result.contains("&self"), "should not have &self");

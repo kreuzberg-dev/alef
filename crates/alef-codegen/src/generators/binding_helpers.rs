@@ -1187,7 +1187,7 @@ pub fn gen_unimplemented_body(
         // Backend-specific error return
         match cfg.async_pattern {
             AsyncPattern::Pyo3FutureIntoPy => {
-                format!("Err(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))")
+                format!("Err::<(), _>(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))")
             }
             AsyncPattern::NapiNativeAsync => {
                 format!("Err(napi::Error::new(napi::Status::GenericFailure, \"{err_msg}\"))")

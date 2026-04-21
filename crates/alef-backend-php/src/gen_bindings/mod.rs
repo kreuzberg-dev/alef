@@ -44,6 +44,7 @@ impl PhpBackend {
             has_serde,
             type_name_prefix: "",
             option_duration_on_defaults: true,
+            opaque_type_names: &[],
         }
     }
 }

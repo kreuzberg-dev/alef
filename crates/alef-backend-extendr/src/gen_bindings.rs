@@ -29,6 +29,7 @@ impl ExtendrBackend {
             has_serde: true,
             type_name_prefix: "",
             option_duration_on_defaults: false,
+            opaque_type_names: &[],
         }
     }
 }

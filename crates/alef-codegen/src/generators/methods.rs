@@ -1,7 +1,7 @@
 use crate::generators::binding_helpers::{
     apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_with_let_bindings,
     gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_named_let_bindings_pub,
-    gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param, wrap_return,
+    gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param,
     wrap_return_with_mutex,
 };
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
@@ -501,27 +501,23 @@ pub fn gen_method(
     // When an async PyO3 method could not be auto-delegated (e.g. sanitized params,
     // non-delegatable return type, or trait methods), the body was computed for a
     // synchronous context but the generated signature will be
-    // `PyResult<Bound<'py, PyAny>>`. Replace it with a properly-typed stub that wraps
-    // the not-implemented error in a `future_into_py` block.
+    // `PyResult<Bound<'py, PyAny>>`. Return `Err` directly — wrapping in
+    // `future_into_py` would cause E0283 because the async block only returns `Err`
+    // and Rust cannot infer the generic `T` parameter.
     let body = if needs_py && !opaque_can_delegate {
         let err_msg = format!("Not implemented: {type_name}.{}", method.name);
-        // Suppress unused parameter warnings inside the future — the params are captured
-        // in the outer scope via `let _ = (...)` but don't cross into the async block.
+        // Suppress unused parameter warnings — params are not used in the stub body.
         let suppress = if method.params.is_empty() {
             String::new()
         } else {
             let names: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
             if names.len() == 1 {
-                format!("let _ = {};\n            ", names[0])
+                format!("let _ = {};\n        ", names[0])
             } else {
-                format!("let _ = ({});\n            ", names.join(", "))
+                format!("let _ = ({});\n        ", names.join(", "))
             }
         };
-        format!(
-            "pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n            \
-             {suppress}Err(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))\n        \
-             }})"
-        )
+        format!("{suppress}Err::<(), _>(pyo3::exceptions::PyNotImplementedError::new_err(\"{err_msg}\"))")
     } else {
         body
     };
@@ -613,6 +609,7 @@ pub fn gen_static_method(
     typ: &TypeDef,
     adapter_bodies: &AdapterBodies,
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
 ) -> String {
     let type_name = &typ.name;
     // Use the full rust_path (with hyphens replaced by underscores) for core type references
@@ -682,11 +679,12 @@ pub fn gen_static_method(
             };
             // Wrap the Ok value if the return type needs conversion (e.g. PathBuf→String)
             let val_expr = apply_return_newtype_unwrap("val", &method.return_newtype_wrapper);
-            let wrapped = wrap_return(
+            let wrapped = wrap_return_with_mutex(
                 &val_expr,
                 &method.return_type,
                 type_name,
                 opaque_types,
+                mutex_types,
                 typ.is_opaque,
                 method.returns_ref,
                 method.returns_cow,
@@ -699,11 +697,12 @@ pub fn gen_static_method(
         } else {
             // Wrap return value for non-error case too (e.g. PathBuf→String)
             let unwrapped_call = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
-            wrap_return(
+            wrap_return_with_mutex(
                 &unwrapped_call,
                 &method.return_type,
                 type_name,
                 opaque_types,
+                mutex_types,
                 typ.is_opaque,
                 method.returns_ref,
                 method.returns_cow,
@@ -841,7 +840,15 @@ pub fn gen_impl_block(
 
     // Static methods
     for m in &statics {
-        out.push_str(&gen_static_method(m, mapper, cfg, typ, adapter_bodies, opaque_types));
+        out.push_str(&gen_static_method(
+            m,
+            mapper,
+            cfg,
+            typ,
+            adapter_bodies,
+            opaque_types,
+            &empty_mutex_types,
+        ));
         out.push_str("\n\n");
     }
 
@@ -895,7 +902,15 @@ pub fn gen_opaque_impl_block(
 
     // Static methods
     for m in &statics {
-        out.push_str(&gen_static_method(m, mapper, cfg, typ, adapter_bodies, opaque_types));
+        out.push_str(&gen_static_method(
+            m,
+            mapper,
+            cfg,
+            typ,
+            adapter_bodies,
+            opaque_types,
+            mutex_types,
+        ));
         out.push_str("\n\n");
     }
 

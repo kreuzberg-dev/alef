@@ -452,6 +452,10 @@ pub fn gen_function(
 /// Both opaque and non-opaque types are scanned because non-opaque wrapper types also
 /// delegate trait method calls to their inner core type.
 pub fn collect_trait_imports(api: &ApiSurface) -> Vec<String> {
+    // Collect all trait paths, then deduplicate by last segment (trait name).
+    // When two paths resolve to the same trait name (e.g. `spikard_core::Dependency`
+    // and `spikard_core::di::Dependency`), only one import is needed. Keep the
+    // shorter (public re-export) path to avoid E0252 duplicate-import errors.
     let mut traits: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
@@ -460,7 +464,19 @@ pub fn collect_trait_imports(api: &ApiSurface) -> Vec<String> {
             }
         }
     }
-    let mut sorted: Vec<String> = traits.into_iter().collect();
+
+    // Deduplicate by last path segment: keep the shortest path for each trait name.
+    let mut by_name: AHashMap<String, String> = AHashMap::new();
+    for path in traits {
+        let name = path.split("::").last().unwrap_or(&path).to_string();
+        let entry = by_name.entry(name).or_insert_with(|| path.clone());
+        // Prefer shorter paths (public re-exports are shorter than internal paths)
+        if path.len() < entry.len() {
+            *entry = path;
+        }
+    }
+
+    let mut sorted: Vec<String> = by_name.into_values().collect();
     sorted.sort();
     sorted
 }
