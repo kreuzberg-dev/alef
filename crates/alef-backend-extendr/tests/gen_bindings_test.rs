@@ -34,6 +34,7 @@ fn make_config() -> AlefConfig {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -83,6 +84,7 @@ fn test_basic_generation() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("backend", TypeRef::String, false),
@@ -103,6 +105,7 @@ fn test_basic_generation() {
         functions: vec![FunctionDef {
             name: "extract".to_string(),
             rust_path: "test_lib::extract".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "path".to_string(),
                 ty: TypeRef::String,
@@ -127,6 +130,7 @@ fn test_basic_generation() {
         enums: vec![EnumDef {
             name: "Mode".to_string(),
             rust_path: "test_lib::Mode".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Fast".to_string(),
@@ -216,6 +220,7 @@ fn test_type_mapping() {
         types: vec![TypeDef {
             name: "Numbers".to_string(),
             rust_path: "test::Numbers".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("u32_val", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("i64_val", TypeRef::Primitive(PrimitiveType::I64), false),
@@ -273,6 +278,7 @@ fn test_enum_generation() {
         enums: vec![EnumDef {
             name: "Status".to_string(),
             rust_path: "test::Status".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Pending".to_string(),
@@ -335,6 +341,7 @@ fn test_generated_header() {
         types: vec![TypeDef {
             name: "SimpleType".to_string(),
             rust_path: "test::SimpleType".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("value", TypeRef::String, false)],
             methods: vec![],
             is_opaque: false,
@@ -352,6 +359,7 @@ fn test_generated_header() {
         functions: vec![FunctionDef {
             name: "simple_fn".to_string(),
             rust_path: "test::simple_fn".to_string(),
+            original_rust_path: String::new(),
             params: vec![],
             return_type: TypeRef::String,
             is_async: false,

@@ -16,6 +16,7 @@ fn test_basic_generation() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "kreuzberg::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
                     name: "timeout".to_string(),
@@ -64,6 +65,7 @@ fn test_basic_generation() {
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),
             rust_path: "kreuzberg::extract_file_sync".to_string(),
+            original_rust_path: String::new(),
             params: vec![
                 ParamDef {
                     name: "path".to_string(),
@@ -101,6 +103,7 @@ fn test_basic_generation() {
         enums: vec![EnumDef {
             name: "OcrBackend".to_string(),
             rust_path: "kreuzberg::OcrBackend".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Tesseract".to_string(),
@@ -138,6 +141,7 @@ fn test_basic_generation() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -290,6 +294,7 @@ fn test_namespace_resolution() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -366,6 +371,7 @@ fn test_generated_header() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -427,6 +433,7 @@ fn test_type_mapping() {
         types: vec![TypeDef {
             name: "Numbers".to_string(),
             rust_path: "test::Numbers".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
                     name: "u32_val".to_string(),
@@ -519,6 +526,7 @@ fn test_type_mapping() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -585,6 +593,7 @@ fn test_tuple_struct_fields_skipped() {
         types: vec![TypeDef {
             name: "TupleStruct".to_string(),
             rust_path: "test::TupleStruct".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
                     name: "_0".to_string(),
@@ -647,6 +656,7 @@ fn test_tuple_struct_fields_skipped() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -706,6 +716,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         types: vec![TypeDef {
             name: "MixedStruct".to_string(),
             rust_path: "test::MixedStruct".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 FieldDef {
                     name: "_0".to_string(),
@@ -768,6 +779,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),

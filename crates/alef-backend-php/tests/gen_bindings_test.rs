@@ -18,6 +18,7 @@ fn make_config_with_extension(extension_name: &str) -> AlefConfig {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -35,6 +36,7 @@ fn make_config_with_extension(extension_name: &str) -> AlefConfig {
             exclude_functions: vec![],
             exclude_types: vec![],
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         elixir: None,
@@ -93,6 +95,7 @@ fn make_config() -> AlefConfig {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -110,6 +113,7 @@ fn make_config() -> AlefConfig {
             exclude_functions: vec![],
             exclude_types: vec![],
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         elixir: None,
@@ -148,6 +152,7 @@ fn test_basic_generation() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true),
                 make_field("backend", TypeRef::String, true),
@@ -168,6 +173,7 @@ fn test_basic_generation() {
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),
             rust_path: "test_lib::extract_file_sync".to_string(),
+            original_rust_path: String::new(),
             params: vec![
                 ParamDef {
                     name: "path".to_string(),
@@ -205,6 +211,7 @@ fn test_basic_generation() {
         enums: vec![EnumDef {
             name: "OcrBackend".to_string(),
             rust_path: "test_lib::OcrBackend".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Tesseract".to_string(),
@@ -278,6 +285,7 @@ fn test_type_mapping() {
         types: vec![TypeDef {
             name: "Numbers".to_string(),
             rust_path: "test_lib::Numbers".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("u32_val", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("i64_val", TypeRef::Primitive(PrimitiveType::I64), false),
@@ -341,6 +349,7 @@ fn test_enum_generation() {
         enums: vec![EnumDef {
             name: "Status".to_string(),
             rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Pending".to_string(),
@@ -431,6 +440,7 @@ fn test_methods_generation() {
         types: vec![TypeDef {
             name: "Processor".to_string(),
             rust_path: "test_lib::Processor".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("id", TypeRef::String, false)],
             methods: vec![
                 MethodDef {
@@ -539,6 +549,7 @@ fn test_error_types() {
         functions: vec![FunctionDef {
             name: "risky_operation".to_string(),
             rust_path: "test_lib::risky_operation".to_string(),
+            original_rust_path: String::new(),
             params: vec![],
             return_type: TypeRef::String,
             is_async: false,
@@ -554,6 +565,7 @@ fn test_error_types() {
         errors: vec![ErrorDef {
             name: "ProcessError".to_string(),
             rust_path: "test_lib::ProcessError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
                     name: "NotFound".to_string(),
@@ -616,6 +628,7 @@ fn test_async_function() {
         functions: vec![FunctionDef {
             name: "fetch_data".to_string(),
             rust_path: "test_lib::fetch_data".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "url".to_string(),
                 ty: TypeRef::String,
@@ -641,6 +654,7 @@ fn test_async_function() {
         errors: vec![ErrorDef {
             name: "FetchError".to_string(),
             rust_path: "test_lib::FetchError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![ErrorVariant {
                 name: "NetworkError".to_string(),
                 fields: vec![],
@@ -691,6 +705,7 @@ fn test_opaque_type() {
         types: vec![TypeDef {
             name: "Handle".to_string(),
             rust_path: "test_lib::Handle".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
                 name: "close".to_string(),
@@ -765,6 +780,7 @@ fn test_default_config() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true),
                 make_field("retries", TypeRef::Primitive(PrimitiveType::U32), true),
@@ -819,6 +835,7 @@ fn test_multiple_types_with_shared_error() {
     let shared_error = ErrorDef {
         name: "SharedError".to_string(),
         rust_path: "test_lib::SharedError".to_string(),
+        original_rust_path: String::new(),
         variants: vec![
             ErrorVariant {
                 name: "IoError".to_string(),
@@ -849,6 +866,7 @@ fn test_multiple_types_with_shared_error() {
             TypeDef {
                 name: "Reader".to_string(),
                 rust_path: "test_lib::Reader".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![make_field("path", TypeRef::String, false)],
                 methods: vec![MethodDef {
                     name: "read".to_string(),
@@ -881,6 +899,7 @@ fn test_multiple_types_with_shared_error() {
             TypeDef {
                 name: "Parser".to_string(),
                 rust_path: "test_lib::Parser".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![make_field("format", TypeRef::String, false)],
                 methods: vec![MethodDef {
                     name: "parse".to_string(),
@@ -969,6 +988,7 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true)],
             methods: vec![],
             is_opaque: false,
@@ -986,6 +1006,7 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
         functions: vec![FunctionDef {
             name: "create_thing".to_string(),
             rust_path: "test_lib::create_thing".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "name".to_string(),
                 ty: TypeRef::String,
@@ -1054,6 +1075,7 @@ fn test_generate_public_api_delegates_to_api_class() {
         functions: vec![FunctionDef {
             name: "do_work".to_string(),
             rust_path: "test_lib::do_work".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "input".to_string(),
                 ty: TypeRef::String,
@@ -1117,6 +1139,7 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
             FunctionDef {
                 name: "extension_ambiguity".to_string(),
                 rust_path: "test_lib::extension_ambiguity".to_string(),
+                original_rust_path: String::new(),
                 params: vec![ParamDef {
                     name: "ext".to_string(),
                     ty: TypeRef::String,
@@ -1143,6 +1166,7 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
             FunctionDef {
                 name: "split_code".to_string(),
                 rust_path: "test_lib::split_code".to_string(),
+                original_rust_path: String::new(),
                 params: vec![ParamDef {
                     name: "source".to_string(),
                     ty: TypeRef::String,

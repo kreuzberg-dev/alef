@@ -37,6 +37,7 @@ fn make_config() -> AlefConfig {
             path_mappings: HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -50,6 +51,7 @@ fn make_config() -> AlefConfig {
             features: None,
             serde_rename_all: None,
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         php: None,
@@ -89,6 +91,7 @@ fn test_basic_generation() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true),
                 make_field("backend", TypeRef::String, false),
@@ -109,6 +112,7 @@ fn test_basic_generation() {
         functions: vec![FunctionDef {
             name: "process".to_string(),
             rust_path: "test_lib::process".to_string(),
+            original_rust_path: String::new(),
             params: vec![
                 ParamDef {
                     name: "input".to_string(),
@@ -146,6 +150,7 @@ fn test_basic_generation() {
         enums: vec![EnumDef {
             name: "Backend".to_string(),
             rust_path: "test_lib::Backend".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Tesseract".to_string(),
@@ -233,6 +238,7 @@ fn test_type_mapping() {
         types: vec![TypeDef {
             name: "Numbers".to_string(),
             rust_path: "test_lib::Numbers".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("u32_val", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("i64_val", TypeRef::Primitive(PrimitiveType::I64), false),
@@ -290,6 +296,7 @@ fn test_enum_generation() {
         enums: vec![EnumDef {
             name: "Status".to_string(),
             rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Pending".to_string(),
@@ -363,6 +370,7 @@ fn test_generated_header() {
         types: vec![TypeDef {
             name: "Simple".to_string(),
             rust_path: "test_lib::Simple".to_string(),
+            original_rust_path: String::new(),
             fields: vec![make_field("value", TypeRef::String, false)],
             methods: vec![],
             is_opaque: false,
@@ -415,6 +423,7 @@ fn test_methods_generation() {
         types: vec![TypeDef {
             name: "Store".to_string(),
             rust_path: "test_lib::Store".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("name", TypeRef::String, false),
                 make_field("count", TypeRef::Primitive(PrimitiveType::U32), false),
@@ -524,6 +533,7 @@ fn test_error_types() {
         functions: vec![FunctionDef {
             name: "validate".to_string(),
             rust_path: "test_lib::validate".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "input".to_string(),
                 ty: TypeRef::String,
@@ -549,6 +559,7 @@ fn test_error_types() {
         errors: vec![ErrorDef {
             name: "ValidationError".to_string(),
             rust_path: "test_lib::ValidationError".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 ErrorVariant {
                     name: "InvalidFormat".to_string(),
@@ -610,6 +621,7 @@ fn test_async_function() {
         functions: vec![FunctionDef {
             name: "process_async".to_string(),
             rust_path: "test_lib::process_async".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "data".to_string(),
                 ty: TypeRef::String,
@@ -677,6 +689,7 @@ fn test_opaque_type() {
         types: vec![TypeDef {
             name: "Processor".to_string(),
             rust_path: "test_lib::Processor".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
                 name: "process".to_string(),
@@ -765,6 +778,7 @@ fn test_default_config() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout_ms", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("retries", TypeRef::Primitive(PrimitiveType::U32), true),

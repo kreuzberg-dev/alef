@@ -35,6 +35,7 @@ fn make_config_with_stubs() -> AlefConfig {
             path_mappings: std::collections::HashMap::new(),
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
         },
         languages: vec![],
         exclude: Default::default(),
@@ -54,6 +55,7 @@ fn make_config_with_stubs() -> AlefConfig {
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
             extra_dependencies: Default::default(),
+            source_crates: vec![],
             scaffold_output: Default::default(),
         }),
         node: None,
@@ -95,6 +97,7 @@ fn test_basic_stubs() {
         types: vec![TypeDef {
             name: "Config".to_string(),
             rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
                 make_field("name", TypeRef::String, false),
@@ -115,6 +118,7 @@ fn test_basic_stubs() {
         functions: vec![FunctionDef {
             name: "process".to_string(),
             rust_path: "test_lib::process".to_string(),
+            original_rust_path: String::new(),
             params: vec![ParamDef {
                 name: "input".to_string(),
                 ty: TypeRef::String,
@@ -139,6 +143,7 @@ fn test_basic_stubs() {
         enums: vec![EnumDef {
             name: "Mode".to_string(),
             rust_path: "test_lib::Mode".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Fast".to_string(),
@@ -228,6 +233,7 @@ fn test_optional_field_stubs() {
         types: vec![TypeDef {
             name: "Request".to_string(),
             rust_path: "test_lib::Request".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("url", TypeRef::String, false),
                 make_field("headers", TypeRef::Optional(Box::new(TypeRef::String)), true),
@@ -308,6 +314,7 @@ fn test_enum_stubs() {
         enums: vec![EnumDef {
             name: "Status".to_string(),
             rust_path: "test_lib::Status".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Pending".to_string(),
@@ -410,6 +417,7 @@ fn test_type_stubs_with_vec_fields() {
         types: vec![TypeDef {
             name: "Collection".to_string(),
             rust_path: "test_lib::Collection".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("items", TypeRef::Vec(Box::new(TypeRef::String)), false),
                 make_field(
@@ -473,6 +481,7 @@ fn test_function_stubs_with_multiple_params() {
         functions: vec![FunctionDef {
             name: "create_request".to_string(),
             rust_path: "test_lib::create_request".to_string(),
+            original_rust_path: String::new(),
             params: vec![
                 ParamDef {
                     name: "url".to_string(),
@@ -565,6 +574,7 @@ fn test_opaque_type_stubs() {
         types: vec![TypeDef {
             name: "Handler".to_string(),
             rust_path: "test_lib::Handler".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
                 name: "handle".to_string(),
@@ -681,6 +691,7 @@ fn test_python_keyword_escaping_function_name() {
         functions: vec![FunctionDef {
             name: "pass".to_string(), // Python keyword
             rust_path: "test_lib::pass".to_string(),
+            original_rust_path: String::new(),
             params: vec![],
             return_type: TypeRef::String,
             is_async: false,
@@ -722,6 +733,7 @@ fn test_static_method_stubs() {
         types: vec![TypeDef {
             name: "Utils".to_string(),
             rust_path: "test_lib::Utils".to_string(),
+            original_rust_path: String::new(),
             fields: vec![],
             methods: vec![MethodDef {
                 name: "parse".to_string(),
@@ -811,6 +823,7 @@ fn test_multiple_types_and_functions() {
             TypeDef {
                 name: "User".to_string(),
                 rust_path: "test_lib::User".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![
                     make_field("id", TypeRef::Primitive(PrimitiveType::U64), false),
                     make_field("name", TypeRef::String, false),
@@ -831,6 +844,7 @@ fn test_multiple_types_and_functions() {
             TypeDef {
                 name: "Post".to_string(),
                 rust_path: "test_lib::Post".to_string(),
+                original_rust_path: String::new(),
                 fields: vec![
                     make_field("title", TypeRef::String, false),
                     make_field("content", TypeRef::Optional(Box::new(TypeRef::String)), true),
@@ -853,6 +867,7 @@ fn test_multiple_types_and_functions() {
             FunctionDef {
                 name: "get_user".to_string(),
                 rust_path: "test_lib::get_user".to_string(),
+                original_rust_path: String::new(),
                 params: vec![ParamDef {
                     name: "id".to_string(),
                     ty: TypeRef::Primitive(PrimitiveType::U64),
@@ -877,6 +892,7 @@ fn test_multiple_types_and_functions() {
             FunctionDef {
                 name: "create_post".to_string(),
                 rust_path: "test_lib::create_post".to_string(),
+                original_rust_path: String::new(),
                 params: vec![
                     ParamDef {
                         name: "title".to_string(),
@@ -915,6 +931,7 @@ fn test_multiple_types_and_functions() {
         enums: vec![EnumDef {
             name: "SortOrder".to_string(),
             rust_path: "test_lib::SortOrder".to_string(),
+            original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
                     name: "Asc".to_string(),
@@ -986,6 +1003,7 @@ fn test_builtin_shadowing_params_get_noqa_comment() {
         types: vec![TypeDef {
             name: "Item".to_string(),
             rust_path: "test_lib::Item".to_string(),
+            original_rust_path: String::new(),
             fields: vec![
                 make_field("id", TypeRef::Primitive(PrimitiveType::U64), false),
                 make_field("format", TypeRef::String, false),
