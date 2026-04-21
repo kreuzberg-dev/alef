@@ -168,6 +168,25 @@ impl Backend for Pyo3Backend {
             .collect();
         let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
         opaque_names_vec.extend(data_enum_names);
+        // Transitively close: any non-opaque type whose fields reference an opaque/data-enum
+        // type also can't derive Default/Serialize/Deserialize.
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for typ in api.types.iter().filter(|t| !t.is_opaque) {
+                if opaque_names_vec.contains(&typ.name) {
+                    continue;
+                }
+                let has_opaque = typ
+                    .fields
+                    .iter()
+                    .any(|f| generators::structs::field_references_opaque_type(&f.ty, &opaque_names_vec));
+                if has_opaque {
+                    opaque_names_vec.push(typ.name.clone());
+                    changed = true;
+                }
+            }
+        }
         cfg.opaque_type_names = &opaque_names_vec;
         let mutex_types: AHashSet<String> = api
             .types

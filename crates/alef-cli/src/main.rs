@@ -205,6 +205,18 @@ fn main() -> Result<()> {
             let api = pipeline::extract(&config, config_path, clean)?;
             let files = pipeline::generate(&api, &config, &languages, clean)?;
             let base_dir = std::env::current_dir()?;
+
+            // Hash raw codegen content BEFORE writing to disk. These hashes are
+            // independent of on-disk formatters and are what `alef verify` checks.
+            for (lang, lang_files) in &files {
+                let lang_str = lang.to_string();
+                let pairs: Vec<(String, String)> = lang_files
+                    .iter()
+                    .map(|f| (base_dir.join(&f.path).to_string_lossy().into_owned(), f.content.clone()))
+                    .collect();
+                let _ = cache::write_generation_hashes(&lang_str, &pairs);
+            }
+
             let count = pipeline::write_files(&files, &base_dir)?;
 
             // Generate public API wrappers
@@ -219,9 +231,18 @@ fn main() -> Result<()> {
             // Generate type stubs (e.g., .pyi for Python, .d.ts for TypeScript)
             let stub_files = pipeline::generate_stubs(&api, &config, &languages)?;
             if !stub_files.is_empty() {
+                // Hash stub content before writing — independent of on-disk formatters.
+                let stub_pairs: Vec<(String, String)> = stub_files
+                    .iter()
+                    .flat_map(|(_, fs)| {
+                        fs.iter()
+                            .map(|f| (base_dir.join(&f.path).to_string_lossy().into_owned(), f.content.clone()))
+                    })
+                    .collect();
+                let _ = cache::write_generation_hashes("stubs", &stub_pairs);
+
                 let stub_count = pipeline::write_files(&stub_files, &base_dir)?;
                 eprintln!("Generated {stub_count} type stub files");
-                // Write stubs manifest so output hashes can be computed post-prek.
                 let stubs_paths: Vec<std::path::PathBuf> = stub_files
                     .iter()
                     .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
@@ -235,7 +256,9 @@ fn main() -> Result<()> {
             // Format and lint all generated files via prek (best-effort)
             pipeline::run_prek();
 
-            // Recompute input + output hashes AFTER prek (prek may modify config).
+            // Update input hashes AFTER prek (prek may modify the config file).
+            // Generation content hashes were already stored above — no need to
+            // recompute them here since they reflect the pure codegen output.
             let post_config_struct = load_config(config_path)?;
             let post_api = pipeline::extract(&post_config_struct, config_path, true)?;
             let post_ir = serde_json::to_string(&post_api)?;
@@ -247,7 +270,6 @@ fn main() -> Result<()> {
                     let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
                 }
             }
-            // Update stubs hashes post-prek (prek may have modified stub files).
             let post_stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
             if let Ok(paths) = cache::read_manifest_paths("stubs") {
                 let _ = cache::write_stage_hash("stubs", &post_stubs_hash, &paths);
@@ -270,13 +292,23 @@ fn main() -> Result<()> {
             eprintln!("Generating type stubs for: {}", format_languages(&languages));
             let files = pipeline::generate_stubs(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
+
+            // Hash raw content before writing — independent of on-disk formatters.
+            let gen_pairs: Vec<(String, String)> = files
+                .iter()
+                .flat_map(|(_, fs)| {
+                    fs.iter()
+                        .map(|f| (base_dir.join(&f.path).to_string_lossy().into_owned(), f.content.clone()))
+                })
+                .collect();
+            let _ = cache::write_generation_hashes("stubs", &gen_pairs);
+
             let count = pipeline::write_files(&files, &base_dir)?;
             let output_paths: Vec<PathBuf> = files
                 .iter()
                 .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
                 .collect();
             cache::write_stage_hash("stubs", &stage_hash, &output_paths)?;
-
             println!("Generated {count} stub files");
             Ok(())
         }
@@ -330,9 +362,9 @@ fn main() -> Result<()> {
             let config = load_config(config_path)?;
             let languages = resolve_doc_languages(&config, lang.as_deref())?;
             let config_toml = std::fs::read_to_string(config_path)?;
-            // Use the same filtered IR as binding generation so docs only
-            // cover the public API surface declared in [include].
-            let api = pipeline::extract(&config, config_path, false)?;
+            // Use unfiltered IR for docs so ALL public types are documented,
+            // not just the subset that survives [include]/[exclude] binding filters.
+            let api = pipeline::extract_unfiltered(&config, config_path)?;
             let ir_json = serde_json::to_string(&api)?;
             let stage_hash = cache::compute_stage_hash(&ir_json, "docs", &config_toml, &[]);
             if cache::is_stage_cached("docs", &stage_hash) {
@@ -405,23 +437,69 @@ fn main() -> Result<()> {
 
             let mut all_stale: Vec<String> = Vec::new();
 
-            // Verify each language's output files via blake3 content hashing.
-            // We compare current on-disk content against hashes stored after the
-            // last `alef generate` / `alef all` (post-prek).
+            // Verify each language's generated output by regenerating in-memory and
+            // comparing content hashes against those stored by the last `alef generate`.
+            // Because hashes are based on raw codegen output (not on-disk files), formatter
+            // re-runs during commit hooks cannot produce false-positive staleness.
             for lang in &languages {
                 let lang_str = lang.to_string();
 
                 if !cache::has_output_hashes(&lang_str) {
-                    // No output hashes yet — fall back to regenerate-and-diff.
+                    // No generation hashes yet — fall back to regenerate-and-diff.
                     let api = pipeline::extract(&config, config_path, false)?;
                     let bindings = pipeline::generate(&api, &config, &[*lang], true)?;
                     let base_dir = std::env::current_dir()?;
                     all_stale.extend(pipeline::diff_files(&bindings, &base_dir)?);
+                    continue;
+                }
+
+                // Regenerate in-memory and compare content hashes.
+                let api = pipeline::extract(&config, config_path, false)?;
+                let bindings = pipeline::generate(&api, &config, &[*lang], true)?;
+                let base_dir = std::env::current_dir()?;
+                let current_pairs: Vec<(String, String)> = bindings
+                    .iter()
+                    .flat_map(|(_, fs)| {
+                        fs.iter()
+                            .map(|f| (base_dir.join(&f.path).to_string_lossy().into_owned(), f.content.clone()))
+                    })
+                    .collect();
+                match cache::verify_generation_hashes(&lang_str, &current_pairs) {
+                    Ok(stale_files) => {
+                        for f in stale_files {
+                            all_stale.push(format!("[{lang_str}] {f}"));
+                        }
+                    }
+                    Err(e) => {
+                        all_stale.push(format!("[{lang_str}] failed to verify: {e}"));
+                    }
                 }
             }
 
-            // Verify stubs by regenerating and diffing
-            {
+            // Verify stubs
+            if cache::has_output_hashes("stubs") {
+                let api = pipeline::extract(&config, config_path, false)?;
+                let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
+                let base_dir = std::env::current_dir()?;
+                let current_pairs: Vec<(String, String)> = stubs
+                    .iter()
+                    .flat_map(|(_, fs)| {
+                        fs.iter()
+                            .map(|f| (base_dir.join(&f.path).to_string_lossy().into_owned(), f.content.clone()))
+                    })
+                    .collect();
+                match cache::verify_generation_hashes("stubs", &current_pairs) {
+                    Ok(stale_files) => {
+                        for f in stale_files {
+                            all_stale.push(format!("[stubs] {f}"));
+                        }
+                    }
+                    Err(e) => {
+                        all_stale.push(format!("[stubs] failed to verify: {e}"));
+                    }
+                }
+            } else {
+                // Fallback: regenerate stubs and diff
                 let api = pipeline::extract(&config, config_path, false)?;
                 let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
                 let base_dir = std::env::current_dir()?;
@@ -489,12 +567,33 @@ fn main() -> Result<()> {
             eprintln!("Generating bindings...");
             let bindings = pipeline::generate(&api, &config, &languages, clean)?;
             let base_dir = std::env::current_dir()?;
+
+            // Hash raw codegen content BEFORE writing to disk.
+            for (lang, lang_files) in &bindings {
+                let lang_str = lang.to_string();
+                let pairs: Vec<(String, String)> = lang_files
+                    .iter()
+                    .map(|f| (base_dir.join(&f.path).to_string_lossy().into_owned(), f.content.clone()))
+                    .collect();
+                let _ = cache::write_generation_hashes(&lang_str, &pairs);
+            }
+
             let binding_count = pipeline::write_files(&bindings, &base_dir)?;
 
             eprintln!("Generating type stubs...");
             let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
+
+            // Hash stub content before writing.
+            let stub_gen_pairs: Vec<(String, String)> = stubs
+                .iter()
+                .flat_map(|(_, fs)| {
+                    fs.iter()
+                        .map(|f| (base_dir.join(&f.path).to_string_lossy().into_owned(), f.content.clone()))
+                })
+                .collect();
+            let _ = cache::write_generation_hashes("stubs", &stub_gen_pairs);
+
             let stub_count = pipeline::write_files(&stubs, &base_dir)?;
-            // Write stubs manifest so output hashes can be computed post-prek.
             let stubs_paths: Vec<std::path::PathBuf> = stubs
                 .iter()
                 .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
@@ -548,12 +647,12 @@ fn main() -> Result<()> {
             eprintln!("Running formatters and linters...");
             pipeline::run_prek();
 
-            // Recompute input + output hashes AFTER prek.  Prek may have
-            // modified the config file (e.g. alef-sync-versions updates
-            // alef.toml) so the input hash recorded during generation is stale.
-            // Re-load config from disk and re-hash so `alef verify` sees
-            // consistent values.
-            eprintln!("Computing output hashes...");
+            // Update input hashes AFTER prek. Prek may have modified the config file
+            // (e.g. alef-sync-versions updates alef.toml) so the input hash recorded
+            // during generation is stale. Re-load config from disk and re-hash so
+            // `alef verify` sees consistent values.
+            // Generation content hashes were stored before prek — no need to recompute.
+            eprintln!("Updating input hashes...");
             let post_config_struct = load_config(config_path)?;
             let post_api = pipeline::extract(&post_config_struct, config_path, true)?;
             let post_ir = serde_json::to_string(&post_api)?;
@@ -565,10 +664,9 @@ fn main() -> Result<()> {
                     let _ = cache::write_lang_hash(&lang_str, &lang_hash, &paths);
                 }
             }
-            // Stubs
-            let stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
+            let post_stubs_hash = cache::compute_stage_hash(&post_ir, "stubs", &post_config, &[]);
             if let Ok(paths) = cache::read_manifest_paths("stubs") {
-                let _ = cache::write_stage_hash("stubs", &stubs_hash, &paths);
+                let _ = cache::write_stage_hash("stubs", &post_stubs_hash, &paths);
             }
 
             println!(
