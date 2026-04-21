@@ -26,6 +26,7 @@ Use this skill when:
 - Setting up CI/CD pipelines for polyglot Rust libraries
 - Debugging binding generation issues (stale bindings, type mismatches, missing types)
 - Configuring DTO styles, adapter patterns, or custom FFI bridges
+- Deciding what to include/exclude in bindings for a Rust library
 
 ## Installation
 
@@ -166,7 +167,7 @@ Alef provides pre-commit hooks for consumer repos:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.4.0
+    rev: v0.5.1
     hooks:
       - id: alef-verify    # Check-only: fails if stale
       # OR
@@ -198,4 +199,5 @@ alef cache clear    # Force full regeneration next run
 - [E2E Testing](references/e2e-testing.md) -- Fixture schema, assertion types, generation
 - [Language Backends](references/backends.md) -- Per-language details, DTO styles, limitations
 - [Adapter Patterns](references/adapters.md) -- Custom FFI bridging patterns
+- [Designing alef.toml](references/designing-alef-toml.md) -- Practical guide for configuring alef.toml with real-world patterns
 - [Troubleshooting](references/troubleshooting.md) -- Common errors and fixes
