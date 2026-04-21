@@ -308,9 +308,18 @@ pub fn gen_method(
                 TypeRef::Named(_) if method.returns_cow || method.returns_ref => ".into_owned().into()".to_string(),
                 TypeRef::Named(n) if n == type_name => ".into()".to_string(),
                 TypeRef::Named(_) => ".into()".to_string(),
-                TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
+                TypeRef::String | TypeRef::Path => {
                     if method.returns_ref {
                         ".to_owned()".to_string()
+                    } else {
+                        ".into()".to_string()
+                    }
+                }
+                // Bytes: binding uses Vec<u8>. When core returns &[u8] (returns_ref=true),
+                // use .to_vec() to produce Vec<u8>. When core returns owned Bytes, use .into().
+                TypeRef::Bytes => {
+                    if method.returns_ref {
+                        ".to_vec()".to_string()
                     } else {
                         ".into()".to_string()
                     }
@@ -812,7 +821,16 @@ pub fn gen_impl_block(
     opaque_types: &AHashSet<String>,
 ) -> String {
     let (instance, statics) = partition_methods(&typ.methods);
-    if instance.is_empty() && statics.is_empty() && typ.fields.is_empty() {
+    // Compute effective (non-sanitized or adapter-overridden) method counts for the early-return
+    // check. Sanitized methods without adapters are skipped in the loops below, so they do not
+    // contribute real content to the impl block.
+    let has_emittable_instance = instance.iter().any(|m| {
+        !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name))
+    });
+    let has_emittable_statics = statics.iter().any(|m| {
+        !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name))
+    });
+    if !has_emittable_instance && !has_emittable_statics && typ.fields.is_empty() {
         return String::new();
     }
 
@@ -832,6 +850,13 @@ pub fn gen_impl_block(
     // Instance methods
     let empty_mutex_types: AHashSet<String> = AHashSet::new();
     for m in &instance {
+        // Skip sanitized methods that have no adapter override — they cannot be delegated
+        // and emitting an unimplemented stub pollutes the public API with dead placeholders.
+        // Adapter bodies are explicit overrides and always take precedence.
+        let adapter_key = format!("{}.{}", typ.name, m.name);
+        if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
         out.push_str(&gen_method(
             m,
             mapper,
@@ -847,6 +872,11 @@ pub fn gen_impl_block(
 
     // Static methods
     for m in &statics {
+        // Skip sanitized static methods that have no adapter override.
+        let adapter_key = format!("{}.{}", typ.name, m.name);
+        if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
         out.push_str(&gen_static_method(
             m,
             mapper,
@@ -881,7 +911,14 @@ pub fn gen_opaque_impl_block(
     adapter_bodies: &AdapterBodies,
 ) -> String {
     let (instance, statics) = partition_methods(&typ.methods);
-    if instance.is_empty() && statics.is_empty() {
+    // Compute effective (non-sanitized or adapter-overridden) method counts.
+    let has_emittable_instance = instance.iter().any(|m| {
+        !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name))
+    });
+    let has_emittable_statics = statics.iter().any(|m| {
+        !m.sanitized || adapter_bodies.contains_key(&format!("{}.{}", typ.name, m.name))
+    });
+    if !has_emittable_instance && !has_emittable_statics {
         return String::new();
     }
 
@@ -894,6 +931,12 @@ pub fn gen_opaque_impl_block(
 
     // Instance methods — delegate to self.inner
     for m in &instance {
+        // Skip sanitized methods that have no adapter override — they cannot be delegated
+        // and emitting an unimplemented stub pollutes the public API with dead placeholders.
+        let adapter_key = format!("{}.{}", typ.name, m.name);
+        if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
         out.push_str(&gen_method(
             m,
             mapper,
@@ -909,6 +952,11 @@ pub fn gen_opaque_impl_block(
 
     // Static methods
     for m in &statics {
+        // Skip sanitized static methods that have no adapter override.
+        let adapter_key = format!("{}.{}", typ.name, m.name);
+        if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
         out.push_str(&gen_static_method(
             m,
             mapper,

@@ -129,6 +129,32 @@ impl Backend for NapiBackend {
             .map(|c| c.exclude_types.iter().cloned().collect())
             .unwrap_or_default();
 
+        // Build adapter body map before type iteration so bodies are available for method generation.
+        let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Node)?;
+
+        // Emit adapter-generated standalone items (streaming iterators, callback bridges).
+        for adapter in &config.adapters {
+            match adapter.pattern {
+                alef_core::config::AdapterPattern::Streaming => {
+                    let key = format!("{}.__stream_struct__", adapter.item_type.as_deref().unwrap_or(""));
+                    if let Some(struct_code) = adapter_bodies.get(&key) {
+                        builder.add_item(struct_code);
+                    }
+                }
+                alef_core::config::AdapterPattern::CallbackBridge => {
+                    let struct_key = format!("{}.__bridge_struct__", adapter.name);
+                    let impl_key = format!("{}.__bridge_impl__", adapter.name);
+                    if let Some(struct_code) = adapter_bodies.get(&struct_key) {
+                        builder.add_item(struct_code);
+                    }
+                    if let Some(impl_code) = adapter_bodies.get(&impl_key) {
+                        builder.add_item(impl_code);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         // NAPI has some unique patterns: Js-prefixed names, Option-wrapped fields,
         // and custom constructor. Use shared generators for enums and functions,
         // but keep struct/method generation custom.
@@ -141,7 +167,7 @@ impl Backend for NapiBackend {
                 builder.add_item(&alef_codegen::generators::gen_opaque_struct_prefixed(
                     typ, &cfg, &prefix,
                 ));
-                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &cfg, &opaque_types, &prefix));
+                builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &cfg, &opaque_types, &prefix, &adapter_bodies));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
@@ -266,9 +292,6 @@ impl Backend for NapiBackend {
             builder.add_item(&alef_codegen::error_gen::gen_napi_error_types(error));
             builder.add_item(&alef_codegen::error_gen::gen_napi_error_converter(error, &core_import));
         }
-
-        // Build adapter body map (consumed by generators via body substitution)
-        let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Node)?;
 
         let content = builder.build();
 
@@ -450,6 +473,7 @@ fn gen_opaque_struct_methods(
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
     prefix: &str,
+    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
@@ -464,6 +488,7 @@ fn gen_opaque_struct_methods(
             cfg,
             opaque_types,
             prefix,
+            adapter_bodies,
         ));
     }
     for method in &statics {
@@ -481,6 +506,7 @@ fn gen_opaque_instance_method(
     cfg: &RustBindingConfig,
     opaque_types: &AHashSet<String>,
     prefix: &str,
+    adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
@@ -523,7 +549,10 @@ fn gen_opaque_instance_method(
         prefix,
     );
 
-    let body = if !opaque_can_delegate {
+    let adapter_key = format!("{type_name}.{}", method.name);
+    let body = if let Some(adapter_body) = adapter_bodies.get(&adapter_key) {
+        adapter_body.clone()
+    } else if !opaque_can_delegate {
         // Try serde-based param conversion for methods with non-opaque Named params
         if cfg.has_serde
             && !method.sanitized

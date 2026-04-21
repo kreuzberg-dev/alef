@@ -44,21 +44,13 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
 
     writeln!(out, "#[pymethods]").ok();
     writeln!(out, "impl {name} {{").ok();
-    writeln!(out, "    #[new]").ok();
     if has_sanitized {
         // The core type cannot be serde round-tripped (contains non-Serialize variants).
-        // Emit a stub constructor that compiles but panics at runtime with a clear message.
-        writeln!(
-            out,
-            "    fn new(_py: Python<'_>, _value: &Bound<'_, pyo3::types::PyDict>) -> PyResult<Self> {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        Err(pyo3::exceptions::PyNotImplementedError::new_err(\"{name} cannot be constructed from Python: the core type contains non-serializable variants\"))"
-        )
-        .ok();
+        // Omit the #[new] constructor entirely — the type is still useful as a return value
+        // from Rust (passed back via From impls), but cannot be constructed from Python.
+        writeln!(out, "}}").ok();
     } else {
+        writeln!(out, "    #[new]").ok();
         writeln!(
             out,
             "    fn new(py: Python<'_>, value: &Bound<'_, pyo3::types::PyDict>) -> PyResult<Self> {{"
@@ -77,9 +69,9 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
         )
         .ok();
         writeln!(out, "        Ok(Self {{ inner }})").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
     }
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
     writeln!(out).ok();
 
     // From binding → core
