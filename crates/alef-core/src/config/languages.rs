@@ -31,6 +31,12 @@ pub struct PythonConfig {
     // TODO: Wire into gen_bindings.rs to emit py.allow_threads(|| { ... }) for non-async functions.
     #[serde(default)]
     pub release_gil: bool,
+    /// Functions to exclude from Python binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from Python binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +168,12 @@ pub struct FfiConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Functions to exclude from FFI binding generation.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
+    /// Types to exclude from FFI binding generation.
+    #[serde(default)]
+    pub exclude_types: Vec<String>,
 }
 
 fn default_error_style() -> String {

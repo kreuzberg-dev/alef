@@ -134,13 +134,33 @@ impl Backend for ExtendrBackend {
 
         // Generate function bindings
         for func in &api.functions {
-            builder.add_item(&generators::gen_function(
-                func,
-                self,
-                &cfg,
-                &adapter_bodies,
-                &opaque_types,
-            ));
+            let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+            if let Some((param_idx, bridge_cfg)) = bridge_param {
+                builder.add_item(&crate::trait_bridge::gen_bridge_function(
+                    func,
+                    param_idx,
+                    bridge_cfg,
+                    self,
+                    &opaque_types,
+                    &core_import,
+                ));
+            } else {
+                builder.add_item(&generators::gen_function(
+                    func,
+                    self,
+                    &cfg,
+                    &adapter_bodies,
+                    &opaque_types,
+                ));
+            }
+        }
+
+        // Trait bridge wrappers — generate extendr bridge structs that delegate to R list objects
+        for bridge_cfg in &config.trait_bridges {
+            if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
+                let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                builder.add_item(&bridge_code);
+            }
         }
 
         // Module registration

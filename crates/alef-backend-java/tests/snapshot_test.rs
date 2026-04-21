@@ -277,6 +277,8 @@ fn print_generated_java_code() {
             visitor_callbacks: false,
             features: None,
             serde_rename_all: None,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         go: None,
         java: Some(JavaConfig {

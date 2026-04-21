@@ -53,6 +53,8 @@ fn make_config() -> AlefConfig {
             visitor_callbacks: false,
             features: None,
             serde_rename_all: None,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         go: Some(GoConfig {
             module: Some("github.com/test/test-lib".to_string()),

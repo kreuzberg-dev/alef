@@ -35,6 +35,8 @@ fn make_test_config(package: &str) -> AlefConfig {
             visitor_callbacks: false,
             features: None,
             serde_rename_all: None,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         go: None,
         java: Some(JavaConfig {
@@ -201,6 +203,8 @@ fn test_basic_generation() {
             visitor_callbacks: false,
             features: None,
             serde_rename_all: None,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         go: None,
         java: Some(JavaConfig {
@@ -339,6 +343,8 @@ fn test_package_default() {
             visitor_callbacks: false,
             features: None,
             serde_rename_all: None,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         go: None,
         java: None, // No explicit package
@@ -495,6 +501,8 @@ fn test_optional_field_defaults_in_builder() {
             visitor_callbacks: false,
             features: None,
             serde_rename_all: None,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         go: None,
         java: Some(JavaConfig {

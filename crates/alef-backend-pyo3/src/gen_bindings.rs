@@ -206,11 +206,26 @@ impl Backend for Pyo3Backend {
             }
         }
 
+        let py_exclude_functions: ahash::AHashSet<String> = config
+            .python
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().cloned().collect())
+            .unwrap_or_default();
+        let py_exclude_types: ahash::AHashSet<String> = config
+            .python
+            .as_ref()
+            .map(|c| c.exclude_types.iter().cloned().collect())
+            .unwrap_or_default();
+
         // Collect error type names — these are handled by create_exception! below and must not
         // also be generated as #[pyclass] structs (doing both causes E0428/E0119/E0592).
         let error_type_names: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
 
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !py_exclude_types.contains(&typ.name))
+        {
             // Error types are emitted as pyo3::create_exception! macros, not as pyclass structs.
             if error_type_names.contains(typ.name.as_str()) {
                 continue;
@@ -240,6 +255,9 @@ impl Backend for Pyo3Backend {
             }
         }
         for f in &api.functions {
+            if py_exclude_functions.contains(&f.name) {
+                continue;
+            }
             // Check whether any parameter's type matches a trait bridge type_alias.
             // When it does, generate a bridge-aware function instead of the generic one.
             let bridge_param = crate::trait_bridge::find_bridge_param(f, &config.trait_bridges);

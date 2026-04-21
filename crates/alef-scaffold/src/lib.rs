@@ -750,8 +750,7 @@ end
         },
         GeneratedFile {
             path: PathBuf::from("packages/ruby/Gemfile"),
-            content: format!(
-                r#"# frozen_string_literal: true
+            content: r#"# frozen_string_literal: true
 
 source 'https://rubygems.org'
 
@@ -764,7 +763,7 @@ group :development do
   gem 'rubocop', '~> 1.0'
 end
 "#
-            ),
+            .to_string(),
             generated_header: false,
         },
     ])

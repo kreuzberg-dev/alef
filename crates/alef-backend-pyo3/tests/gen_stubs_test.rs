@@ -49,6 +49,8 @@ fn make_config_with_stubs() -> AlefConfig {
             serde_rename_all: None,
             capsule_types: Default::default(),
             release_gil: false,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         node: None,
         ruby: None,

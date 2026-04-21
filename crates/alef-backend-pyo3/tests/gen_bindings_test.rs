@@ -46,6 +46,8 @@ fn make_config() -> AlefConfig {
             serde_rename_all: None,
             capsule_types: Default::default(),
             release_gil: false,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         node: None,
         ruby: None,
@@ -1310,6 +1312,8 @@ fn test_return_type_exported_from_native_module_not_options() {
         serde_rename_all: None,
         capsule_types: Default::default(),
         release_gil: false,
+        exclude_functions: Vec::new(),
+        exclude_types: Vec::new(),
     });
 
     let files = backend

@@ -206,8 +206,17 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         builder.add_item(&gen_ffi_tokio_runtime());
     }
 
+    let ffi_exclude_functions: ahash::AHashSet<String> = config
+        .ffi
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().cloned().collect())
+        .unwrap_or_default();
+
     // Free functions (async functions are wrapped with block_on via the runtime helper)
     for func in &api.functions {
+        if ffi_exclude_functions.contains(&func.name) {
+            continue;
+        }
         builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map));
     }
 

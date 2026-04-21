@@ -1549,17 +1549,14 @@ fn gen_facade_class(
             }
         }
 
-        // Delegate to raw FFI class — bridge params always passed as null
+        // Delegate to raw FFI class — bridge params are stripped from the raw class
+        // signature, so we must exclude them entirely (not pass null) to match the
+        // raw class's parameter count.
         let call_args: Vec<String> = func
             .params
             .iter()
-            .map(|p| {
-                if is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
-                    "null".to_string()
-                } else {
-                    to_java_name(&p.name)
-                }
-            })
+            .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
+            .map(|p| to_java_name(&p.name))
             .collect();
 
         if matches!(func.return_type, TypeRef::Unit) {
@@ -1612,12 +1609,14 @@ fn gen_facade_class(
             )
             .ok();
 
-            // Build call with null for optional params and bridge params
+            // Build call to raw class: bridge params are excluded (stripped from raw
+            // class signature), optional params passed as null.
             let full_args: Vec<String> = func
                 .params
                 .iter()
+                .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
                 .map(|p| {
-                    if p.optional || is_bridge_param_java(p, bridge_param_names, bridge_type_aliases) {
+                    if p.optional {
                         "null".to_string()
                     } else {
                         to_java_name(&p.name)
@@ -1626,11 +1625,19 @@ fn gen_facade_class(
                 .collect();
 
             if matches!(func.return_type, TypeRef::Unit) {
-                writeln!(body, "        {}({});", to_java_name(&func.name), full_args.join(", ")).ok();
+                writeln!(
+                    body,
+                    "        {}.{}({});",
+                    raw_class,
+                    to_java_name(&func.name),
+                    full_args.join(", ")
+                )
+                .ok();
             } else {
                 writeln!(
                     body,
-                    "        return {}({});",
+                    "        return {}.{}({});",
+                    raw_class,
                     to_java_name(&func.name),
                     full_args.join(", ")
                 )
