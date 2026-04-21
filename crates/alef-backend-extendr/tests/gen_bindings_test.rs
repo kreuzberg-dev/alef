@@ -392,3 +392,139 @@ fn test_generated_header() {
         );
     }
 }
+
+fn make_owned_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        sanitized: false,
+        receiver: Some(ReceiverKind::Owned),
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+fn make_ref_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        sanitized: false,
+        receiver: Some(ReceiverKind::Ref),
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+#[test]
+fn test_opaque_type_generates_inner_field_and_delegates() {
+    // Regression: opaque types (e.g. ConversionOptionsBuilder) must generate
+    // `inner: Arc<CoreType>` and delegate methods — not emit empty structs with todo!() stubs.
+    let backend = ExtendrBackend;
+
+    let builder_type = TypeDef {
+        name: "OptionsBuilder".to_string(),
+        rust_path: "test_lib::OptionsBuilder".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![
+            make_owned_method(
+                "with_value",
+                vec![ParamDef {
+                    name: "value".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                }],
+                TypeRef::Named("OptionsBuilder".to_string()),
+            ),
+            make_ref_method("build", vec![], TypeRef::Named("Options".to_string())),
+        ],
+        is_opaque: true,
+        is_clone: true,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+
+    let options_type = TypeDef {
+        name: "Options".to_string(),
+        rust_path: "test_lib::Options".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("value", TypeRef::String, false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![options_type, builder_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // Opaque builder struct must have inner: Arc<CoreType>, not be empty
+    assert!(
+        content.contains("inner: Arc<test_lib::OptionsBuilder>"),
+        "Opaque builder must have inner: Arc<CoreType>. Got:\n{}",
+        content
+    );
+    // Must import Arc
+    assert!(
+        content.contains("use std::sync::Arc"),
+        "Must import Arc for opaque types"
+    );
+    // Methods must not use todo!()
+    assert!(
+        !content.contains("todo!(\"Not implemented: OptionsBuilder"),
+        "Opaque builder methods must not contain todo!() stubs"
+    );
+    // build() must delegate to self.inner
+    assert!(
+        content.contains("self.inner.build()"),
+        "build() must delegate to self.inner. Got:\n{}",
+        content
+    );
+}
