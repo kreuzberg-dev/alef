@@ -64,6 +64,20 @@ fn diff_count(s1: &str, s2: &str) -> usize {
     s1.chars().zip(s2.chars()).filter(|(c1, c2)| c1 != c2).count()
 }
 
+/// Check if a TypeRef references an opaque type, including through Optional and Vec wrappers.
+/// Opaque types use Arc<T> which doesn't implement Serialize/Deserialize, so any struct with
+/// such a field cannot derive those traits.
+fn field_references_opaque_type(ty: &TypeRef, opaque_names: &[String]) -> bool {
+    match ty {
+        TypeRef::Named(name) => opaque_names.contains(name),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => field_references_opaque_type(inner, opaque_names),
+        TypeRef::Map(k, v) => {
+            field_references_opaque_type(k, opaque_names) || field_references_opaque_type(v, opaque_names)
+        }
+        _ => false,
+    }
+}
+
 /// Generate a struct definition using the builder, with a per-field attribute callback.
 ///
 /// `extra_field_attrs` is called for each field and returns additional `#[...]` attributes to
@@ -139,12 +153,20 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     for d in cfg.struct_derives {
         sb.add_derive(d);
     }
-    // Binding types always derive Default, Serialize, and Deserialize.
-    // Default: enables using unwrap_or_default() in constructors for types with has_default.
-    // Serialize/Deserialize: required for FFI/type conversion across binding boundaries.
-    sb.add_derive("Default");
-    sb.add_derive("serde::Serialize");
-    sb.add_derive("serde::Deserialize");
+    // Binding types derive Default, Serialize, and Deserialize unless any field references
+    // an opaque type (Arc-wrapped). Opaque types don't implement serde traits, so structs
+    // containing them (even via Option<OpaqueType>) cannot derive Serialize/Deserialize.
+    let has_opaque_field = typ.fields.iter().any(|f| {
+        if f.cfg.is_some() {
+            return false;
+        }
+        field_references_opaque_type(&f.ty, cfg.opaque_type_names)
+    });
+    if !has_opaque_field {
+        sb.add_derive("Default");
+        sb.add_derive("serde::Serialize");
+        sb.add_derive("serde::Deserialize");
+    }
     for field in &typ.fields {
         // Skip cfg-gated fields — they depend on features that may not be enabled
         // for this binding crate. Including them would require the binding struct to

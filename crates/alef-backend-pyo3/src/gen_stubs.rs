@@ -101,15 +101,25 @@ pub fn gen_stubs(api: &ApiSurface) -> String {
         "".to_string(),
     ];
 
-    // Generate type stubs
-    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        if typ.is_opaque {
+    // Generate type stubs — collect opaque types separately so consecutive
+    // one-liner class stubs are emitted without blank lines between them
+    // (ruff strips those in .pyi files).
+    let (opaque, non_opaque): (Vec<_>, Vec<_>) = api
+        .types
+        .iter()
+        .filter(|typ| !typ.is_trait)
+        .partition(|typ| typ.is_opaque);
+
+    for typ in &non_opaque {
+        lines.push(gen_type_stub(typ, api));
+        lines.push("".to_string());
+    }
+
+    if !opaque.is_empty() {
+        for typ in &opaque {
             lines.push(gen_opaque_type_stub(typ));
-            lines.push("".to_string());
-        } else {
-            lines.push(gen_type_stub(typ, api));
-            lines.push("".to_string());
         }
+        lines.push("".to_string());
     }
 
     // Generate enum stubs
