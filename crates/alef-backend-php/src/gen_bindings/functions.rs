@@ -401,6 +401,7 @@ fn gen_function_body(
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+    eprintln!("[DEBUG PHP gen_function_body] func={} sanitized={} can_delegate={}", func.name, func.sanitized, can_delegate);
     if can_delegate {
         let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
         let raw_call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);

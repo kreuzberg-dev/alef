@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-04-21
+
+### Added
+
+- Config: `exclude_functions` and `exclude_types` support for Python (PyO3), FFI, and Node (NAPI) backends
+- Config: `ahash` workspace dependency for alef-core
+
+### Fixed
+
+- WASM: always import `js_sys` (error converters use `js_sys::Object`/`js_sys::Reflect`)
+- WASM: skip free functions referencing excluded types (prevents undefined type references)
+- WASM: add `clippy::unused_unit` to allowed lints for generated code
+- Node: wire `exclude_functions`/`exclude_types` from config into NAPI gen_bindings
+- Python: wire `exclude_functions`/`exclude_types` into both struct generation and pymodule init
+- FFI: wire `exclude_functions` into free function generation loop
+- Rustler: fix f32/f64 stub return values (`0` → `0.0`)
+- Rustler: add `clippy::unused_unit` to allowed lints
+- PyO3: add `clippy::map_identity` to allowed lints
+- Codegen: use `format!("{:?}", i)` instead of `.to_string()` for sanitized `Vec<String>` conversions (fixes Display trait bound failures)
+- Codegen: extend `gen_serde_let_bindings` to handle `Vec<Named>` params (fixes undefined `_core` variables)
+- Rustler: Elixir module spec line-wrapping for long type signatures
+
 ## [0.4.5] - 2026-04-21
 
 ### Added
