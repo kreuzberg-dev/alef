@@ -44,6 +44,12 @@ impl super::E2eCodegen for RustE2eCodegen {
             .flat_map(|g| g.fixtures.iter())
             .any(|f| !is_skipped(f, "rust") && f.needs_mock_server());
 
+        // Tokio is needed when any test is async (mock server or async call config).
+        let any_async_call = std::iter::once(&e2e_config.call)
+            .chain(e2e_config.calls.values())
+            .any(|c| c.r#async);
+        let needs_tokio = needs_mock_server || any_async_call;
+
         let crate_version = resolve_crate_version(e2e_config);
         files.push(GeneratedFile {
             path: output_base.join("Cargo.toml"),
@@ -53,6 +59,7 @@ impl super::E2eCodegen for RustE2eCodegen {
                 &crate_path,
                 needs_serde_json,
                 needs_mock_server,
+                needs_tokio,
                 e2e_config.dep_mode,
                 crate_version.as_deref(),
                 &alef_config.crate_config.features,
@@ -160,6 +167,7 @@ fn render_cargo_toml(
     crate_path: &str,
     needs_serde_json: bool,
     needs_mock_server: bool,
+    needs_tokio: bool,
     dep_mode: crate::config::DependencyMode,
     version: Option<&str>,
     features: &[String],
@@ -226,6 +234,11 @@ fn render_cargo_toml(
             machete_ignored.join(", ")
         )
     };
+    let tokio_line = if needs_tokio {
+        "\ntokio = { version = \"1\", features = [\"full\"] }"
+    } else {
+        ""
+    };
     let bin_section = if needs_mock_server {
         "\n[[bin]]\nname = \"mock-server\"\npath = \"src/main.rs\"\n"
     } else {
@@ -242,8 +255,7 @@ license = "MIT"
 publish = false
 {bin_section}
 [dependencies]
-{dep_spec}{serde_line}{mock_lines}
-tokio = {{ version = "1", features = ["full"] }}
+{dep_spec}{serde_line}{mock_lines}{tokio_line}
 {machete_section}"#
     )
 }

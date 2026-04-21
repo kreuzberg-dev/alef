@@ -2502,10 +2502,10 @@ mod tests {
 
     fn config_with_extra_deps() -> AlefConfig {
         let mut config = test_config();
-        config.crate_config.extra_dependencies.insert(
-            "anyhow".to_string(),
-            toml::Value::String("1.0".to_string()),
-        );
+        config
+            .crate_config
+            .extra_dependencies
+            .insert("anyhow".to_string(), toml::Value::String("1.0".to_string()));
         config.crate_config.extra_dependencies.insert(
             "tracing".to_string(),
             toml::Value::Table({
@@ -2558,8 +2558,16 @@ mod tests {
         let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
         let files = language_files(&all_files);
         let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
-        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
-        assert!(cargo_toml.content.contains("tracing"), "content: {}", cargo_toml.content);
+        assert!(
+            cargo_toml.content.contains("anyhow = \"1.0\""),
+            "content: {}",
+            cargo_toml.content
+        );
+        assert!(
+            cargo_toml.content.contains("tracing"),
+            "content: {}",
+            cargo_toml.content
+        );
         // Extra deps should appear in [dependencies] section, before [features]
         let deps_pos = cargo_toml.content.find("[dependencies]").unwrap();
         let features_pos = cargo_toml.content.find("[features]").unwrap();
@@ -2574,7 +2582,11 @@ mod tests {
         let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
         let files = language_files(&all_files);
         let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
-        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
+        assert!(
+            cargo_toml.content.contains("anyhow = \"1.0\""),
+            "content: {}",
+            cargo_toml.content
+        );
     }
 
     #[test]
@@ -2584,7 +2596,11 @@ mod tests {
         let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
         let files = language_files(&all_files);
         let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
-        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
+        assert!(
+            cargo_toml.content.contains("anyhow = \"1.0\""),
+            "content: {}",
+            cargo_toml.content
+        );
     }
 
     #[test]
@@ -2594,7 +2610,11 @@ mod tests {
         let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
         let files = language_files(&all_files);
         let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
-        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
+        assert!(
+            cargo_toml.content.contains("anyhow = \"1.0\""),
+            "content: {}",
+            cargo_toml.content
+        );
     }
 
     #[test]
@@ -2604,17 +2624,21 @@ mod tests {
         let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
         let files = language_files(&all_files);
         let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
-        assert!(cargo_toml.content.contains("anyhow = \"1.0\""), "content: {}", cargo_toml.content);
+        assert!(
+            cargo_toml.content.contains("anyhow = \"1.0\""),
+            "content: {}",
+            cargo_toml.content
+        );
     }
 
     #[test]
     fn test_scaffold_language_level_extra_deps_override_crate_level() {
         let mut config = test_config();
         // Crate-level dep with version "1.0"
-        config.crate_config.extra_dependencies.insert(
-            "shared-dep".to_string(),
-            toml::Value::String("1.0".to_string()),
-        );
+        config
+            .crate_config
+            .extra_dependencies
+            .insert("shared-dep".to_string(), toml::Value::String("1.0".to_string()));
         // Python-level override with a different version; inject via extra_deps_for_language
         // by inserting directly into a Python extra_dependencies map.
         let mut python_extra: std::collections::HashMap<String, toml::Value> = std::collections::HashMap::new();
@@ -2636,6 +2660,9 @@ mod tests {
         let rendered = render_extra_deps(&config, Language::Python);
         // Python-level "2.0" should win over crate-level "1.0"
         assert!(rendered.contains("shared-dep = \"2.0\""), "got: {rendered}");
-        assert!(!rendered.contains("1.0"), "crate-level version should be overridden, got: {rendered}");
+        assert!(
+            !rendered.contains("1.0"),
+            "crate-level version should be overridden, got: {rendered}"
+        );
     }
 }
