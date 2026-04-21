@@ -936,6 +936,14 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     )
     .ok();
     writeln!(out).ok();
+    // Named offset constants for HTMHtmNodeContext struct fields (avoids magic numbers)
+    writeln!(out, "    // HTMHtmNodeContext field offsets").ok();
+    writeln!(out, "    private static final long CTX_OFFSET_TAG_NAME = 8L;").ok();
+    writeln!(out, "    private static final long CTX_OFFSET_DEPTH = 16L;").ok();
+    writeln!(out, "    private static final long CTX_OFFSET_INDEX_IN_PARENT = 24L;").ok();
+    writeln!(out, "    private static final long CTX_OFFSET_PARENT_TAG = 32L;").ok();
+    writeln!(out, "    private static final long CTX_OFFSET_IS_INLINE = 40L;").ok();
+    writeln!(out).ok();
     writeln!(out, "    private final Arena arena;").ok();
     writeln!(out, "    private final MemorySegment struct;").ok();
     writeln!(out, "    private final Visitor visitor;").ok();
@@ -950,14 +958,24 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     )
     .ok();
     writeln!(out, "        struct.set(ValueLayout.ADDRESS, 0L, MemorySegment.NULL);").ok();
+    writeln!(out, "        registerStubs();").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out).ok();
+    writeln!(
+        out,
+        "    @SuppressWarnings(\"PMD.ExcessiveMethodLength\")"
+    )
+    .ok();
+    writeln!(out, "    private void registerStubs() {{").ok();
     writeln!(out, "        long offset = ValueLayout.ADDRESS.byteSize();").ok();
     writeln!(out, "        try {{").ok();
 
     for spec in CALLBACKS {
         let descriptor = callback_descriptor(spec);
         let method_type = callback_method_type(spec);
+        let stub_var = stub_var_name(spec.java_method);
         writeln!(out, "            // {}", spec.c_field).ok();
-        writeln!(out, "            var stub_{} = LINKER.upcallStub(", spec.java_method).ok();
+        writeln!(out, "            var {} = LINKER.upcallStub(", stub_var).ok();
         writeln!(
             out,
             "                    LOOKUP.bind(this, \"{}\", {}),",
@@ -967,12 +985,7 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
         .ok();
         writeln!(out, "                    {},", descriptor).ok();
         writeln!(out, "                    arena);").ok();
-        writeln!(
-            out,
-            "            struct.set(ValueLayout.ADDRESS, offset, stub_{});",
-            spec.java_method
-        )
-        .ok();
+        writeln!(out, "            struct.set(ValueLayout.ADDRESS, offset, {});", stub_var).ok();
         writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
     }
 
@@ -1131,8 +1144,33 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Generate camelCase stub variable name: stub + capitalize(java_method).
+/// e.g. visitText -> stubVisitText
+fn stub_var_name(java_method: &str) -> String {
+    let mut name = String::with_capacity(5 + java_method.len());
+    name.push_str("stub");
+    let mut chars = java_method.chars();
+    if let Some(first) = chars.next() {
+        for c in first.to_uppercase() {
+            name.push(c);
+        }
+        name.push_str(chars.as_str());
+    }
+    name
+}
+
 fn handle_method_name(java_method: &str) -> String {
-    format!("handle_{java_method}")
+    // camelCase: "handle" + capitalize first letter of java_method
+    let mut name = String::with_capacity(7 + java_method.len());
+    name.push_str("handle");
+    let mut chars = java_method.chars();
+    if let Some(first) = chars.next() {
+        for c in first.to_uppercase() {
+            name.push(c);
+        }
+        name.push_str(chars.as_str());
+    }
+    name
 }
 
 fn iface_param_str(spec: &CallbackSpec) -> String {
@@ -1267,5 +1305,17 @@ fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
 }
 
 fn raw_var_name(java_name: &str, c_idx: usize) -> String {
-    format!("raw_{java_name}_{c_idx}")
+    // camelCase: "raw" + capitalize first letter of java_name + "_" + index
+    // e.g. raw_text_0 -> rawText0, raw_cells_1 -> rawCells1
+    let mut name = String::with_capacity(4 + java_name.len() + 2);
+    name.push_str("raw");
+    let mut chars = java_name.chars();
+    if let Some(first) = chars.next() {
+        for c in first.to_uppercase() {
+            name.push(c);
+        }
+        name.push_str(chars.as_str());
+    }
+    name.push_str(&c_idx.to_string());
+    name
 }
