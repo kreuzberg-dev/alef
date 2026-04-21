@@ -11,13 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Extract: per-crate extraction for multi-crate workspaces
+- Extract: per-crate extraction for multi-crate workspaces via `source_crates` config
 - IR: `original_rust_path` field for orphan-safe `From` impls
 - Codegen: dedup after path mapping, generic/enum generation improvements
 
 ### Fixed
 
 - Codegen: Python workspace source path, C# paths/TFM, Go version resolution
+- Codegen: only omit opaque inner field for unresolvable generic types (not all sanitized types)
+- Codegen: skip serde derives for structs with opaque (Arc-wrapped) fields
+- Codegen: use post-mapping `rust_path` for `From` impls, treat data enums as known types
+- PyO3: don't import streaming `item_type` that shadows wrapper structs
+- PyO3: async stub inference, Mutex default, trait type handling, error path fixes
+- PyO3: group consecutive opaque type stubs in `.pyi` output
+- Cache: strip all whitespace in content hash for formatter agnosticism
 - CI: add `contents: write` permission to publish-homebrew job for bottle upload
 
 ## [0.5.0] - 2026-04-21

@@ -161,7 +161,9 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
             return false;
         }
         let r = field_references_opaque_type(&f.ty, cfg.opaque_type_names);
-        if r { eprintln!("[DEBUG] {}.{} references opaque type", typ.name, f.name); }
+        if r {
+            eprintln!("[DEBUG] {}.{} references opaque type", typ.name, f.name);
+        }
         r
     });
     if cfg.opaque_type_names.is_empty() {
