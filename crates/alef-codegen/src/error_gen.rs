@@ -86,11 +86,7 @@ pub fn python_exception_name(variant_name: &str, error_name: &str) -> String {
 /// Generate `pyo3::create_exception!` macros for each error variant plus the base error type.
 /// Appends "Error" suffix to variant names that don't already have it (N818 compliance).
 /// Prefixes names that would shadow Python builtins (A004 compliance).
-pub fn gen_pyo3_error_types(
-    error: &ErrorDef,
-    module_name: &str,
-    seen_exceptions: &mut AHashSet<String>,
-) -> String {
+pub fn gen_pyo3_error_types(error: &ErrorDef, module_name: &str, seen_exceptions: &mut AHashSet<String>) -> String {
     let mut lines = Vec::with_capacity(error.variants.len() + 2);
     lines.push("// Error types".to_string());
 
@@ -150,10 +146,7 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
 /// Generate `m.add(...)` registration calls for each exception type.
 /// Uses Error-suffixed names for variant exceptions (N818 compliance).
 /// Prefixes names that would shadow Python builtins (A004 compliance).
-pub fn gen_pyo3_error_registration(
-    error: &ErrorDef,
-    seen_registrations: &mut AHashSet<String>,
-) -> Vec<String> {
+pub fn gen_pyo3_error_registration(error: &ErrorDef, seen_registrations: &mut AHashSet<String>) -> Vec<String> {
     let mut registrations = Vec::with_capacity(error.variants.len() + 1);
 
     for variant in &error.variants {
