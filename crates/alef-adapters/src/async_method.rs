@@ -34,6 +34,21 @@ fn call_args(adapter: &AdapterConfig) -> Vec<String> {
         .collect()
 }
 
+/// Build the call arguments with `.clone().into()` for backends that pass by reference (PHP).
+fn call_args_cloned(adapter: &AdapterConfig) -> Vec<String> {
+    adapter
+        .params
+        .iter()
+        .map(|p| {
+            if p.optional {
+                format!("{}.as_ref().map(|v| v.clone().into())", p.name)
+            } else {
+                format!("{}.clone().into()", p.name)
+            }
+        })
+        .collect()
+}
+
 /// Build conversion let-bindings for core types (used in Python async).
 fn core_let_bindings(adapter: &AdapterConfig, core_import: &str) -> Vec<String> {
     adapter
@@ -166,13 +181,14 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
     let core_path = &adapter.core_path;
     let returns = adapter.returns.as_deref().unwrap_or("()");
 
-    let args = call_args(adapter);
+    // PHP passes struct params by reference — clone before converting.
+    let args = call_args_cloned(adapter);
 
     let inner_call = if args.is_empty() {
         format!("self.inner.{core_path}().await")
     } else {
         let call_str = args.join(", ");
-        format!("self.inner.{core_path}({call_str}.into()).await")
+        format!("self.inner.{core_path}({call_str}).await")
     };
 
     format!(

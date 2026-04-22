@@ -61,6 +61,32 @@ fn core_let_bindings(adapter: &AdapterConfig, core_import: &str) -> Vec<String> 
         .collect()
 }
 
+/// Build conversion let-bindings for core types, cloning the input first.
+/// Used by PHP which passes struct params by reference.
+fn core_let_bindings_cloned(adapter: &AdapterConfig, core_import: &str) -> Vec<String> {
+    adapter
+        .params
+        .iter()
+        .map(|p| {
+            if p.optional {
+                format!(
+                    "let core_{name} = {name}.as_ref().map(|v| -> {core_import}::{ty} {{ v.clone().into() }});",
+                    name = p.name,
+                    core_import = core_import,
+                    ty = p.ty,
+                )
+            } else {
+                format!(
+                    "let core_{name}: {core_import}::{ty} = {name}.clone().into();",
+                    name = p.name,
+                    core_import = core_import,
+                    ty = p.ty,
+                )
+            }
+        })
+        .collect()
+}
+
 /// Get the iterator struct name from the adapter name.
 fn iterator_name(adapter: &AdapterConfig) -> String {
     to_pascal_case(&adapter.name) + "Iterator"
@@ -196,11 +222,13 @@ fn gen_ruby_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
          rt.block_on(async {{\n        \
              let stream = self.inner.{core_path}({call_str}).await\n            \
                  .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
-             stream\n            \
-                 .map(|r| r.map({item_type}::from))\n            \
+             let chunks: Vec<{item_type}> = stream\n            \
                  .collect::<Vec<_>>().await\n            \
                  .into_iter()\n            \
-                 .collect::<Result<Vec<_>, _>>()\n            \
+                 .collect::<std::result::Result<Vec<_>, _>>()\n            \
+                 .map(|v| v.into_iter().map({item_type}::from).collect())\n            \
+                 .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+             serde_json::to_string(&chunks)\n            \
                  .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))\n    \
          }})"
     );
@@ -220,7 +248,8 @@ fn gen_php_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option
     let args = call_args(adapter);
     let call_str = args.join(", ");
 
-    let let_bindings = core_let_bindings(adapter, &core_import);
+    // PHP passes struct params by reference — clone before converting.
+    let let_bindings = core_let_bindings_cloned(adapter, &core_import);
     let bindings_block = if let_bindings.is_empty() {
         String::new()
     } else {
@@ -233,14 +262,15 @@ fn gen_php_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option
          WORKER_RUNTIME.block_on(async {{\n        \
              let stream = self.inner.{core_path}({call_str}).await\n            \
                  .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
-             stream\n            \
-                 .map(|r| r.map({item_type}::from))\n            \
+             let chunks: Vec<{item_type}> = stream\n            \
                  .collect::<Vec<_>>().await\n            \
                  .into_iter()\n            \
-                 .collect::<Result<Vec<_>, _>>()\n            \
+                 .collect::<std::result::Result<Vec<_>, _>>()\n            \
+                 .map(|v| v.into_iter().map({item_type}::from).collect())\n            \
+                 .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
+             serde_json::to_string(&chunks)\n            \
                  .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))\n    \
-         }})\n    \
-         .map_err(Into::into)"
+         }})"
     );
 
     (body, None)
@@ -272,11 +302,13 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
          rt.block_on(async {{\n        \
              let stream = resource.inner.{core_path}({call_str}).await\n            \
                  .map_err(|e| e.to_string())?;\n        \
-             stream\n            \
-                 .map(|r| r.map({item_type}::from))\n            \
+             let chunks: Vec<{item_type}> = stream\n            \
                  .collect::<Vec<_>>().await\n            \
                  .into_iter()\n            \
-                 .collect::<Result<Vec<_>, _>>()\n            \
+                 .collect::<std::result::Result<Vec<_>, _>>()\n            \
+                 .map(|v| v.into_iter().map({item_type}::from).collect())\n            \
+                 .map_err(|e| e.to_string())?;\n        \
+             serde_json::to_string(&chunks)\n            \
                  .map_err(|e| e.to_string())\n    \
          }})"
     );
@@ -308,13 +340,14 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
          {bindings_block}\
          let stream = self.inner.{core_path}({call_str}).await\n        \
              .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-         let chunks: Vec<_> = stream\n        \
-             .map(|r| r.map({item_type}::from))\n        \
+         let chunks: Vec<{item_type}> = stream\n        \
              .collect::<Vec<_>>().await\n        \
              .into_iter()\n        \
-             .collect::<Result<Vec<_>, _>>()\n        \
+             .collect::<std::result::Result<Vec<_>, _>>()\n        \
+             .map(|v| v.into_iter().map({item_type}::from).collect())\n        \
              .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-         Ok(chunks)"
+         serde_json::to_string(&chunks)\n        \
+             .map_err(|e| JsValue::from_str(&e.to_string()))"
     );
 
     (body, None)
@@ -383,11 +416,13 @@ fn gen_r_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<S
          rt.block_on(async {{\n        \
              let stream = self.inner.{core_path}({call_str}).await\n            \
                  .map_err(|e| extendr_api::Error::Other(e.to_string()))?;\n        \
-             stream\n            \
-                 .map(|r| r.map({item_type}::from))\n            \
+             let chunks: Vec<{item_type}> = stream\n            \
                  .collect::<Vec<_>>().await\n            \
                  .into_iter()\n            \
-                 .collect::<Result<Vec<_>, _>>()\n            \
+                 .collect::<std::result::Result<Vec<_>, _>>()\n            \
+                 .map(|v| v.into_iter().map({item_type}::from).collect())\n            \
+                 .map_err(|e| extendr_api::Error::Other(e.to_string()))?;\n        \
+             serde_json::to_string(&chunks)\n            \
                  .map_err(|e| extendr_api::Error::Other(e.to_string()))\n    \
          }})"
     );
