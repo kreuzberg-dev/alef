@@ -156,13 +156,14 @@ fn gen_node_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
          {bindings_block}\
          let stream = self.inner.{core_path}({call_str}).await\n        \
              .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n    \
-         let chunks: Vec<_> = stream\n        \
-             .map(|r| r.map({item_type}::from))\n        \
+         let chunks: Vec<{item_type}> = stream\n        \
              .collect::<Vec<_>>().await\n        \
              .into_iter()\n        \
-             .collect::<Result<Vec<_>, _>>()\n        \
+             .collect::<std::result::Result<Vec<_>, _>>()\n        \
+             .map(|v| v.into_iter().map({item_type}::from).collect())\n        \
              .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n    \
-         Ok(chunks)"
+         serde_json::to_string(&chunks)\n        \
+             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
     );
 
     (body, None)
