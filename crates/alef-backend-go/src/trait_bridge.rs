@@ -164,17 +164,17 @@ fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBr
     // Set up vtable function pointers (via //export trampolines)
     for method in &trait_def.methods {
         let export_name = format!("go{}{}", &trait_pascal, method.name.to_pascal_case());
-        writeln!(out, "\t\t{}: C.{}?,", &method.name, export_name).ok();
+        writeln!(out, "\t\t{}: C.{},", &method.name, export_name).ok();
     }
 
     // Plugin method pointers
-    writeln!(out, "\t\tname: C.go{}Name?,", &trait_pascal).ok();
-    writeln!(out, "\t\tversion: C.go{}Version?,", &trait_pascal).ok();
-    writeln!(out, "\t\tinitialize: C.go{}Initialize?,", &trait_pascal).ok();
-    writeln!(out, "\t\tshutdown: C.go{}Shutdown?,", &trait_pascal).ok();
+    writeln!(out, "\t\tname: C.go{}Name,", &trait_pascal).ok();
+    writeln!(out, "\t\tversion: C.go{}Version,", &trait_pascal).ok();
+    writeln!(out, "\t\tinitialize: C.go{}Initialize,", &trait_pascal).ok();
+    writeln!(out, "\t\tshutdown: C.go{}Shutdown,", &trait_pascal).ok();
 
     // free_user_data deletes the cgo.Handle when the bridge is dropped by Rust
-    writeln!(out, "\t\tfree_user_data: C.go{}FreeUserData?,", &trait_pascal).ok();
+    writeln!(out, "\t\tfree_user_data: C.go{}FreeUserData,", &trait_pascal).ok();
 
     writeln!(out, "\t}}").ok();
     writeln!(out).ok();
