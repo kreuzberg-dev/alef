@@ -411,7 +411,7 @@ fn test_streaming_node() {
         "Node streaming should collect stream. Got: {}",
         body
     );
-    assert!(body.contains("futures::StreamExt"), "Should use futures crate");
+    assert!(body.contains("futures_util::StreamExt"), "Should use futures_util crate");
 }
 
 /// Test FFI (C ABI) language with SyncFunction.
