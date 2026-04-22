@@ -529,6 +529,42 @@ mod tests {
         assert_eq!(extract_result_error_type(&ty), Some("MyError".into()));
     }
 
+    #[test]
+    fn test_extract_result_error_from_alias_definition() {
+        // Test extracting error type from `pub type Result<T> = std::result::Result<T, E>`
+        let ty = parse_type("std::result::Result<T, KreuzbergError>");
+        assert_eq!(
+            extract_result_error_type_from_alias(&ty),
+            Some("KreuzbergError".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_result_error_with_hint() {
+        // Test that when a Result<T> type alias has a registered error hint, it's used
+        let hints = {
+            let mut m = ahash::AHashMap::new();
+            m.insert("Result".to_string(), "KreuzbergError".to_string());
+            m
+        };
+        set_result_error_hints(hints);
+
+        let ty = parse_type("Result<ExtractionResult>");
+        assert_eq!(
+            extract_result_error_type(&ty),
+            Some("KreuzbergError".into())
+        );
+    }
+
+    #[test]
+    fn test_extract_result_error_fallback_without_hint() {
+        // Test that without a hint, it falls back to anyhow::Error
+        set_result_error_hints(ahash::AHashMap::new());
+
+        let ty = parse_type("Result<ExtractionResult>");
+        assert_eq!(extract_result_error_type(&ty), Some("anyhow::Error".into()));
+    }
+
     // Regression tests for whitespace between lifetime tokens and following type/bracket.
     // Previously, `type_to_string` called `.replace(' ', "")` which collapsed
     // `&'static str` into `&'staticstr` and `&'static [&'static str]` into

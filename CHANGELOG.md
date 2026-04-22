@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-04-22
+
+### Fixed
+
+- NAPI, Magnus, PHP, Rustler backends: skip sanitized methods entirely instead of emitting stubs, panics, or `[unimplemented: ...]` placeholders. Matches PyO3 behavior.
+- Scaffold: Ruby `extconf.rb` now sets `cargo_manifest` path for `rb_sys`.
+- Scaffold: Ruby and Elixir `Cargo.toml` `[lib]` section now includes `name` and `path` pointing to alef-generated binding source.
+- E2E: TypeScript codegen no longer escapes `$` in double-quoted strings (fixes Biome `noUselessEscapeInString` lint).
+- Go backend: remove invalid `?` syntax from vtable function pointer assignments.
+- Rustler: keep `force_build` on single line for `mix format` compatibility.
+
 ## [0.5.3] - 2026-04-22
 
 ### Added
