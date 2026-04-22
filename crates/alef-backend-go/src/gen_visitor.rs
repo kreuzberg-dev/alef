@@ -1139,8 +1139,8 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
 
     writeln!(out, "//export {}", spec.export_name).ok();
     writeln!(out, "func {}({}) C.int32_t {{", spec.export_name, go_params.join(", ")).ok();
-    writeln!(out, "\tid := uintptr(uintptr(userData))").ok();
-    writeln!(out, "\tv, ok := lookupVisitor(id)").ok();
+    writeln!(out, "\tvisitorID := uintptr(uintptr(userData))").ok();
+    writeln!(out, "\tv, ok := lookupVisitor(visitorID)").ok();
     writeln!(out, "\tif !ok {{").ok();
     writeln!(out, "\t\treturn 0").ok();
     writeln!(out, "\t}}").ok();
