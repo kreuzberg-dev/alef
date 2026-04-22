@@ -342,6 +342,14 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
 fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enums: &AHashSet<String>) -> bool {
     match ty {
         TypeRef::Named(name) if !known_types.contains(name.as_str()) && !known_enums.contains(name.as_str()) => {
+            // Detect homogeneous numeric tuple types such as `(u32, u32)` that serde serializes
+            // as JSON arrays.  Map them to Vec<ElemType> so backends emit array types (e.g.
+            // `[]uint32` in Go) rather than falling back to `string`.  This preserves round-trip
+            // JSON compatibility: `null | [800, 600]` unmarshals correctly into `*[]uint32`.
+            if let Some(elem_ty) = parse_homogeneous_tuple(name) {
+                *ty = TypeRef::Vec(Box::new(elem_ty));
+                return true;
+            }
             *ty = TypeRef::String;
             true
         }
@@ -353,6 +361,44 @@ fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enu
         }
         _ => false,
     }
+}
+
+/// Parse a homogeneous numeric tuple type string such as `"(u32,u32)"` or `"(u64, u64)"`.
+///
+/// Returns `Some(TypeRef)` for the element type when all comma-separated elements inside the
+/// parentheses are the same primitive type.  Returns `None` for heterogeneous tuples, non-tuple
+/// strings, or unsupported element types.
+///
+/// This lets `sanitize_type_ref` map `Option<(u32, u32)>` → `Optional(Vec(Primitive(U32)))`
+/// instead of falling back to `String`, preserving JSON array round-trip compatibility.
+fn parse_homogeneous_tuple(name: &str) -> Option<TypeRef> {
+    use alef_core::ir::PrimitiveType;
+    let name = name.trim();
+    let inner = name.strip_prefix('(')?.strip_suffix(')')?;
+    let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let first = parts[0];
+    if !parts.iter().all(|p| *p == first) {
+        return None;
+    }
+    let prim = match first {
+        "u8" => PrimitiveType::U8,
+        "u16" => PrimitiveType::U16,
+        "u32" => PrimitiveType::U32,
+        "u64" => PrimitiveType::U64,
+        "i8" => PrimitiveType::I8,
+        "i16" => PrimitiveType::I16,
+        "i32" => PrimitiveType::I32,
+        "i64" => PrimitiveType::I64,
+        "f32" => PrimitiveType::F32,
+        "f64" => PrimitiveType::F64,
+        "usize" => PrimitiveType::Usize,
+        "isize" => PrimitiveType::Isize,
+        _ => return None,
+    };
+    Some(TypeRef::Primitive(prim))
 }
 
 /// Deduplicate API surface items by name to prevent conflicting definitions.

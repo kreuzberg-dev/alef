@@ -567,7 +567,8 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
 /// Generate a Go opaque handle type wrapping an `unsafe.Pointer`.
 ///
 /// Opaque types are not JSON-serializable — they are raw C pointers passed through
-/// the FFI layer. The Go struct holds a pointer and exposes a `Free()` method.
+/// the FFI layer. The Go struct holds a pointer and exposes a `Free()` method and a
+/// `New{TypeName}()` constructor that calls the C `{prefix}_{type_snake}()` allocator.
 fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     let mut out = String::with_capacity(512);
     let type_snake = typ.name.to_snake_case();
@@ -584,8 +585,19 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
-    // Free method
+    // Constructor — wraps the C {prefix}_{type_snake}() allocator.
     let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name.to_pascal_case());
+    writeln!(out, "// New{} creates a new {} by calling the C constructor.", typ.name, typ.name).ok();
+    writeln!(out, "func New{}() *{} {{", typ.name, typ.name).ok();
+    writeln!(out, "\tptr := C.{}_{}()", ffi_prefix, type_snake).ok();
+    writeln!(out, "\tif ptr == nil {{").ok();
+    writeln!(out, "\t\treturn nil").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "\treturn &{}{{ptr: unsafe.Pointer(ptr)}}", typ.name).ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
+
+    // Free method
     writeln!(out, "// Free releases the resources held by this handle.").ok();
     writeln!(out, "func (h *{}) Free() {{", typ.name).ok();
     writeln!(out, "\tif h.ptr != nil {{").ok();
@@ -1107,9 +1119,32 @@ fn gen_method_wrapper(
             }
         };
 
+        // Detect builder pattern: opaque type method that returns the same opaque type.
+        // The C function consumes (Box::from_raw) the input pointer and returns a new pointer.
+        // Instead of creating a new Go struct, update r.ptr so the caller's handle stays valid.
+        let is_builder_return = typ.is_opaque
+            && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == typ.name.as_str());
+
         if method_can_return_error {
             if matches!(method.return_type, TypeRef::Unit) {
                 writeln!(out, "\t{}", c_call).ok();
+                // For non-opaque, non-static methods with Unit return, the C function may have
+                // mutated cRecv in place (e.g. apply_update).  Write the updated state back to
+                // the Go receiver so the mutation is visible to the caller.
+                if !method.is_static && !typ.is_opaque {
+                    writeln!(
+                        out,
+                        "\tjsonPtrUpdated := C.{ffi_prefix}_{type_snake}_to_json(cRecv)\n\t\
+                         if jsonPtrUpdated != nil {{\n\t\t\
+                         _ = json.Unmarshal([]byte(C.GoString(jsonPtrUpdated)), {recv})\n\t\t\
+                         C.{ffi_prefix}_free_string(jsonPtrUpdated)\n\t\
+                         }}",
+                        ffi_prefix = ffi_prefix,
+                        type_snake = type_snake,
+                        recv = receiver_name,
+                    )
+                    .ok();
+                }
                 if method.error_type.is_some() {
                     writeln!(out, "\treturn lastError()").ok();
                 } else {
@@ -1146,12 +1181,19 @@ fn gen_method_wrapper(
                         writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
                     }
                 }
-                writeln!(
-                    out,
-                    "\treturn {}, nil",
-                    go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
-                )
-                .ok();
+                if is_builder_return {
+                    // Builder pattern: C consumed the old pointer and returned a new one.
+                    // Update r.ptr in-place so the caller's handle remains valid.
+                    writeln!(out, "\t{}.ptr = unsafe.Pointer(ptr)", receiver_name).ok();
+                    writeln!(out, "\treturn {}, nil", receiver_name).ok();
+                } else {
+                    writeln!(
+                        out,
+                        "\treturn {}, nil",
+                        go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
+                    )
+                    .ok();
+                }
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
             writeln!(out, "\t{}", c_call).ok();
@@ -1172,12 +1214,19 @@ fn gen_method_wrapper(
                     writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
                 }
             }
-            writeln!(
-                out,
-                "\treturn {}",
-                go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
-            )
-            .ok();
+            if is_builder_return {
+                // Builder pattern: C consumed the old pointer and returned a new one.
+                // Update r.ptr in-place so the caller's handle remains valid.
+                writeln!(out, "\t{}.ptr = unsafe.Pointer(ptr)", receiver_name).ok();
+                writeln!(out, "\treturn {}", receiver_name).ok();
+            } else {
+                writeln!(
+                    out,
+                    "\treturn {}",
+                    go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
+                )
+                .ok();
+            }
         }
     }
 

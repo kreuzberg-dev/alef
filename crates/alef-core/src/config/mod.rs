@@ -261,6 +261,33 @@ impl AlefConfig {
         deps
     }
 
+    /// Get the package output directory for a language.
+    /// Uses `scaffold_output` from per-language config if set, otherwise defaults.
+    ///
+    /// Defaults: `packages/python`, `packages/node`, `packages/ruby`, `packages/php`, `packages/elixir`
+    pub fn package_dir(&self, lang: extras::Language) -> String {
+        let override_path = match lang {
+            extras::Language::Python => self.python.as_ref().and_then(|c| c.scaffold_output.as_ref()),
+            extras::Language::Node => self.node.as_ref().and_then(|c| c.scaffold_output.as_ref()),
+            extras::Language::Ruby => self.ruby.as_ref().and_then(|c| c.scaffold_output.as_ref()),
+            extras::Language::Php => self.php.as_ref().and_then(|c| c.scaffold_output.as_ref()),
+            extras::Language::Elixir => self.elixir.as_ref().and_then(|c| c.scaffold_output.as_ref()),
+            _ => None,
+        };
+        if let Some(p) = override_path {
+            p.to_string_lossy().to_string()
+        } else {
+            match lang {
+                extras::Language::Python => "packages/python".to_string(),
+                extras::Language::Node => "packages/node".to_string(),
+                extras::Language::Ruby => "packages/ruby".to_string(),
+                extras::Language::Php => "packages/php".to_string(),
+                extras::Language::Elixir => "packages/elixir".to_string(),
+                _ => format!("packages/{lang}"),
+            }
+        }
+    }
+
     /// Get the core crate import path (e.g., "liter_llm"). Used by codegen to call into the core crate.
     pub fn core_import(&self) -> String {
         self.crate_config

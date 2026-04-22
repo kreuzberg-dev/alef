@@ -351,6 +351,7 @@ pub(super) fn gen_free_string(prefix: &str) -> String {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {prefix}_free_string(ptr: *mut c_char) {{
     if !ptr.is_null() {{
+        // SAFETY: ptr was allocated by CString::into_raw; caller ensures no aliases.
         unsafe {{ drop(CString::from_raw(ptr)); }}
     }}
 }}"#,

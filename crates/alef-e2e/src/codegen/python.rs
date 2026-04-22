@@ -1222,8 +1222,121 @@ fn render_assertion(
         "is_true" => {
             let _ = writeln!(out, "    assert {field_access} is True  # noqa: S101");
         }
+        "method_result" => {
+            if let Some(method_name) = &assertion.method {
+                let call_expr = build_python_method_call(result_var, method_name, assertion.args.as_ref());
+                let check = assertion.check.as_deref().unwrap_or("is_true");
+                match check {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            if val.is_boolean() {
+                                if val.as_bool() == Some(true) {
+                                    let _ = writeln!(out, "    assert {call_expr} is True  # noqa: S101");
+                                } else {
+                                    let _ = writeln!(out, "    assert {call_expr} is False  # noqa: S101");
+                                }
+                            } else {
+                                let expected = value_to_python_string(val);
+                                let _ = writeln!(out, "    assert {call_expr} == {expected}  # noqa: S101");
+                            }
+                        }
+                    }
+                    "is_true" => {
+                        let _ = writeln!(out, "    assert {call_expr}  # noqa: S101");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    assert not {call_expr}  # noqa: S101");
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            let _ = writeln!(out, "    assert {call_expr} >= {n}  # noqa: S101");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            let _ = writeln!(out, "    assert len({call_expr}) >= {n}  # noqa: S101");
+                        }
+                    }
+                    "contains" => {
+                        if let Some(val) = &assertion.value {
+                            let expected = value_to_python_string(val);
+                            let _ = writeln!(out, "    assert {expected} in {call_expr}  # noqa: S101");
+                        }
+                    }
+                    "is_error" => {
+                        let _ = writeln!(out, "    # method_result is_error: expect exception from {method_name}");
+                        // This is handled by wrapping the call in try/except at test level
+                    }
+                    other_check => {
+                        let _ = writeln!(out, "    # TODO: unsupported method_result check type: {other_check}");
+                    }
+                }
+            } else {
+                let _ = writeln!(out, "    # TODO: method_result assertion missing 'method' field");
+            }
+        }
         other => {
             let _ = writeln!(out, "    # TODO: unsupported assertion type: {other}");
+        }
+    }
+}
+
+/// Build a Python call expression for a method_result assertion on a tree-sitter Tree.
+/// Maps method names to the appropriate Python function calls.
+fn build_python_method_call(
+    result_var: &str,
+    method_name: &str,
+    args: Option<&serde_json::Value>,
+) -> String {
+    match method_name {
+        "root_child_count" => format!("{result_var}.root_node().child_count()"),
+        "root_node_type" => format!("{result_var}.root_node().kind()"),
+        "named_children_count" => format!("{result_var}.root_node().named_child_count()"),
+        "has_error_nodes" => format!("tree_has_error_nodes({result_var})"),
+        "error_count" => format!("tree_error_count({result_var})"),
+        "tree_to_sexp" => format!("tree_to_sexp({result_var})"),
+        "contains_node_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("tree_contains_node_type({result_var}, \"{node_type}\")")
+        }
+        "find_nodes_by_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("find_nodes_by_type({result_var}, \"{node_type}\")")
+        }
+        "run_query" => {
+            let query_source = args
+                .and_then(|a| a.get("query_source"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let language = args
+                .and_then(|a| a.get("language"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("run_query({result_var}, \"{language}\", \"{query_source}\", source)")
+        }
+        _ => {
+            if let Some(args_val) = args {
+                let arg_str = args_val
+                    .as_object()
+                    .map(|obj| {
+                        obj.iter()
+                            .map(|(k, v)| format!("{}={}", k, value_to_python_string(v)))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                format!("{result_var}.{method_name}({arg_str})")
+            } else {
+                format!("{result_var}.{method_name}()")
+            }
         }
     }
 }

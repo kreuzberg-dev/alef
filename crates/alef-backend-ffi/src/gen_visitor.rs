@@ -428,7 +428,7 @@ fn gen_visitor_ref_methods(core_import: &str) -> String {
         let params = rust_param_list(spec, core_import);
         let args = visitor_ref_args(spec);
         out.push_str(&format!(
-            "            fn {name}({params}) -> {core_import}::visitor::VisitResult {{\n                unsafe {{ (*self.0).{name}({args}) }}\n            }}\n",
+            "            fn {name}({params}) -> {core_import}::visitor::VisitResult {{\n                // SAFETY: self.0 is a valid pointer for the duration of the conversion call.\n                unsafe {{ (*self.0).{name}({args}) }}\n            }}\n",
             name = spec.name,
         ));
     }
@@ -716,6 +716,7 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
         return std::ptr::null_mut();
     }}
 
+    // SAFETY: null check above guarantees html is a valid pointer; string is valid UTF-8 from caller.
     let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
         Ok(s) => s.to_string(),
         Err(_) => {{
@@ -727,6 +728,7 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
     let options_rs: Option<{core_import}::ConversionOptions> = if options.is_null() {{
         None
     }} else {{
+        // SAFETY: null check above guarantees options is a valid pointer.
         Some(unsafe {{ &*options }}.clone())
     }};
 
@@ -823,6 +825,7 @@ pub unsafe extern "C" fn {fn_name}(
         return std::ptr::null_mut();
     }}
 
+    // SAFETY: null check above guarantees html is a valid pointer; string is valid UTF-8 from caller.
     let html_str = match unsafe {{ std::ffi::CStr::from_ptr(html) }}.to_str() {{
         Ok(s) => s,
         Err(_) => {{

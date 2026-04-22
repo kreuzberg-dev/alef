@@ -423,7 +423,11 @@ impl Backend for RustlerBackend {
                 .iter()
                 .map(|p| {
                     let base = elixir_typespec(&p.ty, &opaque_types, &default_types);
-                    if p.optional { format!("{base} | nil") } else { base }
+                    if p.optional && !base.ends_with("| nil") {
+                        format!("{base} | nil")
+                    } else {
+                        base
+                    }
                 })
                 .collect();
             let return_spec = elixir_return_typespec(
@@ -531,7 +535,11 @@ impl Backend for RustlerBackend {
                     }
                     for p in &method.params {
                         let base = elixir_typespec(&p.ty, &opaque_types, &default_types);
-                        specs.push(if p.optional { format!("{base} | nil") } else { base });
+                        specs.push(if p.optional && !base.ends_with("| nil") {
+                            format!("{base} | nil")
+                        } else {
+                            base
+                        });
                     }
                     specs
                 };

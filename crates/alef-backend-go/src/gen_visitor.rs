@@ -1324,19 +1324,10 @@ fn gen_convert_with_visitor(out: &mut String, ffi_prefix: &str) {
     writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion returned nil\")").ok();
     writeln!(out, "\t}}").ok();
     writeln!(out, "\tdefer C.{ffi_prefix}_free_string(ptr)").ok();
-    writeln!(out, "\tvar result ConversionResult").ok();
-    writeln!(
-        out,
-        "\tif err := json.Unmarshal([]byte(C.GoString(ptr)), &result); err != nil {{"
-    )
-    .ok();
-    writeln!(
-        out,
-        "\t\treturn nil, fmt.Errorf(\"failed to unmarshal conversion result: %w\", err)"
-    )
-    .ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn &result, nil").ok();
+    // htm_convert_with_visitor returns a plain markdown string, not JSON.
+    // Construct ConversionResult directly with the content field populated.
+    writeln!(out, "\tcontent := C.GoString(ptr)").ok();
+    writeln!(out, "\treturn &ConversionResult{{Content: &content}}, nil").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 }
