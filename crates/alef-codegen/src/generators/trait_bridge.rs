@@ -8,6 +8,7 @@
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{MethodDef, TypeDef};
 use heck::ToSnakeCase;
+use std::collections::HashMap;
 use std::fmt::Write;
 
 /// Everything needed to generate a trait bridge for one trait.
@@ -20,6 +21,8 @@ pub struct TraitBridgeSpec<'a> {
     pub core_import: &'a str,
     /// Language-specific prefix for the wrapper type (e.g., `"Python"`, `"Js"`, `"Wasm"`).
     pub wrapper_prefix: &'a str,
+    /// Map of type name → fully-qualified Rust path for qualifying `Named` types.
+    pub type_paths: HashMap<String, String>,
 }
 
 impl<'a> TraitBridgeSpec<'a> {
@@ -78,14 +81,12 @@ pub trait TraitBridgeGenerator {
     /// return `Self { ... }` on success.
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String;
 
-    /// Generate the body of the registration function.
+    /// Generate the complete registration function including attributes, signature, and body.
     ///
-    /// This is the code inside the `register_xxx()` function that wraps the
-    /// foreign object, builds the bridge, and inserts it into the registry.
+    /// Each backend needs different function signatures (PyO3 takes `py: Python`,
+    /// NAPI takes `#[napi]` with JS params, FFI takes `extern "C"` with raw pointers),
+    /// so the generator owns the full function.
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String;
-
-    /// The attribute placed on the registration function (e.g., `"#[pyfunction]"`, `"#[napi]"`).
-    fn registration_fn_attr(&self) -> &str;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,23 +121,31 @@ pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBr
     out
 }
 
-/// Generate `impl Plugin for Wrapper` when the trait has `Plugin` as a super-trait.
+/// Generate `impl SuperTrait for Wrapper` when the bridge config specifies a super-trait.
 ///
 /// Forwards `name()`, `version()`, `initialize()`, and `shutdown()` to the
 /// foreign object, using `cached_name` for `name()`.
+///
+/// The super-trait path is derived from the config's `super_trait` field. If it
+/// contains `::`, it's used as-is; otherwise it's qualified as `{core_import}::{super_trait}`.
 pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
-    if !spec.trait_def.super_traits.iter().any(|s| s == "Plugin") {
-        return None;
-    }
+    let super_trait_name = spec.bridge_config.super_trait.as_deref()?;
 
     let wrapper = spec.wrapper_name();
     let core_import = spec.core_import;
 
+    // Derive the fully-qualified super-trait path
+    let super_trait_path = if super_trait_name.contains("::") {
+        super_trait_name.to_string()
+    } else {
+        format!("{core_import}::{super_trait_name}")
+    };
+
     // Build synthetic MethodDefs for the Plugin methods and delegate to the generator
-    // for the actual call bodies. Use a simplified approach: generate the impl block
-    // with hardcoded structure since Plugin's interface is well-known.
+    // for the actual call bodies. The Plugin trait interface is well-known: name(),
+    // version(), initialize(), shutdown().
     let mut out = String::with_capacity(1024);
-    writeln!(out, "impl {core_import}::Plugin for {wrapper} {{").ok();
+    writeln!(out, "impl {super_trait_path} for {wrapper} {{").ok();
 
     // name() -> &str — uses cached field
     writeln!(out, "    fn name(&self) -> &str {{").ok();
@@ -259,7 +268,7 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("{}: {}", p.name, format_type_ref(&p.ty)))
+            .map(|p| format!("{}: {}", p.name, format_type_ref(&p.ty, &spec.type_paths)))
             .collect();
 
         let all_params = if receiver.is_empty() {
@@ -271,7 +280,7 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
         };
 
         // Return type
-        let ret = format_return_type(&method.return_type, method.error_type.as_deref());
+        let ret = format_return_type(&method.return_type, method.error_type.as_deref(), &spec.type_paths);
 
         writeln!(out, "    {async_kw}fn {}({all_params}) -> {ret} {{", method.name).ok();
 
@@ -296,21 +305,11 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
 /// inserts it into the plugin registry.
 ///
 /// Returns `None` when `bridge_config.register_fn` is absent (per-call bridge pattern).
+/// The generator owns the full function (attributes, signature, body) because each
+/// backend needs different signatures.
 pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
-    let reg_fn = spec.bridge_config.register_fn.as_deref()?;
-    let attr = generator.registration_fn_attr();
-    let mut out = String::with_capacity(1024);
-
-    writeln!(out, "{attr}").ok();
-    writeln!(out, "pub fn {reg_fn}() -> Result<(), String> {{").ok();
-
-    let body = generator.gen_registration_fn(spec);
-    for line in body.lines() {
-        writeln!(out, "    {line}").ok();
-    }
-
-    writeln!(out, "}}").ok();
-    Some(out)
+    spec.bridge_config.register_fn.as_deref()?;
+    Some(generator.gen_registration_fn(spec))
 }
 
 /// Generate the complete trait bridge code block: imports, struct, impls, and
@@ -360,7 +359,10 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 // ---------------------------------------------------------------------------
 
 /// Format a `TypeRef` as a Rust type string for use in trait method signatures.
-fn format_type_ref(ty: &alef_core::ir::TypeRef) -> String {
+///
+/// `type_paths` qualifies `Named` types with their full Rust path (e.g., `"Config"` →
+/// `"kreuzberg::Config"`). If a name isn't in `type_paths`, it's used as-is.
+pub fn format_type_ref(ty: &alef_core::ir::TypeRef, type_paths: &HashMap<String, String>) -> String {
     use alef_core::ir::{PrimitiveType, TypeRef};
     match ty {
         TypeRef::Primitive(p) => match p {
@@ -382,14 +384,14 @@ fn format_type_ref(ty: &alef_core::ir::TypeRef) -> String {
         TypeRef::String => "String".to_string(),
         TypeRef::Char => "char".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
-        TypeRef::Optional(inner) => format!("Option<{}>", format_type_ref(inner)),
-        TypeRef::Vec(inner) => format!("Vec<{}>", format_type_ref(inner)),
+        TypeRef::Optional(inner) => format!("Option<{}>", format_type_ref(inner, type_paths)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", format_type_ref(inner, type_paths)),
         TypeRef::Map(k, v) => format!(
             "std::collections::HashMap<{}, {}>",
-            format_type_ref(k),
-            format_type_ref(v)
+            format_type_ref(k, type_paths),
+            format_type_ref(v, type_paths)
         ),
-        TypeRef::Named(name) => name.clone(),
+        TypeRef::Named(name) => type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone()),
         TypeRef::Path => "std::path::PathBuf".to_string(),
         TypeRef::Unit => "()".to_string(),
         TypeRef::Json => "serde_json::Value".to_string(),
@@ -398,8 +400,12 @@ fn format_type_ref(ty: &alef_core::ir::TypeRef) -> String {
 }
 
 /// Format a return type, wrapping in `Result` when an error type is present.
-fn format_return_type(ty: &alef_core::ir::TypeRef, error_type: Option<&str>) -> String {
-    let inner = format_type_ref(ty);
+pub fn format_return_type(
+    ty: &alef_core::ir::TypeRef,
+    error_type: Option<&str>,
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let inner = format_type_ref(ty, type_paths);
     match error_type {
         Some(err) => format!("Result<{inner}, {err}>"),
         None => inner,

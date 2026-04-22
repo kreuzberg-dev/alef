@@ -1129,6 +1129,95 @@ fn gen_function(
                 false,
             )
         }
+    } else if !func.sanitized && func.error_type.is_some() {
+        // Serde recovery path: the function cannot be auto-delegated (e.g. a Named ref param
+        // has no From impl), but it returns a Result so we can propagate errors.
+        // At this point the deser_preamble has already converted String params to binding types.
+        // We serialize each non-opaque Named binding param to JSON and deserialize directly into
+        // the matching core type. This works because binding structs derive Serialize and core
+        // types derive Deserialize.
+        let mut core_deser_lines: Vec<String> = Vec::new();
+        let call_args: Vec<String> = func
+            .params
+            .iter()
+            .map(|p| {
+                if let TypeRef::Named(name) = &p.ty {
+                    if opaque_types.contains(name.as_str()) {
+                        return format!("&{}.inner", p.name);
+                    }
+                    // Non-opaque Named param: round-trip via serde_json to get the core type.
+                    // The binding var (p.name) already holds the binding struct after deser_preamble.
+                    let core_ty = format!("{core_import}::{name}");
+                    core_deser_lines.push(format!(
+                        "let {0}_json = serde_json::to_string(&{0}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;",
+                        p.name
+                    ));
+                    core_deser_lines.push(format!(
+                        "let {0}_core: {1} = serde_json::from_str(&{0}_json).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;",
+                        p.name, core_ty
+                    ));
+                    return if p.is_ref {
+                        format!("&{}_core", p.name)
+                    } else {
+                        format!("{}_core", p.name)
+                    };
+                }
+                // Non-Named params: same expressions as the delegate path.
+                match &p.ty {
+                    TypeRef::String | TypeRef::Char if p.optional && p.is_ref => {
+                        format!("{}.as_deref()", p.name)
+                    }
+                    TypeRef::String | TypeRef::Char if p.optional => p.name.to_string(),
+                    TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
+                    TypeRef::String | TypeRef::Char => p.name.clone(),
+                    TypeRef::Path => {
+                        if p.is_ref {
+                            format!("&std::path::PathBuf::from({})", p.name)
+                        } else {
+                            format!("std::path::PathBuf::from({})", p.name)
+                        }
+                    }
+                    TypeRef::Bytes => format!("&{}", p.name),
+                    TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
+                    TypeRef::Vec(_) => {
+                        if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.to_string()
+                        }
+                    }
+                    _ => p.name.clone(),
+                }
+            })
+            .collect();
+
+        let core_deser_preamble = if core_deser_lines.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n    ", core_deser_lines.join("\n    "))
+        };
+
+        let core_fn_path = {
+            let path = func.rust_path.replace('-', "_");
+            if path.starts_with(core_import) {
+                path
+            } else {
+                format!("{core_import}::{}", func.name)
+            }
+        };
+        let core_call = format!("{core_fn_path}({})", call_args.join(", "));
+        let wrap = generators::wrap_return(
+            "result",
+            &func.return_type,
+            "",
+            opaque_types,
+            false,
+            func.returns_ref,
+            false,
+        );
+        format!(
+            "{core_deser_preamble}let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    Ok({wrap})"
+        )
     } else {
         gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };

@@ -87,11 +87,19 @@ fn gen_php_serde_let_bindings(
                         //           serde_json::from_str::<{core}::{name}>(&_json).map_err(|e| format!("{e}"))
                         //       }).transpose()?;
                         let mut line = String::new();
-                        write!(line, "let {pname}_core: Option<{core_import}::{name}> = {pname}.as_ref()").ok();
+                        write!(
+                            line,
+                            "let {pname}_core: Option<{core_import}::{name}> = {pname}.as_ref()"
+                        )
+                        .ok();
                         write!(line, "\n        .map(|v| {{").ok();
                         write!(line, "\n            let _json = serde_json::to_string(v)").ok();
                         write!(line, ".map_err(|e| format!(\"{{e}}\"))?;").ok();
-                        write!(line, "\n            serde_json::from_str::<{core_import}::{name}>(&_json)").ok();
+                        write!(
+                            line,
+                            "\n            serde_json::from_str::<{core_import}::{name}>(&_json)"
+                        )
+                        .ok();
                         write!(line, ".map_err(|e| format!(\"{{e}}\"))").ok();
                         write!(line, "\n        }}).transpose()?;").ok();
                         writeln!(out, "{line}").ok();
@@ -103,7 +111,11 @@ fn gen_php_serde_let_bindings(
                         let mut line = String::new();
                         write!(line, "let {pname}_json = serde_json::to_string(&{pname})").ok();
                         write!(line, "\n        .map_err(|e| format!(\"{{e}}\"))?;").ok();
-                        write!(line, "\n    let {pname}_core: {core_import}::{name} = serde_json::from_str(&{pname}_json)").ok();
+                        write!(
+                            line,
+                            "\n    let {pname}_core: {core_import}::{name} = serde_json::from_str(&{pname}_json)"
+                        )
+                        .ok();
                         write!(line, "\n        .map_err(|e| format!(\"{{e}}\"))?;").ok();
                         writeln!(out, "{line}").ok();
                     }
