@@ -230,6 +230,7 @@ impl Backend for NapiBackend {
                     bridge_cfg,
                     &core_import,
                     &config.error_type(),
+                    &config.error_constructor(),
                     api,
                 );
                 for imp in &bridge.imports {

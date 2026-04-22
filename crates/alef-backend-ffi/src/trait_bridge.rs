@@ -1080,6 +1080,7 @@ pub fn gen_trait_bridge(
     prefix: &str,
     core_import: &str,
     error_type: &str,
+    error_constructor: &str,
     api: &ApiSurface,
 ) -> String {
     let type_paths: HashMap<String, String> = api
@@ -1107,6 +1108,7 @@ pub fn gen_trait_bridge(
         wrapper_prefix: &prefix.to_pascal_case(),
         type_paths,
         error_type: error_type.to_string(),
+        error_constructor: error_constructor.to_string(),
     };
 
     let mut out = String::with_capacity(4096);

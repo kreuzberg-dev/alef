@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-04-22
+
+### Added
+
+- FFI backend: callback-based streaming via `LiterLlmStreamCallback` function pointer pattern. Replaces the `compile_error!` stub with a working implementation that invokes a callback per JSON chunk.
+- FFI backend: `gen_streaming_method_wrapper` generates correct C signature (`client`, `request_json`, `callback`, `user_data` → `i32`).
+
+### Fixed
+
+- WASM backend: streaming adapter return type overridden to `Result<JsValue, JsValue>` (was `Result<String, JsValue>`, causing type mismatch with `serde_wasm_bindgen::to_value`).
+- WASM backend: don't underscore-prefix params when adapter body is present (`_req` → `req`).
+- Python backend: move type imports out of `TYPE_CHECKING` block — types used in function signatures must be available at runtime.
+- Go backend: suppress CGO const warnings for generated enum-to-string functions.
+- PHP backend: skip undelegatable methods instead of emitting broken stubs.
+- Trait bridge: propagate `error_constructor` to all backends.
+
 ## [0.5.4] - 2026-04-22
 
 ### Fixed

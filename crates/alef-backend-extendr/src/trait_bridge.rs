@@ -449,6 +449,7 @@ pub fn gen_trait_bridge(
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
     error_type: &str,
+    error_constructor: &str,
     api: &alef_core::ir::ApiSurface,
 ) -> BridgeOutput {
     let struct_name = format!("R{}Bridge", bridge_cfg.trait_name);
@@ -503,6 +504,7 @@ pub fn gen_trait_bridge(
             wrapper_prefix: "R",
             type_paths,
             error_type: error_type.to_string(),
+            error_constructor: error_constructor.to_string(),
         };
         gen_bridge_all(&spec, &generator)
     }

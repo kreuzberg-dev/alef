@@ -969,7 +969,7 @@ pub fn gen_visitor_file(
     // -------------------------------------------------------------------------
     writeln!(out, "func decodeNodeContext(c *C.HTMHtmNodeContext) NodeContext {{").ok();
     writeln!(out, "\tctx := NodeContext{{").ok();
-    writeln!(out, "\t\tNodeType:      int32(c.node_type),").ok();
+    writeln!(out, "\t\tNodeType:      nodeTypeFromC(c.node_type),").ok();
     writeln!(out, "\t\tTagName:       C.GoString(c.tag_name),").ok();
     writeln!(out, "\t\tDepth:         uint(c.depth),").ok();
     writeln!(out, "\t\tIndexInParent: uint(c.index_in_parent),").ok();
@@ -982,6 +982,43 @@ pub fn gen_visitor_file(
     writeln!(out, "\treturn ctx").ok();
     writeln!(out, "}}").ok();
     writeln!(out).ok();
+
+    // Generate nodeTypeFromC: map C int32_t enum ordinal to Go NodeType string.
+    // The ordinals must match the Rust `NodeType` enum discriminants.
+    writeln!(out, "// nodeTypeFromC maps the C node_type enum ordinal to the Go NodeType string constant.").ok();
+    writeln!(out, "func nodeTypeFromC(i C.int32_t) NodeType {{").ok();
+    writeln!(out, "\tswitch int(i) {{").ok();
+    // These ordinals match the Rust NodeType enum order (auto-derived discriminants).
+    let node_type_variants = [
+        "text", "element", "heading", "paragraph", "div", "blockquote", "pre", "hr",
+        "list", "list_item", "definition_list", "definition_term", "definition_description",
+        "table", "table_row", "table_cell", "table_header", "table_body", "table_head", "table_foot",
+        "link", "image", "strong", "em", "code", "strikethrough", "underline", "subscript",
+        "superscript", "mark", "small", "br", "span", "article", "section", "nav", "aside",
+        "header", "footer", "main", "figure", "figcaption", "time", "details", "summary",
+        "form", "input", "select", "option", "button", "textarea", "label", "fieldset", "legend",
+        "audio", "video", "picture", "source", "iframe", "svg", "canvas", "ruby", "rt", "rp",
+        "abbr", "kbd", "samp", "var", "cite", "q", "del", "ins", "data", "meter", "progress",
+        "output", "template", "slot", "html", "head", "body", "title", "meta", "link_tag",
+        "style", "script", "base", "custom",
+    ];
+    for (i, name) in node_type_variants.iter().enumerate() {
+        let pascal = name.split('_')
+            .map(|s| {
+                let mut c = s.chars();
+                match c.next() {
+                    None => String::new(),
+                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                }
+            })
+            .collect::<String>();
+        writeln!(out, "\tcase {i}: return NodeType{pascal}").ok();
+    }
+    writeln!(out, "\tdefault: return NodeType(\"unknown\")").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(out, "}}").ok();
+    writeln!(out).ok();
+
     writeln!(
         out,
         "func encodeVisitResult(r VisitResult, outCustom **C.char, outLen *C.uintptr_t) C.int32_t {{"

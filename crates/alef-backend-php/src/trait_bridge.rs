@@ -267,6 +267,7 @@ pub fn gen_trait_bridge(
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
     error_type: &str,
+    error_constructor: &str,
     api: &ApiSurface,
 ) -> BridgeOutput {
     // Build type name → rust_path lookup as owned HashMap
@@ -306,6 +307,7 @@ pub fn gen_trait_bridge(
             wrapper_prefix: "Php",
             type_paths,
             error_type: error_type.to_string(),
+            error_constructor: error_constructor.to_string(),
         };
         gen_bridge_all(&spec, &generator)
     }

@@ -561,6 +561,7 @@ mod tests {
             wrapper_prefix,
             type_paths,
             error_type: "MyError".to_string(),
+            error_constructor: "MyError::from({msg})".to_string(),
         }
     }
 
