@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to JavaScript objects via NAPI-RS.
 
-use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -48,7 +48,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "    Ok(f) => f,").ok();
         if has_error {
             writeln!(out, "    Err(e) => return Err({}::Error::new(", spec.core_import).ok();
-            writeln!(out, "        format!(\"Method '{{}}' not found on bridge object: {{}}\", self.cached_name, e)").ok();
+            writeln!(
+                out,
+                "        format!(\"Method '{{}}' not found on bridge object: {{}}\", self.cached_name, e)"
+            )
+            .ok();
             writeln!(out, "    )),").ok();
         } else {
             writeln!(out, "    Err(_) => return Default::default(),").ok();
@@ -76,7 +80,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "match result {{").ok();
         if has_error {
             writeln!(out, "    Err(e) => Err({}::Error::new(", spec.core_import).ok();
-            writeln!(out, "        format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)").ok();
+            writeln!(
+                out,
+                "        format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)"
+            )
+            .ok();
             writeln!(out, "    )),").ok();
         } else {
             writeln!(out, "    Err(_) => Ok(Default::default()),").ok();
@@ -88,7 +96,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             writeln!(out, "        // Convert JS value to Rust type").ok();
             writeln!(out, "        extract_napi_value(&val).map_err(|e| {{").ok();
             writeln!(out, "            {}::Error::new(", spec.core_import).ok();
-            writeln!(out, "                format!(\"Failed to extract return value from method '{name}': {{}}\", e)").ok();
+            writeln!(
+                out,
+                "                format!(\"Failed to extract return value from method '{name}': {{}}\", e)"
+            )
+            .ok();
             writeln!(out, "            )").ok();
             writeln!(out, "        }})").ok();
         }
@@ -117,7 +129,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "    Err(e) => {{").ok();
         writeln!(out, "        return Box::pin(async move {{").ok();
         writeln!(out, "            Err({}::Error::new(", spec.core_import).ok();
-        writeln!(out, "                format!(\"Method '{{}}' not found on bridge object: {{}}\", cached_name, e)").ok();
+        writeln!(
+            out,
+            "                format!(\"Method '{{}}' not found on bridge object: {{}}\", cached_name, e)"
+        )
+        .ok();
         writeln!(out, "            ))").ok();
         writeln!(out, "        }});").ok();
         writeln!(out, "    }}").ok();
@@ -143,7 +159,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "    let result = func.call({tuple_str});").ok();
         writeln!(out, "    match result {{").ok();
         writeln!(out, "        Err(e) => Err({}::Error::new(", spec.core_import).ok();
-        writeln!(out, "            format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)").ok();
+        writeln!(
+            out,
+            "            format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"
+        )
+        .ok();
         writeln!(out, "        )),").ok();
         writeln!(out, "        Ok(val) => {{").ok();
         if matches!(method.return_type, TypeRef::Unit) {
@@ -151,7 +171,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         } else {
             writeln!(out, "            extract_napi_value(&val).map_err(|e| {{").ok();
             writeln!(out, "                {}::Error::new(", spec.core_import).ok();
-            writeln!(out, "                    format!(\"Failed to extract return value from method '{name}': {{}}\", e)").ok();
+            writeln!(
+                out,
+                "                    format!(\"Failed to extract return value from method '{name}': {{}}\", e)"
+            )
+            .ok();
             writeln!(out, "                )").ok();
             writeln!(out, "            }})").ok();
         }
@@ -169,7 +193,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "    /// Create a new bridge wrapping a NAPI Object.").ok();
         writeln!(out, "    ///").ok();
         writeln!(out, "    /// Validates that the object provides all required methods.").ok();
-        writeln!(out, "    pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> napi::Result<Self> {{").ok();
+        writeln!(
+            out,
+            "    pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> napi::Result<Self> {{"
+        )
+        .ok();
 
         // Validate all required methods exist
         for req_method in spec.required_methods() {
@@ -179,16 +207,8 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
                 req_method.name
             )
             .ok();
-            writeln!(
-                out,
-                "            return Err(napi::Error::new("
-            )
-            .ok();
-            writeln!(
-                out,
-                "                napi::Status::GenericFailure,"
-            )
-            .ok();
+            writeln!(out, "            return Err(napi::Error::new(").ok();
+            writeln!(out, "                napi::Status::GenericFailure,").ok();
             writeln!(
                 out,
                 "                format!(\"Object missing required method: {{}}\", \"{}\")",
@@ -200,15 +220,35 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         }
 
         // Transmute Object<'_> to Object<'static> for the stored field
-        writeln!(out, "        // SAFETY: The JS object is owned by the Node.js runtime and lives for").ok();
-        writeln!(out, "        // the duration of the enclosing #[napi] call. The bridge is only used").ok();
-        writeln!(out, "        // synchronously during that same call, so 'static is safe here.").ok();
-        writeln!(out, "        let js_obj: napi::bindgen_prelude::Object<'static> = unsafe {{").ok();
+        writeln!(
+            out,
+            "        // SAFETY: The JS object is owned by the Node.js runtime and lives for"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        // the duration of the enclosing #[napi] call. The bridge is only used"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        // synchronously during that same call, so 'static is safe here."
+        )
+        .ok();
+        writeln!(
+            out,
+            "        let js_obj: napi::bindgen_prelude::Object<'static> = unsafe {{"
+        )
+        .ok();
         writeln!(out, "            std::mem::transmute(js_obj)").ok();
         writeln!(out, "        }};").ok();
 
         // Try to extract name from the object
-        writeln!(out, "        let cached_name = match js_obj.get_named_property::<String>(\"name\") {{").ok();
+        writeln!(
+            out,
+            "        let cached_name = match js_obj.get_named_property::<String>(\"name\") {{"
+        )
+        .ok();
         writeln!(out, "            Ok(n) => n,").ok();
         writeln!(out, "            Err(_) => \"unknown\".to_string(),").ok();
         writeln!(out, "        }};").ok();
@@ -252,11 +292,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         // Register in the plugin registry (synchronous, no GC needed for NAPI)
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(
-            out,
-            "    registry.register(arc).map_err(|e| napi::Error::new("
-        )
-        .ok();
+        writeln!(out, "    registry.register(arc).map_err(|e| napi::Error::new(").ok();
         writeln!(out, "        napi::Status::GenericFailure,").ok();
         writeln!(out, "        format!(\"Failed to register backend: {{}}\", e)").ok();
         writeln!(out, "    ))").ok();
@@ -277,7 +313,11 @@ pub fn gen_trait_bridge(
         .types
         .iter()
         .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -479,12 +519,7 @@ fn gen_visitor_bridge(
 }
 
 /// Map a visitor method parameter type to the correct Rust type string.
-fn visitor_param_type(
-    ty: &TypeRef,
-    is_ref: bool,
-    optional: bool,
-    tp: &HashMap<String, String>,
-) -> String {
+fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashMap<String, String>) -> String {
     if optional && matches!(ty, TypeRef::String) && is_ref {
         return "Option<&str>".to_string();
     }
@@ -729,10 +764,7 @@ fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>
         TypeRef::Path if is_ref => "&std::path::Path".into(),
         TypeRef::Path => "std::path::PathBuf".into(),
         TypeRef::Named(n) => {
-            let qualified = tp
-                .get(n)
-                .map(|p| p.clone())
-                .unwrap_or_else(|| format!("{ci}::{n}"));
+            let qualified = tp.get(n).cloned().unwrap_or_else(|| format!("{ci}::{n}"));
             if is_ref { format!("&{qualified}") } else { qualified }
         }
         TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),

@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to PHP objects via ext-php-rs Zval method calls.
 
-use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -24,10 +24,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        vec![
-            "use std::rc::Rc;".to_string(),
-            "use std::cell::RefCell;".to_string(),
-        ]
+        vec!["use std::rc::Rc;".to_string(), "use std::cell::RefCell;".to_string()]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
@@ -35,21 +32,38 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let mut out = String::with_capacity(512);
 
         // PHP is single-threaded; just call the method directly.
-        writeln!(out, "// SAFETY: PHP objects are single-threaded; method calls are safe within a request.").ok();
+        writeln!(
+            out,
+            "// SAFETY: PHP objects are single-threaded; method calls are safe within a request."
+        )
+        .ok();
 
         let has_args = !method.params.is_empty();
         if has_args {
             writeln!(out, "let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
             for p in &method.params {
-                writeln!(out, "args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());", p.name).ok();
+                writeln!(
+                    out,
+                    "args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());",
+                    p.name
+                )
+                .ok();
             }
         }
 
-        let args_expr = if has_args { "args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()" } else { "vec![]" };
+        let args_expr = if has_args {
+            "args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()"
+        } else {
+            "vec![]"
+        };
 
         writeln!(out, "let result = self.inner.try_call_method(\"{name}\", {args_expr});").ok();
         writeln!(out, "match result {{").ok();
-        writeln!(out, "    Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),").ok();
+        writeln!(
+            out,
+            "    Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
+        )
+        .ok();
         writeln!(out, "    Err(_) => Default::default(),").ok();
         writeln!(out, "}}").ok();
 
@@ -85,16 +99,42 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         if has_args {
             writeln!(out, "        let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
             for p in &method.params {
-                writeln!(out, "        args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());", p.name).ok();
+                writeln!(
+                    out,
+                    "        args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());",
+                    p.name
+                )
+                .ok();
             }
         }
 
-        let args_expr = if has_args { "args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()" } else { "vec![]" };
+        let args_expr = if has_args {
+            "args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect()"
+        } else {
+            "vec![]"
+        };
 
-        writeln!(out, "        match inner_obj.try_call_method(\"{name}\", {args_expr}) {{").ok();
-        writeln!(out, "            Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),").ok();
-        writeln!(out, "            Err(e) => Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-        writeln!(out, "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").ok();
+        writeln!(
+            out,
+            "        match inner_obj.try_call_method(\"{name}\", {args_expr}) {{"
+        )
+        .ok();
+        writeln!(
+            out,
+            "            Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
+        )
+        .ok();
+        writeln!(
+            out,
+            "            Err(e) => Err({}::KreuzbergError::Plugin {{",
+            spec.core_import
+        )
+        .ok();
+        writeln!(
+            out,
+            "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
+        )
+        .ok();
         writeln!(out, "                plugin_name: cached_name.clone(),").ok();
         writeln!(out, "            }}),").ok();
         writeln!(out, "        }}").ok();
@@ -112,13 +152,31 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         writeln!(out, "impl {wrapper} {{").ok();
         writeln!(out, "    /// Create a new bridge wrapping a PHP object.").ok();
         writeln!(out, "    ///").ok();
-        writeln!(out, "    /// Validates that the PHP object provides all required methods.").ok();
-        writeln!(out, "    pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {{").ok();
+        writeln!(
+            out,
+            "    /// Validates that the PHP object provides all required methods."
+        )
+        .ok();
+        writeln!(
+            out,
+            "    pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {{"
+        )
+        .ok();
 
         // Validate all required methods exist
         for req_method in spec.required_methods() {
-            writeln!(out, "        debug_assert!(php_obj.get_property(\"{}\").is_some(),", req_method.name).ok();
-            writeln!(out, "            \"PHP object missing required method: {}\");", req_method.name).ok();
+            writeln!(
+                out,
+                "        debug_assert!(php_obj.get_property(\"{}\").is_some(),",
+                req_method.name
+            )
+            .ok();
+            writeln!(
+                out,
+                "            \"PHP object missing required method: {}\");",
+                req_method.name
+            )
+            .ok();
         }
 
         // Extract and cache name
@@ -157,7 +215,11 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let mut out = String::with_capacity(1024);
 
         writeln!(out, "#[php_function]").ok();
-        writeln!(out, "pub fn {register_fn}(backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{").ok();
+        writeln!(
+            out,
+            "pub fn {register_fn}(backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{"
+        )
+        .ok();
 
         // Validate required methods
         let req_methods: Vec<&MethodDef> = spec.required_methods();
@@ -165,7 +227,12 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             for method in &req_methods {
                 writeln!(out, "    if backend.get_property(\"{}\").is_none() {{", method.name).ok();
                 writeln!(out, "        return Err(ext_php_rs::exception::PhpException::default(").ok();
-                writeln!(out, "            format!(\"Backend missing required method: {{}}\", \"{}\")", method.name).ok();
+                writeln!(
+                    out,
+                    "            format!(\"Backend missing required method: {{}}\", \"{}\")",
+                    method.name
+                )
+                .ok();
                 writeln!(out, "        ).into());").ok();
                 writeln!(out, "    }}").ok();
             }
@@ -173,12 +240,20 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         writeln!(out).ok();
         writeln!(out, "    let wrapper = {wrapper}::new(backend);").ok();
-        writeln!(out, "    let arc: Rc<RefCell<dyn {trait_path}>> = Rc::new(RefCell::new(wrapper));").ok();
+        writeln!(
+            out,
+            "    let arc: Rc<RefCell<dyn {trait_path}>> = Rc::new(RefCell::new(wrapper));"
+        )
+        .ok();
         writeln!(out).ok();
 
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    let mut registry = registry;").ok();
-        writeln!(out, "    registry.register(arc).map_err(|e| ext_php_rs::exception::PhpException::default(").ok();
+        writeln!(
+            out,
+            "    registry.register(arc).map_err(|e| ext_php_rs::exception::PhpException::default("
+        )
+        .ok();
         writeln!(out, "        format!(\"Failed to register backend: {{}}\", e)").ok();
         writeln!(out, "    ))?;").ok();
         writeln!(out, "    Ok(())").ok();
@@ -200,7 +275,11 @@ pub fn gen_trait_bridge(
         .types
         .iter()
         .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -363,12 +442,7 @@ fn gen_visitor_bridge(
 }
 
 /// Map a visitor method parameter type to the correct Rust type string.
-fn visitor_param_type(
-    ty: &TypeRef,
-    is_ref: bool,
-    optional: bool,
-    tp: &HashMap<String, String>,
-) -> String {
+fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashMap<String, String>) -> String {
     if optional && matches!(ty, TypeRef::String) && is_ref {
         return "Option<&str>".to_string();
     }
@@ -394,10 +468,7 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     let sig = sig_parts.join(", ");
 
     let ret_ty = match &method.return_type {
-        TypeRef::Named(n) => type_paths
-            .get(n)
-            .map(|p| p.clone())
-            .unwrap_or_else(|| n.clone()),
+        TypeRef::Named(n) => type_paths.get(n).cloned().unwrap_or_else(|| n.clone()),
         other => param_type(other, "", false, type_paths),
     };
 
@@ -552,10 +623,7 @@ fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>
         TypeRef::Path if is_ref => "&std::path::Path".into(),
         TypeRef::Path => "std::path::PathBuf".into(),
         TypeRef::Named(n) => {
-            let qualified = tp
-                .get(n)
-                .map(|p| p.clone())
-                .unwrap_or_else(|| format!("{ci}::{n}"));
+            let qualified = tp.get(n).cloned().unwrap_or_else(|| format!("{ci}::{n}"));
             if is_ref { format!("&{qualified}") } else { qualified }
         }
         TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),

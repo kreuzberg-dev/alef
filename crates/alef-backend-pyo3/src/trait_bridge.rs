@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to Python objects via PyO3.
 
-use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -24,10 +24,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        vec![
-            "pyo3::prelude::*".to_string(),
-            "std::sync::Arc".to_string(),
-        ]
+        vec!["pyo3::prelude::*".to_string(), "std::sync::Arc".to_string()]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
@@ -48,7 +45,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             writeln!(out, "            {call}").ok();
             if has_error {
                 writeln!(out, "                .map(|_| ())").ok();
-                self.write_error_map(&mut out, name, &spec.core_import);
+                self.write_error_map(&mut out, name, spec.core_import);
             } else {
                 writeln!(out, "                .map(|_| ()).unwrap_or(())").ok();
             }
@@ -57,7 +54,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             writeln!(out, "            {call}").ok();
             writeln!(out, "                .and_then(|v| v.extract::<{ext}>())").ok();
             if has_error {
-                self.write_error_map(&mut out, name, &spec.core_import);
+                self.write_error_map(&mut out, name, spec.core_import);
             } else {
                 writeln!(out, "                .unwrap_or_default()").ok();
             }
@@ -71,11 +68,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         let name = &method.name;
         let mut out = String::with_capacity(1024);
 
-        writeln!(
-            out,
-            "let python_obj = Python::attach(|py| self.inner.clone_ref(py));"
-        )
-        .ok();
+        writeln!(out, "let python_obj = Python::attach(|py| self.inner.clone_ref(py));").ok();
         writeln!(out, "let cached_name = self.cached_name.clone();").ok();
 
         // Clone/convert params for the blocking closure
@@ -119,7 +112,12 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         if self.is_named(&method.return_type) {
             // Complex return: Python returns dict, convert via serde JSON
             writeln!(out, "        let py_result = {call}").ok();
-            writeln!(out, "            .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+            writeln!(
+                out,
+                "            .map_err(|e| {}::KreuzbergError::Plugin {{",
+                spec.core_import
+            )
+            .ok();
             writeln!(
                 out,
                 "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
@@ -129,10 +127,23 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             writeln!(out, "            }})?;").ok();
             writeln!(out, "        let json_val: String = py").ok();
             writeln!(out, "            .import(\"json\")").ok();
-            writeln!(out, "            .and_then(|m| m.call_method1(\"dumps\", (py_result,)))").ok();
+            writeln!(
+                out,
+                "            .and_then(|m| m.call_method1(\"dumps\", (py_result,)))"
+            )
+            .ok();
             writeln!(out, "            .and_then(|v| v.extract())").ok();
-            writeln!(out, "            .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-            writeln!(out, "                message: format!(\"Plugin '{{}}': JSON serialization failed: {{}}\", cached_name, e),").ok();
+            writeln!(
+                out,
+                "            .map_err(|e| {}::KreuzbergError::Plugin {{",
+                spec.core_import
+            )
+            .ok();
+            writeln!(
+                out,
+                "                message: format!(\"Plugin '{{}}': JSON serialization failed: {{}}\", cached_name, e),"
+            )
+            .ok();
             writeln!(out, "                plugin_name: cached_name.clone(),").ok();
             writeln!(out, "            }})?;").ok();
             writeln!(
@@ -153,15 +164,33 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             if matches!(method.return_type, TypeRef::Unit) {
                 writeln!(out, "        {call}").ok();
                 writeln!(out, "            .map(|_| ())").ok();
-                writeln!(out, "            .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-                writeln!(out, "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").ok();
+                writeln!(
+                    out,
+                    "            .map_err(|e| {}::KreuzbergError::Plugin {{",
+                    spec.core_import
+                )
+                .ok();
+                writeln!(
+                    out,
+                    "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
+                )
+                .ok();
                 writeln!(out, "                plugin_name: cached_name.clone(),").ok();
                 writeln!(out, "            }})").ok();
             } else {
                 writeln!(out, "        {call}").ok();
                 writeln!(out, "            .and_then(|v| v.extract::<{ext}>())").ok();
-                writeln!(out, "            .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-                writeln!(out, "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").ok();
+                writeln!(
+                    out,
+                    "            .map_err(|e| {}::KreuzbergError::Plugin {{",
+                    spec.core_import
+                )
+                .ok();
+                writeln!(
+                    out,
+                    "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
+                )
+                .ok();
                 writeln!(out, "                plugin_name: cached_name.clone(),").ok();
                 writeln!(out, "            }})").ok();
             }
@@ -184,7 +213,11 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         writeln!(out, "impl {wrapper} {{").ok();
         writeln!(out, "    /// Create a new bridge wrapping a Python object.").ok();
         writeln!(out, "    ///").ok();
-        writeln!(out, "    /// Validates that the Python object provides all required methods.").ok();
+        writeln!(
+            out,
+            "    /// Validates that the Python object provides all required methods."
+        )
+        .ok();
         writeln!(out, "    pub fn new(python_obj: Py<PyAny>) -> PyResult<Self> {{").ok();
         writeln!(out, "        Python::attach(|py| {{").ok();
         writeln!(out, "            let obj = python_obj.bind(py);").ok();
@@ -258,7 +291,11 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             writeln!(
                 out,
                 "    let required_methods = [{}];",
-                req_methods.iter().map(|m| format!("\"{}\"", m.name)).collect::<Vec<_>>().join(", ")
+                req_methods
+                    .iter()
+                    .map(|m| format!("\"{}\"", m.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
             .ok();
             writeln!(out, "    let obj = backend.bind(py);").ok();
@@ -391,7 +428,11 @@ impl Pyo3BridgeGenerator {
 
     /// Write error mapping code to the output.
     fn write_error_map(&self, out: &mut String, method_name: &str, core_import: &str) {
-        writeln!(out, "                .map_err(|e| {core_import}::KreuzbergError::Plugin {{").ok();
+        writeln!(
+            out,
+            "                .map_err(|e| {core_import}::KreuzbergError::Plugin {{"
+        )
+        .ok();
         writeln!(
             out,
             "                    message: format!(\"Plugin '{{}}' method '{method_name}' failed: {{}}\", self.cached_name, e),"
@@ -414,7 +455,11 @@ pub fn gen_trait_bridge(
         .types
         .iter()
         .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
         .collect();
 
     // Determine bridge pattern: visitor-style (all methods have defaults, no registry) vs
@@ -539,10 +584,7 @@ fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>
         TypeRef::Path if is_ref => "&std::path::Path".into(),
         TypeRef::Path => "std::path::PathBuf".into(),
         TypeRef::Named(n) => {
-            let qualified = tp
-                .get(n)
-                .map(|p| p.clone())
-                .unwrap_or_else(|| format!("{ci}::{n}"));
+            let qualified = tp.get(n).cloned().unwrap_or_else(|| format!("{ci}::{n}"));
             if is_ref { format!("&{qualified}") } else { qualified }
         }
         TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),
@@ -583,12 +625,7 @@ fn prim(p: &alef_core::ir::PrimitiveType) -> &'static str {
 /// - `ty=String, optional=true, is_ref=true` → `Option<&str>` (the IR collapses `Option<&str>`)
 /// - `ty=Vec<T>, is_ref=true` → `&[T]` (the IR collapses `&[T]`)
 /// - Everything else uses the standard `param_type` helper.
-fn visitor_param_type(
-    ty: &TypeRef,
-    is_ref: bool,
-    optional: bool,
-    tp: &HashMap<String, String>,
-) -> String {
+fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashMap<String, String>) -> String {
     // `Option<&str>` case: IR collapses it to String + optional + is_ref
     if optional && matches!(ty, TypeRef::String) && is_ref {
         return "Option<&str>".to_string();
@@ -610,12 +647,7 @@ fn visitor_param_type(
 /// 2. If yes, calls the method with converted arguments and converts the Python return value
 ///    to the appropriate Rust return type.
 /// 3. If no (attribute absent), returns the trait default (typically `VisitResult::Continue`).
-fn gen_visitor_method(
-    out: &mut String,
-    method: &MethodDef,
-    _trait_path: &str,
-    type_paths: &HashMap<String, String>,
-) {
+fn gen_visitor_method(out: &mut String, method: &MethodDef, _trait_path: &str, type_paths: &HashMap<String, String>) {
     use alef_core::ir::TypeRef;
 
     let name = &method.name;
@@ -634,10 +666,7 @@ fn gen_visitor_method(
     // All HtmlVisitor methods return VisitResult (a Named type from the core crate).
     // Use the fully-qualified path from type_paths when available.
     let ret_ty = match &method.return_type {
-        TypeRef::Named(n) => type_paths
-            .get(n)
-            .map(|p| p.clone())
-            .unwrap_or_else(|| n.clone()),
+        TypeRef::Named(n) => type_paths.get(n).cloned().unwrap_or_else(|| n.clone()),
         other => param_type(other, "", false, type_paths),
     };
 
@@ -785,7 +814,6 @@ fn build_visitor_py_args(method: &MethodDef) -> String {
         args.join(", ")
     }
 }
-
 
 /// Collect registration function names for module init.
 ///

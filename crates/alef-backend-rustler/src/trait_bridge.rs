@@ -14,7 +14,7 @@
 //!    to extend term lifetime beyond the NIF call. Supports both sync and async dispatch
 //!    to Elixir callbacks via `tokio::runtime::Runtime` blocking.
 
-use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -185,7 +185,11 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         writeln!(out, "}})").ok();
         writeln!(out, ".await").ok();
         writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-        writeln!(out, "    message: format!(\"spawn_blocking failed for '{{}}': {{}}\", cached_name, e),").ok();
+        writeln!(
+            out,
+            "    message: format!(\"spawn_blocking failed for '{{}}': {{}}\", cached_name, e),"
+        )
+        .ok();
         writeln!(out, "    plugin_name: cached_name.clone(),").ok();
         writeln!(out, "}})").ok();
 
@@ -200,14 +204,22 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         writeln!(out, "    /// Create a new bridge wrapping an Elixir term.").ok();
         writeln!(out, "    ///").ok();
         writeln!(out, "    /// Validates that the term provides all required methods.").ok();
-        writeln!(out, "    pub fn new(env: rustler::Env<'_>, elixir_term: rustler::Term<'_>) -> Self {{").ok();
+        writeln!(
+            out,
+            "    pub fn new(env: rustler::Env<'_>, elixir_term: rustler::Term<'_>) -> Self {{"
+        )
+        .ok();
         writeln!(out, "        let owned = rustler::OwnedEnv::new();").ok();
         writeln!(out, "        let saved = owned.save(elixir_term);").ok();
 
         // Cache the name from the module/term
         writeln!(out, "        let cached_name = owned.run(|env| {{").ok();
         writeln!(out, "            elixir_term").ok();
-        writeln!(out, "                .call_method0(env, rustler::types::atom::Atom::from_str(env, \"__struct__\").unwrap())").ok();
+        writeln!(
+            out,
+            "                .call_method0(env, rustler::types::atom::Atom::from_str(env, \"__struct__\").unwrap())"
+        )
+        .ok();
         writeln!(out, "                .ok()").ok();
         writeln!(out, "                .and_then(|t| t.atom_to_string(env).ok())").ok();
         writeln!(out, "                .unwrap_or_else(|| \"unknown\".to_string())").ok();
@@ -250,16 +262,27 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         // Validate required methods exist in the term
         let req_methods: Vec<&MethodDef> = spec.required_methods();
         if !req_methods.is_empty() {
-            writeln!(out, "    let required = [{}];",
-                req_methods.iter().map(|m| format!("\"{}\"", m.name)).collect::<Vec<_>>().join(", "))
-                .ok();
+            writeln!(
+                out,
+                "    let required = [{}];",
+                req_methods
+                    .iter()
+                    .map(|m| format!("\"{}\"", m.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+            .ok();
             writeln!(out, "    for method_name in &required {{").ok();
             writeln!(
                 out,
                 "        if !elixir_backend.map_get(rustler::types::atom::Atom::from_str(env, method_name).unwrap()).is_ok() {{"
             )
             .ok();
-            writeln!(out, "            return rustler::types::atom::Atom::from_str(env, \"error\").unwrap();").ok();
+            writeln!(
+                out,
+                "            return rustler::types::atom::Atom::from_str(env, \"error\").unwrap();"
+            )
+            .ok();
             writeln!(out, "        }}").ok();
             writeln!(out, "    }}").ok();
         }
@@ -272,8 +295,16 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         // Register in plugin registry
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    match registry.write().register(arc) {{").ok();
-        writeln!(out, "        Ok(_) => rustler::types::atom::Atom::from_str(env, \"ok\").unwrap(),").ok();
-        writeln!(out, "        Err(_) => rustler::types::atom::Atom::from_str(env, \"error\").unwrap(),").ok();
+        writeln!(
+            out,
+            "        Ok(_) => rustler::types::atom::Atom::from_str(env, \"ok\").unwrap(),"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        Err(_) => rustler::types::atom::Atom::from_str(env, \"error\").unwrap(),"
+        )
+        .ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
         out
@@ -299,7 +330,11 @@ pub fn gen_trait_bridge(
         .types
         .iter()
         .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -314,10 +349,8 @@ pub fn gen_trait_bridge(
         let trait_path = trait_type.rust_path.replace('-', "_");
 
         // Convert borrowed HashMap to borrowed version for visitor bridge
-        let borrowed_type_paths: HashMap<&str, &str> = type_paths
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
+        let borrowed_type_paths: HashMap<&str, &str> =
+            type_paths.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
         gen_visitor_bridge(
             &mut out,

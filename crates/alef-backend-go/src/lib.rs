@@ -2,6 +2,7 @@
 
 mod gen_bindings;
 mod gen_visitor;
+mod trait_bridge;
 mod type_map;
 
 pub use gen_bindings::GoBackend;
