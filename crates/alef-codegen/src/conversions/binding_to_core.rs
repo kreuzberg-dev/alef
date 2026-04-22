@@ -282,9 +282,16 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
                 "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (serde_json::from_str(&k).unwrap_or_default(), v)).collect()"
             )
         }
-        TypeRef::Map(_, _) => {
-            // Collect to handle HashMap↔BTreeMap conversion
-            format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")
+        TypeRef::Map(k, v) => {
+            // Collect to handle HashMap↔BTreeMap conversion + value type conversion
+            let has_named_val = matches!(v.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
+            if has_named_val {
+                format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k, v.into())).collect()")
+            } else if matches!(k.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n)) {
+                format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k.into(), v)).collect()")
+            } else {
+                format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")
+            }
         }
         _ => {
             // Simple types (primitives, String, etc): unwrap_or_default()

@@ -307,6 +307,14 @@ fn gen_go_file(
         writeln!(out, "{}\n", alef_codegen::error_gen::gen_go_error_types(error)).ok();
     }
 
+    // When a visitor bridge is active, visitor.go defines NodeContext and VisitResult
+    // with FFI-compatible fields. Skip them in binding.go to avoid redeclarations.
+    let visitor_types: std::collections::HashSet<&str> = if !bridge_param_names.is_empty() {
+        ["NodeContext", "VisitResult"].into_iter().collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
     // Generate enum types and constants
     // Only unit enums map to `type X string` — data enums are generated as Go structs below.
     let unit_enum_names: std::collections::HashSet<&str> = api
@@ -315,7 +323,7 @@ fn gen_go_file(
         .filter(|e| e.variants.iter().all(|v| v.fields.is_empty()))
         .map(|e| e.name.as_str())
         .collect();
-    for enum_def in &api.enums {
+    for enum_def in api.enums.iter().filter(|e| !visitor_types.contains(e.name.as_str())) {
         writeln!(out, "{}\n", gen_enum_type(enum_def)).ok();
     }
 
@@ -332,14 +340,6 @@ fn gen_go_file(
         .filter(|t| t.is_opaque)
         .map(|t| t.name.as_str())
         .collect();
-
-    // When a visitor bridge is active, visitor.go defines NodeContext and VisitResult
-    // with FFI-compatible fields. Skip them in binding.go to avoid redeclarations.
-    let visitor_types: std::collections::HashSet<&str> = if !bridge_param_names.is_empty() {
-        ["NodeContext", "VisitResult"].into_iter().collect()
-    } else {
-        std::collections::HashSet::new()
-    };
 
     // Generate struct types
     for typ in api.types.iter().filter(|typ| !typ.is_trait && !visitor_types.contains(typ.name.as_str())) {

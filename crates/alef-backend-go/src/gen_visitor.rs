@@ -784,7 +784,7 @@ pub fn gen_visitor_file(
     .ok();
     writeln!(out, "type NodeContext struct {{").ok();
     writeln!(out, "\t// NodeType is a coarse-grained node type tag.").ok();
-    writeln!(out, "\tNodeType int32").ok();
+    writeln!(out, "\tNodeType NodeType").ok();
     writeln!(out, "\t// TagName is the HTML element tag name (e.g. \"div\").").ok();
     writeln!(out, "\tTagName string").ok();
     writeln!(out, "\t// Depth is the DOM depth (0 = root).").ok();
