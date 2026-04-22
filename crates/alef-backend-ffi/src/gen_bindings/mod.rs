@@ -229,6 +229,32 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import));
     }
 
+    // Plugin bridge support — vtable + user_data pattern for each [[trait_bridges]] entry.
+    // Only emitted when the entry applies to traits present in the extracted IR.
+    if !config.trait_bridges.is_empty() {
+        let trait_map: ahash::AHashMap<&str, &alef_core::ir::TypeDef> = api
+            .types
+            .iter()
+            .filter(|t| t.is_trait)
+            .map(|t| (t.name.as_str(), t))
+            .collect();
+
+        let error_type_name = config.error_type();
+        for bridge_cfg in &config.trait_bridges {
+            if let Some(trait_def) = trait_map.get(bridge_cfg.trait_name.as_str()) {
+                let bridge_code = crate::trait_bridge::gen_trait_bridge(
+                    trait_def,
+                    bridge_cfg,
+                    prefix,
+                    &core_import,
+                    &error_type_name,
+                    api,
+                );
+                builder.add_item(&bridge_code);
+            }
+        }
+    }
+
     builder.build()
 }
 

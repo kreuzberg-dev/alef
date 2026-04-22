@@ -1338,11 +1338,11 @@ fn test_php_visitor_bridge_produces_visitor_struct() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("PhpHtmlVisitorBridge"),
+        code.code.contains("PhpHtmlVisitorBridge"),
         "PHP visitor bridge struct must be named Php{{TraitName}}Bridge"
     );
     assert!(
-        code.contains("impl my_lib::HtmlVisitor for PhpHtmlVisitorBridge"),
+        code.code.contains("impl my_lib::HtmlVisitor for PhpHtmlVisitorBridge"),
         "PHP visitor bridge must implement the trait"
     );
 }
@@ -1361,11 +1361,11 @@ fn test_php_visitor_bridge_has_php_obj_field() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("php_obj: *mut ext_php_rs::types::ZendObject"),
+        code.code.contains("php_obj: *mut ext_php_rs::types::ZendObject"),
         "PHP visitor bridge must store a raw ZendObject pointer in 'php_obj'"
     );
     assert!(
-        code.contains("cached_name: String"),
+        code.code.contains("cached_name: String"),
         "PHP visitor bridge must cache the plugin name"
     );
 }
@@ -1384,15 +1384,15 @@ fn test_php_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("pub struct PhpOcrBackendBridge"),
+        code.code.contains("pub struct PhpOcrBackendBridge"),
         "PHP plugin bridge wrapper struct must be PhpOcrBackendBridge"
     );
     assert!(
-        code.contains("inner:"),
+        code.code.contains("inner:"),
         "PHP plugin bridge wrapper must have an 'inner' field"
     );
     assert!(
-        code.contains("cached_name: String"),
+        code.code.contains("cached_name: String"),
         "PHP plugin bridge wrapper must have a 'cached_name: String' field"
     );
 }
@@ -1411,12 +1411,18 @@ fn test_php_plugin_bridge_generates_super_trait_impl() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("impl my_lib::Plugin for PhpOcrBackendBridge"),
+        code.code.contains("impl my_lib::Plugin for PhpOcrBackendBridge"),
         "PHP plugin bridge must implement Plugin super-trait"
     );
-    assert!(code.contains("fn name("), "Plugin impl must contain name()");
-    assert!(code.contains("fn initialize("), "Plugin impl must contain initialize()");
-    assert!(code.contains("fn shutdown("), "Plugin impl must contain shutdown()");
+    assert!(code.code.contains("fn name("), "Plugin impl must contain name()");
+    assert!(
+        code.code.contains("fn initialize("),
+        "Plugin impl must contain initialize()"
+    );
+    assert!(
+        code.code.contains("fn shutdown("),
+        "Plugin impl must contain shutdown()"
+    );
 }
 
 #[test]
@@ -1433,11 +1439,11 @@ fn test_php_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("impl my_lib::OcrBackend for PhpOcrBackendBridge"),
+        code.code.contains("impl my_lib::OcrBackend for PhpOcrBackendBridge"),
         "PHP plugin bridge must implement the trait itself"
     );
     assert!(
-        code.contains("fn process("),
+        code.code.contains("fn process("),
         "trait impl must forward the 'process' method"
     );
 }
@@ -1456,11 +1462,11 @@ fn test_php_plugin_bridge_generates_registration_fn_with_php_function_attribute(
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("#[php_function]"),
+        code.code.contains("#[php_function]"),
         "PHP registration function must carry the #[php_function] attribute"
     );
     assert!(
-        code.contains("pub fn register_ocrbackend("),
+        code.code.contains("pub fn register_ocrbackend("),
         "PHP registration function must use the configured name"
     );
 }
@@ -1490,11 +1496,11 @@ fn test_php_plugin_bridge_validates_required_methods() {
 
     // Registration fn must null-check the required method "analyze" via get_property
     assert!(
-        code.contains("\"analyze\""),
+        code.code.contains("\"analyze\""),
         "PHP registration fn must validate required method 'analyze'"
     );
     assert!(
-        code.contains("get_property"),
+        code.code.contains("get_property"),
         "PHP registration fn must check method presence via get_property"
     );
 }
@@ -1510,7 +1516,7 @@ fn test_php_sync_method_body_uses_try_call_method() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("try_call_method"),
+        code.code.contains("try_call_method"),
         "PHP sync method body must use try_call_method to dispatch to PHP"
     );
 }
@@ -1526,7 +1532,7 @@ fn test_php_async_method_body_uses_box_pin() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("Box::pin(async move"),
+        code.code.contains("Box::pin(async move"),
         "PHP async method body must return Box::pin(async move {{ ... }})"
     );
 }
@@ -1545,11 +1551,11 @@ fn test_php_visitor_bridge_has_send_sync_impls() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("unsafe impl Send for PhpHtmlVisitorBridge"),
+        code.code.contains("unsafe impl Send for PhpHtmlVisitorBridge"),
         "PHP visitor bridge must implement Send"
     );
     assert!(
-        code.contains("unsafe impl Sync for PhpHtmlVisitorBridge"),
+        code.code.contains("unsafe impl Sync for PhpHtmlVisitorBridge"),
         "PHP visitor bridge must implement Sync"
     );
 }

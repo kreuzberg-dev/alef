@@ -469,14 +469,19 @@ fn gen_opaque_method(
     adapter_bodies: &alef_adapters::AdapterBodies,
 ) -> String {
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
+    let adapter_key = format!("{type_name}.{}", method.name);
+    let has_adapter = adapter_bodies.contains_key(&adapter_key);
 
+    // Params are "unused" only when we can't delegate AND there's no adapter body
+    // that references them. Async methods also use params in their generated bodies.
+    let params_unused = !can_delegate && !has_adapter && !method.is_async;
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let ty = mapper.map_type(&p.ty);
             let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
-            format_param_unused(&p.name, &mapped_ty, !can_delegate)
+            format_param_unused(&p.name, &mapped_ty, params_unused)
         })
         .collect();
 
@@ -552,13 +557,10 @@ fn gen_opaque_method(
                 prefix,
             )
         }
+    } else if let Some(body) = adapter_bodies.get(&adapter_key) {
+        body.clone()
     } else {
-        let adapter_key = format!("{type_name}.{}", method.name);
-        if let Some(body) = adapter_bodies.get(&adapter_key) {
-            body.clone()
-        } else {
-            gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
-        }
+        gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
 
     let mut attrs = emit_rustdoc(&method.doc);

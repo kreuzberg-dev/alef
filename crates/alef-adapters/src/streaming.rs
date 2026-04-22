@@ -322,7 +322,13 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
 
 fn gen_wasm_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
-    let item_type = adapter.item_type.as_deref().unwrap_or("JsValue");
+    let prefix = config.wasm_type_prefix();
+    let raw_item = adapter.item_type.as_deref().unwrap_or("JsValue");
+    let _item_type = if raw_item == "()" || raw_item == "JsValue" {
+        raw_item.to_string()
+    } else {
+        format!("{prefix}{raw_item}")
+    };
     let core_import = config.core_import();
 
     let args = call_args(adapter);
@@ -335,18 +341,20 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
+    // WASM: use serde_wasm_bindgen to convert core types (which have Serialize) to JsValue.
+    // Return JsValue instead of String for idiomatic WASM interop.
+    let core_item = adapter.item_type.as_deref().unwrap_or("()");
     let body = format!(
         "use futures_util::StreamExt;\n    \
          {bindings_block}\
          let stream = self.inner.{core_path}({call_str}).await\n        \
              .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-         let chunks: Vec<{item_type}> = stream\n        \
+         let chunks: Vec<{core_import}::{core_item}> = stream\n        \
              .collect::<Vec<_>>().await\n        \
              .into_iter()\n        \
              .collect::<std::result::Result<Vec<_>, _>>()\n        \
-             .map(|v| v.into_iter().map({item_type}::from).collect())\n        \
              .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-         serde_json::to_string(&chunks)\n        \
+         serde_wasm_bindgen::to_value(&chunks)\n        \
              .map_err(|e| JsValue::from_str(&e.to_string()))"
     );
 

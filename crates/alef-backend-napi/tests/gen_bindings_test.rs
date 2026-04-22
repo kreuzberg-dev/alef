@@ -1212,11 +1212,11 @@ fn test_napi_visitor_bridge_produces_visitor_struct() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("JsHtmlVisitorBridge"),
+        code.code.contains("JsHtmlVisitorBridge"),
         "visitor bridge struct must be named Js{{TraitName}}Bridge"
     );
     assert!(
-        code.contains("impl my_lib::HtmlVisitor for JsHtmlVisitorBridge"),
+        code.code.contains("impl my_lib::HtmlVisitor for JsHtmlVisitorBridge"),
         "visitor bridge must implement the trait"
     );
 }
@@ -1235,7 +1235,7 @@ fn test_napi_visitor_bridge_has_obj_field() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("obj: napi::bindgen_prelude::Object<'static>"),
+        code.code.contains("obj: napi::bindgen_prelude::Object<'static>"),
         "NAPI visitor bridge must store Object<'static> in an 'obj' field"
     );
 }
@@ -1254,15 +1254,15 @@ fn test_napi_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("pub struct JsOcrBackendBridge"),
+        code.code.contains("pub struct JsOcrBackendBridge"),
         "plugin bridge wrapper struct must be JsOcrBackendBridge"
     );
     assert!(
-        code.contains("inner:"),
+        code.code.contains("inner:"),
         "plugin bridge wrapper must have an 'inner' field"
     );
     assert!(
-        code.contains("cached_name: String"),
+        code.code.contains("cached_name: String"),
         "plugin bridge wrapper must have a 'cached_name: String' field"
     );
 }
@@ -1281,12 +1281,18 @@ fn test_napi_plugin_bridge_generates_super_trait_impl() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("impl my_lib::Plugin for JsOcrBackendBridge"),
+        code.code.contains("impl my_lib::Plugin for JsOcrBackendBridge"),
         "plugin bridge must implement Plugin super-trait"
     );
-    assert!(code.contains("fn name("), "Plugin impl must contain name()");
-    assert!(code.contains("fn initialize("), "Plugin impl must contain initialize()");
-    assert!(code.contains("fn shutdown("), "Plugin impl must contain shutdown()");
+    assert!(code.code.contains("fn name("), "Plugin impl must contain name()");
+    assert!(
+        code.code.contains("fn initialize("),
+        "Plugin impl must contain initialize()"
+    );
+    assert!(
+        code.code.contains("fn shutdown("),
+        "Plugin impl must contain shutdown()"
+    );
 }
 
 #[test]
@@ -1303,11 +1309,11 @@ fn test_napi_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("impl my_lib::OcrBackend for JsOcrBackendBridge"),
+        code.code.contains("impl my_lib::OcrBackend for JsOcrBackendBridge"),
         "plugin bridge must implement the trait itself"
     );
     assert!(
-        code.contains("fn process("),
+        code.code.contains("fn process("),
         "trait impl must forward the 'process' method"
     );
 }
@@ -1326,11 +1332,11 @@ fn test_napi_plugin_bridge_generates_registration_fn_with_napi_attribute() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("#[napi]"),
+        code.code.contains("#[napi]"),
         "NAPI registration function must carry the #[napi] attribute"
     );
     assert!(
-        code.contains("pub fn register_ocrbackend("),
+        code.code.contains("pub fn register_ocrbackend("),
         "registration function must use the configured name"
     );
 }
@@ -1360,7 +1366,7 @@ fn test_napi_plugin_bridge_validates_required_methods() {
 
     // Constructor must check for the required method "analyze"
     assert!(
-        code.contains("\"analyze\""),
+        code.code.contains("\"analyze\""),
         "constructor must validate the required method 'analyze'"
     );
 }
@@ -1376,7 +1382,7 @@ fn test_napi_sync_method_body_uses_get_named_property() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("get_named_property"),
+        code.code.contains("get_named_property"),
         "NAPI sync method body must use get_named_property to retrieve JS methods"
     );
 }
@@ -1392,7 +1398,7 @@ fn test_napi_async_method_body_uses_box_pin() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("Box::pin(async move"),
+        code.code.contains("Box::pin(async move"),
         "NAPI async method body must return Box::pin(async move {{ ... }})"
     );
 }

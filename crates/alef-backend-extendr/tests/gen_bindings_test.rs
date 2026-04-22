@@ -644,15 +644,15 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            code.contains("pub struct ROcrBackendBridge"),
+            code.code.contains("pub struct ROcrBackendBridge"),
             "plugin bridge must generate ROcrBackendBridge wrapper struct"
         );
         assert!(
-            code.contains("inner: extendr_api::Robj"),
+            code.code.contains("inner: extendr_api::Robj"),
             "wrapper struct must hold an extendr_api::Robj"
         );
         assert!(
-            code.contains("cached_name: String"),
+            code.code.contains("cached_name: String"),
             "wrapper struct must cache the plugin name"
         );
     }
@@ -666,11 +666,11 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            code.contains("impl my_lib::OcrBackend for ROcrBackendBridge"),
+            code.code.contains("impl my_lib::OcrBackend for ROcrBackendBridge"),
             "plugin bridge must implement the trait for the wrapper"
         );
         assert!(
-            code.contains("fn process("),
+            code.code.contains("fn process("),
             "trait impl must include all trait methods"
         );
     }
@@ -684,7 +684,7 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            code.contains("dollar(\"analyze\")"),
+            code.code.contains("dollar(\"analyze\")"),
             "sync method body must look up the R function via dollar()"
         );
     }
@@ -698,10 +698,13 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            code.contains("spawn_blocking"),
+            code.code.contains("spawn_blocking"),
             "async method body must use tokio::task::spawn_blocking"
         );
-        assert!(code.contains("async fn run("), "async method must be declared async");
+        assert!(
+            code.code.contains("async fn run("),
+            "async method must be declared async"
+        );
     }
 
     // ---- Plugin bridge: registration function ---
@@ -713,15 +716,15 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            code.contains("pub fn register_ocrbackend("),
+            code.code.contains("pub fn register_ocrbackend("),
             "registration fn must be generated with the configured name"
         );
         assert!(
-            code.contains("#[extendr]"),
+            code.code.contains("#[extendr]"),
             "registration fn must carry #[extendr] attribute"
         );
         assert!(
-            code.contains("my_lib::get_registry"),
+            code.code.contains("my_lib::get_registry"),
             "registration fn must call the configured registry getter"
         );
     }
@@ -741,11 +744,11 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            code.contains("\"transform\""),
+            code.code.contains("\"transform\""),
             "registration fn must validate required method 'transform' exists"
         );
         assert!(
-            code.contains("dollar(\"transform\")") || code.contains("\"transform\""),
+            code.code.contains("dollar(\"transform\")") || code.code.contains("\"transform\""),
             "constructor must check required methods via dollar()"
         );
     }
@@ -758,9 +761,12 @@ mod trait_bridge {
         let cfg = make_plugin_bridge_cfg("Worker");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
-        assert!(code.contains("cached_name"), "constructor must populate cached_name");
         assert!(
-            code.contains("dollar(\"name\")"),
+            code.code.contains("cached_name"),
+            "constructor must populate cached_name"
+        );
+        assert!(
+            code.code.contains("dollar(\"name\")"),
             "constructor must call dollar(\"name\") to cache the plugin name"
         );
     }
@@ -781,16 +787,16 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            code.contains("impl my_lib::Plugin for ROcrBackendBridge"),
+            code.code.contains("impl my_lib::Plugin for ROcrBackendBridge"),
             "must generate Plugin impl for bridge struct"
         );
-        assert!(code.contains("fn name(&self)"), "Plugin impl must include name()");
+        assert!(code.code.contains("fn name(&self)"), "Plugin impl must include name()");
         assert!(
-            code.contains("fn initialize(&self)"),
+            code.code.contains("fn initialize(&self)"),
             "Plugin impl must include initialize()"
         );
         assert!(
-            code.contains("fn shutdown(&self)"),
+            code.code.contains("fn shutdown(&self)"),
             "Plugin impl must include shutdown()"
         );
     }
@@ -807,7 +813,7 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            code.contains("pub struct RHtmlVisitorBridge"),
+            code.code.contains("pub struct RHtmlVisitorBridge"),
             "visitor bridge must produce RHtmlVisitorBridge struct"
         );
     }
@@ -822,7 +828,7 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            !code.contains("#[extendr]"),
+            !code.code.contains("#[extendr]"),
             "visitor bridge must not generate an extendr registration function"
         );
     }
@@ -837,7 +843,7 @@ mod trait_bridge {
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
         assert!(
-            code.contains("impl my_lib::HtmlVisitor for RHtmlVisitorBridge"),
+            code.code.contains("impl my_lib::HtmlVisitor for RHtmlVisitorBridge"),
             "visitor bridge must implement the trait"
         );
     }

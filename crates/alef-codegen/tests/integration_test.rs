@@ -2828,6 +2828,7 @@ fn test_trait_bridge_spec_wrapper_name() {
         core_import: "my_crate",
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     assert_eq!(spec.wrapper_name(), "PythonMyTraitBridge");
@@ -2843,6 +2844,7 @@ fn test_trait_bridge_spec_trait_snake() {
         core_import: "my_crate",
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     assert_eq!(spec.trait_snake(), "my_trait");
@@ -2858,6 +2860,7 @@ fn test_trait_bridge_spec_required_vs_optional_methods() {
         core_import: "my_crate",
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let required = spec.required_methods();
@@ -2879,6 +2882,7 @@ fn test_gen_bridge_wrapper_struct_contains_foreign_type_and_cached_name() {
         core_import: "my_crate",
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
     let generator = MockBridgeGenerator;
 
@@ -2905,6 +2909,7 @@ fn test_gen_bridge_trait_impl_generates_methods() {
         core_import: "my_crate",
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
     let generator = MockBridgeGenerator;
 
@@ -2929,30 +2934,31 @@ fn test_gen_bridge_all_includes_imports_struct_and_trait_impl() {
         core_import: "my_crate",
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
     let generator = MockBridgeGenerator;
 
     let result = gen_bridge_all(&spec, &generator);
 
     assert!(
-        result.contains("use mock::MockObject;"),
+        result.imports.contains(&"mock::MockObject".to_string()),
         "should include bridge imports"
     );
     assert!(
-        result.contains("pub struct PythonMyTraitBridge"),
+        result.code.contains("pub struct PythonMyTraitBridge"),
         "should have wrapper struct"
     );
     assert!(
-        result.contains("impl PythonMyTraitBridge {"),
+        result.code.contains("impl PythonMyTraitBridge {"),
         "should have constructor impl"
     );
     assert!(
-        result.contains("impl my_crate::MyTrait for PythonMyTraitBridge"),
+        result.code.contains("impl my_crate::MyTrait for PythonMyTraitBridge"),
         "should have trait impl"
     );
     // No register_fn configured, so registration function should be absent
     assert!(
-        !result.contains("pub fn register"),
+        !result.code.contains("pub fn register"),
         "should not have registration fn when not configured"
     );
 }
@@ -2974,13 +2980,14 @@ fn test_gen_bridge_all_includes_registration_fn_when_configured() {
         core_import: "my_crate",
         wrapper_prefix: "Python",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
     let generator = MockBridgeGenerator;
 
     let result = gen_bridge_all(&spec, &generator);
 
     assert!(
-        result.contains("pub fn register_my_trait"),
+        result.code.contains("pub fn register_my_trait"),
         "should include registration function when register_fn is set"
     );
 }

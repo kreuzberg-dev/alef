@@ -993,11 +993,11 @@ fn test_wasm_visitor_bridge_produces_visitor_struct() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("WasmHtmlVisitorBridge"),
+        code.code.contains("WasmHtmlVisitorBridge"),
         "WASM visitor bridge struct must be named Wasm{{TraitName}}Bridge"
     );
     assert!(
-        code.contains("impl my_lib::HtmlVisitor for WasmHtmlVisitorBridge"),
+        code.code.contains("impl my_lib::HtmlVisitor for WasmHtmlVisitorBridge"),
         "WASM visitor bridge must implement the trait"
     );
 }
@@ -1016,7 +1016,7 @@ fn test_wasm_visitor_bridge_has_js_obj_field() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("js_obj: wasm_bindgen::JsValue"),
+        code.code.contains("js_obj: wasm_bindgen::JsValue"),
         "WASM visitor bridge must store JsValue in a 'js_obj' field"
     );
 }
@@ -1035,15 +1035,15 @@ fn test_wasm_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("pub struct WasmOcrBackendBridge"),
+        code.code.contains("pub struct WasmOcrBackendBridge"),
         "WASM plugin bridge wrapper struct must be WasmOcrBackendBridge"
     );
     assert!(
-        code.contains("inner:"),
+        code.code.contains("inner:"),
         "WASM plugin bridge wrapper must have an 'inner' field"
     );
     assert!(
-        code.contains("cached_name: String"),
+        code.code.contains("cached_name: String"),
         "WASM plugin bridge wrapper must have a 'cached_name: String' field"
     );
 }
@@ -1062,12 +1062,18 @@ fn test_wasm_plugin_bridge_generates_super_trait_impl() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("impl my_lib::Plugin for WasmOcrBackendBridge"),
+        code.code.contains("impl my_lib::Plugin for WasmOcrBackendBridge"),
         "WASM plugin bridge must implement Plugin super-trait"
     );
-    assert!(code.contains("fn name("), "Plugin impl must contain name()");
-    assert!(code.contains("fn initialize("), "Plugin impl must contain initialize()");
-    assert!(code.contains("fn shutdown("), "Plugin impl must contain shutdown()");
+    assert!(code.code.contains("fn name("), "Plugin impl must contain name()");
+    assert!(
+        code.code.contains("fn initialize("),
+        "Plugin impl must contain initialize()"
+    );
+    assert!(
+        code.code.contains("fn shutdown("),
+        "Plugin impl must contain shutdown()"
+    );
 }
 
 #[test]
@@ -1084,11 +1090,11 @@ fn test_wasm_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("impl my_lib::OcrBackend for WasmOcrBackendBridge"),
+        code.code.contains("impl my_lib::OcrBackend for WasmOcrBackendBridge"),
         "WASM plugin bridge must implement the trait itself"
     );
     assert!(
-        code.contains("fn process("),
+        code.code.contains("fn process("),
         "trait impl must forward the 'process' method"
     );
 }
@@ -1107,11 +1113,11 @@ fn test_wasm_plugin_bridge_generates_registration_fn_with_wasm_bindgen_attribute
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("#[wasm_bindgen]"),
+        code.code.contains("#[wasm_bindgen]"),
         "WASM registration function must carry the #[wasm_bindgen] attribute"
     );
     assert!(
-        code.contains("pub fn register_ocrbackend("),
+        code.code.contains("pub fn register_ocrbackend("),
         "WASM registration function must use the configured name"
     );
 }
@@ -1141,7 +1147,7 @@ fn test_wasm_plugin_bridge_validates_required_methods() {
 
     // Registration fn must check for the required camelCase method "analyze"
     assert!(
-        code.contains("\"analyze\""),
+        code.code.contains("\"analyze\""),
         "WASM registration fn must validate required method 'analyze'"
     );
 }
@@ -1157,7 +1163,7 @@ fn test_wasm_sync_method_body_uses_js_sys_reflect() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("js_sys::Reflect"),
+        code.code.contains("js_sys::Reflect"),
         "WASM sync method body must use js_sys::Reflect to look up JS methods"
     );
 }
@@ -1173,7 +1179,7 @@ fn test_wasm_async_method_body_uses_box_pin() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("Box::pin(async move"),
+        code.code.contains("Box::pin(async move"),
         "WASM async method body must return Box::pin(async move {{ ... }})"
     );
 }

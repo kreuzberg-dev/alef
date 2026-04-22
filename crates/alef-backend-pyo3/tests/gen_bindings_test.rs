@@ -1492,6 +1492,7 @@ fn make_bridge_generator(core_import: &str) -> Pyo3BridgeGenerator {
     Pyo3BridgeGenerator {
         core_import: core_import.to_string(),
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     }
 }
 
@@ -1532,6 +1533,7 @@ fn test_gen_sync_method_body_unit_return_no_error() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let method = make_method_def("tick", vec![], TypeRef::Unit, false, false, false);
@@ -1559,6 +1561,7 @@ fn test_gen_sync_method_body_string_return_no_error() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let method = make_method_def("name", vec![], TypeRef::String, false, false, false);
@@ -1583,6 +1586,7 @@ fn test_gen_sync_method_body_with_params_uses_call_method1() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let method = make_method_def(
@@ -1612,6 +1616,7 @@ fn test_gen_sync_method_body_with_error_uses_map_err() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let method = make_method_def("run", vec![], TypeRef::Unit, false, true, false);
@@ -1642,6 +1647,7 @@ fn test_gen_async_method_body_uses_spawn_blocking() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let method = make_method_def("fetch", vec![], TypeRef::String, true, true, false);
@@ -1672,6 +1678,7 @@ fn test_gen_async_method_body_clones_ref_params() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let method = make_method_def(
@@ -1702,6 +1709,7 @@ fn test_gen_async_method_body_unit_return() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let method = make_method_def("shutdown", vec![], TypeRef::Unit, true, true, false);
@@ -1740,6 +1748,7 @@ fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let out = generator.gen_registration_fn(&spec);
@@ -1769,6 +1778,7 @@ fn test_gen_registration_fn_validates_required_methods() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let out = generator.gen_registration_fn(&spec);
@@ -1816,6 +1826,7 @@ fn test_gen_registration_fn_calls_registry_getter() {
         core_import: "my_lib",
         wrapper_prefix: "Py",
         type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
     };
 
     let out = generator.gen_registration_fn(&spec);
@@ -1854,16 +1865,19 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
-    assert!(!code.is_empty(), "gen_trait_bridge must produce non-empty output");
+    assert!(!code.code.is_empty(), "gen_trait_bridge must produce non-empty output");
     assert!(
-        code.contains("PyOcrBackendBridge"),
+        code.code.contains("PyOcrBackendBridge"),
         "output should define the bridge wrapper struct"
     );
     assert!(
-        code.contains("use pyo3::prelude::*"),
+        code.imports.iter().any(|i| i.contains("pyo3::prelude")),
         "output should import pyo3 prelude"
     );
-    assert!(code.contains("fn process"), "output should include the trait method");
+    assert!(
+        code.code.contains("fn process"),
+        "output should include the trait method"
+    );
 }
 
 #[test]
@@ -1884,11 +1898,11 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
 
     // The wrapper struct must hold the Python object and a cached name field
     assert!(
-        code.contains("inner: Py<PyAny>"),
+        code.code.contains("inner: Py<PyAny>"),
         "wrapper struct must hold inner Py<PyAny>"
     );
     assert!(
-        code.contains("cached_name: String"),
+        code.code.contains("cached_name: String"),
         "wrapper struct must hold cached_name"
     );
 }
@@ -1910,11 +1924,11 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
     assert!(
-        code.contains("fn register_inference_backend"),
+        code.code.contains("fn register_inference_backend"),
         "should generate registration function with configured name"
     );
     assert!(
-        code.contains("#[pyfunction]"),
+        code.code.contains("#[pyfunction]"),
         "registration function should carry #[pyfunction] attribute"
     );
 }
@@ -1948,24 +1962,24 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", &api);
 
-    assert!(!code.is_empty(), "output must not be empty");
+    assert!(!code.code.is_empty(), "output must not be empty");
     // Sync method body uses Python::attach (no spawn_blocking)
     assert!(
-        code.contains("fn validate"),
+        code.code.contains("fn validate"),
         "sync method should be present in trait impl"
     );
     // Async method body uses spawn_blocking
     assert!(
-        code.contains("fn process"),
+        code.code.contains("fn process"),
         "async method should be present in trait impl"
     );
     assert!(
-        code.contains("spawn_blocking"),
+        code.code.contains("spawn_blocking"),
         "async method body should use spawn_blocking"
     );
     // Both methods are required — registration fn should validate both
     assert!(
-        code.contains("\"validate\"") || code.contains("\"process\""),
+        code.code.contains("\"validate\"") || code.code.contains("\"process\""),
         "registration fn should validate required method names"
     );
 }

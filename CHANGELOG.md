@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-04-22
+
+### Added
+
+- CLI: `alef version` command and `alef --version` flag
+- Scaffold: generate `py.typed` marker for Python, `Steepfile` for Ruby, `.d.ts` barrel for TypeScript
+- Test coverage: ~500 new tests across alef-docs, alef-codegen, alef-extract, alef-readme, and all backends
+
+### Fixed
+
+- Adapters: streaming body fixes for all backends, core type let bindings
+- Magnus: use snake_case for Ruby file paths in `generate_public_api`
+- Scaffold: use snake_case for Ruby file paths regardless of `gem_name`
+- Go: remove colons from Go parameter syntax in trait bridge
+- Fix `error_type` field propagation across all test initializers
+
 ## [0.5.2] - 2026-04-22
 
 ### Added

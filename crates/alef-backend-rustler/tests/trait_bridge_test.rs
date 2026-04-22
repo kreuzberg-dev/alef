@@ -113,15 +113,15 @@ fn test_plugin_bridge_generates_wrapper_struct() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("pub struct RustlerOcrBackendBridge"),
+        code.code.contains("pub struct RustlerOcrBackendBridge"),
         "plugin bridge must generate RustlerOcrBackendBridge wrapper struct"
     );
     assert!(
-        code.contains("inner: rustler::SavedTerm"),
+        code.code.contains("inner: rustler::SavedTerm"),
         "wrapper struct must hold a rustler::SavedTerm"
     );
     assert!(
-        code.contains("cached_name: String"),
+        code.code.contains("cached_name: String"),
         "wrapper struct must cache the plugin name"
     );
 }
@@ -137,11 +137,12 @@ fn test_plugin_bridge_generates_trait_impl() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("impl my_lib::OcrBackend for RustlerOcrBackendBridge"),
+        code.code
+            .contains("impl my_lib::OcrBackend for RustlerOcrBackendBridge"),
         "plugin bridge must implement the trait for the wrapper"
     );
     assert!(
-        code.contains("fn process("),
+        code.code.contains("fn process("),
         "trait impl must include all trait methods"
     );
 }
@@ -157,11 +158,11 @@ fn test_plugin_bridge_sync_method_uses_owned_env_and_map_get() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("\"analyze\""),
+        code.code.contains("\"analyze\""),
         "sync method body must reference the method name 'analyze'"
     );
     assert!(
-        code.contains("map_get") || code.contains("self.env.run"),
+        code.code.contains("map_get") || code.code.contains("self.env.run"),
         "sync method body must dispatch via OwnedEnv or map_get"
     );
 }
@@ -177,10 +178,13 @@ fn test_plugin_bridge_async_method_uses_spawn_blocking() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("spawn_blocking"),
+        code.code.contains("spawn_blocking"),
         "async method body must use tokio::task::spawn_blocking"
     );
-    assert!(code.contains("async fn run("), "async method must be declared async");
+    assert!(
+        code.code.contains("async fn run("),
+        "async method must be declared async"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -194,15 +198,15 @@ fn test_plugin_bridge_generates_registration_fn() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("pub fn register_ocrbackend("),
+        code.code.contains("pub fn register_ocrbackend("),
         "registration fn must be generated with the configured name"
     );
     assert!(
-        code.contains("#[rustler::nif]"),
+        code.code.contains("#[rustler::nif]"),
         "registration fn must carry #[rustler::nif] attribute"
     );
     assert!(
-        code.contains("my_lib::get_registry"),
+        code.code.contains("my_lib::get_registry"),
         "registration fn must call the configured registry getter"
     );
 }
@@ -224,7 +228,7 @@ fn test_plugin_bridge_registration_validates_required_methods() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("\"transform\""),
+        code.code.contains("\"transform\""),
         "registration fn must check for required method 'transform'"
     );
 }
@@ -239,9 +243,12 @@ fn test_plugin_bridge_constructor_caches_name() {
     let cfg = make_plugin_bridge_cfg("Worker");
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
-    assert!(code.contains("cached_name"), "constructor must populate cached_name");
     assert!(
-        code.contains("OwnedEnv") || code.contains("owned"),
+        code.code.contains("cached_name"),
+        "constructor must populate cached_name"
+    );
+    assert!(
+        code.code.contains("OwnedEnv") || code.code.contains("owned"),
         "constructor must create an OwnedEnv to extend term lifetime"
     );
 }
@@ -264,16 +271,16 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("impl my_lib::Plugin for RustlerOcrBackendBridge"),
+        code.code.contains("impl my_lib::Plugin for RustlerOcrBackendBridge"),
         "must generate Plugin impl for bridge struct"
     );
-    assert!(code.contains("fn name(&self)"), "Plugin impl must include name()");
+    assert!(code.code.contains("fn name(&self)"), "Plugin impl must include name()");
     assert!(
-        code.contains("fn initialize(&self)"),
+        code.code.contains("fn initialize(&self)"),
         "Plugin impl must include initialize()"
     );
     assert!(
-        code.contains("fn shutdown(&self)"),
+        code.code.contains("fn shutdown(&self)"),
         "Plugin impl must include shutdown()"
     );
 }
@@ -292,7 +299,7 @@ fn test_visitor_bridge_generates_elixir_bridge_struct() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("pub struct ElixirHtmlVisitorBridge"),
+        code.code.contains("pub struct ElixirHtmlVisitorBridge"),
         "visitor bridge must produce ElixirHtmlVisitorBridge struct"
     );
 }
@@ -307,7 +314,7 @@ fn test_visitor_bridge_does_not_generate_registration_fn() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        !code.contains("#[rustler::nif]"),
+        !code.code.contains("#[rustler::nif]"),
         "visitor bridge must not generate a rustler::nif registration function"
     );
 }
@@ -322,7 +329,8 @@ fn test_visitor_bridge_generates_trait_impl() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("impl my_lib::HtmlVisitor for ElixirHtmlVisitorBridge"),
+        code.code
+            .contains("impl my_lib::HtmlVisitor for ElixirHtmlVisitorBridge"),
         "visitor bridge must implement the trait"
     );
 }
@@ -337,11 +345,11 @@ fn test_visitor_bridge_holds_owned_env_and_saved_term() {
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", &make_api());
 
     assert!(
-        code.contains("rustler::OwnedEnv"),
+        code.code.contains("rustler::OwnedEnv"),
         "visitor bridge struct must hold a rustler::OwnedEnv"
     );
     assert!(
-        code.contains("rustler::SavedTerm"),
+        code.code.contains("rustler::SavedTerm"),
         "visitor bridge struct must hold a rustler::SavedTerm"
     );
 }
