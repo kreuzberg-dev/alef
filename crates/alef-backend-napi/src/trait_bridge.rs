@@ -49,13 +49,8 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         .ok();
         writeln!(out, "    Ok(f) => f,").ok();
         if has_error {
-            writeln!(out, "    Err(e) => return Err({}::new(", spec.error_path()).ok();
-            writeln!(
-                out,
-                "        format!(\"Method '{{}}' not found on bridge object: {{}}\", self.cached_name, e)"
-            )
-            .ok();
-            writeln!(out, "    )),").ok();
+            let err = spec.make_error("format!(\"Method '{{}}' not found on bridge object: {{}}\", self.cached_name, e)");
+            writeln!(out, "    Err(e) => return Err({err}),").ok();
         } else {
             writeln!(out, "    Err(_) => return Default::default(),").ok();
         }
@@ -81,13 +76,8 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         // Parse result
         writeln!(out, "match result {{").ok();
         if has_error {
-            writeln!(out, "    Err(e) => Err({}::new(", spec.error_path()).ok();
-            writeln!(
-                out,
-                "        format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)"
-            )
-            .ok();
-            writeln!(out, "    )),").ok();
+            let err = spec.make_error("format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", self.cached_name, e)");
+            writeln!(out, "    Err(e) => Err({err}),").ok();
         } else {
             writeln!(out, "    Err(_) => Ok(Default::default()),").ok();
         }
@@ -97,13 +87,8 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         } else {
             writeln!(out, "        // Convert JS value to Rust type").ok();
             writeln!(out, "        extract_napi_value(&val).map_err(|e| {{").ok();
-            writeln!(out, "            {}::new(", spec.error_path()).ok();
-            writeln!(
-                out,
-                "                format!(\"Failed to extract return value from method '{name}': {{}}\", e)"
-            )
-            .ok();
-            writeln!(out, "            )").ok();
+            let err = spec.make_error("format!(\"Failed to extract return value from method '{name}': {{}}\", e)");
+            writeln!(out, "            {err}").ok();
             writeln!(out, "        }})").ok();
         }
         writeln!(out, "    }}").ok();
@@ -130,13 +115,8 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "    Ok(f) => f,").ok();
         writeln!(out, "    Err(e) => {{").ok();
         writeln!(out, "        return Box::pin(async move {{").ok();
-        writeln!(out, "            Err({}::new(", spec.error_path()).ok();
-        writeln!(
-            out,
-            "                format!(\"Method '{{}}' not found on bridge object: {{}}\", cached_name, e)"
-        )
-        .ok();
-        writeln!(out, "            ))").ok();
+        let err = spec.make_error("format!(\"Method '{{}}' not found on bridge object: {{}}\", cached_name, e)");
+        writeln!(out, "            Err({err})").ok();
         writeln!(out, "        }});").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "}};").ok();
@@ -160,25 +140,15 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
 
         writeln!(out, "    let result = func.call({tuple_str});").ok();
         writeln!(out, "    match result {{").ok();
-        writeln!(out, "        Err(e) => Err({}::new(", spec.error_path()).ok();
-        writeln!(
-            out,
-            "            format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)"
-        )
-        .ok();
-        writeln!(out, "        )),").ok();
+        let err = spec.make_error("format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e)");
+        writeln!(out, "        Err(e) => Err({err}),").ok();
         writeln!(out, "        Ok(val) => {{").ok();
         if matches!(method.return_type, TypeRef::Unit) {
             writeln!(out, "            Ok(())").ok();
         } else {
             writeln!(out, "            extract_napi_value(&val).map_err(|e| {{").ok();
-            writeln!(out, "                {}::new(", spec.error_path()).ok();
-            writeln!(
-                out,
-                "                    format!(\"Failed to extract return value from method '{name}': {{}}\", e)"
-            )
-            .ok();
-            writeln!(out, "                )").ok();
+            let err = spec.make_error("format!(\"Failed to extract return value from method '{name}': {{}}\", e)");
+            writeln!(out, "                {err}").ok();
             writeln!(out, "            }})").ok();
         }
         writeln!(out, "        }}").ok();
@@ -305,6 +275,7 @@ pub fn gen_trait_bridge(
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
     error_type: &str,
+    error_constructor: &str,
     api: &ApiSurface,
 ) -> BridgeOutput {
     // Build type name → rust_path lookup (converted to String-owned HashMap)
@@ -351,6 +322,7 @@ pub fn gen_trait_bridge(
             wrapper_prefix: "Js",
             type_paths,
             error_type: error_type.to_string(),
+            error_constructor: error_constructor.to_string(),
         };
         gen_bridge_all(&spec, &generator)
     }

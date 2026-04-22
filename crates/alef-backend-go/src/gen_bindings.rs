@@ -176,22 +176,26 @@ impl Backend for GoBackend {
                 generated_header: true,
             });
 
-            // Generate trait_bridges.go for plugin bridge support
-            let trait_bridges_content = strip_trailing_whitespace(&super::trait_bridge::gen_trait_bridges_file(
-                api,
-                config,
-                &pkg_name,
-                &ffi_prefix,
-                &ffi_header,
-                &ffi_crate_dir,
-                &to_root,
-            ));
-            if !trait_bridges_content.trim().is_empty() && trait_bridges_content.len() > 100 {
-                files.push(GeneratedFile {
-                    path: PathBuf::from(&output_dir).join("trait_bridges.go"),
-                    content: trait_bridges_content,
-                    generated_header: true,
-                });
+            // Generate trait_bridges.go only for plugin-style bridges that have a register_fn.
+            // Per-call bridges (no register_fn) use visitor.go callbacks via convert() instead.
+            let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
+            if has_plugin_bridges {
+                let trait_bridges_content = strip_trailing_whitespace(&super::trait_bridge::gen_trait_bridges_file(
+                    api,
+                    config,
+                    &pkg_name,
+                    &ffi_prefix,
+                    &ffi_header,
+                    &ffi_crate_dir,
+                    &to_root,
+                ));
+                if !trait_bridges_content.trim().is_empty() && trait_bridges_content.len() > 100 {
+                    files.push(GeneratedFile {
+                        path: PathBuf::from(&output_dir).join("trait_bridges.go"),
+                        content: trait_bridges_content,
+                        generated_header: true,
+                    });
+                }
             }
         }
 
@@ -329,8 +333,16 @@ fn gen_go_file(
         .map(|t| t.name.as_str())
         .collect();
 
+    // When a visitor bridge is active, visitor.go defines NodeContext and VisitResult
+    // with FFI-compatible fields. Skip them in binding.go to avoid redeclarations.
+    let visitor_types: std::collections::HashSet<&str> = if !bridge_param_names.is_empty() {
+        ["NodeContext", "VisitResult"].into_iter().collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
     // Generate struct types
-    for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+    for typ in api.types.iter().filter(|typ| !typ.is_trait && !visitor_types.contains(typ.name.as_str())) {
         if typ.is_opaque {
             // If an error type has the same name as this opaque type, the structured error
             // struct was already emitted by gen_go_error_types. Skip the duplicate struct
