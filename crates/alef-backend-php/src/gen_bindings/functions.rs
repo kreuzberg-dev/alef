@@ -51,6 +51,109 @@ fn apply_bridge_none_substitutions(call_args: &str, func: &FunctionDef, bridge_n
         .collect();
     result.join(", ")
 }
+
+/// Returns true if any Named (non-opaque) param with `is_ref=true` is present.
+/// These are the params that would fail the `.clone().into()` path when no `From` impl exists,
+/// and for which the serde round-trip is a viable recovery path.
+fn has_ref_named_params(params: &[alef_core::ir::ParamDef], opaque_types: &AHashSet<String>) -> bool {
+    params.iter().any(|p| {
+        p.is_ref && matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
+    })
+}
+
+/// Generate serde-based let bindings for Named (non-opaque) params that have `is_ref=true`.
+/// These replace the `.clone().into()` bindings when no `From` impl is available.
+/// The round-trip works because PHP binding types derive `Serialize` and core types derive
+/// `Deserialize`.
+fn gen_php_serde_let_bindings(
+    params: &[alef_core::ir::ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    for p in params {
+        match &p.ty {
+            TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
+                if p.is_ref {
+                    // Serde round-trip: binding type → JSON → core type.
+                    // Errors are surfaced as a String since the surrounding context uses `?`.
+                    if p.optional {
+                        writeln!(
+                            out,
+                            "let {name}_core: Option<{core_import}::{name}> = {name}.as_ref().map(|v| {{\n                                 let _json = serde_json::to_string(v).map_err(|e| format!("{{{{e}}}}"))?;\n                                 serde_json::from_str::<{core_import}::{name}>(&_json).map_err(|e| format!("{{{{e}}}}"))\n                             }}).transpose()?;",
+                            name = p.name,
+                            core_import = core_import,
+                        )
+                        .ok();
+                    } else {
+                        writeln!(
+                            out,
+                            "let {name}_json = serde_json::to_string(&{name}).map_err(|e| format!("{{e}}"))?;\nlet {name}_core: {core_import}::{name} = serde_json::from_str(&{name}_json).map_err(|e| format!("{{e}}"))?;",
+                            name = p.name,
+                            core_import = core_import,
+                        )
+                        .ok();
+                    }
+                } else {
+                    // Non-ref Named: use the standard .clone().into() path.
+                    if p.optional {
+                        writeln!(
+                            out,
+                            "let {name}_core: Option<{core_import}::{name}> = {name}.map(|v| v.clone().into());",
+                            name = p.name,
+                            core_import = core_import,
+                        )
+                        .ok();
+                    } else {
+                        writeln!(
+                            out,
+                            "let {name}_core: {core_import}::{name} = {name}.clone().into();",
+                            name = p.name,
+                            core_import = core_import,
+                        )
+                        .ok();
+                    }
+                }
+            }
+            TypeRef::Vec(inner) => {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    if !opaque_types.contains(name.as_str()) {
+                        if p.optional {
+                            writeln!(
+                                out,
+                                "let {pname}_core: Option<Vec<{core_import}::{name}>> = {pname}.as_ref().map(|v| v.iter().map(|x| x.clone().into()).collect());",
+                                pname = p.name,
+                                name = name,
+                                core_import = core_import,
+                            )
+                            .ok();
+                        } else {
+                            writeln!(
+                                out,
+                                "let {pname}_core: Vec<{core_import}::{name}> = {pname}.iter().map(|x| x.clone().into()).collect();",
+                                pname = p.name,
+                                name = name,
+                                core_import = core_import,
+                            )
+                            .ok();
+                        }
+                    }
+                } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
+                    writeln!(
+                        out,
+                        "let {pname}_refs: Vec<&str> = {pname}.iter().map(|s| s.as_str()).collect();",
+                        pname = p.name,
+                    )
+                    .ok();
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Generate an instance method binding for an opaque struct.
 pub(crate) fn gen_instance_method(
     method: &MethodDef,
@@ -380,8 +483,9 @@ pub(crate) fn gen_function_as_static_method(
     opaque_types: &AHashSet<String>,
     core_import: &str,
     bridges: &[TraitBridgeConfig],
+    has_serde: bool,
 ) -> String {
-    let body = gen_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges);
+    let body = gen_function_body(func, opaque_types, core_import, &mapper.enum_names, bridges, has_serde);
     let bridge_names = bridge_param_names(bridges);
     let visible_params: Vec<_> = func
         .params
@@ -418,6 +522,7 @@ fn gen_function_body(
     core_import: &str,
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
+    has_serde: bool,
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
@@ -476,8 +581,14 @@ fn gen_function_body(
         // stub — consistent with the pyo3 and napi backends.
         gen_php_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     } else {
-        // Not auto-delegatable but try serde-based conversion
-        let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
+        // Not auto-delegatable: use serde round-trip for Named params with is_ref=true when
+        // serde is available (avoids the missing From<BindingType> for core type compile error),
+        // otherwise fall back to the .clone().into() let-binding path.
+        let let_bindings = if has_serde && has_ref_named_params(&func.params, opaque_types) {
+            gen_php_serde_let_bindings(&func.params, opaque_types, core_import)
+        } else {
+            gen_php_named_let_bindings(&func.params, opaque_types, core_import)
+        };
         let raw_call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
@@ -699,16 +810,17 @@ pub(crate) fn gen_async_static_method(
         method.error_type.is_some(),
     );
 
+    let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
         format!(
-            "pub fn {}_async() -> {return_annotation} {{\n    \
+            "pub fn {}_async(){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
         )
     } else {
         format!(
-            "pub fn {}_async({params}) -> {return_annotation} {{\n    \
+            "pub fn {}_async({params}){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name

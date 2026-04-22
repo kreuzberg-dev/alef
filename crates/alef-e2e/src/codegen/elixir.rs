@@ -3,7 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_elixir, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use anyhow::Result;
@@ -86,10 +86,13 @@ impl E2eCodegen for ElixirCodegen {
             .cloned()
             .unwrap_or_else(|| "0.1.0".to_string());
 
+        // Check if any fixture in any group is an HTTP test.
+        let has_http_tests = groups.iter().any(|g| g.fixtures.iter().any(|f| f.is_http_test()));
+
         // Generate mix.exs.
         files.push(GeneratedFile {
             path: output_base.join("mix.exs"),
-            content: render_mix_exs(&dep_atom, &pkg_path, &dep_version, e2e_config.dep_mode),
+            content: render_mix_exs(&dep_atom, &pkg_path, &dep_version, e2e_config.dep_mode, has_http_tests),
             generated_header: false,
         });
 
@@ -160,6 +163,7 @@ fn render_mix_exs(
     pkg_path: &str,
     dep_version: &str,
     dep_mode: crate::config::DependencyMode,
+    has_http_tests: bool,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "defmodule E2eElixir.MixProject do");
@@ -186,6 +190,10 @@ fn render_mix_exs(
         }
     };
     let _ = writeln!(out, "{dep_line}");
+    if has_http_tests {
+        let _ = writeln!(out, "      {{:req, \"~> 0.5\"}}");
+        let _ = writeln!(out, "      {{:jason, \"~> 1.4\"}}");
+    }
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  end");
     let _ = writeln!(out, "end");
@@ -212,23 +220,41 @@ fn render_test_file(
     let _ = writeln!(out, "# E2e tests for category: {category}");
     let _ = writeln!(out, "defmodule E2e.{}Test do", elixir_module_name(category));
     let _ = writeln!(out, "  use ExUnit.Case, async: true");
+
+    // Add client helper when there are HTTP fixtures in this group.
+    let has_http = fixtures.iter().any(|f| f.is_http_test());
+    if has_http {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "  defp base_url do");
+        let _ = writeln!(out, "    System.get_env(\"TEST_SERVER_URL\") || \"http://localhost:8080\"");
+        let _ = writeln!(out, "  end");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "  defp client do");
+        let _ = writeln!(out, "    Req.new(base_url: base_url())");
+        let _ = writeln!(out, "  end");
+    }
+
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_case(
-            &mut out,
-            fixture,
-            module_path,
-            function_name,
-            result_var,
-            args,
-            field_resolver,
-            options_type,
-            options_default_fn,
-            enum_fields,
-            handle_struct_type,
-            handle_atom_list_fields,
-        );
+        if let Some(http) = &fixture.http {
+            render_http_test_case(&mut out, fixture, http);
+        } else {
+            render_test_case(
+                &mut out,
+                fixture,
+                module_path,
+                function_name,
+                result_var,
+                args,
+                field_resolver,
+                options_type,
+                options_default_fn,
+                enum_fields,
+                handle_struct_type,
+                handle_atom_list_fields,
+            );
+        }
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -237,6 +263,162 @@ fn render_test_file(
     let _ = writeln!(out, "end");
     out
 }
+
+// ---------------------------------------------------------------------------
+// HTTP test rendering
+// ---------------------------------------------------------------------------
+
+/// Render an ExUnit `describe` + `test` block for an HTTP server test fixture.
+fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    let test_name = sanitize_ident(&fixture.id);
+    let description = fixture.description.replace('"', "\\\"");
+    let method = http.request.method.to_uppercase();
+    let path = &http.request.path;
+
+    let _ = writeln!(out, "  describe \"{test_name}\" do");
+    let _ = writeln!(out, "    test \"{method} {path} - {description}\" do");
+
+    // Build request.
+    render_elixir_http_request(out, &http.request);
+
+    // Assert status.
+    let status = http.expected_response.status_code;
+    let _ = writeln!(out, "      assert response.status == {status}");
+
+    // Assert body.
+    render_elixir_body_assertions(out, &http.expected_response);
+
+    // Assert headers.
+    render_elixir_header_assertions(out, &http.expected_response);
+
+    let _ = writeln!(out, "    end");
+    let _ = writeln!(out, "  end");
+}
+
+/// Emit Req request lines inside an ExUnit test.
+fn render_elixir_http_request(out: &mut String, req: &HttpRequest) {
+    let method = req.method.to_lowercase();
+
+    let mut opts: Vec<String> = Vec::new();
+
+    if let Some(body) = &req.body {
+        let elixir_val = json_to_elixir(body);
+        opts.push(format!("json: {elixir_val}"));
+    }
+
+    if !req.headers.is_empty() {
+        let header_pairs: Vec<String> = req
+            .headers
+            .iter()
+            .map(|(k, v)| format!("{{\"{}\", \"{}\"}}", escape_elixir(k), escape_elixir(v)))
+            .collect();
+        opts.push(format!("headers: [{}]", header_pairs.join(", ")));
+    }
+
+    if !req.cookies.is_empty() {
+        let cookie_str = req
+            .cookies
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join("; ");
+        opts.push(format!("headers: [{{\"cookie\", \"{}\"}}]", escape_elixir(&cookie_str)));
+    }
+
+    if !req.query_params.is_empty() {
+        let pairs: Vec<String> = req
+            .query_params
+            .iter()
+            .map(|(k, v)| {
+                let val_str = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                format!("{{\"{}\", \"{}\"}}", escape_elixir(k), escape_elixir(&val_str))
+            })
+            .collect();
+        opts.push(format!("params: [{}]", pairs.join(", ")));
+    }
+
+    let path_lit = format!("\"{}\"", escape_elixir(&req.path));
+    if opts.is_empty() {
+        let _ = writeln!(out, "      {{:ok, response}} = Req.{method}(client(), url: {path_lit})");
+    } else {
+        let opts_str = opts.join(", ");
+        let _ = writeln!(
+            out,
+            "      {{:ok, response}} = Req.{method}(client(), url: {path_lit}, {opts_str})"
+        );
+    }
+}
+
+/// Emit body assertions for an HTTP expected response.
+fn render_elixir_body_assertions(out: &mut String, expected: &HttpExpectedResponse) {
+    if let Some(body) = &expected.body {
+        let elixir_val = json_to_elixir(body);
+        let _ = writeln!(out, "      assert Jason.decode!(response.body) == {elixir_val}");
+    }
+    if let Some(partial) = &expected.body_partial {
+        if let Some(obj) = partial.as_object() {
+            let _ = writeln!(out, "      decoded_body = Jason.decode!(response.body)");
+            for (key, val) in obj {
+                let key_lit = format!("\"{}\"", escape_elixir(key));
+                let elixir_val = json_to_elixir(val);
+                let _ = writeln!(out, "      assert decoded_body[{key_lit}] == {elixir_val}");
+            }
+        }
+    }
+    if let Some(errors) = &expected.validation_errors {
+        for err in errors {
+            let msg_lit = format!("\"{}\"", escape_elixir(&err.msg));
+            let _ = writeln!(
+                out,
+                "      assert String.contains?(Jason.encode!(response.body), {msg_lit})"
+            );
+        }
+    }
+}
+
+/// Emit header assertions for an HTTP expected response.
+///
+/// Special tokens:
+/// - `"<<present>>"` — assert the header key exists
+/// - `"<<absent>>"` — assert the header key is absent
+/// - `"<<uuid>>"` — assert the header value matches a UUID regex
+fn render_elixir_header_assertions(out: &mut String, expected: &HttpExpectedResponse) {
+    for (name, value) in &expected.headers {
+        let header_key = name.to_lowercase();
+        let key_lit = format!("\"{}\"", escape_elixir(&header_key));
+        // Req stores response headers as a list of {name, value} tuples.
+        let get_header_expr = format!(
+            "Enum.find_value(response.headers, fn {{k, v}} -> if String.downcase(k) == {key_lit}, do: v end)"
+        );
+        match value.as_str() {
+            "<<present>>" => {
+                let _ = writeln!(out, "      assert {get_header_expr} != nil");
+            }
+            "<<absent>>" => {
+                let _ = writeln!(out, "      assert {get_header_expr} == nil");
+            }
+            "<<uuid>>" => {
+                let _ = writeln!(out, "      header_val_{} = {get_header_expr}", sanitize_ident(&header_key));
+                let _ = writeln!(
+                    out,
+                    "      assert Regex.match?(~r/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/i, to_string(header_val_{}))",
+                    sanitize_ident(&header_key)
+                );
+            }
+            literal => {
+                let val_lit = format!("\"{}\"", escape_elixir(literal));
+                let _ = writeln!(out, "      assert {get_header_expr} == {val_lit}");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Function-call test rendering
+// ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
 fn render_test_case(

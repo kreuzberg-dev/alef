@@ -270,6 +270,7 @@ impl Backend for PhpBackend {
                         &opaque_types,
                         &core_import,
                         &config.trait_bridges,
+                        has_serde,
                     ));
                 }
             }
