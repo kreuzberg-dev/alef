@@ -16,18 +16,11 @@ allow = [
   "MIT",
   "MIT-0",
   "BSD-2-Clause",
-  "BSD-3-Clause",
-  "ISC",
   "Zlib",
   "Unlicense",
   "CC0-1.0",
-  "CDLA-Permissive-2.0",
   "Unicode-3.0",
-  "Unicode-DFS-2016",
-  "bzip2-1.0.6",
   "BSL-1.0",
-  "OpenSSL",
-  "NCSA",
 ]
 confidence-threshold = 0.8
 
@@ -41,6 +34,12 @@ wildcards = "allow"
 highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"
+
+# hashbrown 0.16 (via referencing/jsonschema) and 0.17 (via indexmap/serde_yaml)
+# coexist as transitive deps — can't resolve without upstream changes.
+skip = [
+  { crate = "hashbrown@0.16", reason = "transitive via referencing/jsonschema" },
+]
 allow = []
 deny = []
 skip = []
