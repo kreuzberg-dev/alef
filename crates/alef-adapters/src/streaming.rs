@@ -130,15 +130,24 @@ fn gen_python_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
 // Node (NAPI)
 // ---------------------------------------------------------------------------
 
-fn gen_node_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Option<String>) {
+fn gen_node_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let core_import = config.core_import();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
 
+    let let_bindings = core_let_bindings(adapter, &core_import);
+    let bindings_block = if let_bindings.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", let_bindings.join("\n    "))
+    };
+
     let body = format!(
         "use futures::StreamExt;\n    \
+         {bindings_block}\
          let stream = self.inner.{core_path}({call_str});\n    \
          let chunks: Vec<_> = stream\n        \
              .map(|r| r.map({item_type}::from))\n        \
@@ -156,17 +165,26 @@ fn gen_node_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Opti
 // Ruby (Magnus)
 // ---------------------------------------------------------------------------
 
-fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Option<String>) {
+fn gen_ruby_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let core_import = config.core_import();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
+
+    let let_bindings = core_let_bindings(adapter, &core_import);
+    let bindings_block = if let_bindings.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", let_bindings.join("\n    "))
+    };
 
     let body = format!(
         "use futures::StreamExt;\n    \
          let rt = tokio::runtime::Runtime::new()\n        \
              .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
+         {bindings_block}\
          let stream = self.inner.{core_path}({call_str});\n    \
          rt.block_on(async {{\n        \
              stream\n            \
@@ -185,15 +203,24 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Opti
 // PHP (ext-php-rs)
 // ---------------------------------------------------------------------------
 
-fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Option<String>) {
+fn gen_php_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let core_import = config.core_import();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
 
+    let let_bindings = core_let_bindings(adapter, &core_import);
+    let bindings_block = if let_bindings.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", let_bindings.join("\n    "))
+    };
+
     let body = format!(
         "use futures::StreamExt;\n    \
+         {bindings_block}\
          WORKER_RUNTIME.block_on(async {{\n        \
              let stream = self.inner.{core_path}({call_str});\n        \
              stream\n            \
@@ -212,16 +239,25 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Optio
 // Elixir (Rustler)
 // ---------------------------------------------------------------------------
 
-fn gen_elixir_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Option<String>) {
+fn gen_elixir_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
+    let core_import = config.core_import();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
 
+    let let_bindings = core_let_bindings(adapter, &core_import);
+    let bindings_block = if let_bindings.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", let_bindings.join("\n    "))
+    };
+
     let body = format!(
         "use futures::StreamExt;\n    \
          let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
+         {bindings_block}\
          let stream = client.inner.{core_path}({call_str});\n    \
          rt.block_on(async {{\n        \
              stream\n            \
@@ -240,15 +276,24 @@ fn gen_elixir_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Op
 // WASM (wasm-bindgen)
 // ---------------------------------------------------------------------------
 
-fn gen_wasm_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Option<String>) {
+fn gen_wasm_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("JsValue");
+    let core_import = config.core_import();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
 
+    let let_bindings = core_let_bindings(adapter, &core_import);
+    let bindings_block = if let_bindings.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", let_bindings.join("\n    "))
+    };
+
     let body = format!(
         "use futures::StreamExt;\n    \
+         {bindings_block}\
          let stream = self.inner.{core_path}({call_str});\n    \
          let chunks: Vec<_> = stream\n        \
              .map(|r| r.map({item_type}::from))\n        \
@@ -302,17 +347,26 @@ fn gen_csharp_body(adapter: &AdapterConfig) -> (String, Option<String>) {
 // R (extendr) -- collect stream into Vec
 // ---------------------------------------------------------------------------
 
-fn gen_r_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Option<String>) {
+fn gen_r_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("Robj");
+    let core_import = config.core_import();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
+
+    let let_bindings = core_let_bindings(adapter, &core_import);
+    let bindings_block = if let_bindings.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n    ", let_bindings.join("\n    "))
+    };
 
     let body = format!(
         "use futures::StreamExt;\n    \
          let rt = tokio::runtime::Runtime::new()\n        \
              .map_err(|e| extendr_api::Error::Other(e.to_string()))?;\n    \
+         {bindings_block}\
          let stream = self.inner.{core_path}({call_str});\n    \
          rt.block_on(async {{\n        \
              stream\n            \

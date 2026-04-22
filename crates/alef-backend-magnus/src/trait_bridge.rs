@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to Ruby objects via Magnus `respond_to` checks and `funcall`.
 
-use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -118,7 +118,11 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         writeln!(out).ok();
         writeln!(out, "Box::pin(async move {{").ok();
         writeln!(out, "    tokio::task::spawn_blocking(move || {{").ok();
-        writeln!(out, "        let responds = ruby_obj.respond_to(\"{name}\", false).unwrap_or(false);").ok();
+        writeln!(
+            out,
+            "        let responds = ruby_obj.respond_to(\"{name}\", false).unwrap_or(false);"
+        )
+        .ok();
         writeln!(out, "        if !responds {{").ok();
         if matches!(method.return_type, TypeRef::Unit) {
             writeln!(out, "            return Ok(());").ok();
@@ -148,14 +152,22 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             writeln!(out, "                Ok(())").ok();
         } else {
             let ext = self.extract_ty(&method.return_type);
-            writeln!(out, "                val.try_convert::<{ext}>().map_err(|e| Box::new(e) as _)").ok();
+            writeln!(
+                out,
+                "                val.try_convert::<{ext}>().map_err(|e| Box::new(e) as _)"
+            )
+            .ok();
         }
 
         writeln!(out, "            }}").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "    }})").ok();
         writeln!(out, "    .await").ok();
-        writeln!(out, "    .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as _)?").ok();
+        writeln!(
+            out,
+            "    .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())) as _)?"
+        )
+        .ok();
         writeln!(out, "}})").ok();
 
         out
@@ -168,8 +180,16 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         writeln!(out, "impl {wrapper} {{").ok();
         writeln!(out, "    /// Create a new bridge wrapping a Ruby object.").ok();
         writeln!(out, "    ///").ok();
-        writeln!(out, "    /// Validates that the Ruby object provides all required methods.").ok();
-        writeln!(out, "    pub fn new(ruby_obj: magnus::Value) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {{").ok();
+        writeln!(
+            out,
+            "    /// Validates that the Ruby object provides all required methods."
+        )
+        .ok();
+        writeln!(
+            out,
+            "    pub fn new(ruby_obj: magnus::Value) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {{"
+        )
+        .ok();
 
         // Validate all required methods exist
         for req_method in spec.required_methods() {
@@ -182,15 +202,18 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             writeln!(
                 out,
                 "            return Err(format!(\"Ruby object missing required method: {}\", \"{}\").into());",
-                req_method.name,
-                req_method.name
+                req_method.name, req_method.name
             )
             .ok();
             writeln!(out, "        }}").ok();
         }
 
         // Extract and cache name via calling the `name` method
-        writeln!(out, "        let cached_name: String = match Method::funcall::<String, _>(ruby_obj, \"name\", ()) {{").ok();
+        writeln!(
+            out,
+            "        let cached_name: String = match Method::funcall::<String, _>(ruby_obj, \"name\", ()) {{"
+        )
+        .ok();
         writeln!(out, "            Ok(s) => s,").ok();
         writeln!(out, "            Err(_) => \"unknown\".to_string(),").ok();
         writeln!(out, "        }};").ok();
@@ -315,7 +338,6 @@ impl MagnusBridgeGenerator {
             args.join(", ")
         }
     }
-
 }
 
 /// Generate all trait bridge code for a given trait type and bridge config.
@@ -330,7 +352,11 @@ pub fn gen_trait_bridge(
         .types
         .iter()
         .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -345,10 +371,8 @@ pub fn gen_trait_bridge(
         let trait_path = trait_type.rust_path.replace('-', "_");
 
         // Convert HashMap to &HashMap for visitor bridge
-        let type_paths_ref: std::collections::HashMap<&str, &str> = type_paths
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
+        let type_paths_ref: std::collections::HashMap<&str, &str> =
+            type_paths.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
         gen_visitor_bridge(
             &mut out,

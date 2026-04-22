@@ -175,6 +175,24 @@ impl Backend for GoBackend {
                 content: visitor_content,
                 generated_header: true,
             });
+
+            // Generate trait_bridges.go for plugin bridge support
+            let trait_bridges_content = strip_trailing_whitespace(&super::trait_bridge::gen_trait_bridges_file(
+                api,
+                config,
+                &pkg_name,
+                &ffi_prefix,
+                &ffi_header,
+                &ffi_crate_dir,
+                &to_root,
+            ));
+            if !trait_bridges_content.trim().is_empty() && trait_bridges_content.len() > 100 {
+                files.push(GeneratedFile {
+                    path: PathBuf::from(&output_dir).join("trait_bridges.go"),
+                    content: trait_bridges_content,
+                    generated_header: true,
+                });
+            }
         }
 
         Ok(files)

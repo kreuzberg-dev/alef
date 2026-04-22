@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to R objects (named lists of functions) via extendr.
 
-use alef_codegen::generators::trait_bridge::{gen_bridge_all, TraitBridgeGenerator, TraitBridgeSpec};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -46,7 +46,12 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 spec.core_import
             )
             .ok();
-            writeln!(out, "        message: format!(\"Plugin '{{}}' missing method '{}'\", self.cached_name),", name).ok();
+            writeln!(
+                out,
+                "        message: format!(\"Plugin '{{}}' missing method '{}'\", self.cached_name),",
+                name
+            )
+            .ok();
             writeln!(out, "        plugin_name: self.cached_name.clone(),").ok();
             writeln!(out, "    }}),").ok();
         } else {
@@ -66,11 +71,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 .map(|(p, expr)| format!("(\"{}\", {})", p.name, expr))
                 .collect();
             let pairs_str = pairs.join(", ");
-            writeln!(
-                out,
-                "let args = extendr_api::Pairlist::from_pairs(&[{pairs_str}]);"
-            )
-            .ok();
+            writeln!(out, "let args = extendr_api::Pairlist::from_pairs(&[{pairs_str}]);").ok();
             writeln!(out, "let result = fn_robj.call(args);").ok();
         }
 
@@ -88,34 +89,32 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             writeln!(out, "match result {{").ok();
             writeln!(out, "    Err(_) if {} => {{", if has_error { "true" } else { "false" }).ok();
             if has_error {
+                writeln!(out, "        Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
                 writeln!(
                     out,
-                    "        Err({}::KreuzbergError::Plugin {{",
-                    spec.core_import
+                    "            message: format!(\"Plugin '{{}}' method '{}' failed\", self.cached_name),",
+                    name
                 )
                 .ok();
-                writeln!(out, "            message: format!(\"Plugin '{{}}' method '{}' failed\", self.cached_name),", name).ok();
                 writeln!(out, "            plugin_name: self.cached_name.clone(),").ok();
                 writeln!(out, "        }})").ok();
             } else {
                 writeln!(out, "        Ok(())").ok();
             }
             writeln!(out, "    }}").ok();
-            writeln!(out, "    _ => {}",
-                if has_error { "Ok(())" } else { "();" }
-            ).ok();
+            writeln!(out, "    _ => {}", if has_error { "Ok(())" } else { "();" }).ok();
             writeln!(out, "}}").ok();
         } else {
             writeln!(out, "match result {{").ok();
             writeln!(out, "    Err(_) => {{").ok();
             if has_error {
+                writeln!(out, "        Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
                 writeln!(
                     out,
-                    "        Err({}::KreuzbergError::Plugin {{",
-                    spec.core_import
+                    "            message: format!(\"Plugin '{{}}' method '{}' failed\", self.cached_name),",
+                    name
                 )
                 .ok();
-                writeln!(out, "            message: format!(\"Plugin '{{}}' method '{}' failed\", self.cached_name),", name).ok();
                 writeln!(out, "            plugin_name: self.cached_name.clone(),").ok();
                 writeln!(out, "        }})").ok();
             } else {
@@ -131,12 +130,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                     writeln!(out, "            {}Ok(s.to_string())", if has_error { "" } else { "" }).ok();
                     writeln!(out, "        }} else {{").ok();
                     if has_error {
-                        writeln!(
-                            out,
-                            "            Err({}::KreuzbergError::Plugin {{",
-                            spec.core_import
-                        )
-                        .ok();
+                        writeln!(out, "            Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
                         writeln!(out, "                message: format!(\"Plugin '{{}}' method '{}' returned invalid type\", self.cached_name),", name).ok();
                         writeln!(out, "                plugin_name: self.cached_name.clone(),").ok();
                         writeln!(out, "            }})").ok();
@@ -148,7 +142,11 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 _ => {
                     // For complex types, try to serialize/deserialize via JSON
                     writeln!(out, "        match serde_json::to_string(&val) {{").ok();
-                    writeln!(out, "            Ok(json_str) => serde_json::from_str::<{ret_ty}>(&json_str)").ok();
+                    writeln!(
+                        out,
+                        "            Ok(json_str) => serde_json::from_str::<{ret_ty}>(&json_str)"
+                    )
+                    .ok();
                     writeln!(out, "                .map_err(|_| {{").ok();
                     if has_error {
                         writeln!(
@@ -236,7 +234,12 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
             spec.core_import
         )
         .ok();
-        writeln!(out, "            message: format!(\"Plugin '{{}}' missing method '{}'\", cached_name),", name).ok();
+        writeln!(
+            out,
+            "            message: format!(\"Plugin '{{}}' missing method '{}'\", cached_name),",
+            name
+        )
+        .ok();
         writeln!(out, "            plugin_name: cached_name.clone(),").ok();
         writeln!(out, "        }}),").ok();
         writeln!(out, "    }};").ok();
@@ -245,14 +248,16 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         if method.params.is_empty() {
             writeln!(out, "    let result = fn_robj.call(extendr_api::Pairlist::new());").ok();
         } else {
-            let args: Vec<String> = method.params.iter().map(|p| {
-                match (&p.ty, p.is_ref) {
+            let args: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| match (&p.ty, p.is_ref) {
                     (TypeRef::Bytes, true) => format!("extendr_api::Robj::from(&{0}[..])", p.name),
                     (TypeRef::Path, true) => format!("extendr_api::Robj::from({0}_str.as_str())", p.name),
                     (TypeRef::Named(_), true) => format!("extendr_api::Robj::from({0}_json.as_str())", p.name),
                     _ => format!("extendr_api::Robj::from({})", p.name),
-                }
-            }).collect();
+                })
+                .collect();
             let pairs: Vec<String> = method
                 .params
                 .iter()
@@ -260,11 +265,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 .map(|(p, expr)| format!("(\"{}\", {})", p.name, expr))
                 .collect();
             let pairs_str = pairs.join(", ");
-            writeln!(
-                out,
-                "    let args = extendr_api::Pairlist::from_pairs(&[{pairs_str}]);"
-            )
-            .ok();
+            writeln!(out, "    let args = extendr_api::Pairlist::from_pairs(&[{pairs_str}]);").ok();
             writeln!(out, "    let result = fn_robj.call(args);").ok();
         }
 
@@ -280,13 +281,13 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         // Parse the result (similar to sync case but in a blocking context)
         writeln!(out, "    match result {{").ok();
         writeln!(out, "        Err(_) => {{").ok();
+        writeln!(out, "            Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
         writeln!(
             out,
-            "            Err({}::KreuzbergError::Plugin {{",
-            spec.core_import
+            "                message: format!(\"Plugin '{{}}' method '{}' failed\", cached_name),",
+            name
         )
         .ok();
-        writeln!(out, "                message: format!(\"Plugin '{{}}' method '{}' failed\", cached_name),", name).ok();
         writeln!(out, "                plugin_name: cached_name.clone(),").ok();
         writeln!(out, "            }})").ok();
         writeln!(out, "        }}").ok();
@@ -314,12 +315,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         writeln!(out, "    }}").ok();
         writeln!(out, "}})").ok();
         writeln!(out, ".await").ok();
-        writeln!(
-            out,
-            ".map_err(|e| {}::KreuzbergError::Plugin {{",
-            spec.core_import
-        )
-        .ok();
+        writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
         writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
         writeln!(out, "    plugin_name: cached_name.clone(),").ok();
         writeln!(out, "}})?").ok();
@@ -332,19 +328,26 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         let mut out = String::with_capacity(512);
 
         writeln!(out, "impl {wrapper} {{").ok();
-        writeln!(out, "    /// Create a new bridge wrapping an R object (named list of functions).").ok();
+        writeln!(
+            out,
+            "    /// Create a new bridge wrapping an R object (named list of functions)."
+        )
+        .ok();
         writeln!(out, "    ///").ok();
-        writeln!(out, "    /// Validates that the R object provides all required methods.").ok();
-        writeln!(out, "    pub fn new(r_obj: extendr_api::Robj) -> Result<Self, String> {{").ok();
+        writeln!(
+            out,
+            "    /// Validates that the R object provides all required methods."
+        )
+        .ok();
+        writeln!(
+            out,
+            "    pub fn new(r_obj: extendr_api::Robj) -> Result<Self, String> {{"
+        )
+        .ok();
 
         // Validate all required methods exist
         for req_method in spec.required_methods() {
-            writeln!(
-                out,
-                "        match r_obj.dollar(\"{}\") {{",
-                req_method.name
-            )
-            .ok();
+            writeln!(out, "        match r_obj.dollar(\"{}\") {{", req_method.name).ok();
             writeln!(out, "            Ok(v) if !v.is_null() && !v.is_na() => {{}},").ok();
             writeln!(
                 out,
@@ -394,18 +397,33 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         let mut out = String::with_capacity(1024);
 
         writeln!(out, "#[extendr]").ok();
-        writeln!(out, "pub fn {register_fn}(r_backend: extendr_api::Robj) -> Result<(), String> {{").ok();
+        writeln!(
+            out,
+            "pub fn {register_fn}(r_backend: extendr_api::Robj) -> Result<(), String> {{"
+        )
+        .ok();
 
         // Validate required methods
         let req_methods = spec.required_methods();
         if !req_methods.is_empty() {
-            writeln!(out, "    let required_methods = [{}];",
-                req_methods.iter().map(|m| format!("\"{}\"", m.name)).collect::<Vec<_>>().join(", ")
-            ).ok();
+            writeln!(
+                out,
+                "    let required_methods = [{}];",
+                req_methods
+                    .iter()
+                    .map(|m| format!("\"{}\"", m.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+            .ok();
             writeln!(out, "    for method in &required_methods {{").ok();
             writeln!(out, "        match r_backend.dollar(method) {{").ok();
             writeln!(out, "            Ok(v) if !v.is_null() && !v.is_na() => {{}},").ok();
-            writeln!(out, "            _ => return Err(format!(\"Backend missing required method: {{}}\", method)),").ok();
+            writeln!(
+                out,
+                "            _ => return Err(format!(\"Backend missing required method: {{}}\", method)),"
+            )
+            .ok();
             writeln!(out, "        }}").ok();
             writeln!(out, "    }}").ok();
         }
@@ -443,7 +461,11 @@ pub fn gen_trait_bridge(
         .types
         .iter()
         .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -455,10 +477,8 @@ pub fn gen_trait_bridge(
     if is_visitor_bridge {
         let mut out = String::with_capacity(8192);
         // Convert HashMap back to &str-keyed refs for visitor bridge
-        let ref_type_paths: std::collections::HashMap<&str, &str> = type_paths
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
+        let ref_type_paths: std::collections::HashMap<&str, &str> =
+            type_paths.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         gen_visitor_bridge(
             &mut out,
             trait_type,
@@ -768,10 +788,7 @@ fn format_type_ref(ty: &TypeRef, type_paths: &HashMap<String, String>) -> String
             format_type_ref(k, type_paths),
             format_type_ref(v, type_paths)
         ),
-        TypeRef::Named(name) => type_paths
-            .get(name.as_str())
-            .map(|p| p.clone())
-            .unwrap_or_else(|| name.clone()),
+        TypeRef::Named(name) => type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone()),
         TypeRef::Path => "std::path::PathBuf".to_string(),
         TypeRef::Unit => "()".to_string(),
         TypeRef::Json => "serde_json::Value".to_string(),
