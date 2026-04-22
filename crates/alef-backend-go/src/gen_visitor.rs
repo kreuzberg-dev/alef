@@ -723,7 +723,15 @@ pub fn gen_visitor_file(
     // CGo preamble
     // -------------------------------------------------------------------------
     writeln!(out, "/*").ok();
-    writeln!(out, "#cgo CFLAGS: -I${{SRCDIR}}/{to_root}{ffi_crate_dir}/include").ok();
+    // CGo's //export mechanism generates non-const C parameter types in the prolog header,
+    // so the Go trampolines will have non-const params while the C vtable expects const ones.
+    // Adding const is safe (non-const is a sub-type of const for input params), but Clang
+    // warns about incompatible function pointer types. Suppress it here.
+    writeln!(
+        out,
+        "#cgo CFLAGS: -I${{SRCDIR}}/{to_root}{ffi_crate_dir}/include -Wno-incompatible-function-pointer-types"
+    )
+    .ok();
     writeln!(out, "#include \"{ffi_header}\"").ok();
     writeln!(out, "#include <stdlib.h>").ok();
     writeln!(out, "#include <string.h>").ok();
