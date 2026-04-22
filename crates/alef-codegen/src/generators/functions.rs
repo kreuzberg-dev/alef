@@ -343,7 +343,13 @@ pub fn gen_function(
             let vec_str_bindings: String = func.params.iter().filter(|p| {
                 p.is_ref && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char))
             }).map(|p| {
-                format!("let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n    ", p.name, p.name)
+                // Handle both Vec<String> and Option<Vec<String>> parameters.
+                // When p.optional=true, p.ty is the inner type (Vec<String>), so we need to unwrap first.
+                if p.optional {
+                    format!("let {}_refs: Vec<&str> = {}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();\n    ", p.name, p.name)
+                } else {
+                    format!("let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n    ", p.name, p.name)
+                }
             }).collect();
             if !vec_str_bindings.is_empty() {
                 format!("{vec_str_bindings}{body}")

@@ -3,7 +3,7 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to Python objects via PyO3.
 
-use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all, format_type_ref};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -150,7 +150,8 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             writeln!(out, "            }})?;").ok();
             writeln!(
                 out,
-                "        serde_json::from_str(&json_val).map_err(|e| {}::KreuzbergError::Plugin {{",
+                "        serde_json::from_str::<{}>(&json_val).map_err(|e| {}::KreuzbergError::Plugin {{",
+                alef_codegen::generators::trait_bridge::format_type_ref(&method.return_type, &spec.type_paths),
                 spec.core_import
             )
             .ok();

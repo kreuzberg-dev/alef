@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-04-22
+
+### Fixed
+
+- Go backend: skip streaming adapter methods whose FFI signature uses callbacks (CGO incompatible).
+- C# backend: skip streaming adapter methods in P/Invoke declarations and wrapper class generation.
+- PHP backend: scaffold generates `[features] extension-module = []` for ext-php-rs compatibility.
+- Map value conversion: fix optional fields with Named values in binding-to-core and core-to-binding conversions.
+
 ## [0.5.5] - 2026-04-22
 
 ### Added

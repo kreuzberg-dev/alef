@@ -1,7 +1,7 @@
 use crate::type_map::{go_optional_type, go_type};
 use alef_codegen::naming::to_go_name;
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{AdapterPattern, AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, DefaultValue, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
@@ -136,6 +136,15 @@ impl Backend for GoBackend {
         // Determine if any bridge is configured for the visitor pattern.
         let has_visitor_bridge = !config.trait_bridges.is_empty();
 
+        // Collect streaming adapter method names — their FFI signature uses callbacks
+        // which Go's CGO wrappers can't call directly.
+        let streaming_methods: HashSet<String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
+            .map(|a| a.name.clone())
+            .collect();
+
         let content = strip_trailing_whitespace(&gen_go_file(
             api,
             &ffi_prefix,
@@ -146,6 +155,7 @@ impl Backend for GoBackend {
             &output_dir,
             &bridge_param_names,
             &bridge_type_aliases,
+            &streaming_methods,
         ));
 
         // Build adapter body map (consumed by generators via body substitution)
@@ -245,6 +255,7 @@ fn gen_go_file(
     go_output_dir: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
+    streaming_methods: &HashSet<String>,
 ) -> String {
     let mut out = String::with_capacity(4096);
 
@@ -379,9 +390,14 @@ fn gen_go_file(
     // Skip static methods that return Named types (e.g., Default() constructors) —
     // these are redundant with the generated New*() functional options constructors,
     // and the opaque handle conversion pipeline is not yet implemented.
+    // Streaming adapter methods use a callback-based C signature that CGO can't call directly —
+    // they are skipped here and must be implemented via a separate Go-native streaming API.
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
         for method in &typ.methods {
             if method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
+                continue;
+            }
+            if streaming_methods.contains(&method.name) {
                 continue;
             }
             writeln!(out, "{}\n", gen_method_wrapper(typ, method, ffi_prefix, &opaque_names)).ok();

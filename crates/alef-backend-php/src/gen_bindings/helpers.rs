@@ -626,7 +626,8 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                             format!("std::time::Duration::from_millis(self.{name} as u64)")
                         }
                     }
-                    TypeRef::String | TypeRef::Char | TypeRef::Bytes => format!("self.{name}.clone()"),
+                    TypeRef::String | TypeRef::Char => format!("self.{name}.clone()"),
+                    TypeRef::Bytes => format!("self.{name}.clone().into()"),
                     TypeRef::Path => {
                         if field.optional {
                             format!("self.{name}.clone().map(Into::into)")
