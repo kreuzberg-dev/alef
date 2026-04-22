@@ -23,9 +23,16 @@ pub struct TraitBridgeSpec<'a> {
     pub wrapper_prefix: &'a str,
     /// Map of type name → fully-qualified Rust path for qualifying `Named` types.
     pub type_paths: HashMap<String, String>,
+    /// The crate's error type name (e.g., `"KreuzbergError"`). Defaults to `"Error"`.
+    pub error_type: String,
 }
 
 impl<'a> TraitBridgeSpec<'a> {
+    /// Fully qualified error constructor path (e.g., `"kreuzberg::KreuzbergError"`).
+    pub fn error_path(&self) -> String {
+        format!("{}::{}", self.core_import, self.error_type)
+    }
+
     /// Wrapper struct name: `{prefix}{TraitName}Bridge` (e.g., `PythonOcrBackendBridge`).
     pub fn wrapper_name(&self) -> String {
         format!("{}{}Bridge", self.wrapper_prefix, self.trait_def.name)

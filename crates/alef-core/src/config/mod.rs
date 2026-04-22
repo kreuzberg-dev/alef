@@ -115,6 +115,11 @@ pub struct CrateConfig {
     /// When true, skip adding `use {core_import};` to generated bindings.
     #[serde(default)]
     pub skip_core_import: bool,
+    /// The crate's error type name (e.g., `"KreuzbergError"`).
+    /// Used in trait bridge generation for error wrapping.
+    /// Defaults to `"Error"` if not set.
+    #[serde(default)]
+    pub error_type: Option<String>,
     /// Cargo features that are enabled in binding crates.
     /// Fields gated by `#[cfg(feature = "...")]` matching these features
     /// are treated as always-present (cfg stripped from the IR).
@@ -256,6 +261,14 @@ impl AlefConfig {
             .core_import
             .clone()
             .unwrap_or_else(|| self.crate_config.name.replace('-', "_"))
+    }
+
+    /// Get the crate error type name (e.g., "KreuzbergError"). Defaults to "Error".
+    pub fn error_type(&self) -> String {
+        self.crate_config
+            .error_type
+            .clone()
+            .unwrap_or_else(|| "Error".to_string())
     }
 
     /// Get the FFI prefix (e.g., "kreuzberg"). Used by FFI, Go, Java, C# backends.

@@ -217,7 +217,13 @@ impl Backend for MagnusBackend {
         // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
-                let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                let bridge_code = crate::trait_bridge::gen_trait_bridge(
+                    trait_type,
+                    bridge_cfg,
+                    &core_import,
+                    &config.error_type(),
+                    api,
+                );
                 builder.add_item(&bridge_code);
             }
         }

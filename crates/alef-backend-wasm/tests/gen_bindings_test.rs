@@ -1122,8 +1122,8 @@ fn test_wasm_plugin_bridge_validates_required_methods() {
     let trait_def = make_trait_def_wasm(
         "Analyzer",
         vec![
-            make_method_wasm("analyze", TypeRef::String, true, false),  // required
-            make_method_wasm("describe", TypeRef::String, false, true),  // optional
+            make_method_wasm("analyze", TypeRef::String, true, false), // required
+            make_method_wasm("describe", TypeRef::String, false, true), // optional
         ],
     );
     let bridge_cfg = alef_core::config::TraitBridgeConfig {
@@ -1149,10 +1149,7 @@ fn test_wasm_plugin_bridge_validates_required_methods() {
 fn test_wasm_sync_method_body_uses_js_sys_reflect() {
     use alef_backend_wasm::trait_bridge::gen_trait_bridge;
 
-    let trait_def = make_trait_def_wasm(
-        "Scanner",
-        vec![make_method_wasm("scan", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def_wasm("Scanner", vec![make_method_wasm("scan", TypeRef::String, true, false)]);
     let bridge_cfg = make_plugin_bridge_cfg_wasm("Scanner");
     let api = make_api_wasm();
 
@@ -1168,10 +1165,7 @@ fn test_wasm_sync_method_body_uses_js_sys_reflect() {
 fn test_wasm_async_method_body_uses_box_pin() {
     use alef_backend_wasm::trait_bridge::gen_trait_bridge;
 
-    let trait_def = make_trait_def_wasm(
-        "Processor",
-        vec![make_async_method_wasm("run", TypeRef::Unit)],
-    );
+    let trait_def = make_trait_def_wasm("Processor", vec![make_async_method_wasm("run", TypeRef::Unit)]);
     let bridge_cfg = make_plugin_bridge_cfg_wasm("Processor");
     let api = make_api_wasm();
 

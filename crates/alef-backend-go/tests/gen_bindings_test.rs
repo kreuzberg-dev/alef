@@ -1,5 +1,5 @@
-use alef_backend_go::trait_bridge::gen_trait_bridges_file;
 use alef_backend_go::GoBackend;
+use alef_backend_go::trait_bridge::gen_trait_bridges_file;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig, FfiConfig, GoConfig, TraitBridgeConfig};
 use alef_core::ir::*;
@@ -925,12 +925,7 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
     }
 }
 
-fn make_trait_method(
-    name: &str,
-    params: Vec<ParamDef>,
-    return_type: TypeRef,
-    has_error: bool,
-) -> MethodDef {
+fn make_trait_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, has_error: bool) -> MethodDef {
     MethodDef {
         name: name.to_string(),
         params,
@@ -1425,7 +1420,10 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let result = backend.generate_bindings(&api, &config);
 
-    assert!(result.is_ok(), "generate_bindings must succeed with trait_bridges configured");
+    assert!(
+        result.is_ok(),
+        "generate_bindings must succeed with trait_bridges configured"
+    );
     let files = result.unwrap();
 
     let bridge_file = files

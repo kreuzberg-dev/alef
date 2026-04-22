@@ -638,10 +638,7 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_generates_wrapper_struct() {
-        let trait_def = make_trait_def(
-            "OcrBackend",
-            vec![make_method("process", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("OcrBackend");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
 
@@ -663,10 +660,7 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_generates_trait_impl() {
-        let trait_def = make_trait_def(
-            "OcrBackend",
-            vec![make_method("process", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("OcrBackend");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
 
@@ -684,10 +678,7 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_sync_method_uses_dollar_lookup() {
-        let trait_def = make_trait_def(
-            "Analyzer",
-            vec![make_method("analyze", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("Analyzer", vec![make_method("analyze", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("Analyzer");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
 
@@ -701,10 +692,7 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_async_method_uses_spawn_blocking() {
-        let trait_def = make_trait_def(
-            "Processor",
-            vec![make_async_method("run")],
-        );
+        let trait_def = make_trait_def("Processor", vec![make_async_method("run")]);
         let cfg = make_plugin_bridge_cfg("Processor");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
 
@@ -712,20 +700,14 @@ mod trait_bridge {
             code.contains("spawn_blocking"),
             "async method body must use tokio::task::spawn_blocking"
         );
-        assert!(
-            code.contains("async fn run("),
-            "async method must be declared async"
-        );
+        assert!(code.contains("async fn run("), "async method must be declared async");
     }
 
     // ---- Plugin bridge: registration function ---
 
     #[test]
     fn test_plugin_bridge_generates_registration_fn() {
-        let trait_def = make_trait_def(
-            "OcrBackend",
-            vec![make_method("process", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = make_plugin_bridge_cfg("OcrBackend");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
 
@@ -771,17 +753,11 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_constructor_caches_name() {
-        let trait_def = make_trait_def(
-            "Worker",
-            vec![make_method("work", TypeRef::Unit, false, false)],
-        );
+        let trait_def = make_trait_def("Worker", vec![make_method("work", TypeRef::Unit, false, false)]);
         let cfg = make_plugin_bridge_cfg("Worker");
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
 
-        assert!(
-            code.contains("cached_name"),
-            "constructor must populate cached_name"
-        );
+        assert!(code.contains("cached_name"), "constructor must populate cached_name");
         assert!(
             code.contains("dollar(\"name\")"),
             "constructor must call dollar(\"name\") to cache the plugin name"
@@ -792,10 +768,7 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
-        let trait_def = make_trait_def(
-            "OcrBackend",
-            vec![make_method("process", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let cfg = TraitBridgeConfig {
             trait_name: "OcrBackend".to_string(),
             super_trait: Some("Plugin".to_string()),

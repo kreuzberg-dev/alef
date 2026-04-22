@@ -50,12 +50,7 @@ fn make_method(name: &str, return_type: TypeRef, has_error: bool, has_default: b
     }
 }
 
-fn make_method_with_params(
-    name: &str,
-    params: Vec<ParamDef>,
-    return_type: TypeRef,
-    has_error: bool,
-) -> MethodDef {
+fn make_method_with_params(name: &str, params: Vec<ParamDef>, return_type: TypeRef, has_error: bool) -> MethodDef {
     MethodDef {
         name: name.to_string(),
         params,
@@ -120,10 +115,7 @@ fn make_api() -> ApiSurface {
 
 #[test]
 fn test_gen_trait_bridge_vtable_is_repr_c() {
-    let trait_def = make_trait_def(
-        "OcrBackend",
-        vec![make_method("process", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = make_bridge_cfg("OcrBackend");
     let api = make_api();
 
@@ -166,10 +158,7 @@ fn test_gen_trait_bridge_vtable_has_function_pointer_fields_for_each_method() {
 
 #[test]
 fn test_gen_trait_bridge_vtable_fn_ptrs_are_optional_extern_c() {
-    let trait_def = make_trait_def(
-        "Scanner",
-        vec![make_method("scan", TypeRef::Unit, false, false)],
-    );
+    let trait_def = make_trait_def("Scanner", vec![make_method("scan", TypeRef::Unit, false, false)]);
     let bridge_cfg = make_bridge_cfg("Scanner");
     let api = make_api();
 
@@ -185,7 +174,12 @@ fn test_gen_trait_bridge_vtable_fn_ptrs_are_optional_extern_c() {
 fn test_gen_trait_bridge_vtable_fn_ptrs_take_user_data_first() {
     let trait_def = make_trait_def(
         "Checker",
-        vec![make_method("ping", TypeRef::Primitive(PrimitiveType::Bool), false, false)],
+        vec![make_method(
+            "ping",
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            false,
+        )],
     );
     let bridge_cfg = make_bridge_cfg("Checker");
     let api = make_api();
@@ -226,10 +220,7 @@ fn test_gen_trait_bridge_vtable_string_param_maps_to_c_char_ptr() {
 
 #[test]
 fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pattern() {
-    let trait_def = make_trait_def(
-        "OcrBackend",
-        vec![make_method("process", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
@@ -251,10 +242,7 @@ fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pa
 
 #[test]
 fn test_gen_trait_bridge_unregister_fn_is_generated() {
-    let trait_def = make_trait_def(
-        "OcrBackend",
-        vec![make_method("process", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
@@ -309,10 +297,7 @@ fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
 
 #[test]
 fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fields() {
-    let trait_def = make_trait_def(
-        "OcrBackend",
-        vec![make_method("process", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
@@ -346,10 +331,7 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fiel
 
 #[test]
 fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
-    let trait_def = make_trait_def(
-        "OcrBackend",
-        vec![make_method("process", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
@@ -383,10 +365,7 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
 
 #[test]
 fn test_gen_trait_bridge_bridge_struct_holds_vtable_and_user_data() {
-    let trait_def = make_trait_def(
-        "Runner",
-        vec![make_method("run", TypeRef::Unit, true, false)],
-    );
+    let trait_def = make_trait_def("Runner", vec![make_method("run", TypeRef::Unit, true, false)]);
     let bridge_cfg = make_bridge_cfg("Runner");
     let api = make_api();
 
@@ -408,10 +387,7 @@ fn test_gen_trait_bridge_bridge_struct_holds_vtable_and_user_data() {
 
 #[test]
 fn test_gen_trait_bridge_bridge_struct_is_send_sync() {
-    let trait_def = make_trait_def(
-        "Worker",
-        vec![make_method("work", TypeRef::Unit, false, false)],
-    );
+    let trait_def = make_trait_def("Worker", vec![make_method("work", TypeRef::Unit, false, false)]);
     let bridge_cfg = make_bridge_cfg("Worker");
     let api = make_api();
 
@@ -429,10 +405,7 @@ fn test_gen_trait_bridge_bridge_struct_is_send_sync() {
 
 #[test]
 fn test_gen_trait_bridge_safety_comments_present() {
-    let trait_def = make_trait_def(
-        "Processor",
-        vec![make_method("run", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def("Processor", vec![make_method("run", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "Processor".to_string(),
         super_trait: None,
@@ -453,10 +426,7 @@ fn test_gen_trait_bridge_safety_comments_present() {
 
 #[test]
 fn test_gen_trait_bridge_drop_impl_calls_free_user_data() {
-    let trait_def = make_trait_def(
-        "Plugin",
-        vec![make_method("tick", TypeRef::Unit, false, false)],
-    );
+    let trait_def = make_trait_def("Plugin", vec![make_method("tick", TypeRef::Unit, false, false)]);
     let bridge_cfg = make_bridge_cfg("Plugin");
     let api = make_api();
 
@@ -466,10 +436,7 @@ fn test_gen_trait_bridge_drop_impl_calls_free_user_data() {
         code.contains("impl Drop for PPluginBridge"),
         "bridge must implement Drop"
     );
-    assert!(
-        code.contains("free_user_data"),
-        "Drop impl must invoke free_user_data"
-    );
+    assert!(code.contains("free_user_data"), "Drop impl must invoke free_user_data");
 }
 
 // ---------------------------------------------------------------------------
@@ -478,10 +445,7 @@ fn test_gen_trait_bridge_drop_impl_calls_free_user_data() {
 
 #[test]
 fn test_gen_trait_bridge_generates_trait_impl() {
-    let trait_def = make_trait_def(
-        "Scanner",
-        vec![make_method("scan", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def("Scanner", vec![make_method("scan", TypeRef::String, true, false)]);
     let bridge_cfg = make_bridge_cfg("Scanner");
     let api = make_api();
 
@@ -491,10 +455,7 @@ fn test_gen_trait_bridge_generates_trait_impl() {
         code.contains("impl my_lib::Scanner for ScScannerBridge"),
         "must generate the trait impl for the bridge struct"
     );
-    assert!(
-        code.contains("fn scan("),
-        "trait impl must include all trait methods"
-    );
+    assert!(code.contains("fn scan("), "trait impl must include all trait methods");
 }
 
 #[test]

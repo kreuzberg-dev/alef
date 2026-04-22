@@ -61,9 +61,7 @@ impl FfiBridgeGenerator {
     /// Primitives map directly.
     fn c_param_type(ty: &TypeRef) -> String {
         match ty {
-            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
-                "*const std::ffi::c_char".to_string()
-            }
+            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "*const std::ffi::c_char".to_string(),
             TypeRef::Bytes => "*const u8".to_string(),
             TypeRef::Primitive(p) => prim_to_c(p).to_string(),
             TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
@@ -183,7 +181,11 @@ impl FfiBridgeGenerator {
         for p in &method.params {
             match &p.ty {
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                    let val = if p.is_ref { p.name.clone() } else { format!("{}.as_str()", p.name) };
+                    let val = if p.is_ref {
+                        p.name.clone()
+                    } else {
+                        format!("{}.as_str()", p.name)
+                    };
                     writeln!(
                         out,
                         "let _{name}_cs = match std::ffi::CString::new({val}) {{",
@@ -193,12 +195,7 @@ impl FfiBridgeGenerator {
                     writeln!(out, "    Ok(s) => s,").ok();
                     writeln!(out, "    Err(_) => {{").ok();
                     if has_error {
-                        writeln!(
-                            out,
-                            "        return Err(Box::from(\"nul byte in param {}\"));",
-                            p.name
-                        )
-                        .ok();
+                        writeln!(out, "        return Err(Box::from(\"nul byte in param {}\"));", p.name).ok();
                     } else {
                         let default_expr = default_for_type(&method.return_type);
                         writeln!(out, "        return {default_expr};").ok();
@@ -238,8 +235,13 @@ impl FfiBridgeGenerator {
                     writeln!(out, "let {name}_ptr = _{name}_cs.as_ptr();", name = p.name).ok();
                 }
                 TypeRef::Optional(inner) => match inner.as_ref() {
-                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Named(_)
-                    | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                    TypeRef::String
+                    | TypeRef::Char
+                    | TypeRef::Path
+                    | TypeRef::Named(_)
+                    | TypeRef::Json
+                    | TypeRef::Vec(_)
+                    | TypeRef::Map(_, _) => {
                         writeln!(
                             out,
                             "let _{name}_storage: Option<std::ffi::CString> = {name}.as_ref().and_then(|v| {{",
@@ -266,8 +268,13 @@ impl FfiBridgeGenerator {
         let mut call_args = vec!["self.user_data".to_string()];
         for p in &method.params {
             let arg = match &p.ty {
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
-                | TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                TypeRef::String
+                | TypeRef::Char
+                | TypeRef::Path
+                | TypeRef::Json
+                | TypeRef::Named(_)
+                | TypeRef::Vec(_)
+                | TypeRef::Map(_, _) => {
                     format!("{}_ptr", p.name)
                 }
                 TypeRef::Optional(inner) => match inner.as_ref() {
@@ -291,7 +298,11 @@ impl FfiBridgeGenerator {
                 | TypeRef::Map(_, _)
         );
         if needs_result_out {
-            writeln!(out, "let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();").ok();
+            writeln!(
+                out,
+                "let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();"
+            )
+            .ok();
             call_args.push("&mut _out_result".to_string());
         }
         if has_error {
@@ -301,8 +312,16 @@ impl FfiBridgeGenerator {
 
         let args_str = call_args.join(", ");
 
-        writeln!(out, "// SAFETY: fp is a valid non-null function pointer; all temporaries outlive this call;").ok();
-        writeln!(out, "// user_data validity is the caller's responsibility (documented in the vtable API).").ok();
+        writeln!(
+            out,
+            "// SAFETY: fp is a valid non-null function pointer; all temporaries outlive this call;"
+        )
+        .ok();
+        writeln!(
+            out,
+            "// user_data validity is the caller's responsibility (documented in the vtable API)."
+        )
+        .ok();
         writeln!(out, "let _rc = unsafe {{ fp({args_str}) }};").ok();
 
         // Handle the return
@@ -311,8 +330,16 @@ impl FfiBridgeGenerator {
             writeln!(out, "    let msg = if _out_error.is_null() {{").ok();
             writeln!(out, "        format!(\"vtable.{name} returned error code {{}}\", _rc)").ok();
             writeln!(out, "    }} else {{").ok();
-            writeln!(out, "        // SAFETY: out_error was written by the callee as a valid CString.").ok();
-            writeln!(out, "        let cs = unsafe {{ std::ffi::CString::from_raw(_out_error) }};").ok();
+            writeln!(
+                out,
+                "        // SAFETY: out_error was written by the callee as a valid CString."
+            )
+            .ok();
+            writeln!(
+                out,
+                "        let cs = unsafe {{ std::ffi::CString::from_raw(_out_error) }};"
+            )
+            .ok();
             writeln!(out, "        cs.to_string_lossy().into_owned()").ok();
             writeln!(out, "    }};").ok();
             writeln!(out, "    return Err(Box::from(msg));").ok();
@@ -327,7 +354,11 @@ impl FfiBridgeGenerator {
                     writeln!(out, "if _out_result.is_null() {{").ok();
                     writeln!(out, "    return Ok(String::new());").ok();
                     writeln!(out, "}}").ok();
-                    writeln!(out, "// SAFETY: out_result was written by the callee as a valid CString.").ok();
+                    writeln!(
+                        out,
+                        "// SAFETY: out_result was written by the callee as a valid CString."
+                    )
+                    .ok();
                     writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
                     writeln!(out, "Ok(cs.to_string_lossy().into_owned())").ok();
                 }
@@ -340,7 +371,11 @@ impl FfiBridgeGenerator {
                     )
                     .ok();
                     writeln!(out, "}}").ok();
-                    writeln!(out, "// SAFETY: out_result was written by the callee as a valid CString.").ok();
+                    writeln!(
+                        out,
+                        "// SAFETY: out_result was written by the callee as a valid CString."
+                    )
+                    .ok();
                     writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
                     writeln!(out, "let json = cs.to_string_lossy();").ok();
                     writeln!(
@@ -362,7 +397,11 @@ impl FfiBridgeGenerator {
                     writeln!(out, "if _out_result.is_null() {{").ok();
                     writeln!(out, "    return String::new();").ok();
                     writeln!(out, "}}").ok();
-                    writeln!(out, "// SAFETY: out_result was written by the callee as a valid CString.").ok();
+                    writeln!(
+                        out,
+                        "// SAFETY: out_result was written by the callee as a valid CString."
+                    )
+                    .ok();
                     writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
                     writeln!(out, "cs.to_string_lossy().into_owned()").ok();
                 }
@@ -371,14 +410,14 @@ impl FfiBridgeGenerator {
                     writeln!(out, "if _out_result.is_null() {{").ok();
                     writeln!(out, "    return Default::default();").ok();
                     writeln!(out, "}}").ok();
-                    writeln!(out, "// SAFETY: out_result was written by the callee as a valid CString.").ok();
-                    writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
-                    writeln!(out, "let json = cs.to_string_lossy();").ok();
                     writeln!(
                         out,
-                        "serde_json::from_str::<{ret_ty}>(&json).unwrap_or_default()"
+                        "// SAFETY: out_result was written by the callee as a valid CString."
                     )
                     .ok();
+                    writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
+                    writeln!(out, "let json = cs.to_string_lossy();").ok();
+                    writeln!(out, "serde_json::from_str::<{ret_ty}>(&json).unwrap_or_default()").ok();
                 }
                 TypeRef::Primitive(_) | TypeRef::Duration => {
                     writeln!(out, "_rc").ok();
@@ -420,13 +459,21 @@ impl FfiBridgeGenerator {
 
         // Super-trait methods (Plugin: name, version, initialize, shutdown)
         if spec.bridge_config.super_trait.is_some() {
-            writeln!(out, "    /// Return a null-terminated UTF-8 name string into `out_name`.").ok();
+            writeln!(
+                out,
+                "    /// Return a null-terminated UTF-8 name string into `out_name`."
+            )
+            .ok();
             writeln!(
                 out,
                 "    pub name_fn: Option<unsafe extern \"C\" fn(user_data: *const std::ffi::c_void, out_name: *mut *mut std::ffi::c_char)>,"
             )
             .ok();
-            writeln!(out, "    /// Return a null-terminated UTF-8 version string into `out_version`.").ok();
+            writeln!(
+                out,
+                "    /// Return a null-terminated UTF-8 version string into `out_version`."
+            )
+            .ok();
             writeln!(
                 out,
                 "    pub version_fn: Option<unsafe extern \"C\" fn(user_data: *const std::ffi::c_void, out_version: *mut *mut std::ffi::c_char)>,"
@@ -470,7 +517,11 @@ impl FfiBridgeGenerator {
         }
 
         // free_user_data destructor
-        writeln!(out, "    /// Optional destructor: called once with `user_data` when the bridge is dropped.").ok();
+        writeln!(
+            out,
+            "    /// Optional destructor: called once with `user_data` when the bridge is dropped."
+        )
+        .ok();
         writeln!(
             out,
             "    pub free_user_data: Option<unsafe extern \"C\" fn(*mut std::ffi::c_void)>,"
@@ -493,7 +544,12 @@ impl FfiBridgeGenerator {
         )
         .ok();
         writeln!(out, "///").ok();
-        writeln!(out, "/// Implements `{}` by forwarding calls through the vtable.", spec.trait_def.name).ok();
+        writeln!(
+            out,
+            "/// Implements `{}` by forwarding calls through the vtable.",
+            spec.trait_def.name
+        )
+        .ok();
         writeln!(out, "pub struct {bridge} {{").ok();
         writeln!(out, "    vtable: {vtable},").ok();
         writeln!(out, "    user_data: *const std::ffi::c_void,").ok();
@@ -568,7 +624,11 @@ impl FfiBridgeGenerator {
 
         // version() — calls vtable.version_fn
         writeln!(out, "    fn version(&self) -> &str {{").ok();
-        writeln!(out, "        let Some(fp) = self.vtable.version_fn else {{ return \"\" }};").ok();
+        writeln!(
+            out,
+            "        let Some(fp) = self.vtable.version_fn else {{ return \"\" }};"
+        )
+        .ok();
         writeln!(
             out,
             "        let mut _out: *mut std::ffi::c_char = std::ptr::null_mut();"
@@ -597,11 +657,7 @@ impl FfiBridgeGenerator {
             "        // SAFETY: ptr aliases self; no concurrent mutation of cached_version."
         )
         .ok();
-        writeln!(
-            out,
-            "        let ptr = self as *const Self as *mut Self;"
-        )
-        .ok();
+        writeln!(out, "        let ptr = self as *const Self as *mut Self;").ok();
         writeln!(
             out,
             "        unsafe {{ (*ptr).cached_version = cs.to_string_lossy().into_owned(); }}"
@@ -617,7 +673,11 @@ impl FfiBridgeGenerator {
             "    fn initialize(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{"
         )
         .ok();
-        writeln!(out, "        let Some(fp) = self.vtable.initialize_fn else {{ return Ok(()); }};").ok();
+        writeln!(
+            out,
+            "        let Some(fp) = self.vtable.initialize_fn else {{ return Ok(()); }};"
+        )
+        .ok();
         writeln!(
             out,
             "        let mut _out_error: *mut std::ffi::c_char = std::ptr::null_mut();"
@@ -663,7 +723,11 @@ impl FfiBridgeGenerator {
             "    fn shutdown(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {{"
         )
         .ok();
-        writeln!(out, "        let Some(fp) = self.vtable.shutdown_fn else {{ return Ok(()); }};").ok();
+        writeln!(
+            out,
+            "        let Some(fp) = self.vtable.shutdown_fn else {{ return Ok(()); }};"
+        )
+        .ok();
         writeln!(
             out,
             "        let mut _out_error: *mut std::ffi::c_char = std::ptr::null_mut();"
@@ -770,11 +834,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             )
             .ok();
         } else {
-            writeln!(
-                out,
-                ".unwrap_or_else(|_| Default::default())"
-            )
-            .ok();
+            writeln!(out, ".unwrap_or_else(|_| Default::default())").ok();
         }
         let _ = core_import;
         out
@@ -810,7 +870,11 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             "    pub unsafe fn new(name: String, vtable: {vtable}, user_data: *const std::ffi::c_void) -> Self {{"
         )
         .ok();
-        writeln!(out, "        Self {{ vtable, user_data, cached_name: name, cached_version: String::new() }}").ok();
+        writeln!(
+            out,
+            "        Self {{ vtable, user_data, cached_name: name, cached_version: String::new() }}"
+        )
+        .ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
         out
@@ -863,7 +927,11 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             "/// - `user_data`: opaque pointer forwarded to every vtable function."
         )
         .ok();
-        writeln!(out, "/// - `out_error`: receives a heap-allocated error string on failure.").ok();
+        writeln!(
+            out,
+            "/// - `out_error`: receives a heap-allocated error string on failure."
+        )
+        .ok();
         writeln!(out, "///").ok();
         writeln!(out, "/// # Safety").ok();
         writeln!(out, "///").ok();
@@ -879,22 +947,14 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         .ok();
         writeln!(out, "/// into the plugin.").ok();
         writeln!(out, "#[unsafe(no_mangle)]").ok();
-        writeln!(
-            out,
-            "pub unsafe extern \"C\" fn {full_register_name}("
-        )
-        .ok();
+        writeln!(out, "pub unsafe extern \"C\" fn {full_register_name}(").ok();
         writeln!(out, "    name: *const std::ffi::c_char,").ok();
         writeln!(out, "    vtable: {vtable},").ok();
         writeln!(out, "    user_data: *const std::ffi::c_void,").ok();
         writeln!(out, "    out_error: *mut *mut std::ffi::c_char,").ok();
         writeln!(out, ") -> i32 {{").ok();
         writeln!(out, "    if name.is_null() {{").ok();
-        writeln!(
-            out,
-            "        ffi_set_out_error(out_error, \"name must not be null\");"
-        )
-        .ok();
+        writeln!(out, "        ffi_set_out_error(out_error, \"name must not be null\");").ok();
         writeln!(out, "        return 1;").ok();
         writeln!(out, "    }}").ok();
 
@@ -942,24 +1002,12 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             "    let bridge = unsafe {{ {bridge}::new(plugin_name, vtable, user_data) }};"
         )
         .ok();
-        writeln!(
-            out,
-            "    let arc: Arc<dyn {trait_path}> = Arc::new(bridge);"
-        )
-        .ok();
+        writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(bridge);").ok();
         writeln!(out).ok();
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(
-            out,
-            "    if let Err(e) = registry.register(arc) {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        ffi_set_out_error(out_error, &e.to_string());"
-        )
-        .ok();
+        writeln!(out, "    if let Err(e) = registry.register(arc) {{").ok();
+        writeln!(out, "        ffi_set_out_error(out_error, &e.to_string());").ok();
         writeln!(out, "        return 1;").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "    0").ok();
@@ -975,26 +1023,14 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out, "///").ok();
         writeln!(out, "/// # Safety").ok();
         writeln!(out, "///").ok();
-        writeln!(
-            out,
-            "/// `name` must be a valid null-terminated UTF-8 string or null."
-        )
-        .ok();
+        writeln!(out, "/// `name` must be a valid null-terminated UTF-8 string or null.").ok();
         writeln!(out, "#[unsafe(no_mangle)]").ok();
-        writeln!(
-            out,
-            "pub unsafe extern \"C\" fn {full_unregister_name}("
-        )
-        .ok();
+        writeln!(out, "pub unsafe extern \"C\" fn {full_unregister_name}(").ok();
         writeln!(out, "    name: *const std::ffi::c_char,").ok();
         writeln!(out, "    out_error: *mut *mut std::ffi::c_char,").ok();
         writeln!(out, ") -> i32 {{").ok();
         writeln!(out, "    if name.is_null() {{").ok();
-        writeln!(
-            out,
-            "        ffi_set_out_error(out_error, \"name must not be null\");"
-        )
-        .ok();
+        writeln!(out, "        ffi_set_out_error(out_error, \"name must not be null\");").ok();
         writeln!(out, "        return 1;").ok();
         writeln!(out, "    }}").ok();
         writeln!(
@@ -1014,16 +1050,8 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out, "    }};").ok();
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(
-            out,
-            "    if let Err(e) = registry.unregister(plugin_name) {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        ffi_set_out_error(out_error, &e.to_string());"
-        )
-        .ok();
+        writeln!(out, "    if let Err(e) = registry.unregister(plugin_name) {{").ok();
+        writeln!(out, "        ffi_set_out_error(out_error, &e.to_string());").ok();
         writeln!(out, "        return 1;").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "    0").ok();
@@ -1049,13 +1077,18 @@ pub fn gen_trait_bridge(
     bridge_cfg: &TraitBridgeConfig,
     prefix: &str,
     core_import: &str,
+    error_type: &str,
     api: &ApiSurface,
 ) -> String {
     let type_paths: HashMap<String, String> = api
         .types
         .iter()
         .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-        .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
         .collect();
 
     let generator = FfiBridgeGenerator {
@@ -1070,6 +1103,7 @@ pub fn gen_trait_bridge(
         core_import,
         wrapper_prefix: &prefix.to_pascal_case(),
         type_paths,
+        error_type: error_type.to_string(),
     };
 
     let mut out = String::with_capacity(4096);
@@ -1090,23 +1124,19 @@ pub fn gen_trait_bridge(
         "/// `out_error` must be null or a valid writable `*mut *mut c_char` pointer."
     )
     .ok();
-    writeln!(out, "unsafe fn ffi_set_out_error(out_error: *mut *mut std::ffi::c_char, msg: &str) {{").ok();
-    writeln!(out, "    if !out_error.is_null() {{").ok();
     writeln!(
         out,
-        "        if let Ok(cs) = std::ffi::CString::new(msg) {{"
+        "unsafe fn ffi_set_out_error(out_error: *mut *mut std::ffi::c_char, msg: &str) {{"
     )
     .ok();
+    writeln!(out, "    if !out_error.is_null() {{").ok();
+    writeln!(out, "        if let Ok(cs) = std::ffi::CString::new(msg) {{").ok();
     writeln!(
         out,
         "            // SAFETY: out_error is non-null; caller must free this string."
     )
     .ok();
-    writeln!(
-        out,
-        "            unsafe {{ *out_error = cs.into_raw(); }}"
-    )
-    .ok();
+    writeln!(out, "            unsafe {{ *out_error = cs.into_raw(); }}").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     writeln!(out, "}}").ok();
@@ -1275,17 +1305,17 @@ mod tests {
 
     #[test]
     fn test_vtable_struct_is_repr_c() {
-        let trait_def = make_trait_def(
-            "OcrBackend",
-            vec![make_method("process", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let bridge_cfg = sample_bridge_cfg("OcrBackend");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", &api);
 
         assert!(code.contains("#[repr(C)]"), "vtable must be #[repr(C)]");
-        assert!(code.contains("MlOcrBackendVTable"), "vtable name must include prefix + trait name");
+        assert!(
+            code.contains("MlOcrBackendVTable"),
+            "vtable name must include prefix + trait name"
+        );
     }
 
     #[test]
@@ -1300,7 +1330,7 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("OcrBackend");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", &api);
 
         assert!(code.contains("pub process:"), "vtable must have fn ptr for 'process'");
         assert!(code.contains("pub status:"), "vtable must have fn ptr for 'status'");
@@ -1314,12 +1344,17 @@ mod tests {
     fn test_vtable_fn_ptrs_take_user_data() {
         let trait_def = make_trait_def(
             "Checker",
-            vec![make_method("ping", TypeRef::Primitive(PrimitiveType::Bool), false, false)],
+            vec![make_method(
+                "ping",
+                TypeRef::Primitive(PrimitiveType::Bool),
+                false,
+                false,
+            )],
         );
         let bridge_cfg = sample_bridge_cfg("Checker");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "MyError", &api);
 
         assert!(
             code.contains("user_data: *const std::ffi::c_void"),
@@ -1333,7 +1368,7 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Runner");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "my_lib", "MyError", &api);
 
         assert!(code.contains("vtable: MyLibRunnerVTable"), "bridge must hold vtable");
         assert!(
@@ -1349,7 +1384,7 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Worker");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "w", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "w", "my_lib", "MyError", &api);
 
         assert!(
             code.contains("unsafe impl Send for WWorkerBridge"),
@@ -1367,24 +1402,18 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Plugin");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "p", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "p", "my_lib", "MyError", &api);
 
         assert!(
             code.contains("impl Drop for PPluginBridge"),
             "bridge must implement Drop"
         );
-        assert!(
-            code.contains("free_user_data"),
-            "Drop impl must call free_user_data"
-        );
+        assert!(code.contains("free_user_data"), "Drop impl must call free_user_data");
     }
 
     #[test]
     fn test_super_trait_generates_plugin_impl() {
-        let trait_def = make_trait_def(
-            "OcrBackend",
-            vec![make_method("process", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let bridge_cfg = TraitBridgeConfig {
             trait_name: "OcrBackend".to_string(),
             super_trait: Some("Plugin".to_string()),
@@ -1395,7 +1424,7 @@ mod tests {
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "kreuzberg", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "kreuzberg", "MyError", &api);
 
         assert!(
             code.contains("impl kreuzberg::Plugin for KrOcrBackendBridge"),
@@ -1403,16 +1432,16 @@ mod tests {
         );
         assert!(code.contains("fn name(&self)"), "Plugin impl must have name()");
         assert!(code.contains("fn version(&self)"), "Plugin impl must have version()");
-        assert!(code.contains("fn initialize(&self)"), "Plugin impl must have initialize()");
+        assert!(
+            code.contains("fn initialize(&self)"),
+            "Plugin impl must have initialize()"
+        );
         assert!(code.contains("fn shutdown(&self)"), "Plugin impl must have shutdown()");
     }
 
     #[test]
     fn test_register_fn_generates_extern_c() {
-        let trait_def = make_trait_def(
-            "OcrBackend",
-            vec![make_method("process", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
         let bridge_cfg = TraitBridgeConfig {
             trait_name: "OcrBackend".to_string(),
             super_trait: None,
@@ -1423,7 +1452,7 @@ mod tests {
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "kreuzberg", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "kreuzberg", "MyError", &api);
 
         assert!(
             code.contains("extern \"C\" fn kr_register_ocr_backend"),
@@ -1449,7 +1478,7 @@ mod tests {
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", &api);
 
         // Null name check must be present in register fn
         assert!(
@@ -1477,7 +1506,7 @@ mod tests {
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", &api);
 
         // Required method fn pointer must be validated; optional one need not be
         assert!(
@@ -1488,10 +1517,7 @@ mod tests {
 
     #[test]
     fn test_safety_comments_present() {
-        let trait_def = make_trait_def(
-            "Processor",
-            vec![make_method("run", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("Processor", vec![make_method("run", TypeRef::String, true, false)]);
         let bridge_cfg = TraitBridgeConfig {
             trait_name: "Processor".to_string(),
             super_trait: None,
@@ -1502,22 +1528,25 @@ mod tests {
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", &api);
 
-        assert!(code.contains("// SAFETY:"), "generated code must contain SAFETY comments");
-        assert!(code.contains("unsafe"), "generated code must use unsafe for raw pointer ops");
+        assert!(
+            code.contains("// SAFETY:"),
+            "generated code must contain SAFETY comments"
+        );
+        assert!(
+            code.contains("unsafe"),
+            "generated code must use unsafe for raw pointer ops"
+        );
     }
 
     #[test]
     fn test_trait_impl_generated() {
-        let trait_def = make_trait_def(
-            "Scanner",
-            vec![make_method("scan", TypeRef::String, true, false)],
-        );
+        let trait_def = make_trait_def("Scanner", vec![make_method("scan", TypeRef::String, true, false)]);
         let bridge_cfg = sample_bridge_cfg("Scanner");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "sc", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "sc", "my_lib", "MyError", &api);
 
         assert!(
             code.contains("impl my_lib::Scanner for ScScannerBridge"),
@@ -1560,7 +1589,7 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Greeter");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "g", "my_lib", &api);
+        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "g", "my_lib", "MyError", &api);
 
         // The vtable fn pointer for 'greet' must accept *const c_char for the message param
         assert!(

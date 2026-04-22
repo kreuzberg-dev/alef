@@ -22,6 +22,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
             auto_path_mappings: Default::default(),
             extra_dependencies: Default::default(),
             source_crates: vec![],
+            error_type: None,
         },
         languages,
         exclude: Default::default(),
@@ -411,7 +412,10 @@ fn test_streaming_node() {
         "Node streaming should collect stream. Got: {}",
         body
     );
-    assert!(body.contains("futures_util::StreamExt"), "Should use futures_util crate");
+    assert!(
+        body.contains("futures_util::StreamExt"),
+        "Should use futures_util crate"
+    );
 }
 
 /// Test FFI (C ABI) language with SyncFunction.

@@ -1,16 +1,16 @@
 use ahash::AHashSet;
-use alef_codegen::generators::{
-    AdapterBodies, AsyncPattern, RustBindingConfig, binding_helpers, gen_constructor, gen_enum, gen_function,
-    gen_impl_block, gen_method, gen_opaque_impl_block, gen_static_method, gen_struct,
-};
 use alef_codegen::generators::enums::enum_has_data_variants;
 use alef_codegen::generators::functions::{collect_explicit_core_imports, collect_trait_imports};
 use alef_codegen::generators::structs::{
     can_generate_default_impl, gen_opaque_struct, gen_struct_default_impl, type_needs_mutex,
 };
 use alef_codegen::generators::trait_bridge::{
-    TraitBridgeGenerator, TraitBridgeSpec, format_param_type, format_type_ref, gen_bridge_all,
-    gen_bridge_trait_impl, gen_bridge_wrapper_struct,
+    TraitBridgeGenerator, TraitBridgeSpec, format_param_type, format_type_ref, gen_bridge_all, gen_bridge_trait_impl,
+    gen_bridge_wrapper_struct,
+};
+use alef_codegen::generators::{
+    AdapterBodies, AsyncPattern, RustBindingConfig, binding_helpers, gen_constructor, gen_enum, gen_function,
+    gen_impl_block, gen_method, gen_opaque_impl_block, gen_static_method, gen_struct,
 };
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::TraitBridgeConfig;
@@ -1788,7 +1788,10 @@ fn test_gen_method_functional_ref_mut_with_error_type() {
 #[test]
 fn test_type_needs_mutex_false_when_no_ref_mut_methods() {
     let typ = simple_type_def();
-    assert!(!type_needs_mutex(&typ), "type with no RefMut methods should not need mutex");
+    assert!(
+        !type_needs_mutex(&typ),
+        "type with no RefMut methods should not need mutex"
+    );
 }
 
 #[test]
@@ -1837,7 +1840,10 @@ fn test_gen_opaque_struct_arc_inner() {
 
     let result = gen_opaque_struct(&typ, &cfg);
 
-    assert!(result.contains("pub struct MyService {"), "should have struct declaration");
+    assert!(
+        result.contains("pub struct MyService {"),
+        "should have struct declaration"
+    );
     assert!(
         result.contains("inner: Arc<my_crate::MyService>"),
         "should have Arc<...> inner field"
@@ -1885,7 +1891,10 @@ fn test_gen_opaque_struct_mutex_when_ref_mut_method() {
 
     let result = gen_opaque_struct(&typ, &cfg);
 
-    assert!(result.contains("pub struct MutableService {"), "should have struct declaration");
+    assert!(
+        result.contains("pub struct MutableService {"),
+        "should have struct declaration"
+    );
     assert!(
         result.contains("Arc<std::sync::Mutex<my_crate::MutableService>>"),
         "should use Arc<Mutex<...>> for RefMut types"
@@ -1928,13 +1937,22 @@ fn test_gen_struct_default_impl_generates_correct_impl() {
 
     let result = gen_struct_default_impl(&typ, "");
 
-    assert!(result.contains("impl Default for MyConfig {"), "should generate Default impl");
-    assert!(result.contains("fn default() -> Self {"), "should have default() method");
+    assert!(
+        result.contains("impl Default for MyConfig {"),
+        "should generate Default impl"
+    );
+    assert!(
+        result.contains("fn default() -> Self {"),
+        "should have default() method"
+    );
     assert!(
         result.contains("name: Default::default()"),
         "non-optional fields use Default::default()"
     );
-    assert!(result.contains("count: Default::default()"), "optional field uses Default::default()");
+    assert!(
+        result.contains("count: Default::default()"),
+        "optional field uses Default::default()"
+    );
 }
 
 #[test]
@@ -1986,7 +2004,10 @@ fn test_gen_struct_default_impl_optional_field_uses_none() {
 
     let result = gen_struct_default_impl(&typ, "");
 
-    assert!(result.contains("value: None"), "Optional<T> fields should default to None");
+    assert!(
+        result.contains("value: None"),
+        "Optional<T> fields should default to None"
+    );
 }
 
 #[test]
@@ -2125,9 +2146,18 @@ fn test_gen_struct_with_opaque_field_skips_serde_derives() {
     let result = gen_struct(&typ, &mapper, &cfg);
 
     assert!(result.contains("pub struct Wrapper"), "should generate struct");
-    assert!(!result.contains("serde::Serialize"), "should skip Serialize derive for opaque fields");
-    assert!(!result.contains("serde::Deserialize"), "should skip Deserialize derive for opaque fields");
-    assert!(!result.contains("Default"), "should skip Default derive for opaque fields");
+    assert!(
+        !result.contains("serde::Serialize"),
+        "should skip Serialize derive for opaque fields"
+    );
+    assert!(
+        !result.contains("serde::Deserialize"),
+        "should skip Deserialize derive for opaque fields"
+    );
+    assert!(
+        !result.contains("Default"),
+        "should skip Default derive for opaque fields"
+    );
 }
 
 #[test]
@@ -2186,7 +2216,10 @@ fn test_gen_opaque_impl_block_generates_impl_with_method() {
 #[test]
 fn test_enum_has_data_variants_false_for_unit_variants() {
     let enum_def = simple_enum_def();
-    assert!(!enum_has_data_variants(&enum_def), "unit-only enum should not have data variants");
+    assert!(
+        !enum_has_data_variants(&enum_def),
+        "unit-only enum should not have data variants"
+    );
 }
 
 #[test]
@@ -2221,7 +2254,10 @@ fn test_enum_has_data_variants_true_when_fields_present() {
         serde_tag: None,
         serde_rename_all: None,
     };
-    assert!(enum_has_data_variants(&enum_def), "enum with fields should have data variants");
+    assert!(
+        enum_has_data_variants(&enum_def),
+        "enum with fields should have data variants"
+    );
 }
 
 #[test]
@@ -2271,7 +2307,10 @@ fn test_gen_enum_always_derives_serde() {
     let result = gen_enum(&enum_def, &cfg);
 
     assert!(result.contains("serde::Serialize"), "should always derive Serialize");
-    assert!(result.contains("serde::Deserialize"), "should always derive Deserialize");
+    assert!(
+        result.contains("serde::Deserialize"),
+        "should always derive Deserialize"
+    );
 }
 
 #[test]
@@ -2426,7 +2465,10 @@ fn test_gen_function_async_produces_async_signature() {
 
     let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
 
-    assert!(result.contains("pub async fn process"), "async function should have async keyword");
+    assert!(
+        result.contains("pub async fn process"),
+        "async function should have async keyword"
+    );
 }
 
 #[test]
@@ -2441,7 +2483,10 @@ fn test_gen_function_with_error_type_wraps_in_result() {
 
     let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
 
-    assert!(result.contains("-> Result"), "function with error_type should return Result");
+    assert!(
+        result.contains("-> Result"),
+        "function with error_type should return Result"
+    );
     assert!(
         result.contains("missing_errors_doc"),
         "should suppress missing_errors_doc lint"
@@ -2473,7 +2518,10 @@ fn test_gen_function_with_no_params_generates_empty_param_list() {
 
     let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
 
-    assert!(result.contains("pub fn get_version()"), "should have empty parameter list");
+    assert!(
+        result.contains("pub fn get_version()"),
+        "should have empty parameter list"
+    );
     assert!(result.contains("-> String"), "should have String return type");
 }
 
@@ -2526,7 +2574,10 @@ fn test_gen_function_with_optional_param_wraps_in_option() {
     let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
 
     assert!(result.contains("query: String"), "required param should be plain type");
-    assert!(result.contains("limit: Option<u32>"), "optional param should be wrapped in Option");
+    assert!(
+        result.contains("limit: Option<u32>"),
+        "optional param should be wrapped in Option"
+    );
 }
 
 #[test]
@@ -2648,7 +2699,11 @@ fn test_collect_explicit_core_imports_is_sorted() {
 
     let result = collect_explicit_core_imports(&api);
 
-    assert_eq!(result, vec!["Alpha", "Bravo"], "imports should be alphabetically sorted");
+    assert_eq!(
+        result,
+        vec!["Alpha", "Bravo"],
+        "imports should be alphabetically sorted"
+    );
 }
 
 // ==============================================================================
@@ -2772,7 +2827,8 @@ fn test_trait_bridge_spec_wrapper_name() {
         bridge_config: &bridge_config,
         core_import: "my_crate",
         wrapper_prefix: "Python",
-        type_paths: HashMap::new(),
+        type_paths: HashMap::new(),\
+            error_type: "AlefError".to_string(),
     };
 
     assert_eq!(spec.wrapper_name(), "PythonMyTraitBridge");
@@ -2829,8 +2885,14 @@ fn test_gen_bridge_wrapper_struct_contains_foreign_type_and_cached_name() {
 
     let result = gen_bridge_wrapper_struct(&spec, &generator);
 
-    assert!(result.contains("pub struct PythonMyTraitBridge {"), "should have wrapper struct");
-    assert!(result.contains("inner: MockObject"), "should have inner field with foreign type");
+    assert!(
+        result.contains("pub struct PythonMyTraitBridge {"),
+        "should have wrapper struct"
+    );
+    assert!(
+        result.contains("inner: MockObject"),
+        "should have inner field with foreign type"
+    );
     assert!(result.contains("cached_name: String"), "should have cached_name field");
 }
 
@@ -2873,15 +2935,27 @@ fn test_gen_bridge_all_includes_imports_struct_and_trait_impl() {
 
     let result = gen_bridge_all(&spec, &generator);
 
-    assert!(result.contains("use mock::MockObject;"), "should include bridge imports");
-    assert!(result.contains("pub struct PythonMyTraitBridge"), "should have wrapper struct");
-    assert!(result.contains("impl PythonMyTraitBridge {"), "should have constructor impl");
+    assert!(
+        result.contains("use mock::MockObject;"),
+        "should include bridge imports"
+    );
+    assert!(
+        result.contains("pub struct PythonMyTraitBridge"),
+        "should have wrapper struct"
+    );
+    assert!(
+        result.contains("impl PythonMyTraitBridge {"),
+        "should have constructor impl"
+    );
     assert!(
         result.contains("impl my_crate::MyTrait for PythonMyTraitBridge"),
         "should have trait impl"
     );
     // No register_fn configured, so registration function should be absent
-    assert!(!result.contains("pub fn register"), "should not have registration fn when not configured");
+    assert!(
+        !result.contains("pub fn register"),
+        "should not have registration fn when not configured"
+    );
 }
 
 #[test]
@@ -2916,16 +2990,46 @@ fn test_gen_bridge_all_includes_registration_fn_when_configured() {
 fn test_format_type_ref_primitives() {
     let type_paths = HashMap::new();
 
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::Bool), &type_paths), "bool");
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::U8), &type_paths), "u8");
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::U16), &type_paths), "u16");
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::U32), &type_paths), "u32");
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::U64), &type_paths), "u64");
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::I32), &type_paths), "i32");
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::I64), &type_paths), "i64");
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::F32), &type_paths), "f32");
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::F64), &type_paths), "f64");
-    assert_eq!(format_type_ref(&TypeRef::Primitive(PrimitiveType::Usize), &type_paths), "usize");
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::Bool), &type_paths),
+        "bool"
+    );
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::U8), &type_paths),
+        "u8"
+    );
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::U16), &type_paths),
+        "u16"
+    );
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::U32), &type_paths),
+        "u32"
+    );
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::U64), &type_paths),
+        "u64"
+    );
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::I32), &type_paths),
+        "i32"
+    );
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::I64), &type_paths),
+        "i64"
+    );
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::F32), &type_paths),
+        "f32"
+    );
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::F64), &type_paths),
+        "f64"
+    );
+    assert_eq!(
+        format_type_ref(&TypeRef::Primitive(PrimitiveType::Usize), &type_paths),
+        "usize"
+    );
 }
 
 #[test]
@@ -2955,7 +3059,10 @@ fn test_format_type_ref_optional_and_vec() {
 fn test_format_type_ref_map() {
     let type_paths = HashMap::new();
 
-    let map = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Primitive(PrimitiveType::U64)));
+    let map = TypeRef::Map(
+        Box::new(TypeRef::String),
+        Box::new(TypeRef::Primitive(PrimitiveType::U64)),
+    );
     assert_eq!(
         format_type_ref(&map, &type_paths),
         "std::collections::HashMap<String, u64>"
@@ -3117,7 +3224,11 @@ fn test_format_param_type_without_is_ref_passes_by_value() {
         newtype_wrapper: None,
     };
 
-    assert_eq!(format_param_type(&param, &type_paths), "String", "without is_ref, String is owned");
+    assert_eq!(
+        format_param_type(&param, &type_paths),
+        "String",
+        "without is_ref, String is owned"
+    );
 }
 
 // ==============================================================================
@@ -3315,5 +3426,8 @@ fn test_wrap_return_with_mutex_vec_opaque() {
         false,
     );
 
-    assert_eq!(result, "result.into_iter().map(|v| Item { inner: Arc::new(v) }).collect()");
+    assert_eq!(
+        result,
+        "result.into_iter().map(|v| Item { inner: Arc::new(v) }).collect()"
+    );
 }

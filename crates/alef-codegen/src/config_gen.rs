@@ -1610,10 +1610,16 @@ mod tests {
         assert_eq!(default_value_for_field(&field, "ruby"), "{}");
         assert_eq!(default_value_for_field(&field, "go"), "make(map[string]interface{})");
         assert_eq!(default_value_for_field(&field, "java"), "new java.util.HashMap<>()");
-        assert_eq!(default_value_for_field(&field, "csharp"), "new Dictionary<string, object>()");
+        assert_eq!(
+            default_value_for_field(&field, "csharp"),
+            "new Dictionary<string, object>()"
+        );
         assert_eq!(default_value_for_field(&field, "php"), "[]");
         assert_eq!(default_value_for_field(&field, "r"), "list()");
-        assert_eq!(default_value_for_field(&field, "rust"), "std::collections::HashMap::new()");
+        assert_eq!(
+            default_value_for_field(&field, "rust"),
+            "std::collections::HashMap::new()"
+        );
     }
 
     #[test]
@@ -1663,7 +1669,10 @@ mod tests {
         assert!(output.contains("Option<String>"), "name should be Option<String>");
         assert!(output.contains("-> Self {"), "should return Self");
         // timeout has IntLiteral(30), use_unwrap_or_default is false for Named → uses unwrap_or
-        assert!(output.contains("timeout: timeout.unwrap_or(30),"), "should apply int default");
+        assert!(
+            output.contains("timeout: timeout.unwrap_or(30),"),
+            "should apply int default"
+        );
         // enabled has BoolLiteral(true), not unwrap_or_default
         assert!(
             output.contains("enabled: enabled.unwrap_or(true),"),
@@ -1698,10 +1707,7 @@ mod tests {
         let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
         // Optional field param is Option<String> and assigned directly
         assert!(output.contains("extra,"), "optional field should be assigned directly");
-        assert!(
-            !output.contains("extra.unwrap"),
-            "optional field should not use unwrap"
-        );
+        assert!(!output.contains("extra.unwrap"), "optional field should not use unwrap");
     }
 
     #[test]
@@ -1781,7 +1787,7 @@ mod tests {
             "optional field should use and_then"
         );
         assert!(
-            !output.contains("field_0:").then(|| ()).is_none(),
+            output.contains("field_0:").then_some(()).is_some(),
             "field_0 should appear in output"
         );
     }
@@ -1795,11 +1801,23 @@ mod tests {
         let typ = make_test_type();
         let output = gen_php_kwargs_constructor(&typ, &simple_type_mapper);
 
-        assert!(output.contains("pub fn __construct("), "should use PHP constructor name");
+        assert!(
+            output.contains("pub fn __construct("),
+            "should use PHP constructor name"
+        );
         // All params are Option<T>
-        assert!(output.contains("timeout: Option<u64>"), "timeout param should be Option<u64>");
-        assert!(output.contains("enabled: Option<bool>"), "enabled param should be Option<bool>");
-        assert!(output.contains("name: Option<String>"), "name param should be Option<String>");
+        assert!(
+            output.contains("timeout: Option<u64>"),
+            "timeout param should be Option<u64>"
+        );
+        assert!(
+            output.contains("enabled: Option<bool>"),
+            "enabled param should be Option<bool>"
+        );
+        assert!(
+            output.contains("name: Option<String>"),
+            "name param should be Option<String>"
+        );
         assert!(output.contains("-> Self {"), "should return Self");
         assert!(
             output.contains("timeout: timeout.unwrap_or(30),"),
@@ -1834,7 +1852,10 @@ mod tests {
             newtype_wrapper: None,
         });
         let output = gen_php_kwargs_constructor(&typ, &simple_type_mapper);
-        assert!(output.contains("tag,"), "optional field should be passed through directly");
+        assert!(
+            output.contains("tag,"),
+            "optional field should be passed through directly"
+        );
         assert!(!output.contains("tag.unwrap"), "optional field should not call unwrap");
     }
 
@@ -1988,10 +2009,19 @@ mod tests {
             "function name should be lowercase type name"
         );
         // Fields appear as named parameters with defaults
-        assert!(output.contains("timeout: u64 = 30"), "should include timeout with default");
+        assert!(
+            output.contains("timeout: u64 = 30"),
+            "should include timeout with default"
+        );
         // extendr passes "r" to default_value_for_field; BoolLiteral(true) → "TRUE" in R
-        assert!(output.contains("enabled: bool = TRUE"), "should include enabled with R bool default");
-        assert!(output.contains("name: String = \"default\""), "should include name with default");
+        assert!(
+            output.contains("enabled: bool = TRUE"),
+            "should include enabled with R bool default"
+        );
+        assert!(
+            output.contains("name: String = \"default\""),
+            "should include name with default"
+        );
         assert!(output.contains("-> Config {"), "should return Config");
         assert!(output.contains("Config {"), "should construct Config");
         assert!(output.contains("timeout,"), "should include timeout in struct literal");

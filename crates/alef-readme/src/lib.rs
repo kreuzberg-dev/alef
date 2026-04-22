@@ -652,6 +652,7 @@ mod tests {
                 auto_path_mappings: Default::default(),
                 extra_dependencies: Default::default(),
                 source_crates: vec![],
+                error_type: None,
             },
             languages: vec![Language::Python, Language::Node],
             exclude: ExcludeConfig::default(),
@@ -1060,7 +1061,10 @@ mod tests {
         });
         let v = Value::from_serialize(&perf);
         let result = render_performance_table(&v, "extract");
-        assert!(result.contains("| Document | Size | Latency | Throughput |"), "Got: {result}");
+        assert!(
+            result.contains("| Document | Size | Latency | Throughput |"),
+            "Got: {result}"
+        );
         assert!(result.contains("doc.pdf"), "Got: {result}");
         assert!(result.contains("100 MB/s"), "Got: {result}");
     }
@@ -1247,7 +1251,11 @@ languages:
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
         assert_eq!(files.len(), 1);
-        assert!(files[0].content.contains("https://discord.gg/test"), "Got: {}", files[0].content);
+        assert!(
+            files[0].content.contains("https://discord.gg/test"),
+            "Got: {}",
+            files[0].content
+        );
         assert!(
             files[0].content.contains("https://img.example.com/banner.png"),
             "Got: {}",
@@ -1418,10 +1426,7 @@ languages:
         let mut config = test_config();
         let mut lang_map = std::collections::HashMap::new();
         // No output_path, no output key, no output_pattern — falls through to default_readme_path
-        lang_map.insert(
-            "python".to_string(),
-            serde_json::json!({ "template": "t.md" }),
-        );
+        lang_map.insert("python".to_string(), serde_json::json!({ "template": "t.md" }));
         config.readme = Some(ReadmeConfig {
             template_dir: Some(tmp.clone()),
             snippets_dir: None,

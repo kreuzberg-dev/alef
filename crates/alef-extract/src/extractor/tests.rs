@@ -1949,7 +1949,11 @@ fn test_extract_pub_trait() {
 
     let surface = extract_from_source(source);
     // Trait appears in types with is_trait=true
-    let trait_def = surface.types.iter().find(|t| t.name == "Processor").expect("Processor trait not found");
+    let trait_def = surface
+        .types
+        .iter()
+        .find(|t| t.name == "Processor")
+        .expect("Processor trait not found");
     assert!(trait_def.is_trait);
     assert_eq!(trait_def.rust_path, "test_crate::Processor");
     assert_eq!(trait_def.doc, "A backend for processing.");
@@ -1972,13 +1976,24 @@ fn test_pub_trait_with_supertrait() {
     "#;
 
     let surface = extract_from_source(source);
-    let ocr = surface.types.iter().find(|t| t.name == "OcrBackend").expect("OcrBackend not found");
+    let ocr = surface
+        .types
+        .iter()
+        .find(|t| t.name == "OcrBackend")
+        .expect("OcrBackend not found");
     assert!(ocr.is_trait);
     assert_eq!(ocr.super_traits, vec!["Backend"]);
 
     // Send and Sync are marker traits — filtered out
-    let backend = surface.types.iter().find(|t| t.name == "Backend").expect("Backend not found");
-    assert!(backend.super_traits.is_empty(), "Send/Sync should be filtered from super_traits");
+    let backend = surface
+        .types
+        .iter()
+        .find(|t| t.name == "Backend")
+        .expect("Backend not found");
+    assert!(
+        backend.super_traits.is_empty(),
+        "Send/Sync should be filtered from super_traits"
+    );
 }
 
 #[test]
@@ -2024,10 +2039,18 @@ pub fn send(req: Request) -> Response {
     let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
     let surface = super::extract(&sources, "my_crate", "0.1.0", None).unwrap();
 
-    let response = surface.types.iter().find(|t| t.name == "Response").expect("Response not found");
+    let response = surface
+        .types
+        .iter()
+        .find(|t| t.name == "Response")
+        .expect("Response not found");
     assert!(response.is_return_type, "Response should be marked is_return_type=true");
 
-    let request = surface.types.iter().find(|t| t.name == "Request").expect("Request not found");
+    let request = surface
+        .types
+        .iter()
+        .find(|t| t.name == "Request")
+        .expect("Request not found");
     assert!(!request.is_return_type, "Request should not be marked is_return_type");
 
     let _ = std::fs::remove_dir_all(&tmp);
@@ -2088,10 +2111,17 @@ fn test_newtype_wrapper_recorded_on_method_param() {
     let surface = extract_from_source(source);
 
     // Token(pub String) has explicit pub inner field — resolved away
-    assert!(surface.types.iter().all(|t| t.name != "Token"), "Token newtype should be resolved away");
+    assert!(
+        surface.types.iter().all(|t| t.name != "Token"),
+        "Token newtype should be resolved away"
+    );
 
     let auth = surface.types.iter().find(|t| t.name == "Auth").expect("Auth not found");
-    let verify = auth.methods.iter().find(|m| m.name == "verify").expect("verify not found");
+    let verify = auth
+        .methods
+        .iter()
+        .find(|m| m.name == "verify")
+        .expect("verify not found");
     let token_param = &verify.params[0];
     // After resolution, type is String
     assert_eq!(token_param.ty, TypeRef::String);
@@ -2114,9 +2144,16 @@ fn test_newtype_wrapper_recorded_on_function_return() {
     let surface = extract_from_source(source);
 
     // Handle(pub u32) has explicit pub inner field — resolved away
-    assert!(surface.types.iter().all(|t| t.name != "Handle"), "Handle newtype should be resolved away");
+    assert!(
+        surface.types.iter().all(|t| t.name != "Handle"),
+        "Handle newtype should be resolved away"
+    );
 
-    let func = surface.functions.iter().find(|f| f.name == "create_handle").expect("create_handle not found");
+    let func = surface
+        .functions
+        .iter()
+        .find(|f| f.name == "create_handle")
+        .expect("create_handle not found");
     assert_eq!(func.return_type, TypeRef::Primitive(alef_core::ir::PrimitiveType::U32));
     assert!(
         func.return_newtype_wrapper.is_some(),
@@ -2142,9 +2179,16 @@ fn test_map_typeref_newtype_resolution() {
     let surface = extract_from_source(source);
 
     // Score is resolved away
-    assert!(surface.types.iter().all(|t| t.name != "Score"), "Score newtype should be resolved away");
+    assert!(
+        surface.types.iter().all(|t| t.name != "Score"),
+        "Score newtype should be resolved away"
+    );
 
-    let board = surface.types.iter().find(|t| t.name == "Leaderboard").expect("Leaderboard not found");
+    let board = surface
+        .types
+        .iter()
+        .find(|t| t.name == "Leaderboard")
+        .expect("Leaderboard not found");
     let scores_field = &board.fields[0];
     // Map<String, i32> after resolution
     if let TypeRef::Map(_, v) = &scores_field.ty {
@@ -2176,8 +2220,16 @@ fn test_resolve_trait_sources_retroactive() {
 
     let surface = extract_from_source(source);
 
-    let widget = surface.types.iter().find(|t| t.name == "Widget").expect("Widget not found");
-    let render = widget.methods.iter().find(|m| m.name == "render").expect("render not found");
+    let widget = surface
+        .types
+        .iter()
+        .find(|t| t.name == "Widget")
+        .expect("Widget not found");
+    let render = widget
+        .methods
+        .iter()
+        .find(|m| m.name == "render")
+        .expect("render not found");
     // trait_source should be filled in by resolve_trait_sources
     assert!(
         render.trait_source.is_some(),
@@ -2230,16 +2282,8 @@ fn test_derive_module_path_via_extract_with_submodule_files() {
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
 
-    std::fs::write(
-        tmp.join("src/lib.rs"),
-        "pub mod cache;\n",
-    )
-    .unwrap();
-    std::fs::write(
-        tmp.join("src/cache/mod.rs"),
-        "pub mod types;\n",
-    )
-    .unwrap();
+    std::fs::write(tmp.join("src/lib.rs"), "pub mod cache;\n").unwrap();
+    std::fs::write(tmp.join("src/cache/mod.rs"), "pub mod types;\n").unwrap();
     std::fs::write(
         tmp.join("src/cache/types.rs"),
         r#"
@@ -2271,11 +2315,7 @@ fn test_apply_parent_reexport_shortening_via_extract() {
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
 
-    std::fs::write(
-        tmp.join("src/lib.rs"),
-        "pub mod cache;\n",
-    )
-    .unwrap();
+    std::fs::write(tmp.join("src/lib.rs"), "pub mod cache;\n").unwrap();
     std::fs::write(
         tmp.join("src/cache/mod.rs"),
         r#"
@@ -2303,8 +2343,7 @@ pub struct CacheEntry {
     let entry = &surface.types[0];
     assert_eq!(entry.name, "CacheEntry");
     assert_eq!(
-        entry.rust_path,
-        "my_crate::cache::CacheEntry",
+        entry.rust_path, "my_crate::cache::CacheEntry",
         "Named re-export in parent mod.rs should shorten the rust_path"
     );
 
@@ -2397,7 +2436,10 @@ fn test_collect_use_names_nested_path() {
 fn test_collect_use_names_group_with_glob_returns_all() {
     // `{Foo, *}` — a group containing a glob means All
     let tree: syn::UseTree = syn::parse_str("{Foo, *}").unwrap();
-    assert!(matches!(super::reexports::collect_use_names(&tree), super::reexports::UseFilter::All));
+    assert!(matches!(
+        super::reexports::collect_use_names(&tree),
+        super::reexports::UseFilter::All
+    ));
 }
 
 #[test]
@@ -2433,7 +2475,11 @@ dep_crate = { path = "crates/dep_crate" }
 "#,
     )
     .unwrap();
-    std::fs::write(tmp.join("crates/dep_crate/src/lib.rs"), "pub struct DepType { pub x: u32 }\n").unwrap();
+    std::fs::write(
+        tmp.join("crates/dep_crate/src/lib.rs"),
+        "pub struct DepType { pub x: u32 }\n",
+    )
+    .unwrap();
 
     let result = super::reexports::find_crate_source("dep_crate", Some(&tmp));
     assert!(result.is_some(), "Should find crate source via [dependencies] path dep");
@@ -2936,7 +2982,11 @@ fn test_trait_method_with_default_impl() {
     "#;
 
     let surface = extract_from_source(source);
-    let logger = surface.types.iter().find(|t| t.name == "Logger").expect("Logger not found");
+    let logger = surface
+        .types
+        .iter()
+        .find(|t| t.name == "Logger")
+        .expect("Logger not found");
     assert!(logger.is_trait);
 
     let log_method = logger.methods.iter().find(|m| m.name == "log").unwrap();

@@ -1470,8 +1470,8 @@ fn test_php_plugin_bridge_validates_required_methods() {
     let trait_def = make_trait_def_php(
         "Analyzer",
         vec![
-            make_method_php("analyze", TypeRef::String, true, false),  // required
-            make_method_php("describe", TypeRef::String, false, true),  // optional
+            make_method_php("analyze", TypeRef::String, true, false), // required
+            make_method_php("describe", TypeRef::String, false, true), // optional
         ],
     );
     let bridge_cfg = alef_core::config::TraitBridgeConfig {
@@ -1501,10 +1501,7 @@ fn test_php_plugin_bridge_validates_required_methods() {
 fn test_php_sync_method_body_uses_try_call_method() {
     use alef_backend_php::trait_bridge::gen_trait_bridge;
 
-    let trait_def = make_trait_def_php(
-        "Scanner",
-        vec![make_method_php("scan", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def_php("Scanner", vec![make_method_php("scan", TypeRef::String, true, false)]);
     let bridge_cfg = make_plugin_bridge_cfg_php("Scanner");
     let api = make_api_php();
 
@@ -1520,10 +1517,7 @@ fn test_php_sync_method_body_uses_try_call_method() {
 fn test_php_async_method_body_uses_box_pin() {
     use alef_backend_php::trait_bridge::gen_trait_bridge;
 
-    let trait_def = make_trait_def_php(
-        "Processor",
-        vec![make_async_method_php("run", TypeRef::Unit)],
-    );
+    let trait_def = make_trait_def_php("Processor", vec![make_async_method_php("run", TypeRef::Unit)]);
     let bridge_cfg = make_plugin_bridge_cfg_php("Processor");
     let api = make_api_php();
 

@@ -99,7 +99,10 @@ mod tests {
     }
 
     fn make_opt_field(name: &str, ty: TypeRef) -> FieldDef {
-        FieldDef { optional: true, ..make_field(name, ty) }
+        FieldDef {
+            optional: true,
+            ..make_field(name, ty)
+        }
     }
 
     fn make_type(name: &str, rust_path: &str, fields: Vec<FieldDef>) -> TypeDef {
@@ -404,7 +407,10 @@ mod tests {
     #[test]
     fn test_field_conversion_to_core_json_optional() {
         let result = field_conversion_to_core("meta", &TypeRef::Json, true);
-        assert_eq!(result, "meta: val.meta.as_ref().and_then(|s| serde_json::from_str(s).ok())");
+        assert_eq!(
+            result,
+            "meta: val.meta.as_ref().and_then(|s| serde_json::from_str(s).ok())"
+        );
     }
 
     #[test]
@@ -449,7 +455,10 @@ mod tests {
     fn test_field_conversion_to_core_vec_named_optional() {
         let ty = TypeRef::Vec(Box::new(TypeRef::Named("Item".into())));
         let result = field_conversion_to_core("items", &ty, true);
-        assert_eq!(result, "items: val.items.map(|v| v.into_iter().map(Into::into).collect())");
+        assert_eq!(
+            result,
+            "items: val.items.map(|v| v.into_iter().map(Into::into).collect())"
+        );
     }
 
     #[test]
@@ -463,7 +472,10 @@ mod tests {
     fn test_field_conversion_to_core_vec_json() {
         let ty = TypeRef::Vec(Box::new(TypeRef::Json));
         let result = field_conversion_to_core("items", &ty, false);
-        assert_eq!(result, "items: val.items.into_iter().filter_map(|s| serde_json::from_str(&s).ok()).collect()");
+        assert_eq!(
+            result,
+            "items: val.items.into_iter().filter_map(|s| serde_json::from_str(&s).ok()).collect()"
+        );
     }
 
     #[test]
@@ -477,7 +489,10 @@ mod tests {
     fn test_field_conversion_to_core_optional_vec_named() {
         let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".into())))));
         let result = field_conversion_to_core("items", &ty, false);
-        assert_eq!(result, "items: val.items.map(|v| v.into_iter().map(Into::into).collect())");
+        assert_eq!(
+            result,
+            "items: val.items.map(|v| v.into_iter().map(Into::into).collect())"
+        );
     }
 
     #[test]
@@ -574,7 +589,13 @@ mod tests {
     #[test]
     fn test_field_conversion_from_core_named_non_opaque() {
         // Non-opaque Named uses .into() (symmetric with binding_to_core)
-        let result = field_conversion_from_core("backend", &TypeRef::Named("Backend".into()), false, false, &no_opaques());
+        let result = field_conversion_from_core(
+            "backend",
+            &TypeRef::Named("Backend".into()),
+            false,
+            false,
+            &no_opaques(),
+        );
         assert_eq!(result, "backend: val.backend.into()");
     }
 
@@ -658,7 +679,10 @@ mod tests {
 
     #[test]
     fn test_is_tuple_variant_true_for_positional_fields() {
-        let fields = vec![make_field("_0", TypeRef::String), make_field("_1", TypeRef::Primitive(PrimitiveType::I32))];
+        let fields = vec![
+            make_field("_0", TypeRef::String),
+            make_field("_1", TypeRef::Primitive(PrimitiveType::I32)),
+        ];
         assert!(is_tuple_variant(&fields));
     }
 
@@ -809,7 +833,10 @@ mod tests {
     fn test_resolve_named_path_found_in_map() {
         let mut map = ahash::AHashMap::new();
         map.insert("Config".to_string(), "my_crate::types::Config".to_string());
-        assert_eq!(resolve_named_path("Config", "my_crate", &map), "my_crate::types::Config");
+        assert_eq!(
+            resolve_named_path("Config", "my_crate", &map),
+            "my_crate::types::Config"
+        );
     }
 
     #[test]
@@ -1025,7 +1052,10 @@ mod tests {
     #[test]
     fn test_gen_from_binding_to_core_with_type_name_prefix() {
         let typ = make_type("Config", "c::Config", vec![make_field("x", TypeRef::String)]);
-        let config = ConversionConfig { type_name_prefix: "Js", ..Default::default() };
+        let config = ConversionConfig {
+            type_name_prefix: "Js",
+            ..Default::default()
+        };
         let result = gen_from_binding_to_core_cfg(&typ, "c", &config);
         assert!(result.contains("impl From<JsConfig> for c::Config"));
     }
@@ -1092,7 +1122,10 @@ mod tests {
     fn test_gen_from_binding_to_core_cast_large_ints_to_i64() {
         let field = make_field("count", TypeRef::Primitive(PrimitiveType::U64));
         let typ = make_type("S", "c::S", vec![field]);
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
         let result = gen_from_binding_to_core_cfg(&typ, "c", &config);
         assert!(result.contains("val.count as u64"));
     }
@@ -1102,7 +1135,10 @@ mod tests {
         let field = make_field("js_val", TypeRef::Named("JsValue".into()));
         let typ = make_type("S", "c::S", vec![field]);
         let excluded = vec!["JsValue".to_string()];
-        let config = ConversionConfig { exclude_types: &excluded, ..Default::default() };
+        let config = ConversionConfig {
+            exclude_types: &excluded,
+            ..Default::default()
+        };
         let result = gen_from_binding_to_core_cfg(&typ, "c", &config);
         assert!(result.contains("js_val: Default::default()"));
     }
@@ -1160,7 +1196,10 @@ mod tests {
         opaques.insert("Client".to_string());
         let field = make_field("client", TypeRef::Named("Client".into()));
         let typ = make_type("S", "c::S", vec![field]);
-        let config = ConversionConfig { type_name_prefix: "Js", ..Default::default() };
+        let config = ConversionConfig {
+            type_name_prefix: "Js",
+            ..Default::default()
+        };
         let result = gen_from_core_to_binding_cfg(&typ, "c", &opaques, &config);
         assert!(result.contains("JsClient { inner: Arc::new(val.client) }"));
     }
@@ -1210,7 +1249,10 @@ mod tests {
     fn test_gen_from_core_to_binding_cast_large_ints_to_i64() {
         let field = make_field("count", TypeRef::Primitive(PrimitiveType::U64));
         let typ = make_type("S", "c::S", vec![field]);
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
         let result = gen_from_core_to_binding_cfg(&typ, "c", &no_opaques(), &config);
         assert!(result.contains("val.count as i64"));
     }
@@ -1219,7 +1261,10 @@ mod tests {
     fn test_gen_from_core_to_binding_cast_f32_to_f64() {
         let field = make_field("score", TypeRef::Primitive(PrimitiveType::F32));
         let typ = make_type("S", "c::S", vec![field]);
-        let config = ConversionConfig { cast_f32_to_f64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_f32_to_f64: true,
+            ..Default::default()
+        };
         let result = gen_from_core_to_binding_cfg(&typ, "c", &no_opaques(), &config);
         assert!(result.contains("val.score as f64"));
     }
@@ -1229,7 +1274,10 @@ mod tests {
         let field = make_field("js_val", TypeRef::Named("JsValue".into()));
         let typ = make_type("S", "c::S", vec![field]);
         let excluded = vec!["JsValue".to_string()];
-        let config = ConversionConfig { exclude_types: &excluded, ..Default::default() };
+        let config = ConversionConfig {
+            exclude_types: &excluded,
+            ..Default::default()
+        };
         let result = gen_from_core_to_binding_cfg(&typ, "c", &no_opaques(), &config);
         // The field must be absent from the generated struct literal
         assert!(!result.contains("js_val:"));
@@ -1272,49 +1320,70 @@ mod tests {
 
     #[test]
     fn test_field_conversion_to_core_cfg_cast_u64_to_i64() {
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
         let result = field_conversion_to_core_cfg("n", &TypeRef::Primitive(PrimitiveType::U64), false, &config);
         assert_eq!(result, "n: val.n as u64");
     }
 
     #[test]
     fn test_field_conversion_to_core_cfg_cast_usize_to_i64() {
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
         let result = field_conversion_to_core_cfg("n", &TypeRef::Primitive(PrimitiveType::Usize), false, &config);
         assert_eq!(result, "n: val.n as usize");
     }
 
     #[test]
     fn test_field_conversion_to_core_cfg_cast_isize_to_i64() {
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
         let result = field_conversion_to_core_cfg("n", &TypeRef::Primitive(PrimitiveType::Isize), false, &config);
         assert_eq!(result, "n: val.n as isize");
     }
 
     #[test]
     fn test_field_conversion_to_core_cfg_f32_cast() {
-        let config = ConversionConfig { cast_f32_to_f64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_f32_to_f64: true,
+            ..Default::default()
+        };
         let result = field_conversion_to_core_cfg("s", &TypeRef::Primitive(PrimitiveType::F32), false, &config);
         assert_eq!(result, "s: val.s as f32");
     }
 
     #[test]
     fn test_field_conversion_to_core_cfg_duration_cast() {
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
         let result = field_conversion_to_core_cfg("t", &TypeRef::Duration, false, &config);
         assert_eq!(result, "t: std::time::Duration::from_millis(val.t as u64)");
     }
 
     #[test]
     fn test_field_conversion_to_core_cfg_json_to_string() {
-        let config = ConversionConfig { json_to_string: true, ..Default::default() };
+        let config = ConversionConfig {
+            json_to_string: true,
+            ..Default::default()
+        };
         let result = field_conversion_to_core_cfg("m", &TypeRef::Json, false, &config);
         assert_eq!(result, "m: Default::default()");
     }
 
     #[test]
     fn test_field_conversion_to_core_cfg_vec_named_to_string() {
-        let config = ConversionConfig { vec_named_to_string: true, ..Default::default() };
+        let config = ConversionConfig {
+            vec_named_to_string: true,
+            ..Default::default()
+        };
         let ty = TypeRef::Vec(Box::new(TypeRef::Named("Item".into())));
         let result = field_conversion_to_core_cfg("items", &ty, false, &config);
         assert_eq!(result, "items: serde_json::from_str(&val.items).unwrap_or_default()");
@@ -1333,37 +1402,64 @@ mod tests {
 
     #[test]
     fn test_field_conversion_from_core_cfg_cast_u64_to_i64() {
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
-        let result =
-            field_conversion_from_core_cfg("n", &TypeRef::Primitive(PrimitiveType::U64), false, false, &no_opaques(), &config);
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_from_core_cfg(
+            "n",
+            &TypeRef::Primitive(PrimitiveType::U64),
+            false,
+            false,
+            &no_opaques(),
+            &config,
+        );
         assert_eq!(result, "n: val.n as i64");
     }
 
     #[test]
     fn test_field_conversion_from_core_cfg_cast_f32_to_f64() {
-        let config = ConversionConfig { cast_f32_to_f64: true, ..Default::default() };
-        let result =
-            field_conversion_from_core_cfg("s", &TypeRef::Primitive(PrimitiveType::F32), false, false, &no_opaques(), &config);
+        let config = ConversionConfig {
+            cast_f32_to_f64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_from_core_cfg(
+            "s",
+            &TypeRef::Primitive(PrimitiveType::F32),
+            false,
+            false,
+            &no_opaques(),
+            &config,
+        );
         assert_eq!(result, "s: val.s as f64");
     }
 
     #[test]
     fn test_field_conversion_from_core_cfg_duration_cast_to_i64() {
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
         let result = field_conversion_from_core_cfg("t", &TypeRef::Duration, false, false, &no_opaques(), &config);
         assert_eq!(result, "t: val.t.as_millis() as u64 as i64");
     }
 
     #[test]
     fn test_field_conversion_from_core_cfg_json_to_string() {
-        let config = ConversionConfig { json_to_string: true, ..Default::default() };
+        let config = ConversionConfig {
+            json_to_string: true,
+            ..Default::default()
+        };
         let result = field_conversion_from_core_cfg("m", &TypeRef::Json, false, false, &no_opaques(), &config);
         assert_eq!(result, "m: val.m.to_string()");
     }
 
     #[test]
     fn test_field_conversion_from_core_cfg_vec_named_to_string() {
-        let config = ConversionConfig { vec_named_to_string: true, ..Default::default() };
+        let config = ConversionConfig {
+            vec_named_to_string: true,
+            ..Default::default()
+        };
         let ty = TypeRef::Vec(Box::new(TypeRef::Named("Item".into())));
         let result = field_conversion_from_core_cfg("items", &ty, false, false, &no_opaques(), &config);
         assert_eq!(result, "items: serde_json::to_string(&val.items).unwrap_or_default()");
@@ -1371,7 +1467,10 @@ mod tests {
 
     #[test]
     fn test_field_conversion_from_core_cfg_vec_u64_cast() {
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
         let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U64)));
         let result = field_conversion_from_core_cfg("ids", &ty, false, false, &no_opaques(), &config);
         assert!(result.contains("as i64"));
@@ -1379,7 +1478,10 @@ mod tests {
 
     #[test]
     fn test_field_conversion_from_core_cfg_vec_f32_cast() {
-        let config = ConversionConfig { cast_f32_to_f64: true, ..Default::default() };
+        let config = ConversionConfig {
+            cast_f32_to_f64: true,
+            ..Default::default()
+        };
         let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32)));
         let result = field_conversion_from_core_cfg("scores", &ty, false, false, &no_opaques(), &config);
         assert!(result.contains("as f64"));
@@ -1387,8 +1489,14 @@ mod tests {
 
     #[test]
     fn test_field_conversion_from_core_cfg_map_u64_values_cast() {
-        let config = ConversionConfig { cast_large_ints_to_i64: true, ..Default::default() };
-        let ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Primitive(PrimitiveType::U64)));
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Primitive(PrimitiveType::U64)),
+        );
         let result = field_conversion_from_core_cfg("map", &ty, false, false, &no_opaques(), &config);
         assert!(result.contains("as i64"));
     }

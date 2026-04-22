@@ -1,5 +1,5 @@
-use alef_backend_pyo3::trait_bridge::{Pyo3BridgeGenerator, gen_trait_bridge};
 use alef_backend_pyo3::Pyo3Backend;
+use alef_backend_pyo3::trait_bridge::{Pyo3BridgeGenerator, gen_trait_bridge};
 use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig, PythonConfig, StubsConfig, TraitBridgeConfig};
@@ -1536,10 +1536,7 @@ fn test_gen_sync_method_body_unit_return_no_error() {
     let method = make_method_def("tick", vec![], TypeRef::Unit, false, false, false);
     let body = generator.gen_sync_method_body(&method, &spec);
 
-    assert!(
-        body.contains("Python::attach"),
-        "sync body should use Python::attach"
-    );
+    assert!(body.contains("Python::attach"), "sync body should use Python::attach");
     assert!(
         body.contains("call_method0(\"tick\")"),
         "should call Python method by name with no args"
@@ -1566,14 +1563,8 @@ fn test_gen_sync_method_body_string_return_no_error() {
     let method = make_method_def("name", vec![], TypeRef::String, false, false, false);
     let body = generator.gen_sync_method_body(&method, &spec);
 
-    assert!(
-        body.contains("call_method0(\"name\")"),
-        "should call method by name"
-    );
-    assert!(
-        body.contains("extract::<String>()"),
-        "should extract String return"
-    );
+    assert!(body.contains("call_method0(\"name\")"), "should call method by name");
+    assert!(body.contains("extract::<String>()"), "should extract String return");
     assert!(
         body.contains("unwrap_or_default()"),
         "infallible string return should use unwrap_or_default"
@@ -1762,11 +1753,7 @@ fn test_gen_registration_fn_validates_required_methods() {
     let generator = make_bridge_generator("my_lib");
     let required_method = make_method_def("process", vec![], TypeRef::String, false, true, false);
     let optional_method = make_method_def("describe", vec![], TypeRef::String, false, false, true);
-    let trait_def = make_trait_def(
-        "Backend",
-        "my_lib::Backend",
-        vec![required_method, optional_method],
-    );
+    let trait_def = make_trait_def("Backend", "my_lib::Backend", vec![required_method, optional_method]);
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "Backend".to_string(),
         super_trait: None,
@@ -1803,10 +1790,7 @@ fn test_gen_registration_fn_validates_required_methods() {
         out.contains("fn register_backend"),
         "registration fn should use the configured name"
     );
-    assert!(
-        out.contains("Arc::new(wrapper)"),
-        "registration fn should wrap in Arc"
-    );
+    assert!(out.contains("Arc::new(wrapper)"), "registration fn should wrap in Arc");
 }
 
 #[test]
@@ -1878,10 +1862,7 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
         code.contains("use pyo3::prelude::*"),
         "output should import pyo3 prelude"
     );
-    assert!(
-        code.contains("fn process"),
-        "output should include the trait method"
-    );
+    assert!(code.contains("fn process"), "output should include the trait method");
 }
 
 #[test]
@@ -1940,7 +1921,14 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
 #[test]
 fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
     // A trait with one sync and one async required method — exercises both code paths
-    let sync_method = make_method_def("validate", vec![], TypeRef::Primitive(PrimitiveType::Bool), false, false, false);
+    let sync_method = make_method_def(
+        "validate",
+        vec![],
+        TypeRef::Primitive(PrimitiveType::Bool),
+        false,
+        false,
+        false,
+    );
     let async_method = make_method_def("process", vec![], TypeRef::String, true, true, false);
     let trait_def = make_trait_def(
         "HybridBackend",

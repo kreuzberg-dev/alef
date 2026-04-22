@@ -2214,6 +2214,7 @@ mod tests {
                 auto_path_mappings: Default::default(),
                 extra_dependencies: Default::default(),
                 source_crates: vec![],
+                error_type: None,
             },
             languages: vec![Language::Python, Language::Node],
             exclude: ExcludeConfig::default(),

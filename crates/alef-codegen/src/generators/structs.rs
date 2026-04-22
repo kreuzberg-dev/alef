@@ -102,8 +102,10 @@ pub fn gen_struct_with_per_field_attrs(
     for d in cfg.struct_derives {
         sb.add_derive(d);
     }
-    // Default, Serialize, and Deserialize are only derived when no field references an opaque type
-    // (Arc-wrapped or data enum), since opaque types don't implement those traits.
+    // Default is always derived — all core types (including data enums) implement Default.
+    // Serialize and Deserialize are only derived when no field references an opaque type
+    // (Arc-wrapped), since opaque types don't implement those traits.
+    sb.add_derive("Default");
     let has_opaque_field = typ.fields.iter().any(|f| {
         if f.cfg.is_some() {
             return false;
@@ -111,7 +113,6 @@ pub fn gen_struct_with_per_field_attrs(
         field_references_opaque_type(&f.ty, cfg.opaque_type_names)
     });
     if !has_opaque_field {
-        sb.add_derive("Default");
         sb.add_derive("serde::Serialize");
         sb.add_derive("serde::Deserialize");
     }
@@ -152,8 +153,9 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
     for d in cfg.struct_derives {
         sb.add_derive(d);
     }
-    // Default, Serialize, and Deserialize are only derived when no field references an opaque type
-    // (Arc-wrapped or data enum), since opaque types don't implement those traits.
+    // Default is always derived — all core types (including data enums) implement Default.
+    // Serialize and Deserialize are only derived when no field references an opaque type.
+    sb.add_derive("Default");
     let has_opaque_field = typ.fields.iter().any(|f| {
         if f.cfg.is_some() {
             return false;
@@ -161,7 +163,6 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         field_references_opaque_type(&f.ty, cfg.opaque_type_names)
     });
     if !has_opaque_field {
-        sb.add_derive("Default");
         sb.add_derive("serde::Serialize");
         sb.add_derive("serde::Deserialize");
     }

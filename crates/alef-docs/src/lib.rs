@@ -2817,6 +2817,7 @@ mod tests {
                 auto_path_mappings: Default::default(),
                 extra_dependencies: Default::default(),
                 source_crates: vec![],
+                error_type: None,
             },
             languages: vec![Language::Python],
             exclude: ExcludeConfig::default(),
@@ -3374,7 +3375,14 @@ mod tests {
 
     #[test]
     fn test_render_method_signature_ruby_optional_return() {
-        let method = make_method("find", vec![], TypeRef::Optional(Box::new(TypeRef::String)), false, false, None);
+        let method = make_method(
+            "find",
+            vec![],
+            TypeRef::Optional(Box::new(TypeRef::String)),
+            false,
+            false,
+            None,
+        );
         let sig = render_method_signature(&method, "Corpus", Language::Ruby, TEST_PREFIX);
         // Ruby signatures don't include return types
         assert_eq!(sig, "def find()");
@@ -3421,7 +3429,14 @@ mod tests {
 
     #[test]
     fn test_render_method_signature_php_optional_return() {
-        let method = make_method("find", vec![], TypeRef::Optional(Box::new(TypeRef::String)), false, false, None);
+        let method = make_method(
+            "find",
+            vec![],
+            TypeRef::Optional(Box::new(TypeRef::String)),
+            false,
+            false,
+            None,
+        );
         let sig = render_method_signature(&method, "Corpus", Language::Php, TEST_PREFIX);
         // PHP uses `?T` nullable prefix syntax for Optional types
         assert_eq!(sig, "public function find(): ?string");
@@ -3542,7 +3557,14 @@ mod tests {
 
     #[test]
     fn test_render_method_signature_csharp_optional_return() {
-        let method = make_method("find", vec![], TypeRef::Optional(Box::new(TypeRef::String)), false, false, None);
+        let method = make_method(
+            "find",
+            vec![],
+            TypeRef::Optional(Box::new(TypeRef::String)),
+            false,
+            false,
+            None,
+        );
         let sig = render_method_signature(&method, "Corpus", Language::Csharp, TEST_PREFIX);
         assert_eq!(sig, "public string? Find()");
     }
@@ -3582,7 +3604,14 @@ mod tests {
 
     #[test]
     fn test_render_method_signature_elixir_optional_return() {
-        let method = make_method("find", vec![], TypeRef::Optional(Box::new(TypeRef::String)), false, false, None);
+        let method = make_method(
+            "find",
+            vec![],
+            TypeRef::Optional(Box::new(TypeRef::String)),
+            false,
+            false,
+            None,
+        );
         let sig = render_method_signature(&method, "Corpus", Language::Elixir, TEST_PREFIX);
         assert_eq!(sig, "def find()");
     }
@@ -3621,7 +3650,14 @@ mod tests {
 
     #[test]
     fn test_render_method_signature_r_optional_return() {
-        let method = make_method("find", vec![], TypeRef::Optional(Box::new(TypeRef::String)), false, false, None);
+        let method = make_method(
+            "find",
+            vec![],
+            TypeRef::Optional(Box::new(TypeRef::String)),
+            false,
+            false,
+            None,
+        );
         let sig = render_method_signature(&method, "Corpus", Language::R, TEST_PREFIX);
         assert_eq!(sig, "find()");
     }
@@ -3653,7 +3689,14 @@ mod tests {
 
     #[test]
     fn test_render_method_signature_wasm_static() {
-        let method = make_method("create", vec![], TypeRef::Named("Document".to_string()), false, true, None);
+        let method = make_method(
+            "create",
+            vec![],
+            TypeRef::Named("Document".to_string()),
+            false,
+            true,
+            None,
+        );
         let sig = render_method_signature(&method, "Document", Language::Wasm, TEST_PREFIX);
         assert_eq!(sig, "static create(): Document");
     }
@@ -3704,7 +3747,10 @@ mod tests {
         let func = make_function(
             "get_mapping",
             vec![],
-            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Primitive(PrimitiveType::I32))),
+            TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Primitive(PrimitiveType::I32)),
+            ),
             false,
             None,
         );
@@ -3918,7 +3964,10 @@ mod tests {
             None,
         );
         let sig = render_csharp_fn_sig(&func, TEST_PREFIX);
-        assert_eq!(sig, "public static List<string> Search(string query, uint? limit = null)");
+        assert_eq!(
+            sig,
+            "public static List<string> Search(string query, uint? limit = null)"
+        );
     }
 
     #[test]
@@ -3926,7 +3975,10 @@ mod tests {
         let func = make_function(
             "get_mapping",
             vec![],
-            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Primitive(PrimitiveType::I32))),
+            TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Primitive(PrimitiveType::I32)),
+            ),
             false,
             None,
         );
@@ -4015,7 +4067,10 @@ mod tests {
             None,
         );
         let sig = render_php_fn_sig(&func, TEST_PREFIX);
-        assert_eq!(sig, "public static function search(string $query, ?int $limit = null): array<string>");
+        assert_eq!(
+            sig,
+            "public static function search(string $query, ?int $limit = null): array<string>"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -4123,7 +4178,10 @@ mod tests {
 
     #[test]
     fn test_doc_type_json_all_languages() {
-        assert_eq!(doc_type(&TypeRef::Json, Language::Python, TEST_PREFIX), "dict[str, Any]");
+        assert_eq!(
+            doc_type(&TypeRef::Json, Language::Python, TEST_PREFIX),
+            "dict[str, Any]"
+        );
         assert_eq!(doc_type(&TypeRef::Json, Language::Node, TEST_PREFIX), "unknown");
         assert_eq!(doc_type(&TypeRef::Json, Language::Go, TEST_PREFIX), "interface{}");
         assert_eq!(doc_type(&TypeRef::Json, Language::Java, TEST_PREFIX), "Object");
@@ -4132,7 +4190,10 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Json, Language::Php, TEST_PREFIX), "mixed");
         assert_eq!(doc_type(&TypeRef::Json, Language::Elixir, TEST_PREFIX), "term()");
         assert_eq!(doc_type(&TypeRef::Json, Language::R, TEST_PREFIX), "list");
-        assert_eq!(doc_type(&TypeRef::Json, Language::Rust, TEST_PREFIX), "serde_json::Value");
+        assert_eq!(
+            doc_type(&TypeRef::Json, Language::Rust, TEST_PREFIX),
+            "serde_json::Value"
+        );
         assert_eq!(doc_type(&TypeRef::Json, Language::Ffi, TEST_PREFIX), "void*");
     }
 
@@ -4147,7 +4208,10 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Duration, Language::Php, TEST_PREFIX), "float");
         assert_eq!(doc_type(&TypeRef::Duration, Language::Elixir, TEST_PREFIX), "integer()");
         assert_eq!(doc_type(&TypeRef::Duration, Language::R, TEST_PREFIX), "numeric");
-        assert_eq!(doc_type(&TypeRef::Duration, Language::Rust, TEST_PREFIX), "std::time::Duration");
+        assert_eq!(
+            doc_type(&TypeRef::Duration, Language::Rust, TEST_PREFIX),
+            "std::time::Duration"
+        );
         assert_eq!(doc_type(&TypeRef::Duration, Language::Ffi, TEST_PREFIX), "uint64_t");
     }
 
@@ -4177,7 +4241,10 @@ mod tests {
         assert_eq!(doc_type(&ty, Language::Node, TEST_PREFIX), "Record<string, string>");
         assert_eq!(doc_type(&ty, Language::Go, TEST_PREFIX), "map[string]string");
         assert_eq!(doc_type(&ty, Language::Java, TEST_PREFIX), "Map<String, String>");
-        assert_eq!(doc_type(&ty, Language::Csharp, TEST_PREFIX), "Dictionary<string, string>");
+        assert_eq!(
+            doc_type(&ty, Language::Csharp, TEST_PREFIX),
+            "Dictionary<string, string>"
+        );
         assert_eq!(doc_type(&ty, Language::Ruby, TEST_PREFIX), "Hash{String=>String}");
         assert_eq!(doc_type(&ty, Language::Php, TEST_PREFIX), "array<string, string>");
         assert_eq!(doc_type(&ty, Language::Elixir, TEST_PREFIX), "map()");
@@ -4217,7 +4284,10 @@ mod tests {
             Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32)))),
         );
         assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "dict[str, list[int]]");
-        assert_eq!(doc_type(&ty, Language::Node, TEST_PREFIX), "Record<string, Array<number>>");
+        assert_eq!(
+            doc_type(&ty, Language::Node, TEST_PREFIX),
+            "Record<string, Array<number>>"
+        );
         assert_eq!(doc_type(&ty, Language::Go, TEST_PREFIX), "map[string][]uint32");
         // Java boxes Vec inner primitives too
         assert_eq!(doc_type(&ty, Language::Java, TEST_PREFIX), "Map<String, List<Integer>>");
@@ -4229,7 +4299,10 @@ mod tests {
         // Option<ConversionOptions>
         let ty = TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string())));
         assert_eq!(doc_type(&ty, Language::Python, TEST_PREFIX), "ConversionOptions | None");
-        assert_eq!(doc_type(&ty, Language::Java, TEST_PREFIX), "Optional<ConversionOptions>");
+        assert_eq!(
+            doc_type(&ty, Language::Java, TEST_PREFIX),
+            "Optional<ConversionOptions>"
+        );
         assert_eq!(doc_type(&ty, Language::Csharp, TEST_PREFIX), "ConversionOptions?");
         assert_eq!(doc_type(&ty, Language::Go, TEST_PREFIX), "*ConversionOptions");
         assert_eq!(doc_type(&ty, Language::Rust, TEST_PREFIX), "Option<ConversionOptions>");
@@ -4629,19 +4702,37 @@ mod tests {
     #[test]
     fn test_format_default_bool_literal_python_uses_capitalised_form() {
         let api = empty_api();
-        let field_true =
-            make_field("flag", TypeRef::Primitive(PrimitiveType::Bool), false, Some(DefaultValue::BoolLiteral(true)));
-        let field_false =
-            make_field("flag", TypeRef::Primitive(PrimitiveType::Bool), false, Some(DefaultValue::BoolLiteral(false)));
-        assert_eq!(format_field_default(&field_true, Language::Python, &api, TEST_PREFIX), "`True`");
-        assert_eq!(format_field_default(&field_false, Language::Python, &api, TEST_PREFIX), "`False`");
+        let field_true = make_field(
+            "flag",
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            Some(DefaultValue::BoolLiteral(true)),
+        );
+        let field_false = make_field(
+            "flag",
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            Some(DefaultValue::BoolLiteral(false)),
+        );
+        assert_eq!(
+            format_field_default(&field_true, Language::Python, &api, TEST_PREFIX),
+            "`True`"
+        );
+        assert_eq!(
+            format_field_default(&field_false, Language::Python, &api, TEST_PREFIX),
+            "`False`"
+        );
     }
 
     #[test]
     fn test_format_default_bool_literal_non_python_uses_lowercase_form() {
         let api = empty_api();
-        let field_true =
-            make_field("flag", TypeRef::Primitive(PrimitiveType::Bool), false, Some(DefaultValue::BoolLiteral(true)));
+        let field_true = make_field(
+            "flag",
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            Some(DefaultValue::BoolLiteral(true)),
+        );
         for lang in [Language::Rust, Language::Java, Language::Go, Language::Node] {
             assert_eq!(
                 format_field_default(&field_true, lang, &api, TEST_PREFIX),
@@ -4660,7 +4751,13 @@ mod tests {
             false,
             Some(DefaultValue::StringLiteral("hello".to_string())),
         );
-        for lang in [Language::Python, Language::Rust, Language::Java, Language::Go, Language::Node] {
+        for lang in [
+            Language::Python,
+            Language::Rust,
+            Language::Java,
+            Language::Go,
+            Language::Node,
+        ] {
             assert_eq!(
                 format_field_default(&field, lang, &api, TEST_PREFIX),
                 "`\"hello\"`",
@@ -4690,7 +4787,12 @@ mod tests {
     #[test]
     fn test_format_default_int_literal_on_duration_field_shows_ms_suffix() {
         let api = empty_api();
-        let field = make_field("timeout", TypeRef::Duration, false, Some(DefaultValue::IntLiteral(5000)));
+        let field = make_field(
+            "timeout",
+            TypeRef::Duration,
+            false,
+            Some(DefaultValue::IntLiteral(5000)),
+        );
         for lang in [Language::Python, Language::Rust, Language::Java, Language::Go] {
             assert_eq!(
                 format_field_default(&field, lang, &api, TEST_PREFIX),
@@ -4760,8 +4862,14 @@ mod tests {
             false,
             Some(DefaultValue::Empty),
         );
-        assert_eq!(format_field_default(&field, Language::Python, &api, TEST_PREFIX), "`[]`");
-        assert_eq!(format_field_default(&field, Language::Rust, &api, TEST_PREFIX), "`vec![]`");
+        assert_eq!(
+            format_field_default(&field, Language::Python, &api, TEST_PREFIX),
+            "`[]`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Rust, &api, TEST_PREFIX),
+            "`vec![]`"
+        );
         assert_eq!(
             format_field_default(&field, Language::Java, &api, TEST_PREFIX),
             "`Collections.emptyList()`"
@@ -4773,7 +4881,10 @@ mod tests {
         );
         assert_eq!(format_field_default(&field, Language::R, &api, TEST_PREFIX), "`list()`");
         assert_eq!(format_field_default(&field, Language::Ruby, &api, TEST_PREFIX), "`[]`");
-        assert_eq!(format_field_default(&field, Language::Elixir, &api, TEST_PREFIX), "`[]`");
+        assert_eq!(
+            format_field_default(&field, Language::Elixir, &api, TEST_PREFIX),
+            "`[]`"
+        );
         assert_eq!(format_field_default(&field, Language::Ffi, &api, TEST_PREFIX), "`NULL`");
     }
 
@@ -4786,7 +4897,10 @@ mod tests {
             false,
             Some(DefaultValue::Empty),
         );
-        assert_eq!(format_field_default(&field, Language::Python, &api, TEST_PREFIX), "`{}`");
+        assert_eq!(
+            format_field_default(&field, Language::Python, &api, TEST_PREFIX),
+            "`{}`"
+        );
         assert_eq!(
             format_field_default(&field, Language::Rust, &api, TEST_PREFIX),
             "`HashMap::new()`"
@@ -4810,10 +4924,19 @@ mod tests {
     fn test_format_default_none_on_optional_field() {
         let api = empty_api();
         let field = make_field("label", TypeRef::String, true, Some(DefaultValue::None));
-        assert_eq!(format_field_default(&field, Language::Python, &api, TEST_PREFIX), "`None`");
-        assert_eq!(format_field_default(&field, Language::Node, &api, TEST_PREFIX), "`null`");
+        assert_eq!(
+            format_field_default(&field, Language::Python, &api, TEST_PREFIX),
+            "`None`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Node, &api, TEST_PREFIX),
+            "`null`"
+        );
         assert_eq!(format_field_default(&field, Language::Go, &api, TEST_PREFIX), "`nil`");
-        assert_eq!(format_field_default(&field, Language::Rust, &api, TEST_PREFIX), "`None`");
+        assert_eq!(
+            format_field_default(&field, Language::Rust, &api, TEST_PREFIX),
+            "`None`"
+        );
         assert_eq!(format_field_default(&field, Language::Ffi, &api, TEST_PREFIX), "`NULL`");
         assert_eq!(format_field_default(&field, Language::R, &api, TEST_PREFIX), "`NULL`");
     }
@@ -4835,7 +4958,10 @@ mod tests {
     fn test_format_default_empty_duration_shows_zero_ms_for_non_rust() {
         let api = empty_api();
         let field = make_field("timeout", TypeRef::Duration, false, Some(DefaultValue::Empty));
-        assert_eq!(format_field_default(&field, Language::Python, &api, TEST_PREFIX), "`0ms`");
+        assert_eq!(
+            format_field_default(&field, Language::Python, &api, TEST_PREFIX),
+            "`0ms`"
+        );
         assert_eq!(format_field_default(&field, Language::Java, &api, TEST_PREFIX), "`0ms`");
         assert_eq!(format_field_default(&field, Language::Go, &api, TEST_PREFIX), "`0ms`");
     }
@@ -4966,7 +5092,10 @@ mod tests {
     #[test]
     fn test_clean_doc_crate_references_replaced_with_library() {
         let doc = "Available in this crate as a public API.";
-        assert_eq!(clean_doc(doc, Language::Python), "Available in this library as a public API.");
+        assert_eq!(
+            clean_doc(doc, Language::Python),
+            "Available in this library as a public API."
+        );
     }
 
     #[test]
@@ -5064,7 +5193,10 @@ mod tests {
     #[test]
     fn test_wrap_bare_urls_mixed_bare_and_already_wrapped() {
         let text = "Visit <https://wrapped.com> or https://bare.com";
-        assert_eq!(wrap_bare_urls(text), "Visit <https://wrapped.com> or <https://bare.com>");
+        assert_eq!(
+            wrap_bare_urls(text),
+            "Visit <https://wrapped.com> or <https://bare.com>"
+        );
     }
 
     #[test]
@@ -5119,7 +5251,10 @@ mod tests {
     fn test_generate_field_description_has_prefix() {
         let ty = TypeRef::String;
         assert_eq!(generate_field_description("has_metadata", &ty), "Whether metadata");
-        assert_eq!(generate_field_description("has_ocr_support", &ty), "Whether ocr support");
+        assert_eq!(
+            generate_field_description("has_ocr_support", &ty),
+            "Whether ocr support"
+        );
     }
 
     #[test]
@@ -5167,6 +5302,7 @@ mod tests {
                 auto_path_mappings: Default::default(),
                 extra_dependencies: Default::default(),
                 source_crates: vec![],
+                error_type: None,
             },
             languages: vec![Language::Python],
             exclude: ExcludeConfig::default(),
@@ -5281,7 +5417,10 @@ mod tests {
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
-        let lang_file = files.iter().find(|f| f.path.to_str().unwrap().contains("api-python")).unwrap();
+        let lang_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("api-python"))
+            .unwrap();
         assert!(lang_file.content.contains("convert_html()"));
         assert!(lang_file.content.contains("Converts HTML to plain text."));
         assert!(lang_file.content.contains("**Signature:**"));
@@ -5325,9 +5464,15 @@ mod tests {
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
-        let lang_file = files.iter().find(|f| f.path.to_str().unwrap().contains("api-python")).unwrap();
+        let lang_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("api-python"))
+            .unwrap();
         assert!(lang_file.content.contains("OutputFormat"));
-        assert!(lang_file.content.contains("MARKDOWN"), "Python variant must be SCREAMING_SNAKE");
+        assert!(
+            lang_file.content.contains("MARKDOWN"),
+            "Python variant must be SCREAMING_SNAKE"
+        );
         assert!(lang_file.content.contains("PLAIN"));
     }
 
@@ -5375,7 +5520,10 @@ mod tests {
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
-        let lang_file = files.iter().find(|f| f.path.to_str().unwrap().contains("api-python")).unwrap();
+        let lang_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("api-python"))
+            .unwrap();
         assert!(lang_file.content.contains("ConversionOptions"));
         assert!(lang_file.content.contains("max_length"));
         assert!(lang_file.content.contains("Maximum output length."));
@@ -5418,12 +5566,18 @@ mod tests {
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
-        let lang_file = files.iter().find(|f| f.path.to_str().unwrap().contains("api-python")).unwrap();
+        let lang_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("api-python"))
+            .unwrap();
         assert!(lang_file.content.contains("ConversionError"));
         assert!(lang_file.content.contains("InvalidInput"));
         assert!(lang_file.content.contains("IoError"));
 
-        let errors_file = files.iter().find(|f| f.path.to_str().unwrap().contains("errors")).unwrap();
+        let errors_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("errors"))
+            .unwrap();
         assert!(errors_file.content.contains("ConversionError"));
         assert!(errors_file.content.contains("Invalid input: {0}"));
     }
@@ -5432,7 +5586,13 @@ mod tests {
     fn test_generate_docs_multiple_languages_produce_correct_slugs() {
         let api = make_minimal_api("0.1.0");
         let config = make_test_config();
-        let langs = [Language::Python, Language::Node, Language::Go, Language::Java, Language::Ruby];
+        let langs = [
+            Language::Python,
+            Language::Node,
+            Language::Go,
+            Language::Java,
+            Language::Ruby,
+        ];
         let expected_slugs = ["api-python", "api-typescript", "api-go", "api-java", "api-ruby"];
         let files = generate_docs(&api, &config, &langs, "docs/api").unwrap();
         // 5 lang files + 3 shared
@@ -5472,7 +5632,10 @@ mod tests {
         };
         let config = make_test_config();
         let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
-        let lang_file = files.iter().find(|f| f.path.to_str().unwrap().contains("api-python")).unwrap();
+        let lang_file = files
+            .iter()
+            .find(|f| f.path.to_str().unwrap().contains("api-python"))
+            .unwrap();
         assert!(
             lang_file.content.contains("<https://example.com>"),
             "bare URL must be wrapped by post-processing: {}",

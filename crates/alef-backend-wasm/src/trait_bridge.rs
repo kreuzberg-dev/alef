@@ -333,6 +333,7 @@ pub fn gen_trait_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
+    error_type: &str,
     api: &ApiSurface,
 ) -> String {
     // Build type name → rust_path lookup, converting to owned HashMap<String, String>
@@ -379,6 +380,7 @@ pub fn gen_trait_bridge(
             core_import,
             wrapper_prefix: "Wasm",
             type_paths,
+            error_type: error_type.to_string(),
         };
         gen_bridge_all(&spec, &generator)
     }

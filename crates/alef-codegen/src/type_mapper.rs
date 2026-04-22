@@ -286,10 +286,7 @@ mod tests {
 
     #[test]
     fn test_custom_mapper_named_override() {
-        assert_eq!(
-            CustomMapper.map_type(&TypeRef::Named("Config".to_string())),
-            "JsConfig"
-        );
+        assert_eq!(CustomMapper.map_type(&TypeRef::Named("Config".to_string())), "JsConfig");
     }
 
     #[test]

@@ -1341,8 +1341,8 @@ fn test_napi_plugin_bridge_validates_required_methods() {
     let trait_def = make_trait_def_napi(
         "Analyzer",
         vec![
-            make_method_napi("analyze", TypeRef::String, true, false),  // required
-            make_method_napi("describe", TypeRef::String, false, true),  // optional
+            make_method_napi("analyze", TypeRef::String, true, false), // required
+            make_method_napi("describe", TypeRef::String, false, true), // optional
         ],
     );
     let bridge_cfg = alef_core::config::TraitBridgeConfig {
@@ -1368,10 +1368,7 @@ fn test_napi_plugin_bridge_validates_required_methods() {
 fn test_napi_sync_method_body_uses_get_named_property() {
     use alef_backend_napi::trait_bridge::gen_trait_bridge;
 
-    let trait_def = make_trait_def_napi(
-        "Scanner",
-        vec![make_method_napi("scan", TypeRef::String, true, false)],
-    );
+    let trait_def = make_trait_def_napi("Scanner", vec![make_method_napi("scan", TypeRef::String, true, false)]);
     let bridge_cfg = make_plugin_bridge_cfg("Scanner");
     let api = make_api_napi();
 
@@ -1387,10 +1384,7 @@ fn test_napi_sync_method_body_uses_get_named_property() {
 fn test_napi_async_method_body_uses_box_pin() {
     use alef_backend_napi::trait_bridge::gen_trait_bridge;
 
-    let trait_def = make_trait_def_napi(
-        "Processor",
-        vec![make_async_method_napi("run", TypeRef::Unit)],
-    );
+    let trait_def = make_trait_def_napi("Processor", vec![make_async_method_napi("run", TypeRef::Unit)]);
     let bridge_cfg = make_plugin_bridge_cfg("Processor");
     let api = make_api_napi();
 
