@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Trait bridges: plugin-pattern support across all 11 backends (issue #4)
+  - PyO3: de-hardcoded plugin bridge via shared `TraitBridgeGenerator` (no more `OcrBackend`-specific code)
+  - NAPI, WASM, PHP, Magnus, Rustler, Extendr: implement `TraitBridgeGenerator` for plugin bridges
+  - FFI: vtable + `user_data` ABI with `#[repr(C)]` function pointer struct
+  - Go: cgo trampolines wrapping C FFI vtable via `cgo.Handle`
+  - Java: Panama FFM upcall stubs wrapping C FFI vtable
+  - C#: P/Invoke declarations for C FFI trait bridge registration
+- Codegen: shared `TraitBridgeGenerator` trait with `type_paths`, flexible registration signatures, configurable super-trait path
+- E2E: HTTP server fixture support for testing HTTP endpoints
+- E2E: HTTP test codegen for Python, Node, Ruby, PHP, Elixir
+- Scaffold: add `[lints] workspace = true` to all generated Cargo.toml templates
 - Extendr: opaque type support with Arc wrappers and mutex types
 - Skills: add designing-alef-toml guide with real-world configuration patterns
 
@@ -23,7 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docs: thread `Language` param through `clean_doc_inline` instead of hardcoding Python
 - Codegen: skip `Default`/`Serialize`/`Deserialize` derives for structs with opaque fields
 - Codegen: public API surface audit — path mappings, R backend, serde derives
-- CLI: remove dead unfiltered extraction code and non-existent cache function references
+- Codegen: add serde recovery path to Rustler and PHP backends
+- Codegen: eliminate stubs and compile errors in generated bindings
+- Adapters: emit core type let bindings in Python streaming adapter
+- C#: deterministic DllImport ordering in NativeMethods.cs
+- CLI: use filtered IR for docs, remove dead unfiltered extraction code
 
 ## [0.5.1] - 2026-04-21
 
