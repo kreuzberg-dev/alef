@@ -25,10 +25,10 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
 
     fn bridge_imports(&self) -> Vec<String> {
         vec![
-            "use wasm_bindgen::prelude::*;".to_string(),
-            "use js_sys;".to_string(),
-            "use std::rc::Rc;".to_string(),
-            "use std::cell::RefCell;".to_string(),
+            "wasm_bindgen::prelude::*".to_string(),
+            "js_sys".to_string(),
+            "std::rc::Rc".to_string(),
+            "std::cell::RefCell".to_string(),
         ]
     }
 

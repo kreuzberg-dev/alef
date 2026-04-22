@@ -1896,3 +1896,1052 @@ fn test_boxfuture_non_result_has_no_error_type() {
         "error_type should be None when BoxFuture does not wrap Result"
     );
 }
+
+// ---------------------------------------------------------------------------
+// mod.rs coverage: derive_module_path, apply_parent_reexport_shortening,
+// type aliases, trait extraction, is_return_type marking, Map TypeRef resolution
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_extract_pub_type_alias() {
+    // Non-generic type alias: `pub type Foo = Bar;`
+    // Should be extracted as an opaque TypeDef with no fields.
+    let source = r#"
+        /// A result alias.
+        pub type Result = std::result::Result<String, String>;
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 1);
+    let alias = &surface.types[0];
+    assert_eq!(alias.name, "Result");
+    assert!(alias.is_opaque);
+    assert!(alias.fields.is_empty());
+    assert_eq!(alias.doc, "A result alias.");
+}
+
+#[test]
+fn test_generic_type_alias_not_extracted_as_typedef() {
+    // Generic type aliases (e.g. BoxFuture<'a, T>) are not extracted as TypeDefs
+    // (they're used only to detect result-wrapping patterns for async detection).
+    let source = r#"
+        pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+    "#;
+
+    let surface = extract_from_source(source);
+    // Generic aliases are not added to types
+    assert_eq!(surface.types.len(), 0);
+}
+
+#[test]
+fn test_extract_pub_trait() {
+    // A public trait should be extracted as a TypeDef with is_trait=true.
+    let source = r#"
+        /// A backend for processing.
+        pub trait Processor {
+            /// Process a string.
+            fn process(&self, input: String) -> String;
+
+            /// Async reset.
+            async fn reset(&mut self);
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    // Trait appears in types with is_trait=true
+    let trait_def = surface.types.iter().find(|t| t.name == "Processor").expect("Processor trait not found");
+    assert!(trait_def.is_trait);
+    assert_eq!(trait_def.rust_path, "test_crate::Processor");
+    assert_eq!(trait_def.doc, "A backend for processing.");
+    assert_eq!(trait_def.methods.len(), 2);
+
+    let process_method = trait_def.methods.iter().find(|m| m.name == "process").unwrap();
+    assert!(!process_method.is_async);
+    assert_eq!(process_method.return_type, TypeRef::String);
+
+    let reset_method = trait_def.methods.iter().find(|m| m.name == "reset").unwrap();
+    assert!(reset_method.is_async);
+}
+
+#[test]
+fn test_pub_trait_with_supertrait() {
+    let source = r#"
+        pub trait Backend: Send + Sync {}
+
+        pub trait OcrBackend: Backend {}
+    "#;
+
+    let surface = extract_from_source(source);
+    let ocr = surface.types.iter().find(|t| t.name == "OcrBackend").expect("OcrBackend not found");
+    assert!(ocr.is_trait);
+    assert_eq!(ocr.super_traits, vec!["Backend"]);
+
+    // Send and Sync are marker traits — filtered out
+    let backend = surface.types.iter().find(|t| t.name == "Backend").expect("Backend not found");
+    assert!(backend.super_traits.is_empty(), "Send/Sync should be filtered from super_traits");
+}
+
+#[test]
+fn test_generic_trait_not_extracted() {
+    // Traits with generic parameters are skipped (same as generic type aliases).
+    let source = r#"
+        pub trait Converter<T> {
+            fn convert(&self, input: T) -> T;
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 0, "Generic trait should not be extracted");
+}
+
+#[test]
+fn test_is_return_type_marked_on_types() {
+    // Types that appear as the return type of free functions should have is_return_type=true.
+    // This post-processing only runs in the top-level extract() call, not extract_items().
+    let tmp = std::env::temp_dir().join("alef_test_is_return_type");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+
+    std::fs::write(
+        tmp.join("src/lib.rs"),
+        r#"
+pub struct Response {
+    pub status: u32,
+}
+
+pub struct Request {
+    pub url: String,
+}
+
+pub fn send(req: Request) -> Response {
+    todo!()
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "my_crate", "0.1.0", None).unwrap();
+
+    let response = surface.types.iter().find(|t| t.name == "Response").expect("Response not found");
+    assert!(response.is_return_type, "Response should be marked is_return_type=true");
+
+    let request = surface.types.iter().find(|t| t.name == "Request").expect("Request not found");
+    assert!(!request.is_return_type, "Request should not be marked is_return_type");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_newtype_wrapper_recorded_on_field() {
+    // When a newtype with an explicit `pub` inner field is used in another struct's field,
+    // the newtype_wrapper should be recorded on the consuming field before resolution.
+    // Note: tuple struct fields need explicit `pub` to be treated as resolvable newtypes.
+    let source = r#"
+        pub struct UserId(pub u64);
+
+        pub struct User {
+            pub id: UserId,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+
+    // UserId(pub u64) has a pub _0 field with a simple type → resolved away
+    assert!(
+        surface.types.iter().all(|t| t.name != "UserId"),
+        "Simple newtype with pub inner field should be resolved away"
+    );
+
+    let user = surface.types.iter().find(|t| t.name == "User").expect("User not found");
+    let id_field = &user.fields[0];
+    // After resolution, ty becomes Primitive(U64)
+    assert_eq!(id_field.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::U64));
+    // newtype_wrapper should hold the original rust_path for codegen
+    assert!(
+        id_field.newtype_wrapper.is_some(),
+        "newtype_wrapper should be set on field whose type was a resolved newtype"
+    );
+    assert!(
+        id_field.newtype_wrapper.as_deref().unwrap().contains("UserId"),
+        "newtype_wrapper should reference UserId"
+    );
+}
+
+#[test]
+fn test_newtype_wrapper_recorded_on_method_param() {
+    let source = r#"
+        pub struct Token(pub String);
+
+        pub struct Auth {
+            pub active: bool,
+        }
+
+        impl Auth {
+            pub fn verify(&self, token: Token) -> bool {
+                todo!()
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+
+    // Token(pub String) has explicit pub inner field — resolved away
+    assert!(surface.types.iter().all(|t| t.name != "Token"), "Token newtype should be resolved away");
+
+    let auth = surface.types.iter().find(|t| t.name == "Auth").expect("Auth not found");
+    let verify = auth.methods.iter().find(|m| m.name == "verify").expect("verify not found");
+    let token_param = &verify.params[0];
+    // After resolution, type is String
+    assert_eq!(token_param.ty, TypeRef::String);
+    assert!(
+        token_param.newtype_wrapper.is_some(),
+        "newtype_wrapper should be set on method param whose type was a resolved newtype"
+    );
+}
+
+#[test]
+fn test_newtype_wrapper_recorded_on_function_return() {
+    let source = r#"
+        pub struct Handle(pub u32);
+
+        pub fn create_handle() -> Handle {
+            todo!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+
+    // Handle(pub u32) has explicit pub inner field — resolved away
+    assert!(surface.types.iter().all(|t| t.name != "Handle"), "Handle newtype should be resolved away");
+
+    let func = surface.functions.iter().find(|f| f.name == "create_handle").expect("create_handle not found");
+    assert_eq!(func.return_type, TypeRef::Primitive(alef_core::ir::PrimitiveType::U32));
+    assert!(
+        func.return_newtype_wrapper.is_some(),
+        "return_newtype_wrapper should be set for resolved newtype return"
+    );
+}
+
+#[test]
+fn test_map_typeref_newtype_resolution() {
+    // TypeRef::Map containing Named references should have those resolved.
+    // Since HashMap fields are mapped to TypeRef::Map by the extractor,
+    // we verify that a newtype used as map values gets resolved.
+    // Note: the inner field must be `pub` for the newtype to be resolvable.
+    let source = r#"
+        pub struct Score(pub i32);
+
+        pub struct Leaderboard {
+            pub scores: std::collections::HashMap<String, Score>,
+        }
+    "#;
+
+    // Score(pub i32) has an explicit pub inner field — resolvable newtype
+    let surface = extract_from_source(source);
+
+    // Score is resolved away
+    assert!(surface.types.iter().all(|t| t.name != "Score"), "Score newtype should be resolved away");
+
+    let board = surface.types.iter().find(|t| t.name == "Leaderboard").expect("Leaderboard not found");
+    let scores_field = &board.fields[0];
+    // Map<String, i32> after resolution
+    if let TypeRef::Map(_, v) = &scores_field.ty {
+        assert_eq!(**v, TypeRef::Primitive(alef_core::ir::PrimitiveType::I32));
+    } else {
+        panic!("Expected TypeRef::Map for HashMap field, got {:?}", scores_field.ty);
+    }
+}
+
+#[test]
+fn test_resolve_trait_sources_retroactive() {
+    // When a trait impl appears before the trait definition in the same source,
+    // trait_source should still be resolved after the full extraction pass.
+    let source = r#"
+        pub struct Widget {
+            pub label: String,
+        }
+
+        impl Renderable for Widget {
+            fn render(&self) -> String {
+                todo!()
+            }
+        }
+
+        pub trait Renderable {
+            fn render(&self) -> String;
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+
+    let widget = surface.types.iter().find(|t| t.name == "Widget").expect("Widget not found");
+    let render = widget.methods.iter().find(|m| m.name == "render").expect("render not found");
+    // trait_source should be filled in by resolve_trait_sources
+    assert!(
+        render.trait_source.is_some(),
+        "trait_source should be resolved even when trait is defined after impl"
+    );
+}
+
+#[test]
+fn test_extract_via_top_level_function_with_multiple_sources() {
+    // Test the public `extract()` entry point with two source files that would
+    // be visited. The second file should be skipped if already processed via mod.
+    let tmp = std::env::temp_dir().join("alef_test_extract_multi");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+
+    std::fs::write(
+        tmp.join("src/lib.rs"),
+        r#"
+pub struct Config {
+    pub timeout: u32,
+}
+
+pub fn run(config: Config) -> bool {
+    true
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "my_crate", "1.0.0", None).unwrap();
+
+    assert_eq!(surface.crate_name, "my_crate");
+    assert_eq!(surface.version, "1.0.0");
+    assert_eq!(surface.types.len(), 1);
+    assert_eq!(surface.types[0].name, "Config");
+    assert_eq!(surface.functions.len(), 1);
+    assert_eq!(surface.functions[0].name, "run");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_derive_module_path_via_extract_with_submodule_files() {
+    // Verify that extract() with multiple source files derives correct module paths.
+    // When cache/types.rs is given as an explicit source with src/ as root,
+    // the items should have rust_path `my_crate::cache::types::Item`.
+    let tmp = std::env::temp_dir().join("alef_test_derive_module_path");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
+
+    std::fs::write(
+        tmp.join("src/lib.rs"),
+        "pub mod cache;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("src/cache/mod.rs"),
+        "pub mod types;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("src/cache/types.rs"),
+        r#"
+pub struct CacheEntry {
+    pub key: String,
+    pub value: String,
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "my_crate", "0.1.0", None).unwrap();
+
+    assert_eq!(surface.types.len(), 1);
+    let entry = &surface.types[0];
+    assert_eq!(entry.name, "CacheEntry");
+    assert_eq!(entry.rust_path, "my_crate::cache::types::CacheEntry");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_apply_parent_reexport_shortening_via_extract() {
+    // When cache/types.rs defines CacheEntry and cache/mod.rs has `pub use types::CacheEntry;`,
+    // the extract() pass should shorten the rust_path to `my_crate::cache::CacheEntry`.
+    let tmp = std::env::temp_dir().join("alef_test_parent_reexport");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
+
+    std::fs::write(
+        tmp.join("src/lib.rs"),
+        "pub mod cache;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("src/cache/mod.rs"),
+        r#"
+pub mod types;
+pub use types::CacheEntry;
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("src/cache/types.rs"),
+        r#"
+pub struct CacheEntry {
+    pub key: String,
+    pub ttl: u64,
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "my_crate", "0.1.0", None).unwrap();
+
+    assert_eq!(surface.types.len(), 1);
+    let entry = &surface.types[0];
+    assert_eq!(entry.name, "CacheEntry");
+    assert_eq!(
+        entry.rust_path,
+        "my_crate::cache::CacheEntry",
+        "Named re-export in parent mod.rs should shorten the rust_path"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_apply_parent_reexport_glob_shortening_via_extract() {
+    // When cache/mod.rs has `pub use types::*;`, all items from types.rs should
+    // be shortened to `my_crate::cache::ItemName`.
+    let tmp = std::env::temp_dir().join("alef_test_parent_glob_reexport");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
+
+    std::fs::write(tmp.join("src/lib.rs"), "pub mod cache;\n").unwrap();
+    std::fs::write(
+        tmp.join("src/cache/mod.rs"),
+        r#"
+pub mod types;
+pub use types::*;
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("src/cache/types.rs"),
+        r#"
+pub struct Entry {
+    pub key: String,
+}
+
+pub struct Store {
+    pub size: u32,
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "my_crate", "0.1.0", None).unwrap();
+
+    assert_eq!(surface.types.len(), 2);
+    for ty in &surface.types {
+        assert!(
+            ty.rust_path.starts_with("my_crate::cache::"),
+            "Glob re-export should shorten path to parent level, got: {}",
+            ty.rust_path
+        );
+        assert!(
+            !ty.rust_path.contains("types"),
+            "types:: should not appear in shortened path, got: {}",
+            ty.rust_path
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+// ---------------------------------------------------------------------------
+// reexports.rs coverage: collect_use_names rename, resolve_use_tree group/bare,
+// find_crate_source heuristic & dependencies table, extract_module file-based,
+// private module pruning with named re-exports
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_collect_use_names_rename() {
+    // `use Foo as Bar` should return the alias name "Bar"
+    let tree: syn::UseTree = syn::parse_str("Foo as Bar").unwrap();
+    match super::reexports::collect_use_names(&tree) {
+        super::reexports::UseFilter::Names(names) => {
+            assert_eq!(names, vec!["Bar"]);
+        }
+        super::reexports::UseFilter::All => panic!("expected Names"),
+    }
+}
+
+#[test]
+fn test_collect_use_names_nested_path() {
+    // `some::module::Type` — the leaf is Type
+    let tree: syn::UseTree = syn::parse_str("some::module::Type").unwrap();
+    match super::reexports::collect_use_names(&tree) {
+        super::reexports::UseFilter::Names(names) => {
+            assert_eq!(names, vec!["Type"]);
+        }
+        super::reexports::UseFilter::All => panic!("expected Names"),
+    }
+}
+
+#[test]
+fn test_collect_use_names_group_with_glob_returns_all() {
+    // `{Foo, *}` — a group containing a glob means All
+    let tree: syn::UseTree = syn::parse_str("{Foo, *}").unwrap();
+    assert!(matches!(super::reexports::collect_use_names(&tree), super::reexports::UseFilter::All));
+}
+
+#[test]
+fn test_resolve_use_tree_group_variant() {
+    // `pub use self::inner::{Foo};` — group variant of UseTree going through resolve_use_tree
+    // Since these are self-references, they should be skipped without error.
+    let source = r#"
+        pub use self::{inner::Foo};
+
+        pub mod inner {
+            pub struct Foo { pub val: u32 }
+        }
+    "#;
+
+    // Should not panic, and the inline module is still extracted
+    let surface = extract_from_source(source);
+    assert_eq!(surface.types.len(), 1);
+    assert_eq!(surface.types[0].name, "Foo");
+}
+
+#[test]
+fn test_find_crate_source_with_dependencies_table() {
+    // Create a workspace with a [dependencies] path dep (not workspace.dependencies)
+    let tmp = std::env::temp_dir().join("alef_test_find_crate_dep");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("crates/dep_crate/src")).unwrap();
+
+    std::fs::write(
+        tmp.join("Cargo.toml"),
+        r#"
+[dependencies]
+dep_crate = { path = "crates/dep_crate" }
+"#,
+    )
+    .unwrap();
+    std::fs::write(tmp.join("crates/dep_crate/src/lib.rs"), "pub struct DepType { pub x: u32 }\n").unwrap();
+
+    let result = super::reexports::find_crate_source("dep_crate", Some(&tmp));
+    assert!(result.is_some(), "Should find crate source via [dependencies] path dep");
+    assert!(result.unwrap().ends_with("lib.rs"));
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_find_crate_source_heuristic_crates_dir() {
+    // When the Cargo.toml has no matching dependency entry, the heuristic
+    // looks for crates/{name}/src/lib.rs directly.
+    let tmp = std::env::temp_dir().join("alef_test_find_crate_heuristic");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("crates/my_lib/src")).unwrap();
+
+    // Cargo.toml with no deps — heuristic will be used
+    std::fs::write(tmp.join("Cargo.toml"), "[workspace]\nmembers = []\n").unwrap();
+    std::fs::write(tmp.join("crates/my_lib/src/lib.rs"), "pub struct Heuristic;\n").unwrap();
+
+    let result = super::reexports::find_crate_source("my_lib", Some(&tmp));
+    assert!(result.is_some(), "Should find via heuristic crates/{{name}}/src/lib.rs");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_find_crate_source_hyphen_underscore_alt() {
+    // Crate directory named `my-lib` on disk but referenced as `my_lib`.
+    // The heuristic should try the alternative hyphen/underscore name.
+    let tmp = std::env::temp_dir().join("alef_test_find_crate_alt");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("crates/my-lib/src")).unwrap();
+    // Cargo.toml with no matching deps — so heuristic alt-name path is exercised
+    std::fs::write(tmp.join("Cargo.toml"), "[workspace]\nmembers = []\n").unwrap();
+    std::fs::write(tmp.join("crates/my-lib/src/lib.rs"), "pub struct AltType;\n").unwrap();
+
+    // Reference with underscores — should find the hyphenated directory via alt name
+    let result = super::reexports::find_crate_source("my_lib", Some(&tmp));
+    assert!(result.is_some(), "Should find crate via hyphen/underscore alt name");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_extract_module_external_file_based() {
+    // Test that an external `pub mod foo;` declaration is followed to foo.rs
+    let tmp = std::env::temp_dir().join("alef_test_extract_mod_external");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+
+    std::fs::write(
+        tmp.join("src/lib.rs"),
+        r#"
+pub mod models;
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("src/models.rs"),
+        r#"
+pub struct ModelItem {
+    pub id: u32,
+    pub name: String,
+}
+
+pub fn find_model(id: u32) -> ModelItem {
+    todo!()
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "my_crate", "0.1.0", None).unwrap();
+
+    assert_eq!(surface.types.len(), 1);
+    assert_eq!(surface.types[0].name, "ModelItem");
+    assert_eq!(surface.types[0].rust_path, "my_crate::models::ModelItem");
+    assert_eq!(surface.functions.len(), 1);
+    assert_eq!(surface.functions[0].rust_path, "my_crate::models::find_model");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_extract_module_mod_rs_subdir() {
+    // `pub mod cache;` that resolves to `cache/mod.rs`
+    let tmp = std::env::temp_dir().join("alef_test_extract_mod_subdir");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src/cache")).unwrap();
+
+    std::fs::write(tmp.join("src/lib.rs"), "pub mod cache;\n").unwrap();
+    std::fs::write(
+        tmp.join("src/cache/mod.rs"),
+        r#"
+pub struct CacheClient {
+    pub url: String,
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "my_crate", "0.1.0", None).unwrap();
+
+    assert_eq!(surface.types.len(), 1);
+    assert_eq!(surface.types[0].name, "CacheClient");
+    assert_eq!(surface.types[0].rust_path, "my_crate::cache::CacheClient");
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_private_module_with_named_reexport_prunes_non_reexported() {
+    // A private module (`mod foo;`) with `pub use foo::Public` should expose
+    // only Public, not the private types.
+    let source = r#"
+        mod inner;
+        pub use inner::Public;
+
+        mod inner {
+            pub struct Public { pub value: u32 }
+            pub struct Hidden { pub secret: String }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    // Only Public should survive, Hidden is pruned
+    assert_eq!(surface.types.len(), 1, "Only re-exported items should survive");
+    assert_eq!(surface.types[0].name, "Public");
+}
+
+#[test]
+fn test_private_module_glob_reexport_exposes_all() {
+    // `mod inner; pub use inner::*;` — all public items from inner should be exposed
+    let source = r#"
+        mod inner;
+        pub use inner::*;
+
+        mod inner {
+            pub struct Alpha { pub x: u32 }
+            pub struct Beta { pub y: String }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let names: Vec<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
+    assert!(names.contains(&"Alpha"), "Alpha should be exposed via glob re-export");
+    assert!(names.contains(&"Beta"), "Beta should be exposed via glob re-export");
+}
+
+#[test]
+fn test_merge_surface_includes_functions_and_enums() {
+    // merge_surface should also merge functions and enums, not just types.
+    let mut dst = ApiSurface {
+        crate_name: "dst".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let src = ApiSurface {
+        crate_name: "src".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![alef_core::ir::FunctionDef {
+            name: "my_fn".into(),
+            rust_path: "src::my_fn".into(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![alef_core::ir::EnumDef {
+            name: "MyEnum".into(),
+            rust_path: "src::MyEnum".into(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    super::reexports::merge_surface(&mut dst, src);
+    assert_eq!(dst.functions.len(), 1);
+    assert_eq!(dst.functions[0].name, "my_fn");
+    assert_eq!(dst.enums.len(), 1);
+    assert_eq!(dst.enums[0].name, "MyEnum");
+}
+
+#[test]
+fn test_merge_surface_filtered_includes_functions_and_enums() {
+    // merge_surface_filtered should also filter and merge functions and enums.
+    let mut dst = ApiSurface {
+        crate_name: "dst".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let src = ApiSurface {
+        crate_name: "src".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![
+            alef_core::ir::FunctionDef {
+                name: "wanted_fn".into(),
+                rust_path: "src::wanted_fn".into(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+            alef_core::ir::FunctionDef {
+                name: "unwanted_fn".into(),
+                rust_path: "src::unwanted_fn".into(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+        ],
+        enums: vec![
+            alef_core::ir::EnumDef {
+                name: "WantedEnum".into(),
+                rust_path: "src::WantedEnum".into(),
+                original_rust_path: String::new(),
+                variants: vec![],
+                doc: String::new(),
+                cfg: None,
+                serde_tag: None,
+                serde_rename_all: None,
+            },
+            alef_core::ir::EnumDef {
+                name: "UnwantedEnum".into(),
+                rust_path: "src::UnwantedEnum".into(),
+                original_rust_path: String::new(),
+                variants: vec![],
+                doc: String::new(),
+                cfg: None,
+                serde_tag: None,
+                serde_rename_all: None,
+            },
+        ],
+        errors: vec![],
+    };
+
+    let names = vec!["wanted_fn".to_string(), "WantedEnum".to_string()];
+    super::reexports::merge_surface_filtered(&mut dst, src, &names);
+    assert_eq!(dst.functions.len(), 1);
+    assert_eq!(dst.functions[0].name, "wanted_fn");
+    assert_eq!(dst.enums.len(), 1);
+    assert_eq!(dst.enums[0].name, "WantedEnum");
+}
+
+// ---------------------------------------------------------------------------
+// defaults.rs coverage: Duration::from_secs/from_millis, vec![], None,
+// string literal direct, unary negation on non-numeric
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_field_with_duration_from_secs_default() {
+    // Duration::from_secs(5) should extract as IntLiteral(5000) — milliseconds
+    let source = r#"
+        use std::time::Duration;
+
+        pub struct Timeout {
+            pub wait: Duration,
+        }
+
+        impl Default for Timeout {
+            fn default() -> Self {
+                Timeout { wait: Duration::from_secs(5) }
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let timeout = &surface.types[0];
+    let wait_field = &timeout.fields[0];
+
+    assert_eq!(
+        wait_field.typed_default,
+        Some(alef_core::ir::DefaultValue::IntLiteral(5000)),
+        "Duration::from_secs(5) should be 5000 milliseconds"
+    );
+}
+
+#[test]
+fn test_field_with_duration_from_millis_default() {
+    // Duration::from_millis(250) should extract as IntLiteral(250)
+    let source = r#"
+        use std::time::Duration;
+
+        pub struct Backoff {
+            pub delay: Duration,
+        }
+
+        impl Default for Backoff {
+            fn default() -> Self {
+                Backoff { delay: Duration::from_millis(250) }
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let backoff = &surface.types[0];
+    let delay_field = &backoff.fields[0];
+
+    assert_eq!(
+        delay_field.typed_default,
+        Some(alef_core::ir::DefaultValue::IntLiteral(250)),
+        "Duration::from_millis(250) should be 250 milliseconds"
+    );
+}
+
+#[test]
+fn test_field_with_vec_macro_default() {
+    // `vec![]` (empty token macro) should extract as Empty
+    let source = r#"
+        pub struct Pipeline {
+            pub stages: Vec<String>,
+        }
+
+        impl Default for Pipeline {
+            fn default() -> Self {
+                Pipeline { stages: vec![] }
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let pipeline = &surface.types[0];
+    let stages_field = &pipeline.fields[0];
+
+    assert_eq!(
+        stages_field.typed_default,
+        Some(alef_core::ir::DefaultValue::Empty),
+        "vec![] should extract as Empty"
+    );
+}
+
+#[test]
+fn test_field_with_none_default() {
+    // Bare `None` should extract as DefaultValue::None
+    let source = r#"
+        pub struct Optional {
+            pub value: Option<String>,
+        }
+
+        impl Default for Optional {
+            fn default() -> Self {
+                Optional { value: None }
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let optional_type = &surface.types[0];
+    let value_field = &optional_type.fields[0];
+
+    assert_eq!(
+        value_field.typed_default,
+        Some(alef_core::ir::DefaultValue::None),
+        "Bare None should extract as DefaultValue::None"
+    );
+}
+
+#[test]
+fn test_field_with_str_literal_default() {
+    // A bare `&str` literal used directly as a string expression (not via .into())
+    // The extractor handles `syn::Lit::Str` directly — exercises the Lit::Str branch.
+    let source = r#"
+        pub struct Prefix {
+            pub label: String,
+        }
+
+        impl Default for Prefix {
+            fn default() -> Self {
+                // Use String::from to get the str literal processed
+                Prefix { label: String::from("hello") }
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let prefix = &surface.types[0];
+    let label_field = &prefix.fields[0];
+
+    assert_eq!(
+        label_field.typed_default,
+        Some(alef_core::ir::DefaultValue::StringLiteral("hello".to_string())),
+        "String::from(literal) exercises the Lit::Str branch"
+    );
+}
+
+#[test]
+fn test_field_with_duration_from_secs_non_literal_fallback() {
+    // Duration::from_secs with a non-literal arg falls back to Empty
+    let source = r#"
+        use std::time::Duration;
+
+        pub struct Config {
+            pub timeout: Duration,
+        }
+
+        fn get_secs() -> u64 { 10 }
+
+        impl Default for Config {
+            fn default() -> Self {
+                Config { timeout: Duration::from_secs(get_secs()) }
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let config = &surface.types[0];
+    let timeout_field = &config.fields[0];
+
+    assert_eq!(
+        timeout_field.typed_default,
+        Some(alef_core::ir::DefaultValue::Empty),
+        "Duration::from_secs with non-literal arg should fall back to Empty"
+    );
+}
+
+#[test]
+fn test_unary_negation_on_non_numeric_falls_back_to_empty() {
+    // Negating something that isn't an int or float literal — should return Empty.
+    // We exercise this indirectly by using a call expression that itself returns Empty.
+    let source = r#"
+        pub struct Unusual {
+            pub val: i32,
+        }
+
+        fn compute() -> i32 { 0 }
+
+        impl Default for Unusual {
+            fn default() -> Self {
+                // This will be parsed as Unary(Neg, Call(...)) — the inner call returns Empty,
+                // so the negation should also return Empty.
+                Unusual { val: -(compute()) }
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let unusual = &surface.types[0];
+    let val_field = &unusual.fields[0];
+
+    assert_eq!(
+        val_field.typed_default,
+        Some(alef_core::ir::DefaultValue::Empty),
+        "Negating a non-literal expression should fall back to Empty"
+    );
+}
+
+#[test]
+fn test_trait_method_with_default_impl() {
+    // Trait methods with default implementations should have has_default_impl=true.
+    let source = r#"
+        pub trait Logger {
+            fn log(&self, message: String);
+
+            fn log_error(&self, message: String) {
+                self.log(message)
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let logger = surface.types.iter().find(|t| t.name == "Logger").expect("Logger not found");
+    assert!(logger.is_trait);
+
+    let log_method = logger.methods.iter().find(|m| m.name == "log").unwrap();
+    assert!(!log_method.has_default_impl, "log() has no default impl");
+
+    let log_error = logger.methods.iter().find(|m| m.name == "log_error").unwrap();
+    assert!(log_error.has_default_impl, "log_error() has a default impl body");
+}

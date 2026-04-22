@@ -1,7 +1,10 @@
+use alef_backend_pyo3::trait_bridge::{Pyo3BridgeGenerator, gen_trait_bridge};
 use alef_backend_pyo3::Pyo3Backend;
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, PythonConfig, StubsConfig};
+use alef_core::config::{AlefConfig, CrateConfig, PythonConfig, StubsConfig, TraitBridgeConfig};
 use alef_core::ir::*;
+use std::collections::HashMap;
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
@@ -1412,5 +1415,568 @@ fn test_return_type_exported_from_native_module_not_options() {
         options_py.content.contains("class ConversionOptions"),
         "options.py must still define ConversionOptions dataclass, got:\n{}",
         options_py.content
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trait bridge helpers
+// ---------------------------------------------------------------------------
+
+fn make_trait_def(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: rust_path.to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: false,
+        is_clone: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+fn make_method_def(
+    name: &str,
+    params: Vec<ParamDef>,
+    return_type: TypeRef,
+    is_async: bool,
+    has_error: bool,
+    has_default_impl: bool,
+) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async,
+        is_static: false,
+        error_type: if has_error {
+            Some("Box<dyn std::error::Error + Send + Sync>".to_string())
+        } else {
+            None
+        },
+        doc: format!("Documentation for {name}."),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl,
+        trait_source: None,
+    }
+}
+
+fn make_param_def(name: &str, ty: TypeRef, is_ref: bool) -> ParamDef {
+    ParamDef {
+        name: name.to_string(),
+        ty,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref,
+        is_mut: false,
+        newtype_wrapper: None,
+    }
+}
+
+fn make_bridge_generator(core_import: &str) -> Pyo3BridgeGenerator {
+    Pyo3BridgeGenerator {
+        core_import: core_import.to_string(),
+        type_paths: HashMap::new(),
+    }
+}
+
+fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
+    TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: None,
+        param_name: None,
+    }
+}
+
+fn make_api_surface() -> ApiSurface {
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// gen_sync_method_body
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gen_sync_method_body_unit_return_no_error() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
+    let bridge_cfg = make_bridge_cfg("MyTrait");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let method = make_method_def("tick", vec![], TypeRef::Unit, false, false, false);
+    let body = generator.gen_sync_method_body(&method, &spec);
+
+    assert!(
+        body.contains("Python::attach"),
+        "sync body should use Python::attach"
+    );
+    assert!(
+        body.contains("call_method0(\"tick\")"),
+        "should call Python method by name with no args"
+    );
+    assert!(
+        body.contains("unwrap_or(())"),
+        "unit return without error should use unwrap_or(())"
+    );
+}
+
+#[test]
+fn test_gen_sync_method_body_string_return_no_error() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
+    let bridge_cfg = make_bridge_cfg("MyTrait");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let method = make_method_def("name", vec![], TypeRef::String, false, false, false);
+    let body = generator.gen_sync_method_body(&method, &spec);
+
+    assert!(
+        body.contains("call_method0(\"name\")"),
+        "should call method by name"
+    );
+    assert!(
+        body.contains("extract::<String>()"),
+        "should extract String return"
+    );
+    assert!(
+        body.contains("unwrap_or_default()"),
+        "infallible string return should use unwrap_or_default"
+    );
+}
+
+#[test]
+fn test_gen_sync_method_body_with_params_uses_call_method1() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
+    let bridge_cfg = make_bridge_cfg("MyTrait");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let method = make_method_def(
+        "process",
+        vec![make_param_def("input", TypeRef::String, false)],
+        TypeRef::String,
+        false,
+        false,
+        false,
+    );
+    let body = generator.gen_sync_method_body(&method, &spec);
+
+    assert!(
+        body.contains("call_method1(\"process\""),
+        "single-param method should use call_method1"
+    );
+}
+
+#[test]
+fn test_gen_sync_method_body_with_error_uses_map_err() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
+    let bridge_cfg = make_bridge_cfg("MyTrait");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let method = make_method_def("run", vec![], TypeRef::Unit, false, true, false);
+    let body = generator.gen_sync_method_body(&method, &spec);
+
+    assert!(
+        body.contains("map_err"),
+        "fallible method should have map_err for error conversion"
+    );
+    assert!(
+        body.contains("KreuzbergError::Plugin"),
+        "error should map to KreuzbergError::Plugin"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// gen_async_method_body
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gen_async_method_body_uses_spawn_blocking() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
+    let bridge_cfg = make_bridge_cfg("MyTrait");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let method = make_method_def("fetch", vec![], TypeRef::String, true, true, false);
+    let body = generator.gen_async_method_body(&method, &spec);
+
+    assert!(
+        body.contains("spawn_blocking"),
+        "async method should use spawn_blocking for Python dispatch"
+    );
+    assert!(
+        body.contains("Python::attach"),
+        "async body should re-enter Python GIL inside spawn_blocking"
+    );
+    assert!(
+        body.contains(".await"),
+        "async body should await the spawn_blocking result"
+    );
+}
+
+#[test]
+fn test_gen_async_method_body_clones_ref_params() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
+    let bridge_cfg = make_bridge_cfg("MyTrait");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let method = make_method_def(
+        "transform",
+        vec![make_param_def("data", TypeRef::String, false)],
+        TypeRef::String,
+        true,
+        true,
+        false,
+    );
+    let body = generator.gen_async_method_body(&method, &spec);
+
+    // owned params must be cloned before the blocking closure captures them
+    assert!(
+        body.contains("let data = data.clone()"),
+        "owned params should be cloned before spawn_blocking capture"
+    );
+}
+
+#[test]
+fn test_gen_async_method_body_unit_return() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
+    let bridge_cfg = make_bridge_cfg("MyTrait");
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let method = make_method_def("shutdown", vec![], TypeRef::Unit, true, true, false);
+    let body = generator.gen_async_method_body(&method, &spec);
+
+    assert!(
+        body.contains("map(|_| ())"),
+        "async unit return should map result to ()"
+    );
+    assert!(
+        body.contains("KreuzbergError::Plugin"),
+        "async unit return with error should produce KreuzbergError::Plugin"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// gen_registration_fn
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
+    // Neither register_fn nor registry_getter: should produce empty string
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "MyTrait".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: None,
+        param_name: None,
+    };
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let out = generator.gen_registration_fn(&spec);
+    assert!(
+        out.is_empty(),
+        "registration fn should be empty when register_fn is absent"
+    );
+}
+
+#[test]
+fn test_gen_registration_fn_validates_required_methods() {
+    let generator = make_bridge_generator("my_lib");
+    let required_method = make_method_def("process", vec![], TypeRef::String, false, true, false);
+    let optional_method = make_method_def("describe", vec![], TypeRef::String, false, false, true);
+    let trait_def = make_trait_def(
+        "Backend",
+        "my_lib::Backend",
+        vec![required_method, optional_method],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Backend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_backend".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let out = generator.gen_registration_fn(&spec);
+
+    // The registration function must validate all required methods are present
+    assert!(
+        out.contains("\"process\""),
+        "registration fn should validate required method 'process'"
+    );
+    // Optional method should also appear in required_methods list (it's still listed)
+    assert!(
+        out.contains("PyAttributeError"),
+        "registration fn should raise PyAttributeError for missing methods"
+    );
+    assert!(
+        out.contains("#[pyfunction]"),
+        "registration fn should be annotated with #[pyfunction]"
+    );
+    assert!(
+        out.contains("fn register_backend"),
+        "registration fn should use the configured name"
+    );
+    assert!(
+        out.contains("Arc::new(wrapper)"),
+        "registration fn should wrap in Arc"
+    );
+}
+
+#[test]
+fn test_gen_registration_fn_calls_registry_getter() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def(
+        "Processor",
+        "my_lib::Processor",
+        vec![make_method_def("run", vec![], TypeRef::Unit, false, true, false)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Processor".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::registry::get_processors".to_string()),
+        register_fn: Some("register_processor".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+    };
+
+    let out = generator.gen_registration_fn(&spec);
+
+    assert!(
+        out.contains("my_lib::registry::get_processors()"),
+        "registration fn should call the configured registry getter"
+    );
+    assert!(
+        out.contains("registry.register(arc)"),
+        "registration fn should call registry.register"
+    );
+    assert!(
+        out.contains("registry.write()"),
+        "registration fn should acquire write lock"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// gen_trait_bridge (the main entry point)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
+    let method = make_method_def("process", vec![], TypeRef::String, false, true, false);
+    let trait_def = make_trait_def("OcrBackend", "my_lib::OcrBackend", vec![method]);
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_ocr_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let api = make_api_surface();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(!code.is_empty(), "gen_trait_bridge must produce non-empty output");
+    assert!(
+        code.contains("PyOcrBackendBridge"),
+        "output should define the bridge wrapper struct"
+    );
+    assert!(
+        code.contains("use pyo3::prelude::*"),
+        "output should import pyo3 prelude"
+    );
+    assert!(
+        code.contains("fn process"),
+        "output should include the trait method"
+    );
+}
+
+#[test]
+fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
+    let method = make_method_def("run", vec![], TypeRef::Unit, false, true, false);
+    let trait_def = make_trait_def("Worker", "my_lib::Worker", vec![method]);
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Worker".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_workers".to_string()),
+        register_fn: Some("register_worker".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let api = make_api_surface();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    // The wrapper struct must hold the Python object and a cached name field
+    assert!(
+        code.contains("inner: Py<PyAny>"),
+        "wrapper struct must hold inner Py<PyAny>"
+    );
+    assert!(
+        code.contains("cached_name: String"),
+        "wrapper struct must hold cached_name"
+    );
+}
+
+#[test]
+fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
+    let method = make_method_def("infer", vec![], TypeRef::String, false, true, false);
+    let trait_def = make_trait_def("InferenceBackend", "my_lib::InferenceBackend", vec![method]);
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "InferenceBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_inference_registry".to_string()),
+        register_fn: Some("register_inference_backend".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let api = make_api_surface();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("fn register_inference_backend"),
+        "should generate registration function with configured name"
+    );
+    assert!(
+        code.contains("#[pyfunction]"),
+        "registration function should carry #[pyfunction] attribute"
+    );
+}
+
+#[test]
+fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
+    // A trait with one sync and one async required method — exercises both code paths
+    let sync_method = make_method_def("validate", vec![], TypeRef::Primitive(PrimitiveType::Bool), false, false, false);
+    let async_method = make_method_def("process", vec![], TypeRef::String, true, true, false);
+    let trait_def = make_trait_def(
+        "HybridBackend",
+        "my_lib::HybridBackend",
+        vec![sync_method, async_method],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "HybridBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_hybrid_registry".to_string()),
+        register_fn: Some("register_hybrid_backend".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let api = make_api_surface();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(!code.is_empty(), "output must not be empty");
+    // Sync method body uses Python::attach (no spawn_blocking)
+    assert!(
+        code.contains("fn validate"),
+        "sync method should be present in trait impl"
+    );
+    // Async method body uses spawn_blocking
+    assert!(
+        code.contains("fn process"),
+        "async method should be present in trait impl"
+    );
+    assert!(
+        code.contains("spawn_blocking"),
+        "async method body should use spawn_blocking"
+    );
+    // Both methods are required — registration fn should validate both
+    assert!(
+        code.contains("\"validate\"") || code.contains("\"process\""),
+        "registration fn should validate required method names"
     );
 }

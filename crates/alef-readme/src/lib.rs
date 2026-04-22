@@ -816,4 +816,673 @@ mod tests {
         // The value should be an object accessible by attribute
         assert!(mj.get_attr("key").is_ok());
     }
+
+    // --- generate_readmes: empty language list ---
+
+    #[test]
+    fn test_generate_readmes_empty_languages() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[]).unwrap();
+        assert_eq!(files.len(), 0);
+    }
+
+    // --- hardcoded fallback: remaining language variants ---
+
+    #[test]
+    fn test_generate_ruby_readme() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Ruby]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("packages/ruby/README.md"));
+        assert!(files[0].content.contains("Ruby"));
+        assert!(files[0].content.contains("gem install"));
+    }
+
+    #[test]
+    fn test_generate_php_readme() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Php]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("packages/php/README.md"));
+        assert!(files[0].content.contains("PHP"));
+        assert!(files[0].content.contains("composer require"));
+    }
+
+    #[test]
+    fn test_generate_elixir_readme() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Elixir]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("packages/elixir/README.md"));
+        assert!(files[0].content.contains("Elixir"));
+        assert!(files[0].content.contains("mix.exs"));
+    }
+
+    #[test]
+    fn test_generate_go_readme() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Go]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("packages/go/README.md"));
+        assert!(files[0].content.contains("Go"));
+        assert!(files[0].content.contains("go get"));
+    }
+
+    #[test]
+    fn test_generate_java_readme_hardcoded() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Java]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("packages/java/README.md"));
+        assert!(files[0].content.contains("Java"));
+        assert!(files[0].content.contains("pom.xml"));
+    }
+
+    #[test]
+    fn test_generate_csharp_readme() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Csharp]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("packages/csharp/README.md"));
+        assert!(files[0].content.contains("C#"));
+        assert!(files[0].content.contains("dotnet add package"));
+    }
+
+    #[test]
+    fn test_generate_ffi_readme() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Ffi]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("crates/my-lib-ffi/README.md"));
+        assert!(files[0].content.contains("FFI"));
+    }
+
+    #[test]
+    fn test_generate_wasm_readme() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Wasm]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("crates/my-lib-wasm/README.md"));
+        assert!(files[0].content.contains("WebAssembly"));
+    }
+
+    #[test]
+    fn test_generate_r_readme() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::R]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("packages/r/README.md"));
+        assert!(files[0].content.contains("install.packages"));
+    }
+
+    #[test]
+    fn test_generate_rust_readme() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Rust]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("packages/rust/README.md"));
+        assert!(files[0].content.contains("Rust"));
+        assert!(files[0].content.contains("cargo add"));
+    }
+
+    // --- hardcoded fallback: no scaffold config (default description/repository) ---
+
+    #[test]
+    fn test_generate_readme_without_scaffold_uses_defaults() {
+        let mut config = test_config();
+        config.scaffold = None;
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(
+            files[0].content.contains("Bindings for my-lib"),
+            "Expected default description, got: {}",
+            files[0].content
+        );
+        assert!(
+            files[0].content.contains("https://github.com/kreuzberg-dev/my-lib"),
+            "Expected default repository URL, got: {}",
+            files[0].content
+        );
+    }
+
+    // --- capitalize_first ---
+
+    #[test]
+    fn test_capitalize_first_normal() {
+        assert_eq!(capitalize_first("hello"), "Hello");
+    }
+
+    #[test]
+    fn test_capitalize_first_empty() {
+        assert_eq!(capitalize_first(""), "");
+    }
+
+    #[test]
+    fn test_capitalize_first_already_upper() {
+        assert_eq!(capitalize_first("World"), "World");
+    }
+
+    // --- extract_code_block: tilde fence ---
+
+    #[test]
+    fn test_extract_code_block_tilde_fence() {
+        let md = "~~~python\nprint('hi')\n~~~\n";
+        let result = extract_code_block(md);
+        assert!(result.contains("~~~python"), "Got: {result}");
+        assert!(result.contains("print('hi')"), "Got: {result}");
+    }
+
+    // --- include_snippet: file exists ---
+
+    #[test]
+    fn test_include_snippet_non_md_file() {
+        let tmp = std::env::temp_dir().join("alef_readme_snippet_test_py");
+        let _ = fs::remove_dir_all(&tmp);
+        let lang_dir = tmp.join("python");
+        fs::create_dir_all(&lang_dir).unwrap();
+        fs::write(lang_dir.join("example.py"), "print('hello')").unwrap();
+
+        let result = include_snippet(&tmp, "python", "example.py");
+        assert!(result.contains("```py"), "Got: {result}");
+        assert!(result.contains("print('hello')"), "Got: {result}");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_include_snippet_md_file_extracts_code_block() {
+        let tmp = std::env::temp_dir().join("alef_readme_snippet_test_md");
+        let _ = fs::remove_dir_all(&tmp);
+        let lang_dir = tmp.join("python");
+        fs::create_dir_all(&lang_dir).unwrap();
+        fs::write(
+            lang_dir.join("example.md"),
+            "Some prose\n\n```python\nfoo()\n```\n\nMore prose",
+        )
+        .unwrap();
+
+        let result = include_snippet(&tmp, "python", "example.md");
+        assert!(result.contains("```python"), "Got: {result}");
+        assert!(result.contains("foo()"), "Got: {result}");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- render_performance_table: ops/sec table ---
+
+    #[test]
+    fn test_render_performance_table_ops_sec() {
+        let perf = serde_json::json!({
+            "platform": "Apple M2",
+            "function": "parse",
+            "note": "single-threaded",
+            "benchmarks": [
+                {"name": "small.json", "size": "1 KB", "ops_sec": 12345},
+                {"name": "large.json", "size": "1 MB", "ops_sec": 42}
+            ]
+        });
+        let v = Value::from_serialize(&perf);
+        let result = render_performance_table(&v, "parse");
+        assert!(result.contains("Apple M2"), "Got: {result}");
+        assert!(result.contains("| Document | Size | Ops/sec |"), "Got: {result}");
+        assert!(result.contains("small.json"), "Got: {result}");
+        assert!(result.contains("large.json"), "Got: {result}");
+    }
+
+    // --- render_performance_table: throughput table ---
+
+    #[test]
+    fn test_render_performance_table_throughput() {
+        let perf = serde_json::json!({
+            "platform": "Linux x86-64",
+            "function": "extract",
+            "note": "4 threads",
+            "benchmarks": [
+                {
+                    "name": "doc.pdf",
+                    "size": "2 MB",
+                    "latency": "10ms",
+                    "throughput": "100 MB/s"
+                }
+            ]
+        });
+        let v = Value::from_serialize(&perf);
+        let result = render_performance_table(&v, "extract");
+        assert!(result.contains("| Document | Size | Latency | Throughput |"), "Got: {result}");
+        assert!(result.contains("doc.pdf"), "Got: {result}");
+        assert!(result.contains("100 MB/s"), "Got: {result}");
+    }
+
+    // --- readme_output_path: output_pattern branch ---
+
+    #[test]
+    fn test_template_with_output_pattern() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_output_pattern");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("lang.md"), "# {{ name }}").unwrap();
+
+        let mut config = test_config();
+        let mut lang_map = std::collections::HashMap::new();
+        // No output_path key — let output_pattern drive the path
+        lang_map.insert(
+            "python".to_string(),
+            serde_json::json!({
+                "template": "lang.md"
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: Some("docs/{language}/README.md".to_string()),
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("docs/python/README.md"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- try_template_readme: template file missing falls back to hardcoded ---
+
+    #[test]
+    fn test_template_readme_missing_template_falls_back() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_missing_tmpl");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        // No template file written — the entry points at a file that does not exist
+
+        let mut config = test_config();
+        let mut lang_map = std::collections::HashMap::new();
+        lang_map.insert(
+            "python".to_string(),
+            serde_json::json!({
+                "template": "nonexistent.md",
+                "output_path": "packages/python/README.md"
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        // Falls back to hardcoded — must contain pip install
+        assert!(
+            files[0].content.contains("pip install"),
+            "Expected hardcoded fallback content, got: {}",
+            files[0].content
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- try_template_readme: no language entry falls back to hardcoded ---
+
+    #[test]
+    fn test_template_readme_no_lang_entry_falls_back() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_no_lang_entry");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        let mut config = test_config();
+        // Languages map is empty — no entry for Python
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: std::collections::HashMap::new(),
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].content.contains("pip install"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- try_template_readme: deprecated YAML config path ---
+
+    #[test]
+    fn test_template_readme_yaml_config() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_yaml_cfg");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        fs::write(tmp.join("tmpl.md"), "version={{ version }}").unwrap();
+        let yaml_content = r#"
+languages:
+  python:
+    template: tmpl.md
+    output_path: packages/python/README.md
+"#;
+        fs::write(tmp.join("readme.yaml"), yaml_content).unwrap();
+
+        let mut config = test_config();
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: Some(PathBuf::from("readme.yaml")),
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: std::collections::HashMap::new(), // empty — triggers YAML path
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(
+            files[0].content.contains("version=0.1.0"),
+            "Expected rendered version, got: {}",
+            files[0].content
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- try_template_readme: discord_url and banner_url in context ---
+
+    #[test]
+    fn test_template_readme_discord_and_banner_url() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_discord_banner");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        fs::write(tmp.join("t.md"), "{{ discord_url }}|{{ banner_url }}").unwrap();
+
+        let mut config = test_config();
+        let mut lang_map = std::collections::HashMap::new();
+        lang_map.insert(
+            "python".to_string(),
+            serde_json::json!({
+                "template": "t.md",
+                "output_path": "packages/python/README.md"
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: Some("https://discord.gg/test".to_string()),
+            banner_url: Some("https://img.example.com/banner.png".to_string()),
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].content.contains("https://discord.gg/test"), "Got: {}", files[0].content);
+        assert!(
+            files[0].content.contains("https://img.example.com/banner.png"),
+            "Got: {}",
+            files[0].content
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- try_template_readme: template without scaffold (default description/repo/license) ---
+
+    #[test]
+    fn test_template_readme_no_scaffold_uses_defaults() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_no_scaffold");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        fs::write(tmp.join("t.md"), "{{ description }}|{{ repository }}|{{ license }}").unwrap();
+
+        let mut config = test_config();
+        config.scaffold = None;
+        let mut lang_map = std::collections::HashMap::new();
+        lang_map.insert(
+            "python".to_string(),
+            serde_json::json!({
+                "template": "t.md",
+                "output_path": "packages/python/README.md"
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(
+            files[0].content.contains("Bindings for my-lib"),
+            "Got: {}",
+            files[0].content
+        );
+        assert!(
+            files[0].content.contains("https://github.com/kreuzberg-dev/my-lib"),
+            "Got: {}",
+            files[0].content
+        );
+        assert!(files[0].content.contains("MIT"), "Got: {}", files[0].content);
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- try_template_readme: content already ends with newline (no double-newline) ---
+
+    #[test]
+    fn test_template_readme_trailing_newline_not_doubled() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_trailing_newline");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+
+        // Template content ends with a literal newline already
+        fs::write(tmp.join("t.md"), "hello\n").unwrap();
+
+        let mut config = test_config();
+        let mut lang_map = std::collections::HashMap::new();
+        lang_map.insert(
+            "python".to_string(),
+            serde_json::json!({
+                "template": "t.md",
+                "output_path": "packages/python/README.md"
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].content.ends_with('\n'), "Must end with newline");
+        assert!(
+            !files[0].content.ends_with("\n\n"),
+            "Must not have double trailing newline, got: {:?}",
+            files[0].content
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- default_readme_path: all language variants ---
+
+    #[test]
+    fn test_default_readme_path_ffi() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Ffi]).unwrap();
+        assert_eq!(files[0].path, PathBuf::from("crates/my-lib-ffi/README.md"));
+    }
+
+    #[test]
+    fn test_default_readme_path_wasm() {
+        let config = test_config();
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Wasm]).unwrap();
+        assert_eq!(files[0].path, PathBuf::from("crates/my-lib-wasm/README.md"));
+    }
+
+    // --- readme_output_path: "output" key alias ---
+
+    #[test]
+    fn test_template_output_key_alias() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_output_alias");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("t.md"), "hello").unwrap();
+
+        let mut config = test_config();
+        let mut lang_map = std::collections::HashMap::new();
+        // Use "output" instead of "output_path" to exercise the .or_else() branch
+        lang_map.insert(
+            "python".to_string(),
+            serde_json::json!({
+                "template": "t.md",
+                "output": "custom/path/README.md"
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("custom/path/README.md"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- readme_output_path: falls through to default_readme_path ---
+
+    #[test]
+    fn test_template_readme_default_path_fallthrough() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_default_path");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("t.md"), "hello").unwrap();
+
+        let mut config = test_config();
+        let mut lang_map = std::collections::HashMap::new();
+        // No output_path, no output key, no output_pattern — falls through to default_readme_path
+        lang_map.insert(
+            "python".to_string(),
+            serde_json::json!({ "template": "t.md" }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: None,
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, PathBuf::from("packages/python/README.md"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // --- include_snippet: snippets_dir in template context (filter exercised via template) ---
+
+    #[test]
+    fn test_template_include_snippet_filter() {
+        let tmp = std::env::temp_dir().join("alef_readme_test_snippet_filter");
+        let _ = fs::remove_dir_all(&tmp);
+        let snippets_dir = tmp.join("snippets");
+        let lang_snippet_dir = snippets_dir.join("python");
+        fs::create_dir_all(&lang_snippet_dir).unwrap();
+        fs::write(lang_snippet_dir.join("hello.py"), "print('hi')").unwrap();
+        // Template exercises the include_snippet filter
+        fs::write(tmp.join("t.md"), r#"{{ "hello.py" | include_snippet("python") }}"#).unwrap();
+
+        let mut config = test_config();
+        let mut lang_map = std::collections::HashMap::new();
+        lang_map.insert(
+            "python".to_string(),
+            serde_json::json!({
+                "template": "t.md",
+                "output_path": "packages/python/README.md"
+            }),
+        );
+        config.readme = Some(ReadmeConfig {
+            template_dir: Some(tmp.clone()),
+            snippets_dir: Some(PathBuf::from("snippets")),
+            config: None,
+            output_pattern: None,
+            discord_url: None,
+            banner_url: None,
+            languages: lang_map,
+        });
+        config.crate_config.workspace_root = Some(tmp.clone());
+
+        let api = test_api();
+        let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(
+            files[0].content.contains("print('hi')"),
+            "Expected snippet content, got: {}",
+            files[0].content
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }

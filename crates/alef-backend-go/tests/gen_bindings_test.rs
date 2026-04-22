@@ -1,6 +1,7 @@
+use alef_backend_go::trait_bridge::gen_trait_bridges_file;
 use alef_backend_go::GoBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, FfiConfig, GoConfig};
+use alef_core::config::{AlefConfig, CrateConfig, FfiConfig, GoConfig, TraitBridgeConfig};
 use alef_core::ir::*;
 
 /// Helper to create a FieldDef with all defaults
@@ -896,5 +897,552 @@ fn test_optional_return_type_no_double_pointer() {
         content.contains("*string"),
         "Optional<String> return should produce *string, got:\n{}",
         content
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trait bridge helpers
+// ---------------------------------------------------------------------------
+
+fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("my_lib::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: false,
+        is_clone: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+fn make_trait_method(
+    name: &str,
+    params: Vec<ParamDef>,
+    return_type: TypeRef,
+    has_error: bool,
+) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: if has_error {
+            Some("Box<dyn std::error::Error + Send + Sync>".to_string())
+        } else {
+            None
+        },
+        doc: format!("{name} method."),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        trait_source: None,
+    }
+}
+
+fn make_trait_param(name: &str, ty: TypeRef) -> ParamDef {
+    ParamDef {
+        name: name.to_string(),
+        ty,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+    }
+}
+
+fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> AlefConfig {
+    AlefConfig {
+        crate_config: CrateConfig {
+            name: "test-lib".to_string(),
+            sources: vec![],
+            version_from: "Cargo.toml".to_string(),
+            core_import: None,
+            workspace_root: None,
+            skip_core_import: false,
+            features: vec![],
+            path_mappings: std::collections::HashMap::new(),
+            auto_path_mappings: Default::default(),
+            extra_dependencies: Default::default(),
+            source_crates: vec![],
+        },
+        languages: vec![],
+        exclude: Default::default(),
+        include: Default::default(),
+        output: Default::default(),
+        python: None,
+        node: None,
+        ruby: None,
+        php: None,
+        elixir: None,
+        wasm: None,
+        ffi: Some(FfiConfig {
+            prefix: Some("krz".to_string()),
+            error_style: "last_error".to_string(),
+            header_name: None,
+            lib_name: None,
+            visitor_callbacks: false,
+            features: None,
+            serde_rename_all: None,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
+        }),
+        go: Some(GoConfig {
+            module: Some("github.com/test/test-lib".to_string()),
+            package_name: None,
+            features: None,
+            serde_rename_all: None,
+        }),
+        java: None,
+        csharp: None,
+        r: None,
+        scaffold: None,
+        readme: None,
+        lint: None,
+        custom_files: None,
+        adapters: vec![],
+        custom_modules: alef_core::config::CustomModulesConfig::default(),
+        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
+        opaque_types: std::collections::HashMap::new(),
+        generate: alef_core::config::GenerateConfig::default(),
+        generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
+        sync: None,
+        test: None,
+        e2e: None,
+        trait_bridges: bridge_configs,
+    }
+}
+
+fn make_api_with_type(trait_type: TypeDef) -> ApiSurface {
+    ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Go interface generation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gen_trait_bridges_file_produces_go_interface() {
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![make_trait_method("process", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_ocr_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    assert!(
+        code.contains("type OcrBackend interface"),
+        "should generate Go interface for the trait"
+    );
+}
+
+#[test]
+fn test_gen_trait_bridges_file_interface_includes_plugin_lifecycle_methods() {
+    let trait_type = make_trait_type(
+        "Scanner",
+        vec![make_trait_method("scan", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Scanner".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_scanner_registry".to_string()),
+        register_fn: Some("register_scanner".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    // Plugin lifecycle methods must always be present in the interface
+    assert!(
+        code.contains("Name() string"),
+        "Go interface must include Name() string"
+    );
+    assert!(
+        code.contains("Version() string"),
+        "Go interface must include Version() string"
+    );
+    assert!(
+        code.contains("Initialize() error"),
+        "Go interface must include Initialize() error"
+    );
+    assert!(
+        code.contains("Shutdown() error"),
+        "Go interface must include Shutdown() error"
+    );
+}
+
+#[test]
+fn test_gen_trait_bridges_file_interface_includes_trait_methods_in_pascal_case() {
+    let trait_type = make_trait_type(
+        "ImageProcessor",
+        vec![
+            make_trait_method("process_image", vec![], TypeRef::String, true),
+            make_trait_method(
+                "get_format",
+                vec![make_trait_param("path", TypeRef::String)],
+                TypeRef::String,
+                false,
+            ),
+        ],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "ImageProcessor".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_image_processor".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    assert!(
+        code.contains("ProcessImage("),
+        "trait method names must be converted to PascalCase in the Go interface"
+    );
+    assert!(
+        code.contains("GetFormat("),
+        "trait method names must be converted to PascalCase in the Go interface"
+    );
+}
+
+#[test]
+fn test_gen_trait_bridges_file_interface_method_with_error_returns_tuple_or_error() {
+    let trait_type = make_trait_type(
+        "Analyzer",
+        vec![
+            make_trait_method("analyze", vec![], TypeRef::String, true), // (string, error)
+            make_trait_method("ping", vec![], TypeRef::Unit, true),      // error
+        ],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Analyzer".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_analyzer".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    assert!(
+        code.contains("(string, error)"),
+        "method with non-unit return and error must produce (T, error) return type"
+    );
+    // Unit return with error: just "error"
+    assert!(
+        code.contains("Ping() error") || code.contains("Ping()"),
+        "method with unit return and error must produce 'error' return type"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trampoline generation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gen_trait_bridges_file_generates_exported_trampolines() {
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![make_trait_method("process", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    // Each trait method must have a //export trampoline
+    assert!(
+        code.contains("//export goOcrBackendProcess"),
+        "trampoline for 'process' must be exported as goOcrBackendProcess"
+    );
+    // Plugin lifecycle trampolines
+    assert!(
+        code.contains("//export goOcrBackendName"),
+        "plugin Name trampoline must be exported"
+    );
+    assert!(
+        code.contains("//export goOcrBackendInitialize"),
+        "plugin Initialize trampoline must be exported"
+    );
+    assert!(
+        code.contains("//export goOcrBackendFreeUserData"),
+        "free_user_data trampoline must be exported"
+    );
+}
+
+#[test]
+fn test_gen_trait_bridges_file_trampolines_retrieve_go_object_via_cgo_handle() {
+    let trait_type = make_trait_type(
+        "Scanner",
+        vec![make_trait_method("scan", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Scanner".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_scanner".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    assert!(
+        code.contains("cgo.Handle(uintptr(unsafe.Pointer(userData)))"),
+        "trampolines must retrieve the Go object via cgo.Handle from userData"
+    );
+    assert!(
+        code.contains("runtime/cgo"),
+        "must import runtime/cgo for cgo.Handle support"
+    );
+}
+
+#[test]
+fn test_gen_trait_bridges_file_trampoline_converts_string_param_from_c() {
+    let trait_type = make_trait_type(
+        "Greeter",
+        vec![make_trait_method(
+            "greet",
+            vec![make_trait_param("message", TypeRef::String)],
+            TypeRef::Unit,
+            false,
+        )],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_greeter".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    assert!(
+        code.contains("C.GoString(message)"),
+        "trampoline must convert *C.char parameter to Go string via C.GoString"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Registration function
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_register() {
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![make_trait_method("process", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    assert!(
+        code.contains("func RegisterOcrBackend(impl OcrBackend) error"),
+        "registration function must have the correct Go signature"
+    );
+    assert!(
+        code.contains("cgo.NewHandle(impl)"),
+        "registration must create a cgo.Handle for the Go object"
+    );
+    assert!(
+        code.contains("C.krz_ocr_backend_register("),
+        "registration must call the C FFI register function"
+    );
+    assert!(
+        code.contains("func UnregisterOcrBackend(name string) error"),
+        "unregistration function must also be generated"
+    );
+    assert!(
+        code.contains("C.krz_ocr_backend_unregister("),
+        "unregistration must call the C FFI unregister function"
+    );
+}
+
+#[test]
+fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
+    let trait_type = make_trait_type(
+        "Scanner",
+        vec![make_trait_method("scan", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Scanner".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_scanner".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    assert!(
+        code.contains("if rc != 0"),
+        "registration must check the C return code for errors"
+    );
+    assert!(
+        code.contains("fmt.Errorf"),
+        "registration must return a Go error on C failure"
+    );
+    assert!(
+        code.contains("handle.Delete()"),
+        "registration must delete the cgo.Handle on failure to avoid leaking"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// CGo preamble
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
+    let trait_type = make_trait_type(
+        "Analyzer",
+        vec![make_trait_method("analyze", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "Analyzer".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_analyzer".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let api = make_api_with_type(trait_type);
+
+    let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "crate/ffi", "../");
+
+    // CGo preamble must forward-declare all exported Go functions
+    assert!(
+        code.contains("extern int32_t goAnalyzerAnalyze("),
+        "CGo preamble must forward-declare the analyze trampoline"
+    );
+    assert!(
+        code.contains("import \"C\""),
+        "must import C after the CGo preamble block"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// via generate_bindings (end-to-end)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
+    let backend = GoBackend;
+
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![make_trait_method("process", vec![], TypeRef::String, true)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "generate_bindings must succeed with trait_bridges configured");
+    let files = result.unwrap();
+
+    let bridge_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("trait_bridges.go"));
+    assert!(
+        bridge_file.is_some(),
+        "generate_bindings should emit trait_bridges.go when trait_bridges are configured"
+    );
+
+    let content = &bridge_file.unwrap().content;
+    assert!(
+        content.contains("type OcrBackend interface"),
+        "trait_bridges.go must contain the Go interface"
+    );
+    assert!(
+        content.contains("func RegisterOcrBackend"),
+        "trait_bridges.go must contain the registration function"
     );
 }

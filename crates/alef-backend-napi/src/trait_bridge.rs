@@ -25,9 +25,9 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
 
     fn bridge_imports(&self) -> Vec<String> {
         vec![
-            "use napi::bindgen_prelude::{JsObjectValue, ToNapiValue, Unknown, Object};".to_string(),
-            "use napi::JsValue;".to_string(),
-            "use std::sync::Arc;".to_string(),
+            "napi::bindgen_prelude::{JsObjectValue, ToNapiValue, Unknown, Object}".to_string(),
+            "napi::JsValue".to_string(),
+            "std::sync::Arc".to_string(),
         ]
     }
 
