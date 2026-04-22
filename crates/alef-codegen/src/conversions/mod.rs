@@ -1563,4 +1563,976 @@ mod tests {
         let typ = make_type("Config", "c::Config", vec![]);
         assert!(!can_generate_conversion(&typ, &set));
     }
+
+    // -----------------------------------------------------------------------
+    // field_conversion_to_core_cfg — optional variants of cast flags
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_cast_u64_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_to_core_cfg("n", &TypeRef::Primitive(PrimitiveType::U64), true, &config);
+        assert_eq!(result, "n: val.n.map(|v| v as u64)");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_cast_usize_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_to_core_cfg("n", &TypeRef::Primitive(PrimitiveType::Usize), true, &config);
+        assert_eq!(result, "n: val.n.map(|v| v as usize)");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_cast_isize_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_to_core_cfg("n", &TypeRef::Primitive(PrimitiveType::Isize), true, &config);
+        assert_eq!(result, "n: val.n.map(|v| v as isize)");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_cast_f32_optional() {
+        let config = ConversionConfig {
+            cast_f32_to_f64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_to_core_cfg("s", &TypeRef::Primitive(PrimitiveType::F32), true, &config);
+        assert_eq!(result, "s: val.s.map(|v| v as f32)");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_duration_cast_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_to_core_cfg("t", &TypeRef::Duration, true, &config);
+        assert_eq!(result, "t: val.t.map(|v| std::time::Duration::from_millis(v as u64))");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_json_to_string_optional() {
+        let config = ConversionConfig {
+            json_to_string: true,
+            ..Default::default()
+        };
+        let result = field_conversion_to_core_cfg("m", &TypeRef::Json, true, &config);
+        // json_to_string is lossy; optional still falls through to Default::default() path
+        assert_eq!(result, "m: Default::default()");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_vec_named_to_string_optional() {
+        let config = ConversionConfig {
+            vec_named_to_string: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Vec(Box::new(TypeRef::Named("Item".into())));
+        let result = field_conversion_to_core_cfg("items", &ty, true, &config);
+        assert_eq!(result, "items: val.items.as_ref().and_then(|s| serde_json::from_str(s).ok())");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_vec_u64_cast_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U64)));
+        let result = field_conversion_to_core_cfg("ids", &ty, true, &config);
+        assert!(result.contains("as u64"));
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_vec_f32_cast_optional() {
+        let config = ConversionConfig {
+            cast_f32_to_f64: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32)));
+        let result = field_conversion_to_core_cfg("scores", &ty, true, &config);
+        assert!(result.contains("as f32"));
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_map_u64_values_cast_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Primitive(PrimitiveType::U64)),
+        );
+        let result = field_conversion_to_core_cfg("map", &ty, true, &config);
+        assert!(result.contains("as u64"));
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_cfg_optional_inner_u64_cast() {
+        // Optional(Primitive(U64)) should map element with cast
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64)));
+        let result = field_conversion_to_core_cfg("n", &ty, false, &config);
+        assert!(result.contains("as u64"));
+    }
+
+    // -----------------------------------------------------------------------
+    // field_conversion_from_core_cfg — optional variants and missing branches
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_cast_u64_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_from_core_cfg(
+            "n",
+            &TypeRef::Primitive(PrimitiveType::U64),
+            true,
+            false,
+            &no_opaques(),
+            &config,
+        );
+        assert_eq!(result, "n: val.n.map(|v| v as i64)");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_cast_usize_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_from_core_cfg(
+            "n",
+            &TypeRef::Primitive(PrimitiveType::Usize),
+            true,
+            false,
+            &no_opaques(),
+            &config,
+        );
+        assert_eq!(result, "n: val.n.map(|v| v as i64)");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_cast_isize_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_from_core_cfg(
+            "n",
+            &TypeRef::Primitive(PrimitiveType::Isize),
+            true,
+            false,
+            &no_opaques(),
+            &config,
+        );
+        assert_eq!(result, "n: val.n.map(|v| v as i64)");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_cast_f32_optional() {
+        let config = ConversionConfig {
+            cast_f32_to_f64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_from_core_cfg(
+            "s",
+            &TypeRef::Primitive(PrimitiveType::F32),
+            true,
+            false,
+            &no_opaques(),
+            &config,
+        );
+        assert_eq!(result, "s: val.s.map(|v| v as f64)");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_duration_cast_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let result = field_conversion_from_core_cfg("t", &TypeRef::Duration, true, false, &no_opaques(), &config);
+        assert_eq!(result, "t: val.t.map(|d| d.as_millis() as u64 as i64)");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_json_to_string_optional() {
+        let config = ConversionConfig {
+            json_to_string: true,
+            ..Default::default()
+        };
+        let result = field_conversion_from_core_cfg("m", &TypeRef::Json, true, false, &no_opaques(), &config);
+        assert_eq!(result, "m: val.m.as_ref().map(ToString::to_string)");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_vec_named_to_string_optional() {
+        let config = ConversionConfig {
+            vec_named_to_string: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Vec(Box::new(TypeRef::Named("Item".into())));
+        let result = field_conversion_from_core_cfg("items", &ty, true, false, &no_opaques(), &config);
+        assert_eq!(result, "items: val.items.as_ref().and_then(|v| serde_json::to_string(v).ok())");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_vec_u64_cast_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U64)));
+        let result = field_conversion_from_core_cfg("ids", &ty, true, false, &no_opaques(), &config);
+        assert!(result.contains("as i64"));
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_vec_f32_cast_optional() {
+        let config = ConversionConfig {
+            cast_f32_to_f64: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32)));
+        let result = field_conversion_from_core_cfg("scores", &ty, true, false, &no_opaques(), &config);
+        assert!(result.contains("as f64"));
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_optional_inner_u64_cast() {
+        // Optional(Primitive(U64)) with cast should map element
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64)));
+        let result = field_conversion_from_core_cfg("n", &ty, false, false, &no_opaques(), &config);
+        assert!(result.contains("as i64"));
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_cfg_map_u64_values_cast_optional() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Primitive(PrimitiveType::U64)),
+        );
+        let result = field_conversion_from_core_cfg("map", &ty, true, false, &no_opaques(), &config);
+        assert!(result.contains("as i64"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Complex nested types: Optional<Vec<Named>>, Map<String, Optional<Named>>,
+    // Vec<Map<String, String>>
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_field_conversion_to_core_optional_vec_string() {
+        // Optional(Vec(String)) — passthrough
+        let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::String))));
+        let result = field_conversion_to_core("items", &ty, false);
+        assert_eq!(result, "items: val.items");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_optional_vec_named_inner() {
+        // Optional(Vec(Named)) — map into
+        let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".into())))));
+        let result = field_conversion_to_core("items", &ty, false);
+        assert_eq!(result, "items: val.items.map(|v| v.into_iter().map(Into::into).collect())");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_map_string_optional_named() {
+        // Map(String, Optional(Named)) — named value uses .into()
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Optional(Box::new(TypeRef::Named("Val".into())))),
+        );
+        // Optional inner Named doesn't trigger `has_named_val` (only TypeRef::Named at top), so falls
+        // through to plain collect (there's no special map for Optional-value Named).
+        let result = field_conversion_to_core("map", &ty, false);
+        assert_eq!(result, "map: val.map.into_iter().collect()");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_map_string_vec_named_value() {
+        // Map(String, Vec(Named)) — Vec<Named> values need per-vector Into mapping
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".into())))),
+        );
+        let result = field_conversion_to_core("map", &ty, false);
+        assert!(result.contains("v.into_iter().map(Into::into).collect()"));
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_map_string_vec_json_value() {
+        // Map(String, Vec(Json)) — Vec<Json> values need per-vector serde deserialization
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Vec(Box::new(TypeRef::Json))),
+        );
+        let result = field_conversion_to_core("map", &ty, false);
+        assert!(result.contains("filter_map(|s| serde_json::from_str(&s).ok()).collect()"));
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_map_string_string_optional() {
+        // Map(String, String) with optional=true
+        let ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
+        let result = field_conversion_to_core("map", &ty, true);
+        assert_eq!(result, "map: val.map.map(|m| m.into_iter().collect())");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_optional_vec_named() {
+        // Optional(Vec(Named)) — per-element .into() mapping
+        let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Item".into())))));
+        let result = field_conversion_from_core("items", &ty, false, false, &no_opaques());
+        // falls through to field_conversion_to_core (symmetric case)
+        assert!(result.contains("map(Into::into)") || result.contains("into_iter().map(Into::into)"));
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_map_string_named_values() {
+        // Map(String, Named) — Named values need .into()
+        let ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("Val".into())));
+        let result = field_conversion_from_core("map", &ty, false, false, &no_opaques());
+        // No asymmetric logic for Named map values in from_core — falls through to to_core symmetric
+        assert!(result.contains("v.into()"));
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_vec_string_passthrough() {
+        // Vec(String) — passthrough (not a special case)
+        let ty = TypeRef::Vec(Box::new(TypeRef::String));
+        let result = field_conversion_to_core("tags", &ty, false);
+        assert_eq!(result, "tags: val.tags");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_vec_string_optional() {
+        // Vec(String) optional
+        let ty = TypeRef::Vec(Box::new(TypeRef::String));
+        let result = field_conversion_to_core("tags", &ty, true);
+        assert_eq!(result, "tags: val.tags");
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_map_named_key() {
+        // Map(Named, String) — named key needs .into()
+        let ty = TypeRef::Map(Box::new(TypeRef::Named("Key".into())), Box::new(TypeRef::String));
+        let result = field_conversion_to_core("map", &ty, false);
+        assert!(result.contains("k.into()"));
+    }
+
+    #[test]
+    fn test_field_conversion_to_core_map_json_key() {
+        // Map(Json, String) — Json key gets deserialized
+        let ty = TypeRef::Map(Box::new(TypeRef::Json), Box::new(TypeRef::String));
+        let result = field_conversion_to_core("map", &ty, false);
+        assert!(result.contains("serde_json::from_str(&k)"));
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_optional_json_inner() {
+        // Optional(Json) — binding uses Option<String> via .to_string()
+        let ty = TypeRef::Optional(Box::new(TypeRef::Json));
+        let result = field_conversion_from_core("meta", &ty, false, false, &no_opaques());
+        assert_eq!(result, "meta: val.meta.as_ref().map(ToString::to_string)");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_optional_path_inner() {
+        // Optional(Path) — binding uses to_string_lossy
+        let ty = TypeRef::Optional(Box::new(TypeRef::Path));
+        let result = field_conversion_from_core("file", &ty, false, false, &no_opaques());
+        assert_eq!(result, "file: val.file.map(|p| p.to_string_lossy().to_string())");
+    }
+
+    #[test]
+    fn test_field_conversion_from_core_map_json_keys() {
+        // Map(Json, String) — Json key gets .to_string()
+        let ty = TypeRef::Map(Box::new(TypeRef::Json), Box::new(TypeRef::String));
+        let result = field_conversion_from_core("map", &ty, false, false, &no_opaques());
+        assert!(result.contains("k.to_string()"));
+    }
+
+    // -----------------------------------------------------------------------
+    // is_tuple_variant edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_is_tuple_variant_single_positional_field() {
+        let fields = vec![make_field("_0", TypeRef::String)];
+        assert!(is_tuple_variant(&fields));
+    }
+
+    #[test]
+    fn test_is_tuple_variant_false_for_underscore_only() {
+        // "_" alone has no digits after the underscore
+        let fields = vec![make_field("_", TypeRef::String)];
+        assert!(!is_tuple_variant(&fields));
+    }
+
+    #[test]
+    fn test_is_tuple_variant_false_for_field_starting_with_underscore_then_alpha() {
+        // "_foo" — digits check fails
+        let fields = vec![make_field("_foo", TypeRef::String)];
+        assert!(!is_tuple_variant(&fields));
+    }
+
+    #[test]
+    fn test_is_tuple_variant_three_positional_fields() {
+        let fields = vec![
+            make_field("_0", TypeRef::String),
+            make_field("_1", TypeRef::Primitive(PrimitiveType::I32)),
+            make_field("_2", TypeRef::Primitive(PrimitiveType::F64)),
+        ];
+        assert!(is_tuple_variant(&fields));
+    }
+
+    #[test]
+    fn test_is_tuple_type_name_empty_string_is_false() {
+        assert!(!helpers::is_tuple_type_name(""));
+    }
+
+    #[test]
+    fn test_is_tuple_type_name_space_is_false() {
+        assert!(!helpers::is_tuple_type_name("String"));
+    }
+
+    // -----------------------------------------------------------------------
+    // core_type_path edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_core_type_path_with_hyphen_and_double_colon() {
+        // Hyphens in path should be replaced; path still contains "::" so used verbatim
+        let typ = make_type("Config", "my-crate::module::Config", vec![]);
+        assert_eq!(core_type_path(&typ, "my_crate"), "my_crate::module::Config");
+    }
+
+    #[test]
+    fn test_core_type_path_rust_path_matches_core_import_prefix() {
+        // Path already starts with core_import → used verbatim
+        let typ = make_type("Config", "my_crate::Config", vec![]);
+        assert_eq!(core_type_path(&typ, "my_crate"), "my_crate::Config");
+    }
+
+    // -----------------------------------------------------------------------
+    // build_type_path_map — multiple types, hyphens, enums
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_build_type_path_map_multiple_types() {
+        let surface = ApiSurface {
+            crate_name: "my_crate".into(),
+            version: "1.0.0".into(),
+            types: vec![
+                make_type("Config", "my_crate::Config", vec![]),
+                make_type("Result", "my_crate::types::Result", vec![]),
+            ],
+            functions: vec![],
+            enums: vec![
+                make_enum("Mode", "my_crate::Mode", &["A"]),
+                make_enum("Status", "Status", &["Ok"]),
+            ],
+            errors: vec![],
+        };
+        let map = build_type_path_map(&surface, "my_crate");
+        assert_eq!(map.get("Config").map(String::as_str), Some("my_crate::Config"));
+        assert_eq!(map.get("Result").map(String::as_str), Some("my_crate::types::Result"));
+        assert_eq!(map.get("Mode").map(String::as_str), Some("my_crate::Mode"));
+        // "Status" path has no "::" and doesn't start with core_import → prefixed
+        assert_eq!(map.get("Status").map(String::as_str), Some("my_crate::Status"));
+    }
+
+    #[test]
+    fn test_build_type_path_map_normalizes_hyphens() {
+        let surface = ApiSurface {
+            crate_name: "my_crate".into(),
+            version: "1.0.0".into(),
+            types: vec![make_type("Config", "my-crate::Config", vec![])],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        let map = build_type_path_map(&surface, "my_crate");
+        assert_eq!(map.get("Config").map(String::as_str), Some("my_crate::Config"));
+    }
+
+    #[test]
+    fn test_build_type_path_map_empty_surface() {
+        let surface = ApiSurface {
+            crate_name: "c".into(),
+            version: "1.0".into(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        let map = build_type_path_map(&surface, "c");
+        assert!(map.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // Edge cases: empty fields, single-field structs, all-optional fields
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_from_binding_to_core_empty_fields() {
+        let typ = make_type("Empty", "c::Empty", vec![]);
+        let result = gen_from_binding_to_core(&typ, "c");
+        assert!(result.contains("impl From<Empty> for c::Empty"));
+        assert!(result.contains("Self {"));
+    }
+
+    #[test]
+    fn test_gen_from_core_to_binding_empty_fields() {
+        let typ = make_type("Empty", "c::Empty", vec![]);
+        let result = gen_from_core_to_binding(&typ, "c", &no_opaques());
+        assert!(result.contains("impl From<c::Empty> for Empty"));
+        assert!(result.contains("Self {"));
+    }
+
+    #[test]
+    fn test_gen_from_binding_to_core_all_optional_fields() {
+        let typ = make_type(
+            "Config",
+            "c::Config",
+            vec![
+                make_opt_field("name", TypeRef::String),
+                make_opt_field("count", TypeRef::Primitive(PrimitiveType::I32)),
+            ],
+        );
+        let result = gen_from_binding_to_core(&typ, "c");
+        assert!(result.contains("name: val.name"));
+        assert!(result.contains("count: val.count"));
+    }
+
+    #[test]
+    fn test_gen_from_binding_to_core_single_string_field() {
+        let typ = make_type("S", "c::S", vec![make_field("value", TypeRef::String)]);
+        let result = gen_from_binding_to_core(&typ, "c");
+        assert!(result.contains("value: val.value"));
+    }
+
+    #[test]
+    fn test_gen_from_core_to_binding_single_optional_named_field() {
+        let field = make_opt_field("inner", TypeRef::Named("Inner".into()));
+        let typ = make_type("Wrapper", "c::Wrapper", vec![field]);
+        let result = gen_from_core_to_binding(&typ, "c", &no_opaques());
+        assert!(result.contains("inner: val.inner.map(Into::into)"));
+    }
+
+    // -----------------------------------------------------------------------
+    // binding_to_core_match_arm_ext_cfg — config-aware match arms
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_binding_to_core_match_arm_ext_cfg_unit_variant() {
+        let config = ConversionConfig::default();
+        let result = helpers::binding_to_core_match_arm_ext_cfg("MyEnum", "Foo", &[], false, &config);
+        assert_eq!(result, "MyEnum::Foo => Self::Foo,");
+    }
+
+    #[test]
+    fn test_binding_to_core_match_arm_ext_cfg_no_binding_data_named_fields() {
+        let config = ConversionConfig::default();
+        let fields = vec![make_field("value", TypeRef::String)];
+        let result = helpers::binding_to_core_match_arm_ext_cfg("MyEnum", "Bar", &fields, false, &config);
+        assert!(result.contains("value: Default::default()"));
+    }
+
+    #[test]
+    fn test_binding_to_core_match_arm_ext_cfg_no_binding_data_tuple_fields() {
+        let config = ConversionConfig::default();
+        let fields = vec![make_field("_0", TypeRef::String)];
+        let result = helpers::binding_to_core_match_arm_ext_cfg("MyEnum", "Bar", &fields, false, &config);
+        assert!(result.contains("Default::default()"));
+        assert!(result.contains("Self::Bar("));
+    }
+
+    #[test]
+    fn test_binding_to_core_match_arm_ext_cfg_with_binding_data_named() {
+        let config = ConversionConfig::default();
+        let fields = vec![make_field("value", TypeRef::Named("Inner".into()))];
+        let result = helpers::binding_to_core_match_arm_ext_cfg("MyEnum", "Bar", &fields, true, &config);
+        assert!(result.contains("value: value.into()"));
+    }
+
+    #[test]
+    fn test_binding_to_core_match_arm_ext_cfg_with_binding_data_tuple() {
+        let config = ConversionConfig::default();
+        let fields = vec![make_field("_0", TypeRef::Named("Inner".into()))];
+        let result = helpers::binding_to_core_match_arm_ext_cfg("MyEnum", "Bar", &fields, true, &config);
+        assert!(result.contains("_0.into()"));
+    }
+
+    #[test]
+    fn test_binding_to_core_match_arm_ext_cfg_cast_u64_field() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let fields = vec![make_field("count", TypeRef::Primitive(PrimitiveType::U64))];
+        let result = helpers::binding_to_core_match_arm_ext_cfg("MyEnum", "Bar", &fields, true, &config);
+        assert!(result.contains("as u64"));
+    }
+
+    // -----------------------------------------------------------------------
+    // core_to_binding_match_arm_ext_cfg — config-aware match arms
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_cfg_unit_variant() {
+        let config = ConversionConfig::default();
+        let result = helpers::core_to_binding_match_arm_ext_cfg("CoreEnum", "Foo", &[], false, &config);
+        assert_eq!(result, "CoreEnum::Foo => Self::Foo,");
+    }
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_cfg_no_binding_data_named() {
+        let config = ConversionConfig::default();
+        let fields = vec![make_field("x", TypeRef::Primitive(PrimitiveType::I32))];
+        let result = helpers::core_to_binding_match_arm_ext_cfg("CoreEnum", "Foo", &fields, false, &config);
+        assert!(result.contains("{ .. }"));
+        assert!(result.contains("Self::Foo"));
+    }
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_cfg_no_binding_data_tuple() {
+        let config = ConversionConfig::default();
+        let fields = vec![make_field("_0", TypeRef::Primitive(PrimitiveType::I32))];
+        let result = helpers::core_to_binding_match_arm_ext_cfg("CoreEnum", "Foo", &fields, false, &config);
+        assert!(result.contains("(..)"));
+        assert!(result.contains("Self::Foo"));
+    }
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_cfg_with_binding_data_named_fields() {
+        let config = ConversionConfig::default();
+        let fields = vec![make_field("value", TypeRef::Named("Inner".into()))];
+        let result = helpers::core_to_binding_match_arm_ext_cfg("CoreEnum", "Foo", &fields, true, &config);
+        assert!(result.contains("value: value.into()"));
+    }
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_cfg_with_binding_data_tuple() {
+        let config = ConversionConfig::default();
+        let fields = vec![make_field("_0", TypeRef::Named("Inner".into()))];
+        let result = helpers::core_to_binding_match_arm_ext_cfg("CoreEnum", "Foo", &fields, true, &config);
+        assert!(result.contains("_0: _0.into()"));
+    }
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_cfg_cast_u64_field() {
+        let config = ConversionConfig {
+            cast_large_ints_to_i64: true,
+            ..Default::default()
+        };
+        let fields = vec![make_field("count", TypeRef::Primitive(PrimitiveType::U64))];
+        let result = helpers::core_to_binding_match_arm_ext_cfg("CoreEnum", "Bar", &fields, true, &config);
+        assert!(result.contains("as i64"));
+    }
+
+    // -----------------------------------------------------------------------
+    // core_to_binding_match_arm_ext with binding_has_data=true
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_binding_has_data_named_fields() {
+        let fields = vec![make_field("value", TypeRef::Named("Inner".into()))];
+        let result = helpers::core_to_binding_match_arm_ext("CoreEnum", "Bar", &fields, true);
+        assert!(result.contains("value: value.into()"));
+    }
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_binding_has_data_tuple_fields() {
+        let fields = vec![make_field("_0", TypeRef::Named("Inner".into()))];
+        let result = helpers::core_to_binding_match_arm_ext("CoreEnum", "Bar", &fields, true);
+        assert!(result.contains("_0: _0.into()"));
+    }
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_binding_has_data_plain_field() {
+        let fields = vec![make_field("x", TypeRef::Primitive(PrimitiveType::I32))];
+        let result = helpers::core_to_binding_match_arm_ext("CoreEnum", "Bar", &fields, true);
+        assert!(result.contains("x: x"));
+    }
+
+    #[test]
+    fn test_core_to_binding_match_arm_ext_binding_has_data_sanitized_field() {
+        let mut field = make_field("complex", TypeRef::String);
+        field.sanitized = true;
+        let result = helpers::core_to_binding_match_arm_ext("CoreEnum", "Bar", &[field], true);
+        assert!(result.contains("serde_json::to_string("));
+    }
+
+    // -----------------------------------------------------------------------
+    // input_type_names — method params and transitive closure
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_input_type_names_from_method_params() {
+        let surface = ApiSurface {
+            crate_name: "my_crate".into(),
+            version: "1.0.0".into(),
+            types: vec![TypeDef {
+                name: "Client".into(),
+                rust_path: "my_crate::Client".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "process".into(),
+                    rust_path: "my_crate::Client::process".into(),
+                    params: vec![ParamDef {
+                        name: "config".into(),
+                        ty: TypeRef::Named("Config".into()),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                    }],
+                    return_type: TypeRef::Unit,
+                    is_async: false,
+                    error_type: None,
+                    doc: String::new(),
+                    cfg: None,
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    is_static: false,
+                    receiver: alef_core::ir::MethodReceiver::Ref,
+                }],
+                is_opaque: false,
+                is_clone: true,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        let names = input_type_names(&surface);
+        assert!(names.contains("Config"));
+    }
+
+    #[test]
+    fn test_input_type_names_transitive_closure() {
+        // Config has a field of type Backend — Backend should also be in input_type_names
+        let config_type = make_type(
+            "Config",
+            "c::Config",
+            vec![make_field("backend", TypeRef::Named("Backend".into()))],
+        );
+        let surface = ApiSurface {
+            crate_name: "c".into(),
+            version: "1.0".into(),
+            types: vec![config_type],
+            functions: vec![FunctionDef {
+                name: "run".into(),
+                rust_path: "c::run".into(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "config".into(),
+                    ty: TypeRef::Named("Config".into()),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                }],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            }],
+            enums: vec![],
+            errors: vec![],
+        };
+        let names = input_type_names(&surface);
+        assert!(names.contains("Config"));
+        assert!(names.contains("Backend"));
+    }
+
+    // -----------------------------------------------------------------------
+    // convertible_types — sanitized fields with/without has_default
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_convertible_types_sanitized_field_with_has_default() {
+        let mut field = make_field("complex", TypeRef::String);
+        field.sanitized = true;
+        let mut typ = make_type("Config", "c::Config", vec![field]);
+        typ.has_default = true;
+        let surface = ApiSurface {
+            crate_name: "c".into(),
+            version: "1.0".into(),
+            types: vec![typ],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        // String has Default::default() — convertible
+        let result = convertible_types(&surface);
+        assert!(result.contains("Config"));
+    }
+
+    #[test]
+    fn test_convertible_types_opaque_type_excluded() {
+        let mut typ = make_type("Client", "c::Client", vec![]);
+        typ.is_opaque = true;
+        let surface = ApiSurface {
+            crate_name: "c".into(),
+            version: "1.0".into(),
+            types: vec![typ],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        // Opaque types are not in the candidate set initially
+        let result = convertible_types(&surface);
+        assert!(!result.contains("Client"));
+    }
+
+    #[test]
+    fn test_convertible_types_type_with_named_field_in_surface() {
+        // Both Config (with Backend field) and Backend present — both convertible
+        let config_field = make_field("backend", TypeRef::Named("Backend".into()));
+        let config = make_type("Config", "c::Config", vec![config_field]);
+        let backend = make_type("Backend", "c::Backend", vec![]);
+        let surface = ApiSurface {
+            crate_name: "c".into(),
+            version: "1.0".into(),
+            types: vec![config, backend],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        };
+        let result = convertible_types(&surface);
+        assert!(result.contains("Config"));
+        assert!(result.contains("Backend"));
+    }
+
+    // -----------------------------------------------------------------------
+    // core_enum_path edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_core_enum_path_with_hyphen_normalization() {
+        let e = make_enum("Status", "my-crate::Status", &[]);
+        assert_eq!(core_enum_path(&e, "my_crate"), "my_crate::Status");
+    }
+
+    #[test]
+    fn test_core_enum_path_already_starts_with_core_import() {
+        // When path already starts with core_import, use verbatim
+        let e = make_enum("Mode", "my_crate::inner::Mode", &[]);
+        assert_eq!(core_enum_path(&e, "my_crate"), "my_crate::inner::Mode");
+    }
+
+    // -----------------------------------------------------------------------
+    // needs_i64_cast / core_prim_str / binding_prim_str (helper coverage)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_needs_i64_cast_true_for_large_ints() {
+        use super::helpers::*;
+        assert!(needs_i64_cast(&PrimitiveType::U64));
+        assert!(needs_i64_cast(&PrimitiveType::Usize));
+        assert!(needs_i64_cast(&PrimitiveType::Isize));
+    }
+
+    #[test]
+    fn test_needs_i64_cast_false_for_small_ints() {
+        use super::helpers::*;
+        assert!(!needs_i64_cast(&PrimitiveType::I32));
+        assert!(!needs_i64_cast(&PrimitiveType::U32));
+        assert!(!needs_i64_cast(&PrimitiveType::F64));
+    }
+
+    #[test]
+    fn test_core_prim_str_all_variants() {
+        use super::helpers::core_prim_str;
+        assert_eq!(core_prim_str(&PrimitiveType::U64), "u64");
+        assert_eq!(core_prim_str(&PrimitiveType::Usize), "usize");
+        assert_eq!(core_prim_str(&PrimitiveType::Isize), "isize");
+        assert_eq!(core_prim_str(&PrimitiveType::F32), "f32");
+        assert_eq!(core_prim_str(&PrimitiveType::Bool), "bool");
+        assert_eq!(core_prim_str(&PrimitiveType::U8), "u8");
+        assert_eq!(core_prim_str(&PrimitiveType::U16), "u16");
+        assert_eq!(core_prim_str(&PrimitiveType::U32), "u32");
+        assert_eq!(core_prim_str(&PrimitiveType::I8), "i8");
+        assert_eq!(core_prim_str(&PrimitiveType::I16), "i16");
+        assert_eq!(core_prim_str(&PrimitiveType::I32), "i32");
+        assert_eq!(core_prim_str(&PrimitiveType::I64), "i64");
+        assert_eq!(core_prim_str(&PrimitiveType::F64), "f64");
+    }
+
+    #[test]
+    fn test_binding_prim_str_large_ints_map_to_i64() {
+        use super::helpers::binding_prim_str;
+        assert_eq!(binding_prim_str(&PrimitiveType::U64), "i64");
+        assert_eq!(binding_prim_str(&PrimitiveType::Usize), "i64");
+        assert_eq!(binding_prim_str(&PrimitiveType::Isize), "i64");
+    }
+
+    #[test]
+    fn test_binding_prim_str_small_ints_map_to_i32() {
+        use super::helpers::binding_prim_str;
+        assert_eq!(binding_prim_str(&PrimitiveType::U8), "i32");
+        assert_eq!(binding_prim_str(&PrimitiveType::U16), "i32");
+        assert_eq!(binding_prim_str(&PrimitiveType::U32), "i32");
+        assert_eq!(binding_prim_str(&PrimitiveType::I8), "i32");
+        assert_eq!(binding_prim_str(&PrimitiveType::I16), "i32");
+        assert_eq!(binding_prim_str(&PrimitiveType::I32), "i32");
+    }
+
+    #[test]
+    fn test_binding_prim_str_float_and_i64() {
+        use super::helpers::binding_prim_str;
+        assert_eq!(binding_prim_str(&PrimitiveType::F32), "f64");
+        assert_eq!(binding_prim_str(&PrimitiveType::F64), "f64");
+        assert_eq!(binding_prim_str(&PrimitiveType::I64), "i64");
+        assert_eq!(binding_prim_str(&PrimitiveType::Bool), "bool");
+    }
 }

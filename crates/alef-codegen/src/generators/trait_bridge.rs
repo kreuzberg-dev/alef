@@ -461,3 +461,932 @@ pub fn format_param_type(param: &ParamDef, type_paths: &HashMap<String, String>)
         format_type_ref(&param.ty, type_paths)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::TraitBridgeConfig;
+    use alef_core::ir::{MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
+
+    // ---------------------------------------------------------------------------
+    // Test helpers
+    // ---------------------------------------------------------------------------
+
+    fn make_trait_bridge_config(
+        super_trait: Option<&str>,
+        register_fn: Option<&str>,
+    ) -> TraitBridgeConfig {
+        TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            super_trait: super_trait.map(str::to_string),
+            registry_getter: None,
+            register_fn: register_fn.map(str::to_string),
+            type_alias: None,
+            param_name: None,
+        }
+    }
+
+    fn make_type_def(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: rust_path.to_string(),
+            original_rust_path: rust_path.to_string(),
+            fields: vec![],
+            methods,
+            is_opaque: true,
+            is_clone: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        }
+    }
+
+    fn make_method(
+        name: &str,
+        params: Vec<ParamDef>,
+        return_type: TypeRef,
+        is_async: bool,
+        has_default_impl: bool,
+        trait_source: Option<&str>,
+        error_type: Option<&str>,
+    ) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params,
+            return_type,
+            is_async,
+            is_static: false,
+            error_type: error_type.map(str::to_string),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: trait_source.map(str::to_string),
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl,
+        }
+    }
+
+    fn make_param(name: &str, ty: TypeRef, is_ref: bool) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref,
+            is_mut: false,
+            newtype_wrapper: None,
+        }
+    }
+
+    fn make_spec<'a>(
+        trait_def: &'a TypeDef,
+        bridge_config: &'a TraitBridgeConfig,
+        wrapper_prefix: &'a str,
+        type_paths: HashMap<String, String>,
+    ) -> TraitBridgeSpec<'a> {
+        TraitBridgeSpec {
+            trait_def,
+            bridge_config,
+            core_import: "mylib",
+            wrapper_prefix,
+            type_paths,
+            error_type: "MyError".to_string(),
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Mock backend
+    // ---------------------------------------------------------------------------
+
+    struct MockBridgeGenerator;
+
+    impl TraitBridgeGenerator for MockBridgeGenerator {
+        fn foreign_object_type(&self) -> &str {
+            "Py<PyAny>"
+        }
+
+        fn bridge_imports(&self) -> Vec<String> {
+            vec!["pyo3::prelude::*".to_string(), "pyo3::types::PyString".to_string()]
+        }
+
+        fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+            format!("// sync body for {}", method.name)
+        }
+
+        fn gen_async_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+            format!("// async body for {}", method.name)
+        }
+
+        fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
+            format!(
+                "impl {} {{\n    pub fn new(obj: Py<PyAny>) -> Self {{ Self {{ inner: obj, cached_name: String::new() }} }}\n}}",
+                spec.wrapper_name()
+            )
+        }
+
+        fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
+            let fn_name = spec
+                .bridge_config
+                .register_fn
+                .as_deref()
+                .unwrap_or("register");
+            format!("pub fn {fn_name}(obj: Py<PyAny>) {{ /* register */ }}")
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // TraitBridgeSpec helpers
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_wrapper_name() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        assert_eq!(spec.wrapper_name(), "PyOcrBackendBridge");
+    }
+
+    #[test]
+    fn test_trait_snake() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        assert_eq!(spec.trait_snake(), "ocr_backend");
+    }
+
+    #[test]
+    fn test_trait_path_replaces_hyphens() {
+        let trait_def = make_type_def("OcrBackend", "my-lib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        assert_eq!(spec.trait_path(), "my_lib::OcrBackend");
+    }
+
+    #[test]
+    fn test_required_methods_filters_no_default_impl() {
+        let methods = vec![
+            make_method("process", vec![], TypeRef::String, false, false, None, None),
+            make_method("initialize", vec![], TypeRef::Unit, false, true, None, None),
+            make_method("detect", vec![], TypeRef::String, false, false, None, None),
+        ];
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let required = spec.required_methods();
+        assert_eq!(required.len(), 2);
+        assert!(required.iter().any(|m| m.name == "process"));
+        assert!(required.iter().any(|m| m.name == "detect"));
+    }
+
+    #[test]
+    fn test_optional_methods_filters_has_default_impl() {
+        let methods = vec![
+            make_method("process", vec![], TypeRef::String, false, false, None, None),
+            make_method("initialize", vec![], TypeRef::Unit, false, true, None, None),
+            make_method("shutdown", vec![], TypeRef::Unit, false, true, None, None),
+        ];
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let optional = spec.optional_methods();
+        assert_eq!(optional.len(), 2);
+        assert!(optional.iter().any(|m| m.name == "initialize"));
+        assert!(optional.iter().any(|m| m.name == "shutdown"));
+    }
+
+    #[test]
+    fn test_error_path() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        assert_eq!(spec.error_path(), "mylib::MyError");
+    }
+
+    // ---------------------------------------------------------------------------
+    // format_type_ref
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_format_type_ref_primitives() {
+        let paths = HashMap::new();
+        let cases: Vec<(TypeRef, &str)> = vec![
+            (TypeRef::Primitive(PrimitiveType::Bool), "bool"),
+            (TypeRef::Primitive(PrimitiveType::U8), "u8"),
+            (TypeRef::Primitive(PrimitiveType::U16), "u16"),
+            (TypeRef::Primitive(PrimitiveType::U32), "u32"),
+            (TypeRef::Primitive(PrimitiveType::U64), "u64"),
+            (TypeRef::Primitive(PrimitiveType::I8), "i8"),
+            (TypeRef::Primitive(PrimitiveType::I16), "i16"),
+            (TypeRef::Primitive(PrimitiveType::I32), "i32"),
+            (TypeRef::Primitive(PrimitiveType::I64), "i64"),
+            (TypeRef::Primitive(PrimitiveType::F32), "f32"),
+            (TypeRef::Primitive(PrimitiveType::F64), "f64"),
+            (TypeRef::Primitive(PrimitiveType::Usize), "usize"),
+            (TypeRef::Primitive(PrimitiveType::Isize), "isize"),
+        ];
+        for (ty, expected) in cases {
+            assert_eq!(
+                format_type_ref(&ty, &paths),
+                expected,
+                "mismatch for {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_format_type_ref_string() {
+        assert_eq!(format_type_ref(&TypeRef::String, &HashMap::new()), "String");
+    }
+
+    #[test]
+    fn test_format_type_ref_char() {
+        assert_eq!(format_type_ref(&TypeRef::Char, &HashMap::new()), "char");
+    }
+
+    #[test]
+    fn test_format_type_ref_bytes() {
+        assert_eq!(format_type_ref(&TypeRef::Bytes, &HashMap::new()), "Vec<u8>");
+    }
+
+    #[test]
+    fn test_format_type_ref_path() {
+        assert_eq!(
+            format_type_ref(&TypeRef::Path, &HashMap::new()),
+            "std::path::PathBuf"
+        );
+    }
+
+    #[test]
+    fn test_format_type_ref_unit() {
+        assert_eq!(format_type_ref(&TypeRef::Unit, &HashMap::new()), "()");
+    }
+
+    #[test]
+    fn test_format_type_ref_json() {
+        assert_eq!(
+            format_type_ref(&TypeRef::Json, &HashMap::new()),
+            "serde_json::Value"
+        );
+    }
+
+    #[test]
+    fn test_format_type_ref_duration() {
+        assert_eq!(
+            format_type_ref(&TypeRef::Duration, &HashMap::new()),
+            "std::time::Duration"
+        );
+    }
+
+    #[test]
+    fn test_format_type_ref_optional() {
+        let ty = TypeRef::Optional(Box::new(TypeRef::String));
+        assert_eq!(
+            format_type_ref(&ty, &HashMap::new()),
+            "Option<String>"
+        );
+    }
+
+    #[test]
+    fn test_format_type_ref_optional_nested() {
+        let ty = TypeRef::Optional(Box::new(TypeRef::Optional(Box::new(TypeRef::Primitive(
+            PrimitiveType::U32,
+        )))));
+        assert_eq!(
+            format_type_ref(&ty, &HashMap::new()),
+            "Option<Option<u32>>"
+        );
+    }
+
+    #[test]
+    fn test_format_type_ref_vec() {
+        let ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U8)));
+        assert_eq!(format_type_ref(&ty, &HashMap::new()), "Vec<u8>");
+    }
+
+    #[test]
+    fn test_format_type_ref_vec_nested() {
+        let ty = TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::String))));
+        assert_eq!(format_type_ref(&ty, &HashMap::new()), "Vec<Vec<String>>");
+    }
+
+    #[test]
+    fn test_format_type_ref_map() {
+        let ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Primitive(PrimitiveType::I64)));
+        assert_eq!(
+            format_type_ref(&ty, &HashMap::new()),
+            "std::collections::HashMap<String, i64>"
+        );
+    }
+
+    #[test]
+    fn test_format_type_ref_map_nested_value() {
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Vec(Box::new(TypeRef::String))),
+        );
+        assert_eq!(
+            format_type_ref(&ty, &HashMap::new()),
+            "std::collections::HashMap<String, Vec<String>>"
+        );
+    }
+
+    #[test]
+    fn test_format_type_ref_named_without_type_paths() {
+        let ty = TypeRef::Named("Config".to_string());
+        assert_eq!(format_type_ref(&ty, &HashMap::new()), "Config");
+    }
+
+    #[test]
+    fn test_format_type_ref_named_with_type_paths() {
+        let ty = TypeRef::Named("Config".to_string());
+        let mut paths = HashMap::new();
+        paths.insert("Config".to_string(), "mylib::Config".to_string());
+        assert_eq!(format_type_ref(&ty, &paths), "mylib::Config");
+    }
+
+    #[test]
+    fn test_format_type_ref_named_not_in_type_paths_falls_back_to_name() {
+        let ty = TypeRef::Named("Unknown".to_string());
+        let mut paths = HashMap::new();
+        paths.insert("Other".to_string(), "mylib::Other".to_string());
+        assert_eq!(format_type_ref(&ty, &paths), "Unknown");
+    }
+
+    // ---------------------------------------------------------------------------
+    // format_param_type
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_format_param_type_string_ref() {
+        let param = make_param("input", TypeRef::String, true);
+        assert_eq!(format_param_type(&param, &HashMap::new()), "&str");
+    }
+
+    #[test]
+    fn test_format_param_type_string_owned() {
+        let param = make_param("input", TypeRef::String, false);
+        assert_eq!(format_param_type(&param, &HashMap::new()), "String");
+    }
+
+    #[test]
+    fn test_format_param_type_bytes_ref() {
+        let param = make_param("data", TypeRef::Bytes, true);
+        assert_eq!(format_param_type(&param, &HashMap::new()), "&[u8]");
+    }
+
+    #[test]
+    fn test_format_param_type_bytes_owned() {
+        let param = make_param("data", TypeRef::Bytes, false);
+        assert_eq!(format_param_type(&param, &HashMap::new()), "Vec<u8>");
+    }
+
+    #[test]
+    fn test_format_param_type_path_ref() {
+        let param = make_param("path", TypeRef::Path, true);
+        assert_eq!(
+            format_param_type(&param, &HashMap::new()),
+            "&std::path::Path"
+        );
+    }
+
+    #[test]
+    fn test_format_param_type_path_owned() {
+        let param = make_param("path", TypeRef::Path, false);
+        assert_eq!(
+            format_param_type(&param, &HashMap::new()),
+            "std::path::PathBuf"
+        );
+    }
+
+    #[test]
+    fn test_format_param_type_vec_ref() {
+        let param = make_param("items", TypeRef::Vec(Box::new(TypeRef::String)), true);
+        assert_eq!(format_param_type(&param, &HashMap::new()), "&[String]");
+    }
+
+    #[test]
+    fn test_format_param_type_vec_owned() {
+        let param = make_param("items", TypeRef::Vec(Box::new(TypeRef::String)), false);
+        assert_eq!(format_param_type(&param, &HashMap::new()), "Vec<String>");
+    }
+
+    #[test]
+    fn test_format_param_type_named_ref_with_type_paths() {
+        let mut paths = HashMap::new();
+        paths.insert("Config".to_string(), "mylib::Config".to_string());
+        let param = make_param("cfg", TypeRef::Named("Config".to_string()), true);
+        assert_eq!(format_param_type(&param, &paths), "&mylib::Config");
+    }
+
+    #[test]
+    fn test_format_param_type_named_ref_without_type_paths() {
+        let param = make_param("cfg", TypeRef::Named("Config".to_string()), true);
+        assert_eq!(format_param_type(&param, &HashMap::new()), "&Config");
+    }
+
+    #[test]
+    fn test_format_param_type_primitive_ref_passes_by_value() {
+        // Copy types like u32 are passed by value even when is_ref is set
+        let param = make_param("count", TypeRef::Primitive(PrimitiveType::U32), true);
+        assert_eq!(format_param_type(&param, &HashMap::new()), "u32");
+    }
+
+    #[test]
+    fn test_format_param_type_unit_ref_passes_by_value() {
+        let param = make_param("nothing", TypeRef::Unit, true);
+        assert_eq!(format_param_type(&param, &HashMap::new()), "()");
+    }
+
+    // ---------------------------------------------------------------------------
+    // format_return_type
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_format_return_type_without_error() {
+        let result = format_return_type(&TypeRef::String, None, &HashMap::new());
+        assert_eq!(result, "String");
+    }
+
+    #[test]
+    fn test_format_return_type_with_error() {
+        let result = format_return_type(&TypeRef::String, Some("MyError"), &HashMap::new());
+        assert_eq!(result, "Result<String, MyError>");
+    }
+
+    #[test]
+    fn test_format_return_type_unit_with_error() {
+        let result = format_return_type(&TypeRef::Unit, Some("Box<dyn std::error::Error>"), &HashMap::new());
+        assert_eq!(result, "Result<(), Box<dyn std::error::Error>>");
+    }
+
+    #[test]
+    fn test_format_return_type_named_with_type_paths_and_error() {
+        let mut paths = HashMap::new();
+        paths.insert("Output".to_string(), "mylib::Output".to_string());
+        let result = format_return_type(
+            &TypeRef::Named("Output".to_string()),
+            Some("mylib::MyError"),
+            &paths,
+        );
+        assert_eq!(result, "Result<mylib::Output, mylib::MyError>");
+    }
+
+    // ---------------------------------------------------------------------------
+    // gen_bridge_wrapper_struct
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_bridge_wrapper_struct_contains_struct_name() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_wrapper_struct(&spec, &generator);
+        assert!(
+            result.contains("pub struct PyOcrBackendBridge"),
+            "missing struct declaration in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_wrapper_struct_contains_inner_field() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_wrapper_struct(&spec, &generator);
+        assert!(
+            result.contains("inner: Py<PyAny>"),
+            "missing inner field in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_wrapper_struct_contains_cached_name() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_wrapper_struct(&spec, &generator);
+        assert!(
+            result.contains("cached_name: String"),
+            "missing cached_name field in:\n{result}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // gen_bridge_plugin_impl
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_bridge_plugin_impl_returns_none_when_no_super_trait() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        assert!(gen_bridge_plugin_impl(&spec, &generator).is_none());
+    }
+
+    #[test]
+    fn test_gen_bridge_plugin_impl_returns_some_when_super_trait_configured() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(Some("Plugin"), None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        assert!(gen_bridge_plugin_impl(&spec, &generator).is_some());
+    }
+
+    #[test]
+    fn test_gen_bridge_plugin_impl_uses_qualified_super_trait_path() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(Some("Plugin"), None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_plugin_impl(&spec, &generator).unwrap();
+        assert!(
+            result.contains("impl mylib::Plugin for PyOcrBackendBridge"),
+            "missing qualified super-trait path in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_plugin_impl_uses_already_qualified_super_trait_path() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(Some("other_crate::Plugin"), None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_plugin_impl(&spec, &generator).unwrap();
+        assert!(
+            result.contains("impl other_crate::Plugin for PyOcrBackendBridge"),
+            "wrong super-trait path in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_plugin_impl_contains_name_fn() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(Some("Plugin"), None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_plugin_impl(&spec, &generator).unwrap();
+        assert!(
+            result.contains("fn name(") && result.contains("cached_name"),
+            "missing name() using cached_name in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_plugin_impl_contains_version_fn() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(Some("Plugin"), None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_plugin_impl(&spec, &generator).unwrap();
+        assert!(
+            result.contains("fn version("),
+            "missing version() in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_plugin_impl_contains_initialize_fn() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(Some("Plugin"), None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_plugin_impl(&spec, &generator).unwrap();
+        assert!(
+            result.contains("fn initialize("),
+            "missing initialize() in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_plugin_impl_contains_shutdown_fn() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(Some("Plugin"), None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_plugin_impl(&spec, &generator).unwrap();
+        assert!(
+            result.contains("fn shutdown("),
+            "missing shutdown() in:\n{result}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // gen_bridge_trait_impl
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_bridge_trait_impl_includes_impl_header() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_trait_impl(&spec, &generator);
+        assert!(
+            result.contains("impl mylib::OcrBackend for PyOcrBackendBridge"),
+            "missing impl header in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_trait_impl_includes_method_signatures() {
+        let methods = vec![
+            make_method("process", vec![], TypeRef::String, false, false, None, None),
+        ];
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_trait_impl(&spec, &generator);
+        assert!(
+            result.contains("fn process("),
+            "missing method signature in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_trait_impl_includes_method_body_from_generator() {
+        let methods = vec![
+            make_method("process", vec![], TypeRef::String, false, false, None, None),
+        ];
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_trait_impl(&spec, &generator);
+        assert!(
+            result.contains("// sync body for process"),
+            "missing sync method body in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_trait_impl_async_method_uses_async_body() {
+        let methods = vec![
+            make_method("process_async", vec![], TypeRef::String, true, false, None, None),
+        ];
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_trait_impl(&spec, &generator);
+        assert!(
+            result.contains("// async body for process_async"),
+            "missing async method body in:\n{result}"
+        );
+        assert!(
+            result.contains("async fn process_async("),
+            "missing async keyword in method signature in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_trait_impl_filters_trait_source_methods() {
+        // Methods with trait_source set come from super-traits and should be excluded
+        let methods = vec![
+            make_method("own_method", vec![], TypeRef::String, false, false, None, None),
+            make_method(
+                "inherited_method",
+                vec![],
+                TypeRef::String,
+                false,
+                false,
+                Some("other_crate::OtherTrait"),
+                None,
+            ),
+        ];
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_trait_impl(&spec, &generator);
+        assert!(
+            result.contains("fn own_method("),
+            "own method should be present in:\n{result}"
+        );
+        assert!(
+            !result.contains("fn inherited_method("),
+            "inherited method should be filtered out in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_trait_impl_method_with_params() {
+        let params = vec![
+            make_param("input", TypeRef::String, true),
+            make_param("count", TypeRef::Primitive(PrimitiveType::U32), false),
+        ];
+        let methods = vec![
+            make_method("process", params, TypeRef::String, false, false, None, None),
+        ];
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_trait_impl(&spec, &generator);
+        assert!(
+            result.contains("input: &str"),
+            "missing &str param in:\n{result}"
+        );
+        assert!(
+            result.contains("count: u32"),
+            "missing u32 param in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_trait_impl_return_type_with_error() {
+        let methods = vec![
+            make_method(
+                "process",
+                vec![],
+                TypeRef::String,
+                false,
+                false,
+                None,
+                Some("MyError"),
+            ),
+        ];
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_trait_impl(&spec, &generator);
+        assert!(
+            result.contains("-> Result<String, MyError>"),
+            "missing Result return type in:\n{result}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // gen_bridge_registration_fn
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_bridge_registration_fn_returns_none_without_register_fn() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        assert!(gen_bridge_registration_fn(&spec, &generator).is_none());
+    }
+
+    #[test]
+    fn test_gen_bridge_registration_fn_returns_some_with_register_fn() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, Some("register_ocr_backend"));
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let result = gen_bridge_registration_fn(&spec, &generator);
+        assert!(result.is_some());
+        let code = result.unwrap();
+        assert!(
+            code.contains("register_ocr_backend"),
+            "missing register fn name in:\n{code}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // gen_bridge_all
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_bridge_all_includes_imports() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let output = gen_bridge_all(&spec, &generator);
+        assert!(output.imports.contains(&"pyo3::prelude::*".to_string()));
+        assert!(output.imports.contains(&"pyo3::types::PyString".to_string()));
+    }
+
+    #[test]
+    fn test_gen_bridge_all_includes_wrapper_struct() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let output = gen_bridge_all(&spec, &generator);
+        assert!(
+            output.code.contains("pub struct PyOcrBackendBridge"),
+            "missing struct in:\n{}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_all_includes_constructor() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let output = gen_bridge_all(&spec, &generator);
+        assert!(
+            output.code.contains("pub fn new("),
+            "missing constructor in:\n{}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_all_includes_trait_impl() {
+        let methods = vec![make_method("process", vec![], TypeRef::String, false, false, None, None)];
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let output = gen_bridge_all(&spec, &generator);
+        assert!(
+            output.code.contains("impl mylib::OcrBackend for PyOcrBackendBridge"),
+            "missing trait impl in:\n{}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_all_includes_plugin_impl_when_super_trait_set() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(Some("Plugin"), None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let output = gen_bridge_all(&spec, &generator);
+        assert!(
+            output.code.contains("impl mylib::Plugin for PyOcrBackendBridge"),
+            "missing plugin impl in:\n{}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_all_no_plugin_impl_when_no_super_trait() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let output = gen_bridge_all(&spec, &generator);
+        assert!(
+            !output.code.contains("fn name(") || !output.code.contains("cached_name"),
+            "unexpected plugin impl present without super_trait"
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_all_includes_registration_fn_when_configured() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, Some("register_ocr_backend"));
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let output = gen_bridge_all(&spec, &generator);
+        assert!(
+            output.code.contains("register_ocr_backend"),
+            "missing registration fn in:\n{}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_all_no_registration_fn_when_absent() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let output = gen_bridge_all(&spec, &generator);
+        assert!(
+            !output.code.contains("register_ocr_backend"),
+            "unexpected registration fn present:\n{}",
+            output.code
+        );
+    }
+
+    #[test]
+    fn test_gen_bridge_all_ordering_struct_before_trait_impl() {
+        let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", vec![]);
+        let config = make_trait_bridge_config(None, None);
+        let spec = make_spec(&trait_def, &config, "Py", HashMap::new());
+        let generator = MockBridgeGenerator;
+        let output = gen_bridge_all(&spec, &generator);
+        let struct_pos = output.code.find("pub struct PyOcrBackendBridge").unwrap();
+        let impl_pos = output
+            .code
+            .find("impl mylib::OcrBackend for PyOcrBackendBridge")
+            .unwrap();
+        assert!(
+            struct_pos < impl_pos,
+            "struct should appear before trait impl"
+        );
+    }
+}

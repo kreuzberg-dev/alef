@@ -449,7 +449,7 @@ pub fn gen_trait_bridge(
     core_import: &str,
     error_type: &str,
     api: &ApiSurface,
-) -> String {
+) -> BridgeOutput {
     // Build type name → rust_path lookup for qualifying Named types in signatures
     let type_paths: HashMap<String, String> = api
         .types
@@ -472,7 +472,11 @@ pub fn gen_trait_bridge(
     if is_visitor_bridge {
         let trait_path = trait_type.rust_path.replace('-', "_");
         let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
-        gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths)
+        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+        BridgeOutput {
+            imports: vec![],
+            code,
+        }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
         let generator = Pyo3BridgeGenerator {
