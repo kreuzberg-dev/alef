@@ -1217,3 +1217,343 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         "sanitized functions should emit unimplemented stub bodies; content:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// PHP trait bridge helpers
+// ---------------------------------------------------------------------------
+
+fn make_trait_def_php(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("my_lib::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: false,
+        is_clone: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+fn make_method_php(name: &str, return_type: TypeRef, has_error: bool, has_default: bool) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: if has_error {
+            Some("Box<dyn std::error::Error + Send + Sync>".to_string())
+        } else {
+            None
+        },
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: has_default,
+    }
+}
+
+fn make_async_method_php(name: &str, return_type: TypeRef) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type,
+        is_async: true,
+        is_static: false,
+        error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+fn make_api_php() -> ApiSurface {
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    }
+}
+
+fn make_plugin_bridge_cfg_php(trait_name: &str) -> alef_core::config::TraitBridgeConfig {
+    alef_core::config::TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some(format!("register_{}", trait_name.to_lowercase())),
+        type_alias: None,
+        param_name: None,
+    }
+}
+
+fn make_visitor_bridge_cfg_php(trait_name: &str, type_alias: &str) -> alef_core::config::TraitBridgeConfig {
+    alef_core::config::TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: Some(type_alias.to_string()),
+        param_name: None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PHP trait bridge tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_php_visitor_bridge_produces_visitor_struct() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "HtmlVisitor",
+        vec![make_method_php("visit_node", TypeRef::Unit, false, true)],
+    );
+    let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("PhpHtmlVisitorBridge"),
+        "PHP visitor bridge struct must be named Php{{TraitName}}Bridge"
+    );
+    assert!(
+        code.contains("impl my_lib::HtmlVisitor for PhpHtmlVisitorBridge"),
+        "PHP visitor bridge must implement the trait"
+    );
+}
+
+#[test]
+fn test_php_visitor_bridge_has_php_obj_field() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "HtmlVisitor",
+        vec![make_method_php("visit_node", TypeRef::Unit, false, true)],
+    );
+    let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("php_obj: *mut ext_php_rs::types::ZendObject"),
+        "PHP visitor bridge must store a raw ZendObject pointer in 'php_obj'"
+    );
+    assert!(
+        code.contains("cached_name: String"),
+        "PHP visitor bridge must cache the plugin name"
+    );
+}
+
+#[test]
+fn test_php_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "OcrBackend",
+        vec![make_method_php("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("pub struct PhpOcrBackendBridge"),
+        "PHP plugin bridge wrapper struct must be PhpOcrBackendBridge"
+    );
+    assert!(
+        code.contains("inner:"),
+        "PHP plugin bridge wrapper must have an 'inner' field"
+    );
+    assert!(
+        code.contains("cached_name: String"),
+        "PHP plugin bridge wrapper must have a 'cached_name: String' field"
+    );
+}
+
+#[test]
+fn test_php_plugin_bridge_generates_super_trait_impl() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "OcrBackend",
+        vec![make_method_php("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("impl my_lib::Plugin for PhpOcrBackendBridge"),
+        "PHP plugin bridge must implement Plugin super-trait"
+    );
+    assert!(code.contains("fn name("), "Plugin impl must contain name()");
+    assert!(code.contains("fn initialize("), "Plugin impl must contain initialize()");
+    assert!(code.contains("fn shutdown("), "Plugin impl must contain shutdown()");
+}
+
+#[test]
+fn test_php_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "OcrBackend",
+        vec![make_method_php("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("impl my_lib::OcrBackend for PhpOcrBackendBridge"),
+        "PHP plugin bridge must implement the trait itself"
+    );
+    assert!(
+        code.contains("fn process("),
+        "trait impl must forward the 'process' method"
+    );
+}
+
+#[test]
+fn test_php_plugin_bridge_generates_registration_fn_with_php_function_attribute() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "OcrBackend",
+        vec![make_method_php("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("#[php_function]"),
+        "PHP registration function must carry the #[php_function] attribute"
+    );
+    assert!(
+        code.contains("pub fn register_ocrbackend("),
+        "PHP registration function must use the configured name"
+    );
+}
+
+#[test]
+fn test_php_plugin_bridge_validates_required_methods() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "Analyzer",
+        vec![
+            make_method_php("analyze", TypeRef::String, true, false),  // required
+            make_method_php("describe", TypeRef::String, false, true),  // optional
+        ],
+    );
+    let bridge_cfg = alef_core::config::TraitBridgeConfig {
+        trait_name: "Analyzer".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_analyzer".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    // Registration fn must null-check the required method "analyze" via get_property
+    assert!(
+        code.contains("\"analyze\""),
+        "PHP registration fn must validate required method 'analyze'"
+    );
+    assert!(
+        code.contains("get_property"),
+        "PHP registration fn must check method presence via get_property"
+    );
+}
+
+#[test]
+fn test_php_sync_method_body_uses_try_call_method() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "Scanner",
+        vec![make_method_php("scan", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_php("Scanner");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("try_call_method"),
+        "PHP sync method body must use try_call_method to dispatch to PHP"
+    );
+}
+
+#[test]
+fn test_php_async_method_body_uses_box_pin() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "Processor",
+        vec![make_async_method_php("run", TypeRef::Unit)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_php("Processor");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("Box::pin(async move"),
+        "PHP async method body must return Box::pin(async move {{ ... }})"
+    );
+}
+
+#[test]
+fn test_php_visitor_bridge_has_send_sync_impls() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "HtmlVisitor",
+        vec![make_method_php("visit_node", TypeRef::Unit, false, true)],
+    );
+    let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("unsafe impl Send for PhpHtmlVisitorBridge"),
+        "PHP visitor bridge must implement Send"
+    );
+    assert!(
+        code.contains("unsafe impl Sync for PhpHtmlVisitorBridge"),
+        "PHP visitor bridge must implement Sync"
+    );
+}

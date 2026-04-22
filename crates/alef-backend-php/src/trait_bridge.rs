@@ -24,7 +24,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        vec!["use std::rc::Rc;".to_string(), "use std::cell::RefCell;".to_string()]
+        vec!["std::rc::Rc".to_string(), "std::cell::RefCell".to_string()]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {

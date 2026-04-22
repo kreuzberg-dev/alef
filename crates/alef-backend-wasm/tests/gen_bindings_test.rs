@@ -873,3 +873,312 @@ fn test_exclude_types() {
         "excluded type should not be in output"
     );
 }
+
+// ---------------------------------------------------------------------------
+// WASM trait bridge helpers
+// ---------------------------------------------------------------------------
+
+fn make_trait_def_wasm(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("my_lib::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: false,
+        is_clone: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+fn make_method_wasm(name: &str, return_type: TypeRef, has_error: bool, has_default: bool) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: if has_error {
+            Some("Box<dyn std::error::Error + Send + Sync>".to_string())
+        } else {
+            None
+        },
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: has_default,
+    }
+}
+
+fn make_async_method_wasm(name: &str, return_type: TypeRef) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type,
+        is_async: true,
+        is_static: false,
+        error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+fn make_api_wasm() -> ApiSurface {
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    }
+}
+
+fn make_plugin_bridge_cfg_wasm(trait_name: &str) -> alef_core::config::TraitBridgeConfig {
+    alef_core::config::TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some(format!("register_{}", trait_name.to_lowercase())),
+        type_alias: None,
+        param_name: None,
+    }
+}
+
+fn make_visitor_bridge_cfg_wasm(trait_name: &str, type_alias: &str) -> alef_core::config::TraitBridgeConfig {
+    alef_core::config::TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: Some(type_alias.to_string()),
+        param_name: None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WASM trait bridge tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_wasm_visitor_bridge_produces_visitor_struct() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "HtmlVisitor",
+        vec![make_method_wasm("visit_node", TypeRef::Unit, false, true)],
+    );
+    let bridge_cfg = make_visitor_bridge_cfg_wasm("HtmlVisitor", "HtmlVisitor");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("WasmHtmlVisitorBridge"),
+        "WASM visitor bridge struct must be named Wasm{{TraitName}}Bridge"
+    );
+    assert!(
+        code.contains("impl my_lib::HtmlVisitor for WasmHtmlVisitorBridge"),
+        "WASM visitor bridge must implement the trait"
+    );
+}
+
+#[test]
+fn test_wasm_visitor_bridge_has_js_obj_field() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "HtmlVisitor",
+        vec![make_method_wasm("visit_node", TypeRef::Unit, false, true)],
+    );
+    let bridge_cfg = make_visitor_bridge_cfg_wasm("HtmlVisitor", "HtmlVisitor");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("js_obj: wasm_bindgen::JsValue"),
+        "WASM visitor bridge must store JsValue in a 'js_obj' field"
+    );
+}
+
+#[test]
+fn test_wasm_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "OcrBackend",
+        vec![make_method_wasm("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("pub struct WasmOcrBackendBridge"),
+        "WASM plugin bridge wrapper struct must be WasmOcrBackendBridge"
+    );
+    assert!(
+        code.contains("inner:"),
+        "WASM plugin bridge wrapper must have an 'inner' field"
+    );
+    assert!(
+        code.contains("cached_name: String"),
+        "WASM plugin bridge wrapper must have a 'cached_name: String' field"
+    );
+}
+
+#[test]
+fn test_wasm_plugin_bridge_generates_super_trait_impl() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "OcrBackend",
+        vec![make_method_wasm("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("impl my_lib::Plugin for WasmOcrBackendBridge"),
+        "WASM plugin bridge must implement Plugin super-trait"
+    );
+    assert!(code.contains("fn name("), "Plugin impl must contain name()");
+    assert!(code.contains("fn initialize("), "Plugin impl must contain initialize()");
+    assert!(code.contains("fn shutdown("), "Plugin impl must contain shutdown()");
+}
+
+#[test]
+fn test_wasm_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "OcrBackend",
+        vec![make_method_wasm("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("impl my_lib::OcrBackend for WasmOcrBackendBridge"),
+        "WASM plugin bridge must implement the trait itself"
+    );
+    assert!(
+        code.contains("fn process("),
+        "trait impl must forward the 'process' method"
+    );
+}
+
+#[test]
+fn test_wasm_plugin_bridge_generates_registration_fn_with_wasm_bindgen_attribute() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "OcrBackend",
+        vec![make_method_wasm("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("OcrBackend");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("#[wasm_bindgen]"),
+        "WASM registration function must carry the #[wasm_bindgen] attribute"
+    );
+    assert!(
+        code.contains("pub fn register_ocrbackend("),
+        "WASM registration function must use the configured name"
+    );
+}
+
+#[test]
+fn test_wasm_plugin_bridge_validates_required_methods() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "Analyzer",
+        vec![
+            make_method_wasm("analyze", TypeRef::String, true, false),  // required
+            make_method_wasm("describe", TypeRef::String, false, true),  // optional
+        ],
+    );
+    let bridge_cfg = alef_core::config::TraitBridgeConfig {
+        trait_name: "Analyzer".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_analyzer".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    // Registration fn must check for the required camelCase method "analyze"
+    assert!(
+        code.contains("\"analyze\""),
+        "WASM registration fn must validate required method 'analyze'"
+    );
+}
+
+#[test]
+fn test_wasm_sync_method_body_uses_js_sys_reflect() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "Scanner",
+        vec![make_method_wasm("scan", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("Scanner");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("js_sys::Reflect"),
+        "WASM sync method body must use js_sys::Reflect to look up JS methods"
+    );
+}
+
+#[test]
+fn test_wasm_async_method_body_uses_box_pin() {
+    use alef_backend_wasm::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_wasm(
+        "Processor",
+        vec![make_async_method_wasm("run", TypeRef::Unit)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg_wasm("Processor");
+    let api = make_api_wasm();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("Box::pin(async move"),
+        "WASM async method body must return Box::pin(async move {{ ... }})"
+    );
+}

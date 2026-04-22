@@ -1092,3 +1092,312 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
         "_0 field with mixed Named types must be typed as Option<String> in the flattened struct"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Trait bridge helpers
+// ---------------------------------------------------------------------------
+
+fn make_trait_def_napi(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("my_lib::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: false,
+        is_clone: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+fn make_method_napi(name: &str, return_type: TypeRef, has_error: bool, has_default: bool) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: if has_error {
+            Some("Box<dyn std::error::Error + Send + Sync>".to_string())
+        } else {
+            None
+        },
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: has_default,
+    }
+}
+
+fn make_async_method_napi(name: &str, return_type: TypeRef) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type,
+        is_async: true,
+        is_static: false,
+        error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+fn make_api_napi() -> ApiSurface {
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    }
+}
+
+fn make_plugin_bridge_cfg(trait_name: &str) -> alef_core::config::TraitBridgeConfig {
+    alef_core::config::TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some(format!("register_{}", trait_name.to_lowercase())),
+        type_alias: None,
+        param_name: None,
+    }
+}
+
+fn make_visitor_bridge_cfg(trait_name: &str, type_alias: &str) -> alef_core::config::TraitBridgeConfig {
+    alef_core::config::TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: Some(type_alias.to_string()),
+        param_name: None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NAPI trait bridge tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_napi_visitor_bridge_produces_visitor_struct() {
+    use alef_backend_napi::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_napi(
+        "HtmlVisitor",
+        vec![make_method_napi("visit_node", TypeRef::Unit, false, true)],
+    );
+    let bridge_cfg = make_visitor_bridge_cfg("HtmlVisitor", "HtmlVisitor");
+    let api = make_api_napi();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("JsHtmlVisitorBridge"),
+        "visitor bridge struct must be named Js{{TraitName}}Bridge"
+    );
+    assert!(
+        code.contains("impl my_lib::HtmlVisitor for JsHtmlVisitorBridge"),
+        "visitor bridge must implement the trait"
+    );
+}
+
+#[test]
+fn test_napi_visitor_bridge_has_obj_field() {
+    use alef_backend_napi::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_napi(
+        "HtmlVisitor",
+        vec![make_method_napi("visit_node", TypeRef::Unit, false, true)],
+    );
+    let bridge_cfg = make_visitor_bridge_cfg("HtmlVisitor", "HtmlVisitor");
+    let api = make_api_napi();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("obj: napi::bindgen_prelude::Object<'static>"),
+        "NAPI visitor bridge must store Object<'static> in an 'obj' field"
+    );
+}
+
+#[test]
+fn test_napi_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() {
+    use alef_backend_napi::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_napi(
+        "OcrBackend",
+        vec![make_method_napi("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
+    let api = make_api_napi();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("pub struct JsOcrBackendBridge"),
+        "plugin bridge wrapper struct must be JsOcrBackendBridge"
+    );
+    assert!(
+        code.contains("inner:"),
+        "plugin bridge wrapper must have an 'inner' field"
+    );
+    assert!(
+        code.contains("cached_name: String"),
+        "plugin bridge wrapper must have a 'cached_name: String' field"
+    );
+}
+
+#[test]
+fn test_napi_plugin_bridge_generates_super_trait_impl() {
+    use alef_backend_napi::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_napi(
+        "OcrBackend",
+        vec![make_method_napi("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
+    let api = make_api_napi();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("impl my_lib::Plugin for JsOcrBackendBridge"),
+        "plugin bridge must implement Plugin super-trait"
+    );
+    assert!(code.contains("fn name("), "Plugin impl must contain name()");
+    assert!(code.contains("fn initialize("), "Plugin impl must contain initialize()");
+    assert!(code.contains("fn shutdown("), "Plugin impl must contain shutdown()");
+}
+
+#[test]
+fn test_napi_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
+    use alef_backend_napi::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_napi(
+        "OcrBackend",
+        vec![make_method_napi("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
+    let api = make_api_napi();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("impl my_lib::OcrBackend for JsOcrBackendBridge"),
+        "plugin bridge must implement the trait itself"
+    );
+    assert!(
+        code.contains("fn process("),
+        "trait impl must forward the 'process' method"
+    );
+}
+
+#[test]
+fn test_napi_plugin_bridge_generates_registration_fn_with_napi_attribute() {
+    use alef_backend_napi::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_napi(
+        "OcrBackend",
+        vec![make_method_napi("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg("OcrBackend");
+    let api = make_api_napi();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("#[napi]"),
+        "NAPI registration function must carry the #[napi] attribute"
+    );
+    assert!(
+        code.contains("pub fn register_ocrbackend("),
+        "registration function must use the configured name"
+    );
+}
+
+#[test]
+fn test_napi_plugin_bridge_validates_required_methods() {
+    use alef_backend_napi::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_napi(
+        "Analyzer",
+        vec![
+            make_method_napi("analyze", TypeRef::String, true, false),  // required
+            make_method_napi("describe", TypeRef::String, false, true),  // optional
+        ],
+    );
+    let bridge_cfg = alef_core::config::TraitBridgeConfig {
+        trait_name: "Analyzer".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_analyzer".to_string()),
+        type_alias: None,
+        param_name: None,
+    };
+    let api = make_api_napi();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    // Constructor must check for the required method "analyze"
+    assert!(
+        code.contains("\"analyze\""),
+        "constructor must validate the required method 'analyze'"
+    );
+}
+
+#[test]
+fn test_napi_sync_method_body_uses_get_named_property() {
+    use alef_backend_napi::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_napi(
+        "Scanner",
+        vec![make_method_napi("scan", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg("Scanner");
+    let api = make_api_napi();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("get_named_property"),
+        "NAPI sync method body must use get_named_property to retrieve JS methods"
+    );
+}
+
+#[test]
+fn test_napi_async_method_body_uses_box_pin() {
+    use alef_backend_napi::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_napi(
+        "Processor",
+        vec![make_async_method_napi("run", TypeRef::Unit)],
+    );
+    let bridge_cfg = make_plugin_bridge_cfg("Processor");
+    let api = make_api_napi();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", &api);
+
+    assert!(
+        code.contains("Box::pin(async move"),
+        "NAPI async method body must return Box::pin(async move {{ ... }})"
+    );
+}
