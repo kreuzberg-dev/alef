@@ -343,7 +343,12 @@ fn gen_go_file(
 
     // Generate error types (sentinel errors + structured error type)
     for error in &api.errors {
-        writeln!(out, "{}\n", alef_codegen::error_gen::gen_go_error_types(error)).ok();
+        writeln!(
+            out,
+            "{}\n",
+            alef_codegen::error_gen::gen_go_error_types(error, pkg_name)
+        )
+        .ok();
     }
 
     // When a visitor bridge is active, visitor.go defines NodeContext and VisitResult
@@ -455,6 +460,55 @@ fn gen_last_error_helper(ffi_prefix: &str) -> String {
     )
 }
 
+/// Emit Go-convention doc comment lines for an exported type into `out`.
+///
+/// Go's revive linter requires that the first line of a doc comment starts with
+/// the exported name (with an optional leading article). This function rewrites
+/// verbatim docs that begin with an article ("A ", "An ", "The ") by prepending
+/// the type name, and falls back to a generated comment when no doc is present.
+///
+/// Examples:
+/// - `"A chat message."` on `Message` → `"// Message is a chat message."`
+/// - `"Message represents…"` on `Message` → `"// Message represents…"` (unchanged)
+/// - empty doc on `Message` → `"// Message <fallback>."`
+fn emit_type_doc(out: &mut String, type_name: &str, doc: &str, fallback: &str) {
+    if doc.is_empty() {
+        writeln!(out, "// {} {}", type_name, fallback).ok();
+        return;
+    }
+    let mut lines = doc.lines();
+    if let Some(first) = lines.next() {
+        let trimmed = first.trim();
+        // Check whether the first line already starts with the type name.
+        let already_starts = trimmed.starts_with(type_name);
+        if already_starts {
+            writeln!(out, "// {}", trimmed).ok();
+        } else {
+            // Strip leading articles and rewrite as "<TypeName> <rest>".
+            let rest = trimmed
+                .strip_prefix("A ")
+                .or_else(|| trimmed.strip_prefix("An "))
+                .or_else(|| trimmed.strip_prefix("The "))
+                .unwrap_or(trimmed);
+            // Lowercase the first letter of the rest so the sentence reads naturally
+            // after the PascalCase type name prefix.
+            let rest = if rest.is_empty() {
+                fallback.to_string()
+            } else {
+                let mut chars = rest.chars();
+                match chars.next() {
+                    Some(c) => c.to_lowercase().to_string() + chars.as_str(),
+                    None => fallback.to_string(),
+                }
+            };
+            writeln!(out, "// {} {}", type_name, rest).ok();
+        }
+        for line in lines {
+            writeln!(out, "// {}", line.trim()).ok();
+        }
+    }
+}
+
 /// Generate a Go enum type definition.
 ///
 /// For unit enums (all variants have no fields): generates `type X string` with constants.
@@ -488,13 +542,7 @@ fn enum_variant_wire_value(variant: &alef_core::ir::EnumVariant, enum_def: &Enum
 fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(1024);
 
-    if !enum_def.doc.is_empty() {
-        for line in enum_def.doc.lines() {
-            writeln!(out, "// {}", line.trim()).ok();
-        }
-    } else {
-        writeln!(out, "// {} is an enumeration type.", enum_def.name).ok();
-    }
+    emit_type_doc(&mut out, &enum_def.name, &enum_def.doc, "is an enumeration type.");
     writeln!(out, "type {} string", enum_def.name).ok();
     writeln!(out).ok();
     writeln!(out, "const (").ok();
@@ -525,18 +573,12 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
     let total_variants = enum_def.variants.len();
 
-    if !enum_def.doc.is_empty() {
-        for line in enum_def.doc.lines() {
-            writeln!(out, "// {}", line.trim()).ok();
-        }
-    } else {
-        writeln!(
-            out,
-            "// {} is a tagged union type (discriminated by JSON tag).",
-            enum_def.name
-        )
-        .ok();
-    }
+    emit_type_doc(
+        &mut out,
+        &enum_def.name,
+        &enum_def.doc,
+        "is a tagged union type (discriminated by JSON tag).",
+    );
     writeln!(out, "// Variants: {}", variant_names.join(", ")).ok();
     writeln!(out, "type {} struct {{", enum_def.name).ok();
 
@@ -605,13 +647,7 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     let mut out = String::with_capacity(512);
     let type_snake = typ.name.to_snake_case();
 
-    if !typ.doc.is_empty() {
-        for line in typ.doc.lines() {
-            writeln!(out, "// {}", line.trim()).ok();
-        }
-    } else {
-        writeln!(out, "// {} is an opaque handle type.", typ.name).ok();
-    }
+    emit_type_doc(&mut out, &typ.name, &typ.doc, "is an opaque handle type.");
     writeln!(out, "type {} struct {{", typ.name).ok();
     writeln!(out, "\tptr unsafe.Pointer").ok();
     writeln!(out, "}}").ok();
@@ -651,13 +687,7 @@ fn gen_opaque_type_free_only(typ: &TypeDef, _ffi_prefix: &str) -> String {
 fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
     let mut out = String::with_capacity(1024);
 
-    if !typ.doc.is_empty() {
-        for line in typ.doc.lines() {
-            writeln!(out, "// {}", line.trim()).ok();
-        }
-    } else {
-        writeln!(out, "// {} is a type.", typ.name).ok();
-    }
+    emit_type_doc(&mut out, &typ.name, &typ.doc, "is a type.");
     writeln!(out, "type {} struct {{", typ.name).ok();
 
     for field in &typ.fields {

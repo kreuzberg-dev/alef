@@ -458,31 +458,64 @@ pub fn gen_ffi_error_codes(error: &ErrorDef) -> String {
 // ---------------------------------------------------------------------------
 
 /// Generate Go sentinel errors and a structured error type for an `ErrorDef`.
-pub fn gen_go_error_types(error: &ErrorDef) -> String {
+///
+/// `pkg_name` is the Go package name (e.g. `"literllm"`). When the error struct
+/// name starts with the package name (case-insensitively), the package-name
+/// prefix is stripped to avoid the revive `exported` stutter lint error
+/// (e.g. `LiterLlmError` in package `literllm` → exported as `Error`).
+pub fn gen_go_error_types(error: &ErrorDef, pkg_name: &str) -> String {
     let mut lines = Vec::new();
 
-    // Sentinel errors
+    // Sentinel errors — each var gets a doc comment so revive doesn't complain.
     lines.push("var (".to_string());
     for variant in &error.variants {
         let err_name = format!("Err{}", variant.name);
         let msg = variant_display_message(variant);
+        // Doc comment on the var itself (inside the var block) satisfies revive.
+        lines.push(format!("\t// {} is returned when {}.", err_name, msg));
         lines.push(format!("\t{} = errors.New(\"{}\")", err_name, msg));
     }
     lines.push(")\n".to_string());
 
+    // Compute the Go type name, stripping any package-name prefix to avoid
+    // the revive stutter rule (e.g. `literllm.LiterLlmError` → `literllm.Error`).
+    let go_type_name = strip_package_prefix(&error.name, pkg_name);
+
     // Structured error type
-    lines.push(format!("// {} is a structured error type.", error.name));
-    lines.push(format!("type {} struct {{", error.name));
+    lines.push(format!("// {} is a structured error type.", go_type_name));
+    lines.push(format!("type {} struct {{", go_type_name));
     lines.push("\tCode    string".to_string());
     lines.push("\tMessage string".to_string());
     lines.push("}\n".to_string());
 
     lines.push(format!(
         "func (e *{}) Error() string {{ return e.Message }}",
-        error.name
+        go_type_name
     ));
 
     lines.join("\n")
+}
+
+/// Strip the package-name prefix from a type name to avoid revive's stutter lint.
+///
+/// Revive reports `exported: type name will be used as pkg.PkgFoo by other packages,
+/// and that stutters` when a type name begins with the package name. This function
+/// removes the prefix when it matches (case-insensitively) so that the exported name
+/// does not repeat the package name.
+///
+/// Examples:
+/// - `("LiterLlmError", "literllm")` → `"Error"` (lowercased `literllm` is a prefix
+///   of lowercased `literllmerror`)
+/// - `("ConversionError", "converter")` → `"ConversionError"` (no match)
+fn strip_package_prefix(type_name: &str, pkg_name: &str) -> String {
+    let type_lower = type_name.to_lowercase();
+    let pkg_lower = pkg_name.to_lowercase();
+    if type_lower.starts_with(&pkg_lower) && type_lower.len() > pkg_lower.len() {
+        // Retain the original casing for the suffix part.
+        type_name[pkg_lower.len()..].to_string()
+    } else {
+        type_name.to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -981,13 +1014,36 @@ mod tests {
     #[test]
     fn test_gen_go_error_types() {
         let error = sample_error();
-        let output = gen_go_error_types(&error);
+        // Package name that does NOT match the error prefix — type name stays unchanged.
+        let output = gen_go_error_types(&error, "mylib");
         assert!(output.contains("ErrParseError = errors.New("));
         assert!(output.contains("ErrIoError = errors.New("));
         assert!(output.contains("ErrOther = errors.New("));
         assert!(output.contains("type ConversionError struct {"));
         assert!(output.contains("Code    string"));
         assert!(output.contains("func (e *ConversionError) Error() string"));
+        // Each sentinel error var should have a doc comment.
+        assert!(output.contains("// ErrParseError is returned when"));
+        assert!(output.contains("// ErrIoError is returned when"));
+        assert!(output.contains("// ErrOther is returned when"));
+    }
+
+    #[test]
+    fn test_gen_go_error_types_stutter_strip() {
+        let error = sample_error();
+        // "conversion" package — "ConversionError" starts with "conversion" (case-insensitive)
+        // so the exported Go type should be "Error", not "ConversionError".
+        let output = gen_go_error_types(&error, "conversion");
+        assert!(
+            output.contains("type Error struct {"),
+            "expected stutter strip, got:\n{output}"
+        );
+        assert!(
+            output.contains("func (e *Error) Error() string"),
+            "expected stutter strip, got:\n{output}"
+        );
+        // Sentinel vars are unaffected by stutter stripping.
+        assert!(output.contains("ErrParseError = errors.New("));
     }
 
     // -----------------------------------------------------------------------
