@@ -6,7 +6,7 @@ const RUST_ONLY_SECTIONS: &[&str] = &["example", "examples", "arguments", "field
 
 /// Wrap bare `http://` and `https://` URLs in angle brackets to satisfy MD034.
 /// Skips URLs already inside markdown links `[...](url)` or angle brackets `<url>`.
-pub fn wrap_bare_urls(text: &str) -> String {
+pub(crate) fn wrap_bare_urls(text: &str) -> String {
     let url_re = regex::Regex::new(r"(https?://[^\s)>\]]+)").unwrap();
     let mut result = String::with_capacity(text.len());
     let mut last_end = 0;
@@ -37,7 +37,7 @@ pub fn wrap_bare_urls(text: &str) -> String {
 /// - Converts bare `` [`Foo`] `` → `` `Foo` ``
 /// - Converts `# Errors` / `# Returns` headings to bold inline text
 /// - Converts `Foo::bar()` Rust path syntax to `Foo.bar()` in prose
-pub fn clean_doc(doc: &str, lang: Language) -> String {
+pub(crate) fn clean_doc(doc: &str, lang: Language) -> String {
     if doc.is_empty() {
         return String::new();
     }
@@ -62,7 +62,7 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
 }
 
 /// Convert `# Errors` and `# Returns` section headings to bold inline text.
-pub fn convert_doc_headings_to_bold(doc: &str) -> String {
+pub(crate) fn convert_doc_headings_to_bold(doc: &str) -> String {
     let mut out = String::new();
     let mut in_code_block = false;
     for line in doc.lines() {
@@ -93,7 +93,7 @@ pub fn convert_doc_headings_to_bold(doc: &str) -> String {
 }
 
 /// Replace Rust-centric terminology with language-neutral equivalents.
-pub fn replace_rust_terminology(doc: &str, lang: Language) -> String {
+pub(crate) fn replace_rust_terminology(doc: &str, lang: Language) -> String {
     let doc = doc
         .replace("this crate", "this library")
         .replace("in this crate", "in this library")
@@ -136,7 +136,7 @@ pub fn replace_rust_terminology(doc: &str, lang: Language) -> String {
 /// Replace Rust `Foo::bar()` path notation with `Foo.bar()` in prose (outside code blocks).
 ///
 /// For PHP, static method calls use `::` so we keep that separator.
-pub fn rust_paths_to_dot_notation(doc: &str, lang: Language) -> String {
+pub(crate) fn rust_paths_to_dot_notation(doc: &str, lang: Language) -> String {
     // PHP uses `::` for static method calls; other languages use `.`
     let sep = if lang == Language::Php { "::" } else { "." };
     let mut out = String::new();
@@ -165,7 +165,7 @@ pub fn rust_paths_to_dot_notation(doc: &str, lang: Language) -> String {
 }
 
 /// Inline version that also strips newlines for use in table cells.
-pub fn clean_doc_inline(doc: &str, lang: Language) -> String {
+pub(crate) fn clean_doc_inline(doc: &str, lang: Language) -> String {
     if doc.is_empty() {
         return String::new();
     }
@@ -185,7 +185,7 @@ pub fn clean_doc_inline(doc: &str, lang: Language) -> String {
 ///
 /// Also strips fenced code blocks that contain Rust-specific syntax
 /// (use statements, unwrap(), assert!, etc.) regardless of which section they appear in.
-pub fn strip_rust_sections(doc: &str) -> String {
+pub(crate) fn strip_rust_sections(doc: &str) -> String {
     let mut out = String::new();
     let mut skip_section = false;
     let mut in_code_block = false;
@@ -263,7 +263,7 @@ pub fn strip_rust_sections(doc: &str) -> String {
 }
 
 /// Returns true if a code block's content contains Rust-specific patterns.
-pub fn is_rust_code_block(content: &str) -> bool {
+pub(crate) fn is_rust_code_block(content: &str) -> bool {
     // Opening fence line may declare "rust" or "no_run" etc.
     let first_line = content.lines().next().unwrap_or("");
     let fence_lang = first_line.trim_start_matches('`').trim().to_lowercase();
@@ -289,7 +289,7 @@ pub fn is_rust_code_block(content: &str) -> bool {
 }
 
 /// Returns true if a plain (non-fenced) line is Rust-specific and should be removed.
-pub fn is_rust_specific_line(line: &str) -> bool {
+pub(crate) fn is_rust_specific_line(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.starts_with("# use ") || trimmed.starts_with("use ") && trimmed.ends_with(';')
 }
@@ -298,7 +298,7 @@ pub fn is_rust_specific_line(line: &str) -> bool {
 ///
 /// Parses lines like `* name - description` or `* name: description`.
 /// Returns a map of parameter name → description.
-pub fn extract_param_docs(doc: &str) -> std::collections::HashMap<String, String> {
+pub(crate) fn extract_param_docs(doc: &str) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     let mut in_args = false;
     let mut in_code_block = false;
@@ -343,7 +343,7 @@ pub fn extract_param_docs(doc: &str) -> std::collections::HashMap<String, String
 }
 
 /// Convert `` [`text`](path) `` and bare `` [`text`] `` patterns to `` `text` ``.
-pub fn rust_links_to_plain(doc: &str) -> String {
+pub(crate) fn rust_links_to_plain(doc: &str) -> String {
     // Pattern 1: [`text`](anything) → `text`
     // Pattern 2: [`text`] → `text`  (bare doc links)
     let mut result = String::with_capacity(doc.len());
@@ -385,7 +385,3 @@ pub fn rust_links_to_plain(doc: &str) -> String {
     }
     result
 }
-
-// ---------------------------------------------------------------------------
-// Ordering helpers
-// ---------------------------------------------------------------------------

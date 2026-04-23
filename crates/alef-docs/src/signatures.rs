@@ -3,7 +3,7 @@ use alef_core::config::Language;
 use alef_core::ir::{FunctionDef, MethodDef, TypeRef};
 use heck::{ToPascalCase, ToSnakeCase};
 
-pub fn render_function_signature(func: &FunctionDef, lang: Language, ffi_prefix: &str) -> String {
+pub(crate) fn render_function_signature(func: &FunctionDef, lang: Language, ffi_prefix: &str) -> String {
     match lang {
         Language::Python => render_python_fn_sig(func, ffi_prefix),
         Language::Node | Language::Wasm => render_typescript_fn_sig(func, ffi_prefix),
@@ -19,7 +19,7 @@ pub fn render_function_signature(func: &FunctionDef, lang: Language, ffi_prefix:
     }
 }
 
-pub fn render_python_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+pub(crate) fn render_python_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = func.name.to_snake_case();
     let params: Vec<String> = func
         .params
@@ -40,7 +40,7 @@ pub fn render_python_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     format!("def {}({}) -> {}", name, params.join(", "), ret)
 }
 
-pub fn render_typescript_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+pub(crate) fn render_typescript_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = to_camel_case(&func.name);
     let params: Vec<String> = func
         .params
@@ -63,7 +63,7 @@ pub fn render_typescript_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String 
     }
 }
 
-pub fn render_go_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+pub(crate) fn render_go_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = func.name.to_pascal_case();
     let params: Vec<String> = func
         .params
@@ -89,7 +89,7 @@ pub fn render_go_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     }
 }
 
-pub fn render_java_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+pub(crate) fn render_java_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = to_camel_case(&func.name);
     let ret = doc_type(&func.return_type, Language::Java, ffi_prefix);
     let params: Vec<String> = func
@@ -109,7 +109,7 @@ pub fn render_java_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     format!("public static {} {}({}){}", ret, name, params.join(", "), throws)
 }
 
-pub fn render_ruby_fn_sig(func: &FunctionDef) -> String {
+pub(crate) fn render_ruby_fn_sig(func: &FunctionDef) -> String {
     let name = func.name.to_snake_case();
     let params: Vec<String> = func
         .params
@@ -122,7 +122,7 @@ pub fn render_ruby_fn_sig(func: &FunctionDef) -> String {
     format!("def self.{}({})", name, params.join(", "))
 }
 
-pub fn render_c_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+pub(crate) fn render_c_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let prefix = ffi_prefix.to_snake_case();
     let name = format!("{}_{}", prefix, func.name.to_snake_case());
     let ret = doc_type(&func.return_type, Language::Ffi, ffi_prefix);
@@ -144,7 +144,7 @@ pub fn render_c_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     format!("{} {}({});", ret_str, name, params.join(", "))
 }
 
-pub fn render_php_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+pub(crate) fn render_php_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = to_camel_case(&func.name);
     let params: Vec<String> = func
         .params
@@ -163,7 +163,7 @@ pub fn render_php_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     format!("public static function {}({}): {}", name, params.join(", "), ret)
 }
 
-pub fn render_elixir_fn_sig(func: &FunctionDef) -> String {
+pub(crate) fn render_elixir_fn_sig(func: &FunctionDef) -> String {
     let name = func.name.to_snake_case();
     let params: Vec<String> = func.params.iter().map(|p| p.name.to_snake_case()).collect();
     format!(
@@ -175,7 +175,7 @@ pub fn render_elixir_fn_sig(func: &FunctionDef) -> String {
     )
 }
 
-pub fn render_r_fn_sig(func: &FunctionDef) -> String {
+pub(crate) fn render_r_fn_sig(func: &FunctionDef) -> String {
     let name = func.name.to_snake_case();
     let params: Vec<String> = func
         .params
@@ -188,7 +188,7 @@ pub fn render_r_fn_sig(func: &FunctionDef) -> String {
     format!("{}({})", name, params.join(", "))
 }
 
-pub fn render_csharp_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+pub(crate) fn render_csharp_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = func.name.to_pascal_case();
     let ret = doc_type(&func.return_type, Language::Csharp, ffi_prefix);
     let params: Vec<String> = func
@@ -221,7 +221,7 @@ pub fn render_csharp_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     }
 }
 
-pub fn render_rust_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+pub(crate) fn render_rust_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     let name = func.name.to_snake_case();
     let params: Vec<String> = func
         .params
@@ -261,7 +261,7 @@ pub fn render_rust_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
     }
 }
 
-pub fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Language, ffi_prefix: &str) -> String {
+pub(crate) fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Language, ffi_prefix: &str) -> String {
     let name = func_name(&method.name, lang, ffi_prefix);
     let ret = doc_type(&method.return_type, lang, ffi_prefix);
 

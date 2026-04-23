@@ -4,7 +4,7 @@ use alef_core::config::Language;
 use alef_core::ir::{ApiSurface, DefaultValue, FieldDef, TypeRef};
 use heck::{ToPascalCase, ToShoutySnakeCase};
 
-pub fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {
+pub(crate) fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {
     if let Some(typed) = &field.typed_default {
         return format_typed_default(typed, &field.ty, lang, api, ffi_prefix, field.optional);
     }
@@ -31,7 +31,7 @@ pub fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface, 
     "—".to_string()
 }
 
-pub fn format_typed_default(
+pub(crate) fn format_typed_default(
     val: &DefaultValue,
     field_ty: &TypeRef,
     lang: Language,
@@ -204,7 +204,7 @@ pub fn format_typed_default(
 }
 
 /// Format an enum variant reference: `TypeName.VARIANT` or `:atom` style per language.
-pub fn format_enum_variant_ref(enum_type: &str, variant: &str, lang: Language, ffi_prefix: &str) -> String {
+pub(crate) fn format_enum_variant_ref(enum_type: &str, variant: &str, lang: Language, ffi_prefix: &str) -> String {
     match lang {
         Language::Python => format!("{enum_type}.{variant}"),
         Language::Node | Language::Wasm => format!("{enum_type}.{variant}"),
@@ -225,7 +225,7 @@ pub fn format_enum_variant_ref(enum_type: &str, variant: &str, lang: Language, f
 }
 
 /// Format the error/exception phrase for a function that can fail.
-pub fn format_error_phrase(error_type: &str, lang: Language) -> String {
+pub(crate) fn format_error_phrase(error_type: &str, lang: Language) -> String {
     let short = error_type.rsplit("::").next().unwrap_or(error_type);
     match lang {
         Language::Python => {
@@ -266,7 +266,7 @@ pub fn format_error_phrase(error_type: &str, lang: Language) -> String {
 }
 
 /// Like `doc_type` but wraps in the nullable form when `optional` is true.
-pub fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: bool, ffi_prefix: &str) -> String {
+pub(crate) fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: bool, ffi_prefix: &str) -> String {
     // If the type is already Optional<T>, don't double-wrap
     if optional && !matches!(ty, TypeRef::Optional(_)) {
         let inner = doc_type(ty, lang, ffi_prefix);

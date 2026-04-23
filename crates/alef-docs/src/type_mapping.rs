@@ -239,7 +239,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
     }
 }
 
-pub fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
+pub(crate) fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
     match lang {
         Language::Python => match p {
             PrimitiveType::Bool => "bool".to_string(),
@@ -345,7 +345,7 @@ pub fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
 ///
 /// Java generics cannot use primitive types (`int`, `long`, etc.); they require
 /// the corresponding wrapper classes (`Integer`, `Long`, etc.).
-pub fn java_boxed_type(ty: &TypeRef) -> String {
+pub(crate) fn java_boxed_type(ty: &TypeRef) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {
             PrimitiveType::Bool => "Boolean".to_string(),

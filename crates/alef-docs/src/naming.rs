@@ -1,7 +1,7 @@
 use alef_core::config::Language;
 use heck::{ToPascalCase, ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
 
-pub fn lang_display_name(lang: Language) -> &'static str {
+pub(crate) fn lang_display_name(lang: Language) -> &'static str {
     match lang {
         Language::Python => "Python",
         Language::Node => "TypeScript",
@@ -19,7 +19,7 @@ pub fn lang_display_name(lang: Language) -> &'static str {
 }
 
 /// Get the slug used in file names (e.g. `typescript` for `Node`).
-pub fn lang_slug(lang: Language) -> &'static str {
+pub(crate) fn lang_slug(lang: Language) -> &'static str {
     match lang {
         Language::Python => "python",
         Language::Node => "typescript",
@@ -37,7 +37,7 @@ pub fn lang_slug(lang: Language) -> &'static str {
 }
 
 /// Get the code fence language identifier.
-pub fn lang_code_fence(lang: Language) -> &'static str {
+pub(crate) fn lang_code_fence(lang: Language) -> &'static str {
     match lang {
         Language::Python => "python",
         Language::Node | Language::Wasm => "typescript",
@@ -54,7 +54,7 @@ pub fn lang_code_fence(lang: Language) -> &'static str {
 }
 
 /// Convert a Rust type name to the idiomatic name for the target language.
-pub fn type_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
+pub(crate) fn type_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
     // Strip module path prefix if present
     let short = name.rsplit("::").next().unwrap_or(name);
     match lang {
@@ -77,7 +77,7 @@ pub fn type_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
 }
 
 /// Convert a Rust function name to the idiomatic name for the target language.
-pub fn func_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
+pub(crate) fn func_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
     let base = match lang {
         Language::Python | Language::Ruby | Language::Elixir | Language::R | Language::Rust => name.to_snake_case(),
         Language::Node | Language::Wasm | Language::Java | Language::Php => to_camel_case(name),
@@ -93,7 +93,7 @@ pub fn func_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
 }
 
 /// Convert a Rust field name to the idiomatic name for the target language.
-pub fn field_name(name: &str, lang: Language) -> String {
+pub(crate) fn field_name(name: &str, lang: Language) -> String {
     match lang {
         Language::Python | Language::Ruby | Language::Elixir | Language::R | Language::Ffi | Language::Rust => {
             name.to_snake_case()
@@ -105,7 +105,7 @@ pub fn field_name(name: &str, lang: Language) -> String {
 }
 
 /// Convert a Rust enum variant name to the idiomatic name for the target language.
-pub fn enum_variant_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
+pub(crate) fn enum_variant_name(name: &str, lang: Language, ffi_prefix: &str) -> String {
     // Special-case acronym variants that don't split cleanly
     if name == "RDFa" {
         return match lang {
@@ -138,7 +138,7 @@ pub fn enum_variant_name(name: &str, lang: Language, ffi_prefix: &str) -> String
 }
 
 /// Convert snake_case or PascalCase to camelCase.
-pub fn to_camel_case(s: &str) -> String {
+pub(crate) fn to_camel_case(s: &str) -> String {
     let pascal = s.to_upper_camel_case();
     let mut chars = pascal.chars();
     match chars.next() {
@@ -146,7 +146,3 @@ pub fn to_camel_case(s: &str) -> String {
         Some(c) => c.to_lowercase().to_string() + chars.as_str(),
     }
 }
-
-// ---------------------------------------------------------------------------
-// Default value formatting
-// ---------------------------------------------------------------------------

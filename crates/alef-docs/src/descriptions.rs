@@ -4,7 +4,7 @@ use alef_core::ir::TypeRef;
 ///
 /// Handles both PascalCase (`SingleColumn` → "Single column") and
 /// SCREAMING_CASE (`CODE_BLOCK` → "Code block element") variant names.
-pub fn generate_enum_variant_description(variant_name: &str) -> String {
+pub(crate) fn generate_enum_variant_description(variant_name: &str) -> String {
     if variant_name.is_empty() {
         return String::new();
     }
@@ -89,7 +89,7 @@ pub fn generate_enum_variant_description(variant_name: &str) -> String {
 }
 
 /// Determine an appropriate suffix for an enum variant description.
-pub fn determine_enum_variant_suffix(readable: &str, is_screaming: bool) -> &'static str {
+pub(crate) fn determine_enum_variant_suffix(readable: &str, is_screaming: bool) -> &'static str {
     // Format-like variants
     let format_words = [
         "text", "markdown", "html", "json", "csv", "xml", "pdf", "yaml", "toml", "docx", "xlsx", "pptx", "rtf",
@@ -146,7 +146,7 @@ pub fn determine_enum_variant_suffix(readable: &str, is_screaming: bool) -> &'st
 /// Generate a human-readable description for an error variant from its PascalCase name.
 ///
 /// Splits PascalCase into words and forms a sentence like "IO errors" or "Parsing errors".
-pub fn generate_error_variant_description(variant_name: &str) -> String {
+pub(crate) fn generate_error_variant_description(variant_name: &str) -> String {
     // Split PascalCase into words
     let mut words = Vec::new();
     let mut current = String::new();
@@ -180,7 +180,7 @@ pub fn generate_error_variant_description(variant_name: &str) -> String {
 
 /// Generate a human-readable field description from its name and type
 /// when no explicit doc comment exists on a struct field.
-pub fn generate_field_description(field_name: &str, type_ref: &TypeRef) -> String {
+pub(crate) fn generate_field_description(field_name: &str, type_ref: &TypeRef) -> String {
     // Well-known field names with specific descriptions
     match field_name {
         "content" => return "The extracted text content".to_string(),
@@ -253,7 +253,7 @@ pub fn generate_field_description(field_name: &str, type_ref: &TypeRef) -> Strin
 }
 
 /// Convert a `snake_case` identifier to `Readable text` (capitalize first letter).
-pub fn snake_to_readable(name: &str) -> String {
+pub(crate) fn snake_to_readable(name: &str) -> String {
     let readable = name.replace('_', " ");
     let mut chars = readable.chars();
     match chars.next() {
@@ -264,7 +264,7 @@ pub fn snake_to_readable(name: &str) -> String {
 
 /// Generate a human-readable parameter description from its name and type
 /// when no explicit doc comment or `# Arguments` entry exists.
-pub fn generate_param_description(name: &str, ty: &TypeRef) -> String {
+pub(crate) fn generate_param_description(name: &str, ty: &TypeRef) -> String {
     // Derive a readable noun phrase from the parameter name by splitting on underscores
     // and joining with spaces (e.g. "mime_type" → "MIME type", "config" → "configuration").
     let article = match name {
