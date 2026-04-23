@@ -535,12 +535,13 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
             );
             let _ = writeln!(out, "    const errors = body.detail ?? [];");
             for ve in validation_errors {
-                let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("'{}'", escape_js(s))).collect();
+                let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_js(s))).collect();
                 let loc_str = loc_js.join(", ");
-                let escaped_msg = escape_js(&ve.msg);
+                let expanded_msg = expand_fixture_templates(&ve.msg);
+                let escaped_msg = escape_js(&expanded_msg);
                 let _ = writeln!(
                     out,
-                    "    expect((errors as Array<Record<string, unknown>>).some((e) => JSON.stringify(e['loc']) === JSON.stringify([{loc_str}]) && String(e['msg']).includes('{escaped_msg}'))).toBe(true);"
+                    "    expect((errors as Array<Record<string, unknown>>).some((e) => JSON.stringify(e[\"loc\"]) === JSON.stringify([{loc_str}]) && String(e[\"msg\"]).includes(\"{escaped_msg}\"))).toBe(true);"
                 );
             }
         }
@@ -1077,7 +1078,20 @@ fn json_to_js(value: &serde_json::Value) -> String {
             format!("\"{}\"", escape_js(&expanded))
         }
         serde_json::Value::Bool(b) => b.to_string(),
-        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Number(n) => {
+            // For integers outside JS safe range, emit as string to avoid precision loss.
+            if let Some(i) = n.as_i64() {
+                if !(-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&i) {
+                    return format!("Number(\"{i}\")");
+                }
+            }
+            if let Some(u) = n.as_u64() {
+                if u > 9_007_199_254_740_991 {
+                    return format!("Number(\"{u}\")");
+                }
+            }
+            n.to_string()
+        }
         serde_json::Value::Null => "null".to_string(),
         serde_json::Value::Array(arr) => {
             let items: Vec<String> = arr.iter().map(json_to_js).collect();

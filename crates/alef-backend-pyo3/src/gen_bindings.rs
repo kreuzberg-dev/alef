@@ -854,7 +854,9 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
     // defined before the referencing enum (e.g., ContentPart before UserContent).
     let alias_names: AHashSet<&str> = needed_data_enum_aliases.iter().map(|e| e.name.as_str()).collect();
     let refs_name = |e: &alef_core::ir::EnumDef, name: &str| -> bool {
-        e.variants.iter().any(|v| v.fields.iter().any(|f| f.ty.references_named(name)))
+        e.variants
+            .iter()
+            .any(|v| v.fields.iter().any(|f| f.ty.references_named(name)))
     };
     needed_data_enum_aliases.sort_by(|a, b| {
         let a_refs_b = refs_name(a, &b.name);
@@ -865,12 +867,18 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             std::cmp::Ordering::Less
         } else {
             // Stable: enums with fewer cross-references among aliases go first
-            let a_deps = a.variants.iter().flat_map(|v| &v.fields).filter(|f| {
-                alias_names.iter().any(|n| f.ty.references_named(n))
-            }).count();
-            let b_deps = b.variants.iter().flat_map(|v| &v.fields).filter(|f| {
-                alias_names.iter().any(|n| f.ty.references_named(n))
-            }).count();
+            let a_deps = a
+                .variants
+                .iter()
+                .flat_map(|v| &v.fields)
+                .filter(|f| alias_names.iter().any(|n| f.ty.references_named(n)))
+                .count();
+            let b_deps = b
+                .variants
+                .iter()
+                .flat_map(|v| &v.fields)
+                .filter(|f| alias_names.iter().any(|n| f.ty.references_named(n)))
+                .count();
             a_deps.cmp(&b_deps)
         }
     });
@@ -1644,7 +1652,7 @@ fn gen_api_py(
                     let var = format!("_rust_{}", param.name);
                     out.push_str(&format!("    {var} = _to_rust_{snake}({})\n", param.name));
                     if !param.optional {
-                        out.push_str(&format!("    assert {var} is not None\n"));
+                        out.push_str(&format!("    assert {var} is not None  # noqa: S101\n"));
                     }
                     call_args.push(var);
                     continue;

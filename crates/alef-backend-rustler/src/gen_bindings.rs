@@ -506,14 +506,22 @@ impl Backend for RustlerBackend {
                         // Full-arity def: visitor param is present in signature.
                         let vis_param = &all_params[vis_idx];
                         // Emit a two-clause definition: visitor map → receive loop, nil → direct.
-                        content.push_str(&format!("  def {nif_fn_name}({}) when is_map({vis_param}) do\n", arity_params.join(", ")));
+                        content.push_str(&format!(
+                            "  def {nif_fn_name}({}) when is_map({vis_param}) do\n",
+                            arity_params.join(", ")
+                        ));
                         let with_visitor_args = nif_call_args.join(", ");
-                        content.push_str(&format!("    :ok = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args})\n"));
+                        content.push_str(&format!(
+                            "    :ok = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args})\n"
+                        ));
                         content.push_str(&format!("    do_visitor_receive_loop({vis_param})\n"));
                         content.push_str("  end\n\n");
                         // Nil/no-visitor clause
                         content.push_str(&format!("  @doc \"{doc_line}\"\n"));
-                        content.push_str(&format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", ")));
+                        content.push_str(&format!(
+                            "  @spec {nif_fn_name}({}) :: {return_spec}",
+                            arity_types.join(", ")
+                        ));
                         content.push('\n');
                         content.push_str(&format!("  def {nif_fn_name}({}) do\n", arity_params.join(", ")));
                         content.push_str(&format!(
