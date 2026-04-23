@@ -555,12 +555,12 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                             format!("{}_core", p.name)
                         }
                     } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
-                        // Vec<String> with is_ref=true: core expects &[String].
-                        // Vec<String> coerces directly to &[String] — just pass &name.
+                        // Vec<String> with is_ref=true: core expects &[&str].
+                        // Convert via _refs intermediate binding.
                         if p.optional {
                             format!("{}.as_deref()", p.name)
                         } else {
-                            format!("&{}", p.name)
+                            format!("&{}_refs", p.name)
                         }
                     } else if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
@@ -705,10 +705,15 @@ fn gen_named_let_bindings_inner(
                     .ok();
                 }
             }
-            // Vec<String> with is_ref=true: core expects &[String].
-            // Vec<String> coerces directly to &[String] — no intermediate needed.
+            // Vec<String> with is_ref=true: core expects &[&str].
+            // Convert Vec<String> to Vec<&str> via intermediate binding.
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
-                // No let binding needed — pass &name directly.
+                write!(
+                    bindings,
+                    "let {n}_refs: Vec<&str> = {n}.iter().map(|s| s.as_str()).collect();\n    ",
+                    n = p.name,
+                )
+                .ok();
             }
             // Sanitized Vec<String> (originally Vec<tuple>): deserialize each JSON string.
             TypeRef::Vec(inner)
