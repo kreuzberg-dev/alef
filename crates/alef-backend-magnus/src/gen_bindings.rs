@@ -177,6 +177,7 @@ impl Backend for MagnusBackend {
                         bridge_cfg,
                         &mapper,
                         &opaque_types,
+                        &default_types,
                         &core_import,
                     ));
                 } else {

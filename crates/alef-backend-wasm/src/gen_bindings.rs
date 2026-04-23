@@ -99,7 +99,9 @@ impl Backend for WasmBackend {
 
         // Always import js_sys — it's used by error converters (js_sys::Object, js_sys::Reflect)
         // and trait bridge code (js_sys::Reflect, js_sys::Function, js_sys::Object, js_sys::Array).
-        builder.add_import("js_sys");
+        // Note: builder.add_import("js_sys") is a no-op because the builder skips bare crate
+        // names without `::`. Use add_item to emit a raw `use js_sys;` statement instead.
+        builder.add_item("use js_sys;");
 
         // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {

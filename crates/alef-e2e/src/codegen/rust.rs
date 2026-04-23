@@ -489,12 +489,11 @@ fn render_test_function(
         .assertions
         .iter()
         .any(|a| a.field.as_ref().is_some_and(|f| !f.is_empty()));
-    let only_emptiness_checks = !has_not_error
-        && !has_field_access
+    let only_emptiness_checks = !has_field_access
         && fixture.assertions.iter().all(|a| {
             matches!(
                 a.assertion_type.as_str(),
-                "is_empty" | "is_false" | "not_empty" | "is_true"
+                "is_empty" | "is_false" | "not_empty" | "is_true" | "not_error"
             )
         });
 
