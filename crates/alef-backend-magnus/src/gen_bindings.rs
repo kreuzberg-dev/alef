@@ -571,7 +571,7 @@ fn gen_struct(
     }
 
     for field in &typ.fields {
-        let field_type = if field.optional {
+        let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
             mapper.map_type(&field.ty)
