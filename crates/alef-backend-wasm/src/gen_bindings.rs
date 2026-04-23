@@ -1280,16 +1280,19 @@ fn gen_function(
             params.join(", "),
             return_annotation
         )
-    } else if !func.sanitized
-        && func.error_type.is_some()
+    } else if (func.sanitized || (!func.sanitized && func.error_type.is_some()))
         && alef_codegen::generators::has_named_params(&func.params, opaque_types)
     {
         // Serde recovery: accept Named non-opaque params as JsValue and deserialize
-        // to core types via serde_wasm_bindgen. WASM binding structs don't derive
-        // Serialize/Deserialize, so we can't round-trip through the binding type;
-        // instead we accept raw JsValue from JS and deserialize directly to core types.
-        // This handles functions like extract_file(&ExtractionConfig) whose binding→core
-        // From impl can't be generated (sanitized fields on ExtractionConfig, etc.).
+        // to core types via serde_wasm_bindgen. Also handles sanitized functions (Vec<tuple>).
+        // WASM binding structs don't derive Serialize/Deserialize, so we can't round-trip
+        // through the binding type; instead we accept raw JsValue/Vec<String> from JS and
+        // deserialize directly to core types.
+        // This handles:
+        // - Functions like extract_file(&ExtractionConfig) whose binding→core From impl
+        //   can't be generated (sanitized fields on ExtractionConfig)
+        // - Functions like batch_extract_file(Vec<(PathBuf, Option<FileExtractionConfig>)>)
+        //   which need tuple deserialization from Vec<String> JSON
         let serde_params: Vec<String> = func
             .params
             .iter()
@@ -1302,6 +1305,21 @@ fn gen_function(
                         "JsValue".to_string()
                     };
                     format!("{}: {}", p.name, mapped_ty)
+                }
+                TypeRef::Vec(inner) => {
+                    // Sanitized Vec<tuple>: accept Vec<String> (JSON encoded)
+                    if matches!(inner.as_ref(), TypeRef::Named(_)) {
+                        let mapped_inner = mapper.map_type(inner);
+                        if p.optional {
+                            format!("{}: Option<Vec<String>>", p.name)
+                        } else {
+                            format!("{}: Vec<String>", p.name)
+                        }
+                    } else {
+                        let ty = mapper.map_type(&p.ty);
+                        let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+                        format!("{}: {}", p.name, mapped_ty)
+                    }
                 }
                 _ => {
                     let ty = mapper.map_type(&p.ty);
@@ -1332,6 +1350,36 @@ fn gen_function(
                         serde_bindings.push_str(&format!(
                             "let {n}_core: {core_path} = \
                              serde_wasm_bindgen::from_value::<{core_path}>({n}){err_conv}?;\n    ",
+                            n = p.name,
+                            core_path = core_path,
+                            err_conv = err_conv,
+                        ));
+                    }
+                }
+                TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                    // Sanitized Vec<tuple>: deserialize from Vec<String> JSON
+                    let inner_name = match inner.as_ref() {
+                        TypeRef::Named(n) => n,
+                        _ => "UnknownTuple",
+                    };
+                    let core_path = format!("{}::{}", core_import, inner_name);
+                    let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
+                    if p.optional {
+                        serde_bindings.push_str(&format!(
+                            "let {n}_core: Option<Vec<{core_path}>> = {n}.map(|strings| {{\n    \
+                             strings.into_iter()\n    \
+                             .map(|s| serde_json::from_str::<{core_path}>(&s){err_conv})\n    \
+                             .collect::<Result<Vec<_>, _>>()\n    \
+                             }}).transpose()?;\n    ",
+                            n = p.name,
+                            core_path = core_path,
+                            err_conv = err_conv,
+                        ));
+                    } else {
+                        serde_bindings.push_str(&format!(
+                            "let {n}_core: Vec<{core_path}> = {n}.into_iter()\n    \
+                             .map(|s| serde_json::from_str::<{core_path}>(&s){err_conv})\n    \
+                             .collect::<Result<Vec<_>, _>>()?;\n    ",
                             n = p.name,
                             core_path = core_path,
                             err_conv = err_conv,

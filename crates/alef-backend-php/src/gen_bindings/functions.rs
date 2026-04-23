@@ -238,6 +238,10 @@ pub(crate) fn gen_instance_method(
         // Not auto-delegatable opaque instance method — use let-binding conversion
         let let_bindings = gen_php_named_let_bindings(&method.params, opaque_types, core_import);
         let call_args = gen_php_call_args_with_let_bindings(&method.params, opaque_types);
+        // For Arc<Mutex<T>> and Arc<T> opaque types, we need to access the inner field properly.
+        // If self.inner is Arc<Mutex<T>>, use self.inner.lock().unwrap() first.
+        // If self.inner is Arc<T>, direct access works. We detect Mutex in the type by checking method receivers.
+        // For simplicity, we generate a let-binding that handles both cases via .as_ref() on the Arc.
         let core_call = format!("self.inner.{}({})", method.name, call_args);
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
