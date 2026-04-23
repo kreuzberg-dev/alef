@@ -190,18 +190,22 @@ pub fn field_conversion_from_core(
     // {:?} on string-like types produces debug-escaped output with surrounding quotes.
     if sanitized {
         // Vec<Primitive>: sanitized from tuple types like (u32, u32) → Vec<u32>.
-        // The binding type matches, so just clone — no debug formatting needed.
+        // Core has a tuple, binding expects Vec — destructure the tuple.
         if let TypeRef::Vec(inner) = ty {
             if matches!(inner.as_ref(), TypeRef::Primitive(_)) {
-                return format!("{name}: val.{name}.clone()");
+                if optional {
+                    return format!(
+                        "{name}: val.{name}.map(|t| {{ let arr: Vec<_> = [t.0, t.1].into_iter().map(|v| v as _).collect(); arr }})"
+                    );
+                }
+                return format!("{name}: vec![val.{name}.0 as _, val.{name}.1 as _]");
             }
         }
         // Optional(Vec<Primitive>): sanitized from Option<(T, T)> → Option<Vec<T>>.
-        // The core type is a tuple, so destructure it into a Vec.
         if let TypeRef::Optional(opt_inner) = ty {
             if let TypeRef::Vec(vec_inner) = opt_inner.as_ref() {
                 if matches!(vec_inner.as_ref(), TypeRef::Primitive(_)) {
-                    return format!("{name}: val.{name}.map(|(a, b)| vec![a as _, b as _])");
+                    return format!("{name}: val.{name}.map(|t| vec![t.0 as _, t.1 as _])");
                 }
             }
         }
