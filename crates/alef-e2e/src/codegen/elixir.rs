@@ -1003,6 +1003,9 @@ fn emit_elixir_visitor_method(out: &mut String, method_name: &str, action: &Call
         "visit_input" => "_ctx, _input_type, _name, _value",
         "visit_audio" | "visit_video" | "visit_iframe" => "_ctx, _src",
         "visit_details" => "_ctx, _is_open",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "_ctx, _output",
+        "visit_list_start" => "_ctx, _ordered",
+        "visit_list_end" => "_ctx, _ordered, _output",
         _ => "_ctx",
     };
 

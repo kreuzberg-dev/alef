@@ -1114,6 +1114,9 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
         "visit_input" => "$ctx, $inputType, $name, $value",
         "visit_audio" | "visit_video" | "visit_iframe" => "$ctx, $src",
         "visit_details" => "$ctx, $isOpen",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "$ctx, $output",
+        "visit_list_start" => "$ctx, $ordered",
+        "visit_list_end" => "$ctx, $ordered, $output",
         _ => "$ctx",
     };
 
@@ -1133,7 +1136,8 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
             setup_lines.push(format!("        return ['custom' => {escaped}];"));
         }
         CallbackAction::CustomTemplate { template } => {
-            setup_lines.push(format!("        return ['custom' => \"{template}\"];"));
+            let escaped = escape_php(template);
+            setup_lines.push(format!("        return ['custom' => {escaped}];"));
         }
     }
     setup_lines.push("    }".to_string());

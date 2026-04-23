@@ -998,6 +998,11 @@ fn emit_java_visitor_method(
         "visit_input" => "VisitContext ctx, String inputType, String name, String value",
         "visit_audio" | "visit_video" | "visit_iframe" => "VisitContext ctx, String src",
         "visit_details" => "VisitContext ctx, boolean isOpen",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
+            "VisitContext ctx, String output"
+        }
+        "visit_list_start" => "VisitContext ctx, boolean ordered",
+        "visit_list_end" => "VisitContext ctx, boolean ordered, String output",
         _ => "VisitContext ctx",
     };
 
@@ -1017,8 +1022,9 @@ fn emit_java_visitor_method(
             setup_lines.push(format!("        return VisitResult.custom(\"{escaped}\");"));
         }
         CallbackAction::CustomTemplate { template } => {
+            let escaped = escape_java(template);
             setup_lines.push(format!(
-                "        return VisitResult.custom(String.format(\"{template}\"));"
+                "        return VisitResult.custom(String.format(\"{escaped}\"));"
             ));
         }
     }

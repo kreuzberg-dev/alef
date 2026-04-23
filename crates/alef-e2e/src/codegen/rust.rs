@@ -1779,6 +1779,9 @@ fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &Callba
         "visit_input" => "ctx, input_type, name, value",
         "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
         "visit_details" => "ctx, is_open",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "ctx, output",
+        "visit_list_start" => "ctx, ordered",
+        "visit_list_end" => "ctx, ordered, output",
         _ => "ctx",
     };
 
@@ -1798,7 +1801,8 @@ fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &Callba
             let _ = writeln!(out, "            VisitResult::Custom({escaped}.to_string())");
         }
         CallbackAction::CustomTemplate { template } => {
-            let _ = writeln!(out, "            VisitResult::Custom(format!(\"{template}\"))");
+            let escaped = escape_rust(template);
+            let _ = writeln!(out, "            VisitResult::Custom(format!(\"{escaped}\"))");
         }
     }
     let _ = writeln!(out, "        }}");
