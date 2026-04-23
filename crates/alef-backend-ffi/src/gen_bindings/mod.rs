@@ -280,6 +280,9 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         builder.add_import("std::ffi::c_void");
         builder.add_import("std::sync::Arc");
 
+        // Emit the shared FFI error helper once for all trait bridges
+        builder.add_item(&crate::trait_bridge::gen_ffi_set_out_error_helper());
+
         let trait_map: ahash::AHashMap<&str, &alef_core::ir::TypeDef> = api
             .types
             .iter()

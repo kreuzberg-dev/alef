@@ -1239,13 +1239,15 @@ fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> S
                         p.name.clone()
                     }
                 }
-                TypeRef::Vec(_) => {
+                TypeRef::Vec(inner) => {
                     if p.optional {
                         if p.is_ref {
                             format!("{}.as_deref()", p.name)
                         } else {
                             p.name.clone()
                         }
+                    } else if p.is_ref && matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
+                        format!("&{}_refs", p.name)
                     } else if p.is_ref {
                         format!("&{}", p.name)
                     } else {

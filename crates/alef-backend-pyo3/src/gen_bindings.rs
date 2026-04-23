@@ -597,10 +597,11 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
 
     // Generate only "public" enums — skip internal types like TextDirection, LinkType etc.
     // that aren't part of the user-facing config API.
-    // Only generate enums referenced by has_default type fields.
+    // Generate enums referenced by has_default type fields AND return type fields
+    // (return types are emitted as TypedDicts and may reference enums like StructureKind).
     let mut needed_enums: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        if typ.has_default {
+        if typ.has_default || typ.is_return_type {
             for field in &typ.fields {
                 collect_named_types_filtered(&field.ty, &enum_names, &mut needed_enums);
             }
@@ -645,10 +646,16 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             local.insert(name.as_str());
         }
         for typ in api.types.iter().filter(|t| !t.is_trait) {
-            // Only count a type as "local" if it will actually be emitted as a dataclass.
-            // Return types are skipped from emission (they live in the native module),
-            // so they must NOT be in local_type_names — otherwise they won't be imported.
-            if typ.has_default && !typ.name.ends_with("Update") && !typ.fields.is_empty() && !typ.is_return_type {
+            if typ.name.ends_with("Update") || typ.fields.is_empty() {
+                continue;
+            }
+            // has_default types are emitted as @dataclass / TypedDict locally.
+            if typ.has_default && !typ.is_return_type {
+                local.insert(typ.name.as_str());
+            }
+            // When output_style == TypedDict, return types are also emitted locally
+            // as TypedDicts — they must NOT be imported from the native module.
+            if output_style == PythonDtoStyle::TypedDict && typ.is_return_type {
                 local.insert(typ.name.as_str());
             }
         }
@@ -1652,7 +1659,10 @@ fn gen_api_py(
                     let var = format!("_rust_{}", param.name);
                     out.push_str(&format!("    {var} = _to_rust_{snake}({})\n", param.name));
                     if !param.optional {
-                        out.push_str(&format!("    assert {var} is not None  # noqa: S101\n"));
+                        out.push_str(&format!(
+                            "    if {var} is None:\n        msg = \"{name} conversion returned None\"\n        raise ValueError(msg)\n",
+                            name = param.name
+                        ));
                     }
                     call_args.push(var);
                     continue;
