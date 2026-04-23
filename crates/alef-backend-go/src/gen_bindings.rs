@@ -585,21 +585,10 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
-    // Constructor — wraps the C {prefix}_{type_snake}() allocator.
+    // Opaque handles are created by factory functions (e.g., CreateEngine),
+    // not by direct constructors. Skip New{Type}() generation — the FFI
+    // only exports a _free() function for opaque types.
     let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name.to_pascal_case());
-    writeln!(
-        out,
-        "// New{} creates a new {} by calling the C constructor.",
-        typ.name, typ.name
-    )
-    .ok();
-    writeln!(out, "func New{}() *{} {{", typ.name, typ.name).ok();
-    writeln!(out, "\tptr := C.{}_{}()", ffi_prefix, type_snake).ok();
-    writeln!(out, "\tif ptr == nil {{").ok();
-    writeln!(out, "\t\treturn nil").ok();
-    writeln!(out, "\t}}").ok();
-    writeln!(out, "\treturn &{}{{ptr: unsafe.Pointer(ptr)}}", typ.name).ok();
-    writeln!(out, "}}").ok();
     writeln!(out).ok();
 
     // Free method

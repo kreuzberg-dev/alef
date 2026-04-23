@@ -166,12 +166,8 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
             writeln!(out, "        ];").ok();
         }
 
-        // Call via spawn_monitor
-        writeln!(
-            out,
-            "        let (_pid, _ref) = rustler::types::Pid::spawn_monitor(env_ref, method_term, &args).ok()?;"
-        )
-        .ok();
+        // Call via env.call (rustler 0.37+)
+        writeln!(out, "        let _result = env_ref.call(method_term, &args).ok()?;").ok();
 
         // For async, we return a placeholder result (Elixir callback is async itself)
         if self.is_named(&method.return_type) {
@@ -635,7 +631,7 @@ fn gen_visitor_method_rustler(
 
     writeln!(
         out,
-        "            let result: rustler::Term<'_> = rustler::types::Pid::spawn_monitor(env, func_term, args.as_slice()).ok()?.0;"
+        "            let result: rustler::Term<'_> = env.call(func_term, &args).ok()?;"
     )
     .unwrap();
     writeln!(out, "            result.decode::<String>().ok()").unwrap();

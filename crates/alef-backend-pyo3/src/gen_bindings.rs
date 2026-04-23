@@ -576,9 +576,13 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             .iter()
             .any(|t| t.has_default && t.is_return_type && !t.fields.is_empty() && !t.name.ends_with("Update"));
 
-    // Check whether `Any` is needed: data enum fields use `dict[str, Any]`.
+    // Check whether `Any` is needed: data enum fields use `dict[str, Any]`, and
+    // TypeRef::Json maps to `dict[str, Any]` (or `dict[str, dict[str, Any]]` when nested).
     let needs_any = api.types.iter().filter(|t| !t.is_trait && t.has_default).any(|t| {
         t.fields.iter().any(|f| {
+            if type_contains_json(&f.ty) {
+                return true;
+            }
             let inner_name = match &f.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
                 TypeRef::Optional(inner) => {
@@ -1013,6 +1017,17 @@ fn python_zero_value(
         // Duration fields are stored as Option<u64> in has_default binding structs,
         // so None is the correct zero value (falls back to core Default).
         TypeRef::Duration => "None".to_string(),
+    }
+}
+
+/// Check if a TypeRef transitively contains TypeRef::Json (which maps to `Any` in Python).
+fn type_contains_json(ty: &alef_core::ir::TypeRef) -> bool {
+    use alef_core::ir::TypeRef;
+    match ty {
+        TypeRef::Json => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_contains_json(inner),
+        TypeRef::Map(k, v) => type_contains_json(k) || type_contains_json(v),
+        _ => false,
     }
 }
 
@@ -1518,6 +1533,9 @@ fn gen_api_py(
                     let snake = name.to_snake_case();
                     let var = format!("_rust_{}", param.name);
                     out.push_str(&format!("    {var} = _to_rust_{snake}({})\n", param.name));
+                    if !param.optional {
+                        out.push_str(&format!("    assert {var} is not None\n"));
+                    }
                     call_args.push(var);
                     continue;
                 }
