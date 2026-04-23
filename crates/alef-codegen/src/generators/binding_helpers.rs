@@ -77,15 +77,17 @@ pub fn wrap_return_with_mutex(
                 format!("{expr}.into()")
             }
         }
-        // String/Bytes: only convert when the core returns a reference (&str→String, &[u8]→Vec<u8>).
-        // When owned (returns_ref=false), both sides are already String/Vec<u8> — skip .into().
-        TypeRef::String | TypeRef::Bytes => {
+        // String: only convert when the core returns a reference (&str→String).
+        TypeRef::String => {
             if returns_ref {
                 format!("{expr}.into()")
             } else {
                 expr.to_string()
             }
         }
+        // Bytes: always use .to_vec() which works for both &Bytes and owned Bytes.
+        // &Bytes does not implement From<&Bytes> for Vec<u8>, so .into() fails.
+        TypeRef::Bytes => format!("{expr}.to_vec()"),
         // Path: PathBuf→String needs to_string_lossy, &Path→String too
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         // Duration: core returns std::time::Duration, binding uses u64 (millis)

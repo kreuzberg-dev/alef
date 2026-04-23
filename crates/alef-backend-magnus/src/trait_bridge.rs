@@ -248,10 +248,10 @@ fn build_magnus_arg(p: &alef_core::ir::ParamDef) -> String {
     if matches!(&p.ty, TypeRef::String) {
         return format!("magnus::RString::new({}.as_str())", p.name);
     }
-    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
-        return format!("magnus::Value::from({})", p.name);
-    }
-    format!("magnus::Value::from({})", p.name)
+    // For primitive types, use magnus::IntoValue trait via .into_value_with()
+    // or convert via the Ruby API. The simplest: pass primitives directly as tuple args
+    // since Magnus's funcall arg trait handles i32, i64, u32, bool, etc. natively.
+    p.name.to_string()
 }
 
 /// Map TypeRef to a Rust type string.
@@ -347,6 +347,7 @@ pub fn gen_bridge_function(
     bridge_cfg: &TraitBridgeConfig,
     mapper: &dyn alef_codegen::type_mapper::TypeMapper,
     opaque_types: &ahash::AHashSet<String>,
+    default_types: &std::collections::HashSet<&str>,
     core_import: &str,
 ) -> String {
     use alef_core::ir::TypeRef;
@@ -368,7 +369,21 @@ pub fn gen_bridge_function(
             }
         } else {
             let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
-            let ty = if p.optional || promoted {
+            // default_types are passed as JSON strings at the NIF boundary
+            let is_default_type = match &p.ty {
+                TypeRef::Named(n) => default_types.contains(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    matches!(inner.as_ref(), TypeRef::Named(n) if default_types.contains(n.as_str()))
+                }
+                _ => false,
+            };
+            let ty = if is_default_type {
+                if p.optional || promoted {
+                    "Option<String>".to_string()
+                } else {
+                    "String".to_string()
+                }
+            } else if p.optional || promoted {
                 format!("Option<{}>", mapper.map_type(&p.ty))
             } else {
                 mapper.map_type(&p.ty)

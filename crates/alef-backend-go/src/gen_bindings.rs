@@ -146,7 +146,7 @@ impl Backend for GoBackend {
             .map(|a| a.name.clone())
             .collect();
 
-        let content = strip_trailing_whitespace(&gen_go_file(
+        let content = format_go_code(&strip_trailing_whitespace(&gen_go_file(
             api,
             &ffi_prefix,
             &pkg_name,
@@ -157,7 +157,7 @@ impl Backend for GoBackend {
             &bridge_param_names,
             &bridge_type_aliases,
             &streaming_methods,
-        ));
+        )));
 
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Go)?;
@@ -242,6 +242,32 @@ fn strip_trailing_whitespace(content: &str) -> String {
         result.push('\n');
     }
     result
+}
+
+/// Run `gofmt -s` on generated Go code. Falls back to the original if gofmt is unavailable.
+fn format_go_code(code: &str) -> String {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let child = Command::new("gofmt")
+        .arg("-s")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    match child {
+        Ok(mut c) => {
+            if let Some(ref mut stdin) = c.stdin.take() {
+                let _ = stdin.write_all(code.as_bytes());
+            }
+            match c.wait_with_output() {
+                Ok(output) if output.status.success() => {
+                    String::from_utf8(output.stdout).unwrap_or_else(|_| code.to_string())
+                }
+                _ => code.to_string(),
+            }
+        }
+        Err(_) => code.to_string(),
+    }
 }
 
 /// Generate the complete Go binding file wrapping the C FFI layer.
