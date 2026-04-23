@@ -843,7 +843,7 @@ fn gen_ivisitor(namespace: &str) -> String {
         writeln!(out, "    /// <summary>{}</summary>", spec.doc).ok();
         writeln!(
             out,
-            "    VisitResult {}({}) => VisitResult.Continue();",
+            "    VisitResult {}({}) => new VisitResult.Continue();",
             spec.cs_method, params
         )
         .ok();

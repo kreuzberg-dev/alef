@@ -1521,8 +1521,7 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
 </module>
 "#;
 
-    let checkstyle_properties =
-        "checkstyle.suppressions.file=packages/java/checkstyle-suppressions.xml\n";
+    let checkstyle_properties = "checkstyle.suppressions.file=packages/java/checkstyle-suppressions.xml\n";
 
     let checkstyle_suppressions_xml = r#"<?xml version="1.0"?>
 <!DOCTYPE suppressions PUBLIC

@@ -91,15 +91,20 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             if matches!(method.return_type, TypeRef::Unit) {
                 writeln!(out, "    Ok(_) => Ok(()),").ok();
             } else {
-                writeln!(
-                    out,
-                    "    Ok(val) => Ok(val.string().unwrap_or_default().parse().unwrap_or_default()),"
-                )
-                .ok();
+                // For Result-returning methods, the PHP value should be deserialized from JSON
+                writeln!(out, "    Ok(val) => {{").ok();
+                writeln!(out, "        let json_str = val.string().unwrap_or_default();").ok();
+                writeln!(out, "        serde_json::from_str(&json_str).map_err(|e| {}::KreuzbergError::Other(format!(\"Deserialize error: {{}}\", e)))", self.core_import).ok();
+                writeln!(out, "    }}").ok();
             }
             // Error conversion: ext-php-rs::error::Error → KreuzbergError
             // Use string conversion since there's no direct From impl
-            writeln!(out, "    Err(e) => Err({}::KreuzbergError::Other(e.to_string())),", self.core_import).ok();
+            writeln!(
+                out,
+                "    Err(e) => Err({}::KreuzbergError::Other(e.to_string())),",
+                self.core_import
+            )
+            .ok();
             writeln!(out, "}}").ok();
         } else {
             writeln!(out, "match result {{").ok();
@@ -107,11 +112,12 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             if matches!(method.return_type, TypeRef::Unit) {
                 writeln!(out, "    Ok(_) => (),").ok();
             } else {
-                writeln!(
-                    out,
-                    "    Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
-                )
-                .ok();
+                // For non-Result methods, try to deserialize from JSON
+                // (safer than trying to parse arbitrary types)
+                writeln!(out, "    Ok(val) => {{").ok();
+                writeln!(out, "        let json_str = val.string().unwrap_or_default();").ok();
+                writeln!(out, "        serde_json::from_str(&json_str).unwrap_or_default()").ok();
+                writeln!(out, "    }}").ok();
             }
             writeln!(out, "    Err(_) => Default::default(),").ok();
             writeln!(out, "}}").ok();
@@ -184,12 +190,31 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         // inner_obj is *mut ZendObject, so we need to dereference and call the method.
         // SAFETY: the raw pointer is valid within the async block.
-        writeln!(out, "    match unsafe {{ (*inner_obj).try_call_method(\"{name}\", {args_expr}) }} {{").ok();
         writeln!(
             out,
-            "        Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
+            "    match unsafe {{ (*inner_obj).try_call_method(\"{name}\", {args_expr}) }} {{"
         )
         .ok();
+
+        // For Result-returning methods, deserialize JSON. For non-Result, parse directly.
+        if method.error_type.is_some() {
+            writeln!(out, "        Ok(val) => {{").ok();
+            writeln!(out, "            let json_str = val.string().unwrap_or_default();").ok();
+            writeln!(
+                out,
+                "            serde_json::from_str(&json_str).map_err(|e| {}::KreuzbergError::Other(format!(\"Deserialize error: {{}}\", e)))",
+                spec.core_import
+            )
+            .ok();
+            writeln!(out, "        }}").ok();
+        } else {
+            writeln!(
+                out,
+                "        Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
+            )
+            .ok();
+        }
+
         writeln!(
             out,
             "        Err(e) => Err({}::KreuzbergError::Plugin {{",
@@ -232,7 +257,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         for req_method in spec.required_methods() {
             writeln!(
                 out,
-                "        debug_assert!(php_obj.get_property(\"{}\").is_ok(),",
+                "        debug_assert!(php_obj.get_property::<ext_php_rs::types::Zval>(\\\"{}\\\").is_ok(),",
                 req_method.name
             )
             .ok();
@@ -300,7 +325,13 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let req_methods: Vec<&MethodDef> = spec.required_methods();
         if !req_methods.is_empty() {
             for method in &req_methods {
-                writeln!(out, "    if backend.get_property(\"{}\").is_err() {{", method.name).ok();
+                // get_property is generic and needs a type annotation. Use Zval since we only care about existence.
+                writeln!(
+                    out,
+                    "    if backend.get_property::<ext_php_rs::types::Zval>(\\\"{}\\\").is_err() {{",
+                    method.name
+                )
+                .ok();
                 writeln!(out, "        return Err(ext_php_rs::exception::PhpException::default(").ok();
                 writeln!(
                     out,

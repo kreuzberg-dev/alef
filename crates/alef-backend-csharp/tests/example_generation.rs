@@ -74,6 +74,7 @@ fn test_generated_code_example() {
                     is_ref: false,
                     is_mut: false,
                     newtype_wrapper: None,
+                    original_type: None,
                 },
                 ParamDef {
                     name: "config".to_string(),
@@ -85,6 +86,7 @@ fn test_generated_code_example() {
                     is_ref: false,
                     is_mut: false,
                     newtype_wrapper: None,
+                    original_type: None,
                 },
             ],
             return_type: TypeRef::String,

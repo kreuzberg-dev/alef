@@ -3016,6 +3016,7 @@ mod tests {
             is_ref: false,
             is_mut: false,
             newtype_wrapper: None,
+            original_type: None,
         }
     }
 

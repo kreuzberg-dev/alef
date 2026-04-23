@@ -849,7 +849,11 @@ fn render_test_function(
                 "dict" => {
                     // Pass as a plain Python dict literal.
                     let literal = json_to_python_literal(value);
-                    let noqa = if literal.contains("/tmp/") { "  # noqa: S108" } else { "" };
+                    let noqa = if literal.contains("/tmp/") {
+                        "  # noqa: S108"
+                    } else {
+                        ""
+                    };
                     arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
                     kwarg_exprs.push(format!("{var_name}={var_name}"));
                     continue;
@@ -907,7 +911,11 @@ fn render_test_function(
         }
 
         let literal = json_to_python_literal(value);
-        let noqa = if literal.contains("/tmp/") { "  # noqa: S108" } else { "" };
+        let noqa = if literal.contains("/tmp/") {
+            "  # noqa: S108"
+        } else {
+            ""
+        };
         arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
         kwarg_exprs.push(format!("{var_name}={var_name}"));
     }

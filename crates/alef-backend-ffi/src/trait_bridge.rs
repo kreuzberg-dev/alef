@@ -1730,6 +1730,7 @@ mod tests {
                     is_ref: true,
                     is_mut: false,
                     newtype_wrapper: None,
+                    original_type: None,
                 }],
                 return_type: TypeRef::Unit,
                 is_async: false,

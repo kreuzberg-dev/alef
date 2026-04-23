@@ -1469,12 +1469,7 @@ fn gen_exception_class(package: &str, class_name: &str) -> String {
     writeln!(out, "    /** The error code. */").ok();
     writeln!(out, "    private final int code;").ok();
     writeln!(out).ok();
-    writeln!(
-        out,
-        "    /** Creates a new {}Exception. */",
-        class_name
-    )
-    .ok();
+    writeln!(out, "    /** Creates a new {}Exception. */", class_name).ok();
     writeln!(
         out,
         "    public {}Exception(final int code, final String message) {{",
@@ -1485,12 +1480,7 @@ fn gen_exception_class(package: &str, class_name: &str) -> String {
     writeln!(out, "        this.code = code;").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
-    writeln!(
-        out,
-        "    /** Creates a new {}Exception with a cause. */",
-        class_name
-    )
-    .ok();
+    writeln!(out, "    /** Creates a new {}Exception with a cause. */", class_name).ok();
     writeln!(
         out,
         "    public {}Exception(final String message, final Throwable cause) {{",
@@ -1991,7 +1981,12 @@ fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
     writeln!(out).ok();
     writeln!(out, "    /** Creates an instance from a string value. */").ok();
     writeln!(out, "    @JsonCreator").ok();
-    writeln!(out, "    public static {} fromValue(final String value) {{", enum_def.name).ok();
+    writeln!(
+        out,
+        "    public static {} fromValue(final String value) {{",
+        enum_def.name
+    )
+    .ok();
     writeln!(out, "        for ({} e : values()) {{", enum_def.name).ok();
     writeln!(out, "            if (e.value.equalsIgnoreCase(value)) {{").ok();
     writeln!(out, "                return e;").ok();

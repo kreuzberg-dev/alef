@@ -1280,68 +1280,6 @@ fn gen_function(
             params.join(", "),
             return_annotation
         )
-    } else if func.sanitized && !func.is_async && func.error_type.is_none() {
-        // Sanitized non-error sync function: deserialize Vec<tuple> params from JSON without error handling
-        let serde_params: Vec<String> = func
-            .params
-            .iter()
-            .map(|p| match &p.ty {
-                TypeRef::Vec(inner) => {
-                    if p.optional {
-                        format!("{}: Option<Vec<String>>", p.name)
-                    } else {
-                        format!("{}: Vec<String>", p.name)
-                    }
-                }
-                _ => {
-                    let ty = mapper.map_type(&p.ty);
-                    let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
-                    format!("{}: {}", p.name, mapped_ty)
-                }
-            })
-            .collect();
-
-        let mut serde_bindings = String::new();
-        for p in &func.params {
-            if matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some()) {
-                // Sanitized Vec<tuple>: deserialize from Vec<String> JSON without errors
-                if p.optional {
-                    serde_bindings.push_str(&format!(
-                        "let {n}_core: Option<Vec<_>> = {n}.map(|strs| {{\n    \
-                         strs.into_iter()\n    \
-                         .filter_map(|s| serde_json::from_str::<_>(&s).ok())\n    \
-                         .collect()\n    \
-                         }});\n    ",
-                        n = p.name,
-                    ));
-                } else {
-                    serde_bindings.push_str(&format!(
-                        "let {n}_core: Vec<_> = {n}.into_iter()\n    \
-                         .filter_map(|s| serde_json::from_str::<_>(&s).ok())\n    \
-                         .collect();\n    ",
-                        n = p.name,
-                    ));
-                }
-            }
-        }
-
-        let call_args = generators::gen_call_args_with_let_bindings(&func.params, opaque_types);
-        let core_call = format!("{core_fn_path}({call_args})");
-        let wrap = wasm_wrap_return_fn(
-            &core_call,
-            &func.return_type,
-            opaque_types,
-            func.returns_ref,
-            func.returns_cow,
-            prefix,
-        );
-        format!(
-            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
-             {serde_bindings}{wrap}\n}}",
-            func.name,
-            serde_params.join(", "),
-            return_annotation
-        )
     } else if func.error_type.is_some()
         && (func.sanitized || alef_codegen::generators::has_named_params(&func.params, opaque_types))
     {

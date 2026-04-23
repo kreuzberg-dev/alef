@@ -594,6 +594,7 @@ mod tests {
             is_ref,
             is_mut: false,
             newtype_wrapper: None,
+            original_type: None,
         }
     }
 

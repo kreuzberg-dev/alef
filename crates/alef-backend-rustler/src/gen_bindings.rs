@@ -1712,6 +1712,58 @@ fn gen_elixir_struct_module(
     out
 }
 
+/// Elixir built-in type names that must not be redefined with `@type`.
+///
+/// Emitting `@type list :: ...` shadows the built-in `list/0` and produces a
+/// Dialyzer/Elixir compiler warning. Append `_variant` to any name that
+/// collides with one of these identifiers.
+const ELIXIR_BUILTIN_TYPES: &[&str] = &[
+    "any",
+    "as_boolean",
+    "atom",
+    "binary",
+    "boolean",
+    "byte",
+    "char",
+    "charlist",
+    "float",
+    "fun",
+    "identifier",
+    "integer",
+    "iodata",
+    "iolist",
+    "keyword",
+    "list",
+    "map",
+    "mfa",
+    "module",
+    "no_return",
+    "node",
+    "none",
+    "number",
+    "pid",
+    "port",
+    "reference",
+    "string",
+    "struct",
+    "term",
+    "timeout",
+    "tuple",
+];
+
+/// Return a `@type` name that does not collide with an Elixir built-in type.
+///
+/// If `name` matches one of the Elixir built-in type identifiers it is suffixed
+/// with `_variant` so the generated `@type` declaration does not shadow the
+/// built-in and trigger compiler or Dialyzer warnings.
+fn elixir_safe_type_name(name: &str) -> String {
+    if ELIXIR_BUILTIN_TYPES.contains(&name) {
+        format!("{name}_variant")
+    } else {
+        name.to_owned()
+    }
+}
+
 /// Generate a `defmodule {AppModule}.{EnumName}` file for an enum.
 ///
 /// Simple enums (all variants have no fields) get a `@type t :: :variant1 | :variant2 | ...`
@@ -1779,9 +1831,10 @@ fn gen_elixir_enum_module(enum_def: &EnumDef, app_module: &str) -> String {
         let _ = writeln!(out);
         for variant in &enum_def.variants {
             let variant_atom = format!(":{}", variant.name.to_snake_case());
+            let type_name = elixir_safe_type_name(&variant.name.to_snake_case());
             if variant.fields.is_empty() {
                 // Unit variant: just an atom
-                let _ = writeln!(out, "  @type {} :: {variant_atom}", variant.name.to_snake_case());
+                let _ = writeln!(out, "  @type {type_name} :: {variant_atom}");
             } else {
                 // Struct variant: a map with a type tag
                 let field_types: Vec<String> = variant
@@ -1799,8 +1852,7 @@ fn gen_elixir_enum_module(enum_def: &EnumDef, app_module: &str) -> String {
                     .collect();
                 let _ = writeln!(
                     out,
-                    "  @type {} :: %{{type: {variant_atom}, {}}}",
-                    variant.name.to_snake_case(),
+                    "  @type {type_name} :: %{{type: {variant_atom}, {}}}",
                     field_types.join(", ")
                 );
             }

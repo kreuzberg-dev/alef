@@ -130,6 +130,7 @@ fn test_basic_generation() {
                 is_ref: false,
                 is_mut: false,
                 newtype_wrapper: None,
+                original_type: None,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -417,6 +418,7 @@ fn test_function_with_error_type() {
                 is_ref: false,
                 is_mut: false,
                 newtype_wrapper: None,
+                original_type: None,
             }],
             return_type: TypeRef::Primitive(PrimitiveType::Bool),
             is_async: false,
@@ -620,6 +622,7 @@ fn test_async_function() {
                 is_ref: false,
                 is_mut: false,
                 newtype_wrapper: None,
+                original_type: None,
             }],
             return_type: TypeRef::String,
             is_async: true,
@@ -740,6 +743,7 @@ fn test_methods_generation() {
                         is_ref: false,
                         is_mut: false,
                         newtype_wrapper: None,
+                        original_type: None,
                     }],
                     return_type: TypeRef::String,
                     is_async: false,
@@ -1316,6 +1320,7 @@ fn test_return_type_exported_from_native_module_not_options() {
                 is_ref: false,
                 is_mut: false,
                 newtype_wrapper: None,
+                original_type: None,
             }],
             return_type: TypeRef::Named("ConversionResult".to_string()),
             is_async: false,
@@ -1486,6 +1491,7 @@ fn make_param_def(name: &str, ty: TypeRef, is_ref: bool) -> ParamDef {
         is_ref,
         is_mut: false,
         newtype_wrapper: None,
+        original_type: None,
     }
 }
 

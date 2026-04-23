@@ -132,6 +132,7 @@ fn print_generated_java_code() {
                         is_ref: false,
                         is_mut: false,
                         newtype_wrapper: None,
+                        original_type: None,
                     },
                     ParamDef {
                         name: "config".to_string(),
@@ -143,6 +144,7 @@ fn print_generated_java_code() {
                         is_ref: false,
                         is_mut: false,
                         newtype_wrapper: None,
+                        original_type: None,
                     },
                 ],
                 return_type: TypeRef::Named("ExtractionResult".to_string()),
@@ -170,6 +172,7 @@ fn print_generated_java_code() {
                         is_ref: false,
                         is_mut: false,
                         newtype_wrapper: None,
+                        original_type: None,
                     },
                     ParamDef {
                         name: "config".to_string(),
@@ -181,6 +184,7 @@ fn print_generated_java_code() {
                         is_ref: false,
                         is_mut: false,
                         newtype_wrapper: None,
+                        original_type: None,
                     },
                 ],
                 return_type: TypeRef::Named("ExtractionResult".to_string()),

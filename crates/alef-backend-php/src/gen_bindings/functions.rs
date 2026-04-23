@@ -609,7 +609,8 @@ fn gen_function_body(
         // serde is available AND the function returns Result (avoids the missing From<BindingType>
         // for core type compile error). Functions that don't return Result can't use ? operators,
         // so we fall back to .clone().into().
-        let let_bindings = if has_serde && func.error_type.is_some() && has_ref_named_params(&func.params, opaque_types) {
+        let let_bindings = if has_serde && func.error_type.is_some() && has_ref_named_params(&func.params, opaque_types)
+        {
             gen_php_serde_let_bindings(&func.params, opaque_types, core_import)
         } else {
             gen_php_named_let_bindings(&func.params, opaque_types, core_import)

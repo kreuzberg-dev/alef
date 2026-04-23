@@ -132,6 +132,7 @@ fn test_basic_generation() {
                 is_ref: false,
                 is_mut: false,
                 newtype_wrapper: None,
+                original_type: None,
             }],
             return_type: TypeRef::String,
             is_async: false,
@@ -448,6 +449,7 @@ fn test_methods_generation() {
                         is_ref: false,
                         is_mut: false,
                         newtype_wrapper: None,
+                        original_type: None,
                     }],
                     return_type: TypeRef::Unit,
                     is_async: false,
@@ -593,6 +595,7 @@ fn test_async_function() {
                 is_ref: false,
                 is_mut: false,
                 newtype_wrapper: None,
+                original_type: None,
             }],
             return_type: TypeRef::String,
             is_async: true,
@@ -789,6 +792,7 @@ fn test_optional_primitive_uses_cgo_types() {
         is_ref: false,
         is_mut: false,
         newtype_wrapper: None,
+        original_type: None,
     };
 
     let api = ApiSurface {
@@ -869,6 +873,7 @@ fn test_optional_return_type_no_double_pointer() {
                 is_ref: false,
                 is_mut: false,
                 newtype_wrapper: None,
+                original_type: None,
             }],
             return_type: TypeRef::Optional(Box::new(TypeRef::String)),
             is_async: false,
@@ -961,6 +966,7 @@ fn make_trait_param(name: &str, ty: TypeRef) -> ParamDef {
         is_ref: false,
         is_mut: false,
         newtype_wrapper: None,
+        original_type: None,
     }
 }
 

@@ -84,6 +84,7 @@ fn make_param(name: &str, ty: TypeRef, is_ref: bool) -> ParamDef {
         is_ref,
         is_mut: false,
         newtype_wrapper: None,
+        original_type: None,
     }
 }
 

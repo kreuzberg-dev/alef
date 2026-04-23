@@ -932,22 +932,9 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
         n = CALLBACKS.len(),
     )
     .ok();
-    writeln!(
-        out,
-        "    // = {total} pointer-sized slots",
-        total = num_fields,
-    )
-    .ok();
-    writeln!(
-        out,
-        "    private static final long CALLBACKS_STRUCT_SIZE ="
-    )
-    .ok();
-    writeln!(
-        out,
-        "        (long) ValueLayout.ADDRESS.byteSize() * {num_fields}L;"
-    )
-    .ok();
+    writeln!(out, "    // = {total} pointer-sized slots", total = num_fields,).ok();
+    writeln!(out, "    private static final long CALLBACKS_STRUCT_SIZE =").ok();
+    writeln!(out, "        (long) ValueLayout.ADDRESS.byteSize() * {num_fields}L;").ok();
     writeln!(out).ok();
     // Named offset constants for HTMHtmNodeContext struct fields (avoids magic numbers)
     writeln!(out, "    // HTMHtmNodeContext field offsets").ok();
@@ -1004,23 +991,14 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
             let stub_var = stub_var_name(spec.java_method);
             writeln!(out, "        // {}", spec.c_field).ok();
             writeln!(out, "        var {} = LINKER.upcallStub(", stub_var).ok();
-            writeln!(
-                out,
-                "                LOOKUP.bind(",
-            )
-            .ok();
+            writeln!(out, "                LOOKUP.bind(",).ok();
             writeln!(
                 out,
                 "                    this, \"{}\",",
                 handle_method_name(spec.java_method),
             )
             .ok();
-            writeln!(
-                out,
-                "                    {}),",
-                method_type
-            )
-            .ok();
+            writeln!(out, "                    {}),", method_type).ok();
             writeln!(out, "                {},", descriptor).ok();
             writeln!(out, "                arena);").ok();
             writeln!(out, "        struct.set(ValueLayout.ADDRESS, off, {});", stub_var).ok();
@@ -1052,22 +1030,10 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
         "    // HTMHtmNodeContext: int32 node_type, char* tag_name, uintptr depth,"
     )
     .ok();
-    writeln!(
-        out,
-        "    //   uintptr index_in_parent, char* parent_tag,"
-    )
-    .ok();
+    writeln!(out, "    //   uintptr index_in_parent, char* parent_tag,").ok();
     writeln!(out, "    //   int32 is_inline").ok();
-    writeln!(
-        out,
-        "    private static final MemoryLayout CTX_LAYOUT ="
-    )
-    .ok();
-    writeln!(
-        out,
-        "        MemoryLayout.structLayout("
-    )
-    .ok();
+    writeln!(out, "    private static final MemoryLayout CTX_LAYOUT =").ok();
+    writeln!(out, "        MemoryLayout.structLayout(").ok();
     writeln!(out, "            ValueLayout.JAVA_INT.withName(\"node_type\"),").ok();
     writeln!(out, "            MemoryLayout.paddingLayout(4),").ok();
     writeln!(out, "            ValueLayout.ADDRESS.withName(\"tag_name\"),").ok();
@@ -1078,48 +1044,16 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out, "            MemoryLayout.paddingLayout(4)").ok();
     writeln!(out, "    );").ok();
     writeln!(out).ok();
-    writeln!(
-        out,
-        "    private static NodeContext decodeNodeContext("
-    )
-    .ok();
-    writeln!(
-        out,
-        "            final MemorySegment ctxPtr) {{"
-    )
-    .ok();
-    writeln!(
-        out,
-        "        var ctx = ctxPtr.reinterpret("
-    )
-    .ok();
+    writeln!(out, "    private static NodeContext decodeNodeContext(").ok();
+    writeln!(out, "            final MemorySegment ctxPtr) {{").ok();
+    writeln!(out, "        var ctx = ctxPtr.reinterpret(").ok();
     writeln!(out, "            CTX_LAYOUT.byteSize());").ok();
-    writeln!(
-        out,
-        "        int nodeType = ctx.get("
-    )
-    .ok();
+    writeln!(out, "        int nodeType = ctx.get(").ok();
     writeln!(out, "            ValueLayout.JAVA_INT, 0L);").ok();
-    writeln!(
-        out,
-        "        var tagNamePtr = ctx.get("
-    )
-    .ok();
-    writeln!(
-        out,
-        "            ValueLayout.ADDRESS, CTX_OFFSET_TAG_NAME);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "        String tagName = tagNamePtr"
-    )
-    .ok();
-    writeln!(
-        out,
-        "            .reinterpret(Long.MAX_VALUE).getString(0);"
-    )
-    .ok();
+    writeln!(out, "        var tagNamePtr = ctx.get(").ok();
+    writeln!(out, "            ValueLayout.ADDRESS, CTX_OFFSET_TAG_NAME);").ok();
+    writeln!(out, "        String tagName = tagNamePtr").ok();
+    writeln!(out, "            .reinterpret(Long.MAX_VALUE).getString(0);").ok();
     writeln!(
         out,
         "        long depth = ctx.get(ValueLayout.JAVA_LONG, CTX_OFFSET_DEPTH);"

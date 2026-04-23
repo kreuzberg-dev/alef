@@ -124,7 +124,11 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
                 writeln!(out, "            .unwrap_or_default();").ok();
                 writeln!(out, "        match s.as_str() {{").ok();
                 writeln!(out, "            \"\" | \"null\" => Default::default(),").ok();
-                writeln!(out, "            _ => serde_json::from_str::<_>(&s).unwrap_or_default()").ok();
+                writeln!(
+                    out,
+                    "            _ => serde_json::from_str::<_>(&s).unwrap_or_default()"
+                )
+                .ok();
                 writeln!(out, "        }}").ok();
             }
             writeln!(out, "    }}").ok();
@@ -195,7 +199,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             writeln!(out, "            \"\" | \"null\" => Ok(Default::default()),").ok();
             writeln!(out, "            _ => serde_json::from_str::<_>(&s).map_err(|_| {{").ok();
             let err = spec.make_error(&format!(
-                "\"Failed to parse return value for method '{}'\".to_string()" ,
+                "\"Failed to parse return value for method '{}'\".to_string()",
                 name
             ));
             writeln!(out, "                {err}").ok();
@@ -718,8 +722,8 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
     method
         .params
         .iter()
-        .enumerate()
-        .map(|(_idx, p)| {
+
+        .map(|p| {
             if let TypeRef::Named(n) = &p.ty {
                 if n == "NodeContext" {
                     return format!(
