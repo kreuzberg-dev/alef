@@ -142,13 +142,13 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 writeln!(
                     out,
                     "    .ok_or_else(|| {})",
-                    spec.make_error("\"Failed to convert result\"")
+                    spec.make_error("\"Failed to convert result\".to_string()")
                 )
                 .ok();
             } else {
                 writeln!(
                     out,
-                    "result.as_string().and_then(|s| s.parse().ok()).unwrap_or_default()"
+                    "result.as_string().and_then(|s| serde_json::from_str::<{ret_ty}>(&s).ok()).unwrap_or_default()"
                 )
                 .ok();
             }

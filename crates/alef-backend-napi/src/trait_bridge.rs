@@ -100,17 +100,13 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
                 writeln!(out, "        match s.as_str() {{").ok();
                 writeln!(out, "            \"\" | \"null\" => Ok(Default::default()),").ok();
                 writeln!(out, "            _ => {{").ok();
-                writeln!(out, "                if let Ok(val) = serde_json::from_str::<_>(&s) {{").ok();
-                writeln!(out, "                    Ok(val)").ok();
-                writeln!(out, "                }} else {{").ok();
-                writeln!(out, "                    s.parse().map_err(|_| {{").ok();
+                writeln!(out, "                serde_json::from_str::<_>(&s).map_err(|_| {{").ok();
                 let err = spec.make_error(&format!(
                     "format!(\"Failed to parse return value for method '{}'\", {})",
                     name, "self.cached_name"
                 ));
-                writeln!(out, "                        {err}").ok();
-                writeln!(out, "                    }})").ok();
-                writeln!(out, "                }}").ok();
+                writeln!(out, "                    {err}").ok();
+                writeln!(out, "                }})").ok();
                 writeln!(out, "            }}").ok();
                 writeln!(out, "        }}").ok();
             }
@@ -132,13 +128,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
                 writeln!(out, "            .unwrap_or_default();").ok();
                 writeln!(out, "        match s.as_str() {{").ok();
                 writeln!(out, "            \"\" | \"null\" => Default::default(),").ok();
-                writeln!(out, "            _ => {{").ok();
-                writeln!(out, "                if let Ok(val) = serde_json::from_str::<_>(&s) {{").ok();
-                writeln!(out, "                    val").ok();
-                writeln!(out, "                }} else {{").ok();
-                writeln!(out, "                    s.parse().unwrap_or_default()").ok();
-                writeln!(out, "                }}").ok();
-                writeln!(out, "            }}").ok();
+                writeln!(out, "            _ => serde_json::from_str::<_>(&s).unwrap_or_default()").ok();
                 writeln!(out, "        }}").ok();
             }
             writeln!(out, "    }}").ok();
@@ -727,13 +717,14 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
     method
         .params
         .iter()
-        .map(|p| {
+        .enumerate()
+        .map(|(_idx, p)| {
             if let TypeRef::Named(n) = &p.ty {
                 if n == "NodeContext" {
                     return format!(
-                        "nodecontext_to_js_object(&self.env(), {}{}).map(|o| o.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                        "{{let v = nodecontext_to_js_object(&self.env(), {}{}).map(|o| o.to_unknown()).unwrap_or_else(|_| unsafe {{ \
                          let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                         napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
+                         napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}); v }}",
                         if p.is_ref { "" } else { "&" },
                         p.name
                     );
@@ -742,31 +733,32 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
             // Option<&str>
             if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
                 return format!(
-                    "match {name} {{ \
-                     Some(s) => self.env().create_string(s).map(|v| v.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                    "{{let v = match {name} {{ \
+                     Some(s) => {{ let js_str = self.env().create_string(s).map(|v| v.to_unknown()).unwrap_or_else(|_| unsafe {{ \
                        let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}), \
+                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}); js_str }}, \
                      None => unsafe {{ \
                        let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} }}",
+                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
+                    }}; v}}",
                     name = p.name
                 );
             }
             // &str
             if matches!(&p.ty, TypeRef::String) && p.is_ref {
                 return format!(
-                    "self.env().create_string({name}).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                    "{{let js_str = self.env().create_string({name}).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
                      let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}); js_str}}",
                     name = p.name
                 );
             }
             // String (owned)
             if matches!(&p.ty, TypeRef::String) {
                 return format!(
-                    "self.env().create_string({name}.as_str()).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                    "{{let js_str = self.env().create_string({name}.as_str()).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
                      let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}); js_str}}",
                     name = p.name
                 );
             }
@@ -782,26 +774,26 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
             // u32 / usize: create_uint32 needs a u32; usize requires the cast but u32 does not.
             if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::U32)) {
                 return format!(
-                    "self.env().create_uint32({name}).map(|n| n.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                    "{{let js_uint = self.env().create_uint32({name}).map(|n| n.to_unknown()).unwrap_or_else(|_| unsafe {{ \
                      let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}); js_uint}}",
                     name = p.name
                 );
             }
             if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Usize)) {
                 return format!(
-                    "self.env().create_uint32({name} as u32).map(|n| n.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                    "{{let js_uint = self.env().create_uint32({name} as u32).map(|n| n.to_unknown()).unwrap_or_else(|_| unsafe {{ \
                      let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}); js_uint}}",
                     name = p.name
                 );
             }
             // Vec<String> or &[String] - serialize to JSON string as fallback
             // Default: serialize as debug string
             format!(
-                "self.env().create_string(&format!(\"{{:?}}\", {name})).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
+                "{{let js_str = self.env().create_string(&format!(\"{{:?}}\", {name})).map(|s| s.to_unknown()).unwrap_or_else(|_| unsafe {{ \
                  let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                 napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }})",
+                 napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}); js_str}}",
                 name = p.name
             )
         })

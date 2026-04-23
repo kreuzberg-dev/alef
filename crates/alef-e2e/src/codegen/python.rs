@@ -142,6 +142,12 @@ python_files = "test_*.py"
 python_functions = "test_*"
 addopts = "-v --strict-markers --tb=short"
 timeout = 300
+
+[tool.ruff.lint]
+ignore = ["PLR2004"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S108", "PT011", "B017"]
 "#
     )
 }
@@ -901,7 +907,8 @@ fn render_test_function(
         }
 
         let literal = json_to_python_literal(value);
-        arg_bindings.push(format!("    {var_name} = {literal}"));
+        let noqa = if literal.contains("/tmp/") { "  # noqa: S108" } else { "" };
+        arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
         kwarg_exprs.push(format!("{var_name}={var_name}"));
     }
 
