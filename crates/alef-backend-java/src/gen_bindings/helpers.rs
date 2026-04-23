@@ -175,31 +175,6 @@ pub(crate) fn java_apply_rename_all(name: &str, rename_all: Option<&str>) -> Str
     }
 }
 
-pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
-    match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => true,
-        TypeRef::Optional(inner) => is_ffi_string_return(inner),
-        _ => false,
-    }
-}
-
-/// Returns the appropriate Java cast type for non-string FFI return values.
-pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
-    match ty {
-        TypeRef::Primitive(prim) => match prim {
-            PrimitiveType::Bool => "boolean",
-            PrimitiveType::U8 | PrimitiveType::I8 => "byte",
-            PrimitiveType::U16 | PrimitiveType::I16 => "short",
-            PrimitiveType::U32 | PrimitiveType::I32 => "int",
-            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "long",
-            PrimitiveType::F32 => "float",
-            PrimitiveType::F64 => "double",
-        },
-        TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) => "MemorySegment",
-        _ => "MemorySegment",
-    }
-}
-
 pub(crate) fn format_optional_value(ty: &TypeRef, default: &str) -> String {
     // Check if the default is already wrapped (e.g., "Optional.of(...)" or "Optional.empty()")
     if default.contains("Optional.") {

@@ -4,7 +4,7 @@ use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-pub fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
@@ -58,7 +58,7 @@ workspace = true
     }])
 }
 
-pub fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let package_name = config.node_package_name();
     let name = &config.crate_config.name;

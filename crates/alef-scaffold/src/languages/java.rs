@@ -4,7 +4,7 @@ use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-pub fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let name = &config.crate_config.name;
     let version = &api.version;

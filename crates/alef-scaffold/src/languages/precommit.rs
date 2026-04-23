@@ -2,7 +2,7 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use std::path::PathBuf;
 
-pub fn scaffold_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Vec<GeneratedFile> {
+pub(crate) fn scaffold_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Vec<GeneratedFile> {
     if std::path::Path::new(".pre-commit-config.yaml").exists() {
         return vec![];
     }
@@ -12,7 +12,7 @@ pub fn scaffold_pre_commit_config(config: &AlefConfig, languages: &[Language]) -
 /// Generate the `.pre-commit-config.yaml` content based on configured languages.
 ///
 /// Separated from `scaffold_pre_commit_config` for testability.
-pub fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Vec<GeneratedFile> {
+pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Vec<GeneratedFile> {
     let has = |lang: Language| languages.contains(&lang);
     let crate_dir = config.core_crate_dir();
 

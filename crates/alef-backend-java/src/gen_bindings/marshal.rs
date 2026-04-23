@@ -1,6 +1,6 @@
 use crate::type_map::java_ffi_type;
 use ahash::AHashSet;
-use alef_core::ir::{PrimitiveType, TypeRef};
+use alef_core::ir::TypeRef;
 use heck::ToSnakeCase;
 use std::fmt::Write;
 
@@ -168,33 +168,6 @@ pub(crate) fn gen_function_descriptor(return_layout: &str, param_layouts: &[Stri
     }
 }
 
-/// Returns true if the given return type maps to an FFI ADDRESS that represents a string
-
-pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
-    match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => true,
-        TypeRef::Optional(inner) => is_ffi_string_return(inner),
-        _ => false,
-    }
-}
-
-/// Returns the appropriate Java cast type for non-string FFI return values.
-pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
-    match ty {
-        TypeRef::Primitive(prim) => match prim {
-            PrimitiveType::Bool => "boolean",
-            PrimitiveType::U8 | PrimitiveType::I8 => "byte",
-            PrimitiveType::U16 | PrimitiveType::I16 => "short",
-            PrimitiveType::U32 | PrimitiveType::I32 => "int",
-            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "long",
-            PrimitiveType::F32 => "float",
-            PrimitiveType::F64 => "double",
-        },
-        TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) => "MemorySegment",
-        _ => "MemorySegment",
-    }
-}
-
 pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &str) {
     // Only emit helper methods that are actually called in the generated body.
     let needs_check_last_error = out.contains("checkLastError()");
@@ -299,55 +272,3 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
     }
 }
 
-// ---------------------------------------------------------------------------
-// Builder class for types with defaults
-// ---------------------------------------------------------------------------
-
-/// Format a default value for an Optional field, wrapping it in Optional.of()
-/// with proper Java literal syntax.
-pub(crate) fn format_optional_value(ty: &TypeRef, default: &str) -> String {
-    // Check if the default is already wrapped (e.g., "Optional.of(...)" or "Optional.empty()")
-    if default.contains("Optional.") {
-        return default.to_string();
-    }
-
-    // Unwrap Optional types to get the inner type
-    let inner_ty = match ty {
-        TypeRef::Optional(inner) => inner.as_ref(),
-        other => other,
-    };
-
-    // Determine the proper literal suffix based on type
-    let formatted_value = match inner_ty {
-        TypeRef::Primitive(p) => match p {
-            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Isize | PrimitiveType::Usize => {
-                // Add 'L' suffix for long values if not already present
-                if default.ends_with('L') || default.ends_with('l') {
-                    default.to_string()
-                } else if default.parse::<i64>().is_ok() {
-                    format!("{}L", default)
-                } else {
-                    default.to_string()
-                }
-            }
-            PrimitiveType::F32 => {
-                // Add 'f' suffix for float values if not already present
-                if default.ends_with('f') || default.ends_with('F') {
-                    default.to_string()
-                } else if default.parse::<f32>().is_ok() {
-                    format!("{}f", default)
-                } else {
-                    default.to_string()
-                }
-            }
-            PrimitiveType::F64 => {
-                // Double defaults can have optional 'd' suffix, but 0.0 is fine
-                default.to_string()
-            }
-            _ => default.to_string(),
-        },
-        _ => default.to_string(),
-    };
-
-    format!("Optional.of({})", formatted_value)
-}
