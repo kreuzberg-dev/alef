@@ -248,9 +248,15 @@ fn build_magnus_arg(p: &alef_core::ir::ParamDef) -> String {
     if matches!(&p.ty, TypeRef::String) {
         return format!("magnus::RString::new({}.as_str())", p.name);
     }
-    // For primitive types, use magnus::IntoValue trait via .into_value_with()
-    // or convert via the Ruby API. The simplest: pass primitives directly as tuple args
-    // since Magnus's funcall arg trait handles i32, i64, u32, bool, etc. natively.
+    // Vec/slice types: convert to Ruby array
+    if matches!(&p.ty, TypeRef::Vec(_)) {
+        let ruby = "unsafe { magnus::Ruby::get_unchecked() }";
+        return format!(
+            "{{ let arr = {ruby}.ary_new_capa({name}.len()); for item in {name} {{ let _ = arr.push(item.to_string()); }} arr }}",
+            name = p.name,
+        );
+    }
+    // For primitive types, pass directly — Magnus funcall handles i32, i64, u32, bool natively.
     p.name.to_string()
 }
 
