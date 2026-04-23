@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-23
+
+### Fixed
+
+- Codegen: fix `Map` with `Named` value conversion in optionalized `binding_to_core` path.
+- Codegen: fix WASM `js_sys` import generation, Go `gofmt` compliance, Rust e2e `is_none` assertions, PHP builder pattern.
+- Codegen: fix C# bytes pinning and `IntPtr.Zero` guard, Go `gofmt` output, Rust e2e `is_none`, Java e2e camelCase naming.
+- Magnus: fix `funcall` API usage, visitor bridge argument passing, `Vec` conversion, optional field flattening, and `default_types` handling.
+- Magnus: simplify `gen_trait_bridge` signature — remove inline error type/constructor args, derive from config.
+- Elixir: add `.formatter.exs` with 120-character line length; update stub wrap threshold to 120.
+- Scaffold: add `steep`, `rubocop-performance`, `rubocop-rspec` to Ruby Gemfile template.
+
 ## [0.5.9] - 2026-04-23
 
 ### Fixed
