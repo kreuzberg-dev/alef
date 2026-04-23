@@ -36,4 +36,8 @@ pub struct TraitBridgeConfig {
     /// parameter is still treated as a bridge param for this trait.
     #[serde(default)]
     pub param_name: Option<String>,
+    /// Extra arguments to append to the `registry.register(arc, ...)` call.
+    /// Example: `"0"` produces `registry.register(arc, 0)`.
+    #[serde(default)]
+    pub register_extra_args: Option<String>,
 }

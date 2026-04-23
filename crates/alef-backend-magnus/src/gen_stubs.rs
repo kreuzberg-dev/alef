@@ -11,6 +11,8 @@ pub fn gen_stubs(api: &ApiSurface, gem_name: &str) -> String {
     let module_name = get_module_name(gem_name);
     lines.push(format!("module {}", module_name));
     lines.push("".to_string());
+    lines.push("  VERSION: String".to_string());
+    lines.push("".to_string());
 
     // Generate type stubs
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {

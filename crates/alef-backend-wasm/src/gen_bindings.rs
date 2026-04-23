@@ -1312,10 +1312,11 @@ fn gen_function(
             .collect();
 
         // Generate serde_wasm_bindgen::from_value let-bindings for Named non-opaque params
+        // and Vec<String> with is_ref=true (needs texts_refs intermediate)
         let mut serde_bindings = String::new();
         for p in &func.params {
-            if let TypeRef::Named(name) = &p.ty {
-                if !opaque_types.contains(name.as_str()) {
+            match &p.ty {
+                TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                     let core_path = format!("{}::{}", core_import, name);
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
                     if p.optional {
@@ -1337,6 +1338,24 @@ fn gen_function(
                         ));
                     }
                 }
+                TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
+                    // Vec<String> with is_ref=true: core expects &[&str].
+                    // Generate texts_refs: Vec<&str> or Option<Vec<&str>>.
+                    if p.optional {
+                        // Option<Vec<String>> -> unwrap_or_default() -> Vec<&str>
+                        serde_bindings.push_str(&format!(
+                            "let {n}_core: Vec<String> = {n}.clone().unwrap_or_default();\n    \
+                             let {n}_refs: Vec<&str> = {n}_core.iter().map(|s| s.as_str()).collect();\n    ",
+                            n = p.name,
+                        ));
+                    } else {
+                        serde_bindings.push_str(&format!(
+                            "let {n}_refs: Vec<&str> = {n}.iter().map(|s| s.as_str()).collect();\n    ",
+                            n = p.name,
+                        ));
+                    }
+                }
+                _ => {}
             }
         }
 

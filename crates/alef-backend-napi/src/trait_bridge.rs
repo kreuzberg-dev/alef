@@ -49,8 +49,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         .ok();
         writeln!(out, "    Ok(f) => f,").ok();
         if has_error {
-            let err =
-                spec.make_error("format!(\"Method '{}' not found on bridge object: {}\", self.cached_name, e)");
+            let err = spec.make_error("format!(\"Method '{}' not found on bridge object: {}\", self.cached_name, e)");
             writeln!(out, "    Err(e) => return Err({err}),").ok();
         } else {
             writeln!(out, "    Err(_) => return Default::default(),").ok();
@@ -254,15 +253,35 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out).ok();
         writeln!(out, "    /// Extract napi::Env from the stored Object.").ok();
         writeln!(out, "    fn env(&self) -> napi::Env {{").ok();
-        writeln!(out, "        // SAFETY: Object<'static> is 3 pointer-sized words; first word is napi_env.").ok();
-        writeln!(out, "        let raw: [*mut std::ffi::c_void; 3] = unsafe {{ std::mem::transmute_copy(&self.inner) }};").ok();
+        writeln!(
+            out,
+            "        // SAFETY: Object<'static> is 3 pointer-sized words; first word is napi_env."
+        )
+        .ok();
+        writeln!(
+            out,
+            "        let raw: [*mut std::ffi::c_void; 3] = unsafe {{ std::mem::transmute_copy(&self.inner) }};"
+        )
+        .ok();
         writeln!(out, "        napi::Env::from_raw(raw[0] as napi::sys::napi_env)").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
-        writeln!(out, "// SAFETY: The bridge is created from a NAPI Object that is pinned to the").ok();
-        writeln!(out, "// Node.js event loop thread. All access occurs on that thread. Send+Sync").ok();
-        writeln!(out, "// are required by the Plugin trait but the bridge is never actually moved").ok();
+        writeln!(
+            out,
+            "// SAFETY: The bridge is created from a NAPI Object that is pinned to the"
+        )
+        .ok();
+        writeln!(
+            out,
+            "// Node.js event loop thread. All access occurs on that thread. Send+Sync"
+        )
+        .ok();
+        writeln!(
+            out,
+            "// are required by the Plugin trait but the bridge is never actually moved"
+        )
+        .ok();
         writeln!(out, "// across threads.").ok();
         writeln!(out, "unsafe impl Send for {wrapper} {{}}").ok();
         writeln!(out, "unsafe impl Sync for {wrapper} {{}}").ok();
@@ -293,9 +312,15 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(bridge);").ok();
 
         // Register in the plugin registry (synchronous, no GC needed for NAPI)
+        let extra = spec
+            .bridge_config
+            .register_extra_args
+            .as_deref()
+            .map(|a| format!(", {a}"))
+            .unwrap_or_default();
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(out, "    registry.register(arc).map_err(|e| napi::Error::new(").ok();
+        writeln!(out, "    registry.register(arc{extra}).map_err(|e| napi::Error::new(").ok();
         writeln!(out, "        napi::Status::GenericFailure,").ok();
         writeln!(out, "        format!(\"Failed to register backend: {{}}\", e)").ok();
         writeln!(out, "    ))").ok();

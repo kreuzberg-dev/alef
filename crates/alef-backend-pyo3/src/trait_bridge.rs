@@ -325,12 +325,18 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         writeln!(out).ok();
 
         // Register in the plugin registry
+        let extra = spec
+            .bridge_config
+            .register_extra_args
+            .as_deref()
+            .map(|a| format!(", {a}"))
+            .unwrap_or_default();
         writeln!(out, "    py.detach(|| {{").ok();
         writeln!(out, "        let registry = {registry_getter}();").ok();
         writeln!(out, "        let mut registry = registry.write();").ok();
         writeln!(
             out,
-            "        registry.register(arc).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err("
+            "        registry.register(arc{extra}).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err("
         )
         .ok();
         writeln!(out, "            format!(\"Failed to register backend: {{}}\", e)").ok();

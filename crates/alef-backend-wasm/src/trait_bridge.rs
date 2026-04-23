@@ -145,7 +145,11 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 )
                 .ok();
             } else {
-                writeln!(out, "result.as_string().and_then(|s| s.parse().ok()).unwrap_or_default()").ok();
+                writeln!(
+                    out,
+                    "result.as_string().and_then(|s| s.parse().ok()).unwrap_or_default()"
+                )
+                .ok();
             }
         }
         out
@@ -262,7 +266,11 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
                 )
                 .ok();
             } else {
-                writeln!(out, "result.as_string().and_then(|s| s.parse().ok()).unwrap_or_default()").ok();
+                writeln!(
+                    out,
+                    "result.as_string().and_then(|s| s.parse().ok()).unwrap_or_default()"
+                )
+                .ok();
             }
         }
         out
@@ -366,9 +374,15 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         .ok();
         writeln!(out).ok();
 
+        let extra = spec
+            .bridge_config
+            .register_extra_args
+            .as_deref()
+            .map(|a| format!(", {a}"))
+            .unwrap_or_default();
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    let mut registry = registry.write().map_err(|e| wasm_bindgen::JsValue::from_str(&format!(\"registry lock poisoned: {{}}\", e)))?;").ok();
-        writeln!(out, "    registry.register(arc)").ok();
+        writeln!(out, "    registry.register(arc{extra})").ok();
         writeln!(
             out,
             "        .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))"

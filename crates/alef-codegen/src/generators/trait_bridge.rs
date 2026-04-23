@@ -523,6 +523,7 @@ mod tests {
             register_fn: register_fn.map(str::to_string),
             type_alias: None,
             param_name: None,
+            register_extra_args: None,
         }
     }
 

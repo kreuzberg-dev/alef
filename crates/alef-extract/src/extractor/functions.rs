@@ -37,6 +37,7 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
 
     let params = extract_params(&item.sig.inputs);
     let rust_path = build_rust_path(crate_name, module_path, &name);
+    let sanitized = params.iter().any(|p| p.sanitized);
 
     Some(FunctionDef {
         rust_path,
@@ -48,7 +49,7 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
         error_type,
         doc,
         cfg,
-        sanitized: false,
+        sanitized,
         returns_ref,
         returns_cow,
         return_newtype_wrapper: None,
@@ -498,6 +499,16 @@ fn is_mut_ref(ty: &syn::Type) -> bool {
     }
 }
 
+/// Check if a TypeRef is a tuple type.
+fn is_tuple_type(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Named(n) => n.starts_with('('),
+        TypeRef::Vec(inner) => is_tuple_type(inner),
+        TypeRef::Optional(inner) => is_tuple_type(inner),
+        _ => false,
+    }
+}
+
 /// Extract function/method parameters, skipping `self` receivers.
 pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> Vec<ParamDef> {
     inputs
@@ -514,13 +525,17 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                 let is_ref = matches!(&*pat_type.ty, syn::Type::Reference(_)) || option_inner_is_ref(&pat_type.ty);
                 let is_mut = is_mut_ref(&pat_type.ty);
                 let resolved = type_resolver::resolve_type(&pat_type.ty);
+
+                // Check if the resolved type (before unwrapping optional) is a tuple type
+                let sanitized = is_tuple_type(&resolved);
+
                 let (ty, optional) = unwrap_optional(resolved);
                 Some(ParamDef {
                     name,
                     ty,
                     optional,
                     default: None,
-                    sanitized: false,
+                    sanitized,
                     typed_default: None,
                     is_ref,
                     is_mut,

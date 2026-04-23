@@ -602,7 +602,11 @@ impl FfiBridgeGenerator {
         writeln!(out).ok();
         // The vtable contains raw fn pointers which are not Debug, so we implement manually.
         writeln!(out, "impl std::fmt::Debug for {bridge} {{").ok();
-        writeln!(out, "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{").ok();
+        writeln!(
+            out,
+            "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{"
+        )
+        .ok();
         writeln!(out, "        f.debug_struct(\"{bridge}\")").ok();
         writeln!(out, "            .field(\"cached_name\", &self.cached_name)").ok();
         writeln!(out, "            .field(\"cached_version\", &self.cached_version)").ok();
@@ -1353,6 +1357,7 @@ mod tests {
             register_fn: None,
             type_alias: None,
             param_name: None,
+            register_extra_args: None,
         }
     }
 
@@ -1362,7 +1367,15 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("OcrBackend");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(code.contains("#[repr(C)]"), "vtable must be #[repr(C)]");
         assert!(
@@ -1383,7 +1396,15 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("OcrBackend");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(code.contains("pub process:"), "vtable must have fn ptr for 'process'");
         assert!(code.contains("pub status:"), "vtable must have fn ptr for 'status'");
@@ -1407,7 +1428,15 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Checker");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "lib", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "lib",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(
             code.contains("user_data: *const std::ffi::c_void"),
@@ -1421,7 +1450,15 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Runner");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "my_lib",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(code.contains("vtable: MyLibRunnerVTable"), "bridge must hold vtable");
         assert!(
@@ -1437,7 +1474,15 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Worker");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "w", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "w",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(
             code.contains("unsafe impl Send for WWorkerBridge"),
@@ -1455,7 +1500,15 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Plugin");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "p", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "p",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(
             code.contains("impl Drop for PPluginBridge"),
@@ -1474,10 +1527,19 @@ mod tests {
             register_fn: None,
             type_alias: None,
             param_name: None,
+            register_extra_args: None,
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "kreuzberg", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "kr",
+            "kreuzberg",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(
             code.contains("impl kreuzberg::Plugin for KrOcrBackendBridge"),
@@ -1502,10 +1564,19 @@ mod tests {
             register_fn: Some("register_ocr_backend".to_string()),
             type_alias: None,
             param_name: None,
+            register_extra_args: None,
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "kr", "kreuzberg", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "kr",
+            "kreuzberg",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(
             code.contains("extern \"C\" fn kr_register_ocr_backend"),
@@ -1528,10 +1599,19 @@ mod tests {
             register_fn: Some("register_my_trait".to_string()),
             type_alias: None,
             param_name: None,
+            register_extra_args: None,
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         // Null name check must be present in register fn
         assert!(
@@ -1556,10 +1636,19 @@ mod tests {
             register_fn: Some("register_transform".to_string()),
             type_alias: None,
             param_name: None,
+            register_extra_args: None,
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         // Required method fn pointer must be validated; optional one need not be
         assert!(
@@ -1578,10 +1667,19 @@ mod tests {
             register_fn: Some("register_processor".to_string()),
             type_alias: None,
             param_name: None,
+            register_extra_args: None,
         };
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "ml", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(
             code.contains("// SAFETY:"),
@@ -1599,7 +1697,15 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Scanner");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "sc", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "sc",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         assert!(
             code.contains("impl my_lib::Scanner for ScScannerBridge"),
@@ -1642,7 +1748,15 @@ mod tests {
         let bridge_cfg = sample_bridge_cfg("Greeter");
         let api = sample_api();
 
-        let code = gen_trait_bridge(&trait_def, &bridge_cfg, "g", "my_lib", "MyError", "MyError::from({msg})", &api);
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "g",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
 
         // The vtable fn pointer for 'greet' must accept *const c_char for the message param
         assert!(

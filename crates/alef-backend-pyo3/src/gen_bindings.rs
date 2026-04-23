@@ -1354,15 +1354,8 @@ fn gen_api_py(
             if let Some(nested_name) = inner_named {
                 if default_types.contains_key(nested_name) {
                     let nested_snake = nested_name.to_snake_case();
-                    // Non-optional fields: converter returns T | None but field expects T.
-                    // Add type: ignore since the value is guaranteed non-None at runtime.
-                    let ignore = if !field.optional && !matches!(&field.ty, TypeRef::Optional(_)) {
-                        "  # type: ignore[arg-type]"
-                    } else {
-                        ""
-                    };
                     out.push_str(&format!(
-                        "        {}=_to_rust_{nested_snake}(value.{}),{ignore}\n",
+                        "        {}=_to_rust_{nested_snake}(value.{}),\n",
                         field.name, field.name
                     ));
                     continue;
@@ -1504,7 +1497,6 @@ fn gen_api_py(
 
         // For each param that has a converter, emit a local conversion variable
         let mut call_args = Vec::new();
-        let mut has_converter_args = false;
         for param in &func.params {
             let type_name = match &param.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
@@ -1524,22 +1516,14 @@ fn gen_api_py(
                     let var = format!("_rust_{}", param.name);
                     out.push_str(&format!("    {var} = _to_rust_{snake}({})\n", param.name));
                     call_args.push(var);
-                    has_converter_args = true;
                     continue;
                 }
             }
             call_args.push(param.name.clone());
         }
 
-        // Converter functions return `T | None` (to handle optional callers), but the Rust
-        // stub only accepts `T` for required parameters. Suppress the mypy false positive.
-        let type_ignore = if has_converter_args {
-            "  # type: ignore[arg-type]"
-        } else {
-            ""
-        };
         out.push_str(&format!(
-            "    return _rust.{}({}){type_ignore}\n\n\n",
+            "    return _rust.{}({})\n\n\n",
             func.name,
             call_args.join(", ")
         ));

@@ -453,7 +453,17 @@ fn render_test_function(
         if a.assertion_type == "method_result" {
             // method_result assertions that would generate only a TODO comment don't use the
             // result variable. These are: missing `method` field, or unsupported `check` type.
-            let supported_checks = ["equals", "is_true", "is_false", "greater_than_or_equal", "count_min", "is_error"];
+            let supported_checks = [
+                "equals",
+                "is_true",
+                "is_false",
+                "greater_than_or_equal",
+                "count_min",
+                "is_error",
+                "contains",
+                "not_empty",
+                "is_empty",
+            ];
             let check = a.check.as_deref().unwrap_or("is_true");
             if a.method.is_none() || !supported_checks.contains(&check) {
                 return false;
@@ -1570,6 +1580,24 @@ fn render_assertion(
                             out,
                             "    assert!({raw_call}.is_err(), \"expected method to return error\");"
                         );
+                    }
+                    "contains" => {
+                        if let Some(val) = &assertion.value {
+                            let expected = value_to_rust_string(val);
+                            let _ = writeln!(
+                                out,
+                                "    assert!({call_expr}.contains({expected}), \"expected result to contain {{}}\", {expected});"
+                            );
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!(!{call_expr}.is_empty(), \"expected non-empty result\");"
+                        );
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(out, "    assert!({call_expr}.is_empty(), \"expected empty result\");");
                     }
                     other_check => {
                         panic!("Rust e2e generator: unsupported method_result check type: {other_check}");

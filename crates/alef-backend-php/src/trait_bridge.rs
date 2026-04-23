@@ -59,12 +59,20 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             "vec![]"
         };
 
-        writeln!(out, "let result = unsafe {{ (*self.inner).try_call_method(\"{name}\", {args_expr}) }};").ok();
+        writeln!(
+            out,
+            "let result = unsafe {{ (*self.inner).try_call_method(\"{name}\", {args_expr}) }};"
+        )
+        .ok();
 
         // Check if method returns a Result type
         if method.error_type.is_some() {
             writeln!(out, "match result {{").ok();
-            writeln!(out, "    Ok(val) => Ok(val.string().unwrap_or_default().parse().unwrap_or_default()),").ok();
+            writeln!(
+                out,
+                "    Ok(val) => Ok(val.string().unwrap_or_default().parse().unwrap_or_default()),"
+            )
+            .ok();
             writeln!(out, "    Err(e) => Err(e.into()),").ok();
             writeln!(out, "}}").ok();
         } else {
@@ -124,11 +132,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             "vec![]"
         };
 
-        writeln!(
-            out,
-            "    match inner_obj.try_call_method(\"{name}\", {args_expr}) {{"
-        )
-        .ok();
+        writeln!(out, "    match inner_obj.try_call_method(\"{name}\", {args_expr}) {{").ok();
         writeln!(
             out,
             "        Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
@@ -252,13 +256,27 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         .ok();
         writeln!(out).ok();
 
+        let extra = spec
+            .bridge_config
+            .register_extra_args
+            .as_deref()
+            .map(|a| format!(", {a}"))
+            .unwrap_or_default();
         writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry.write().map_err(|e| ext_php_rs::exception::PhpException::default(").ok();
-        writeln!(out, "        format!(\"Failed to acquire registry write lock: {{}}\", e)").ok();
+        writeln!(
+            out,
+            "    let mut registry = registry.write().map_err(|e| ext_php_rs::exception::PhpException::default("
+        )
+        .ok();
+        writeln!(
+            out,
+            "        format!(\"Failed to acquire registry write lock: {{}}\", e)"
+        )
+        .ok();
         writeln!(out, "    ))?;").ok();
         writeln!(
             out,
-            "    registry.register(arc).map_err(|e| ext_php_rs::exception::PhpException::default("
+            "    registry.register(arc{extra}).map_err(|e| ext_php_rs::exception::PhpException::default("
         )
         .ok();
         writeln!(out, "        format!(\"Failed to register backend: {{}}\", e)").ok();
