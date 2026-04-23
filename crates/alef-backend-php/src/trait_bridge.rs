@@ -26,7 +26,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        vec!["std::rc::Rc".to_string(), "std::cell::RefCell".to_string()]
+        vec!["std::sync::Arc".to_string()]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
@@ -59,15 +59,24 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             "vec![]"
         };
 
-        writeln!(out, "let result = self.inner.try_call_method(\"{name}\", {args_expr});").ok();
-        writeln!(out, "match result {{").ok();
-        writeln!(
-            out,
-            "    Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
-        )
-        .ok();
-        writeln!(out, "    Err(_) => Default::default(),").ok();
-        writeln!(out, "}}").ok();
+        writeln!(out, "let result = unsafe {{ (*self.inner).try_call_method(\"{name}\", {args_expr}) }};").ok();
+
+        // Check if method returns a Result type
+        if method.error_type.is_some() {
+            writeln!(out, "match result {{").ok();
+            writeln!(out, "    Ok(val) => Ok(val.string().unwrap_or_default().parse().unwrap_or_default()),").ok();
+            writeln!(out, "    Err(e) => Err(e.into()),").ok();
+            writeln!(out, "}}").ok();
+        } else {
+            writeln!(out, "match result {{").ok();
+            writeln!(
+                out,
+                "    Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
+            )
+            .ok();
+            writeln!(out, "    Err(_) => Default::default(),").ok();
+            writeln!(out, "}}").ok();
+        }
 
         out
     }
@@ -92,18 +101,17 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         }
 
         writeln!(out).ok();
-        writeln!(out, "Box::pin(async move {{").ok();
-        writeln!(out, "    // SAFETY: PHP objects are single-threaded within a request.").ok();
-        writeln!(out, "    // The block_on executes within the async runtime.").ok();
-        writeln!(out, "    let result = WORKER_RUNTIME.block_on(async {{").ok();
+        writeln!(out, "// SAFETY: PHP objects are single-threaded within a request.").ok();
+        writeln!(out, "// The block_on executes within the async runtime.").ok();
+        writeln!(out, "let result = WORKER_RUNTIME.block_on(async {{").ok();
 
         let has_args = !method.params.is_empty();
         if has_args {
-            writeln!(out, "        let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
+            writeln!(out, "    let mut args: Vec<ext_php_rs::types::Zval> = Vec::new();").ok();
             for p in &method.params {
                 writeln!(
                     out,
-                    "        args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());",
+                    "    args.push(ext_php_rs::types::Zval::try_from({}).unwrap_or_default());",
                     p.name
                 )
                 .ok();
@@ -118,31 +126,30 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         writeln!(
             out,
-            "        match inner_obj.try_call_method(\"{name}\", {args_expr}) {{"
+            "    match inner_obj.try_call_method(\"{name}\", {args_expr}) {{"
         )
         .ok();
         writeln!(
             out,
-            "            Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
+            "        Ok(val) => val.string().unwrap_or_default().parse().unwrap_or_default(),"
         )
         .ok();
         writeln!(
             out,
-            "            Err(e) => Err({}::KreuzbergError::Plugin {{",
+            "        Err(e) => Err({}::KreuzbergError::Plugin {{",
             spec.core_import
         )
         .ok();
         writeln!(
             out,
-            "                message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
+            "            message: format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),"
         )
         .ok();
-        writeln!(out, "                plugin_name: cached_name.clone(),").ok();
-        writeln!(out, "            }}),").ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }});").ok();
-        writeln!(out, "    result").ok();
-        writeln!(out, "}})").ok();
+        writeln!(out, "            plugin_name: cached_name.clone(),").ok();
+        writeln!(out, "        }}),").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out, "}});").ok();
+        writeln!(out, "result").ok();
 
         out
     }
@@ -169,7 +176,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         for req_method in spec.required_methods() {
             writeln!(
                 out,
-                "        debug_assert!(php_obj.get_property(\"{}\").is_some(),",
+                "        debug_assert!(php_obj.get_property(\"{}\").is_ok(),",
                 req_method.name
             )
             .ok();
@@ -223,7 +230,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let req_methods: Vec<&MethodDef> = spec.required_methods();
         if !req_methods.is_empty() {
             for method in &req_methods {
-                writeln!(out, "    if backend.get_property(\"{}\").is_none() {{", method.name).ok();
+                writeln!(out, "    if backend.get_property(\"{}\").is_err() {{", method.name).ok();
                 writeln!(out, "        return Err(ext_php_rs::exception::PhpException::default(").ok();
                 writeln!(
                     out,
@@ -240,13 +247,15 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         writeln!(out, "    let wrapper = {wrapper}::new(backend);").ok();
         writeln!(
             out,
-            "    let arc: Rc<RefCell<dyn {trait_path}>> = Rc::new(RefCell::new(wrapper));"
+            "    let arc: std::sync::Arc<dyn {trait_path}> = std::sync::Arc::new(wrapper);"
         )
         .ok();
         writeln!(out).ok();
 
         writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    let mut registry = registry;").ok();
+        writeln!(out, "    let mut registry = registry.write().map_err(|e| ext_php_rs::exception::PhpException::default(").ok();
+        writeln!(out, "        format!(\"Failed to acquire registry write lock: {{}}\", e)").ok();
+        writeln!(out, "    ))?;").ok();
         writeln!(
             out,
             "    registry.register(arc).map_err(|e| ext_php_rs::exception::PhpException::default("

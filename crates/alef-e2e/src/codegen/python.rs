@@ -1266,19 +1266,19 @@ fn render_assertion(
                         }
                     }
                     "is_error" => {
-                        let _ = writeln!(out, "    # method_result is_error: expect exception from {method_name}");
-                        // This is handled by wrapping the call in try/except at test level
+                        let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");
+                        let _ = writeln!(out, "        {call_expr}");
                     }
                     other_check => {
-                        let _ = writeln!(out, "    # TODO: unsupported method_result check type: {other_check}");
+                        panic!("unsupported method_result check type: {other_check}");
                     }
                 }
             } else {
-                let _ = writeln!(out, "    # TODO: method_result assertion missing 'method' field");
+                panic!("method_result assertion missing 'method' field");
             }
         }
         other => {
-            let _ = writeln!(out, "    # TODO: unsupported assertion type: {other}");
+            panic!("unsupported assertion type: {other}");
         }
     }
 }

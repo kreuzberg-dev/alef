@@ -855,7 +855,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
             // Handled at the test level (early return above).
         }
         other => {
-            let _ = writeln!(out, "    // TODO: unsupported assertion type: {other}");
+            panic!("TypeScript e2e generator: unsupported assertion type: {other}");
         }
     }
 }

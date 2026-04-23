@@ -784,7 +784,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
             // Handled at the test level.
         }
         other => {
-            let _ = writeln!(out, "      # TODO: unsupported assertion type: {other}");
+            panic!("Elixir e2e generator: unsupported assertion type: {other}");
         }
     }
 }

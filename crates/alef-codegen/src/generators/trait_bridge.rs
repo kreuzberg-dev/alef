@@ -445,18 +445,20 @@ pub fn format_return_type(
     }
 }
 
-/// Format a parameter type, respecting `is_ref` and `is_mut` from the IR.
+/// Format a parameter type, respecting `is_ref`, `is_mut`, and `optional` from the IR.
 ///
 /// Unlike [`format_type_ref`], this function produces reference types when the
-/// original Rust parameter was a `&T` or `&mut T`:
+/// original Rust parameter was a `&T` or `&mut T`, and wraps in `Option<>` when
+/// `param.optional` is true:
 /// - `String + is_ref` → `&str`
+/// - `String + is_ref + optional` → `Option<&str>`
 /// - `Bytes + is_ref` → `&[u8]`
 /// - `Path + is_ref` → `&std::path::Path`
 /// - `Vec<T> + is_ref` → `&[T]`
 /// - `Named(n) + is_ref` → `&{qualified_name}`
 pub fn format_param_type(param: &ParamDef, type_paths: &HashMap<String, String>) -> String {
     use alef_core::ir::TypeRef;
-    if param.is_ref {
+    let base = if param.is_ref {
         let mutability = if param.is_mut { "mut " } else { "" };
         match &param.ty {
             TypeRef::String => format!("&{mutability}str"),
@@ -467,11 +469,39 @@ pub fn format_param_type(param: &ParamDef, type_paths: &HashMap<String, String>)
                 let qualified = type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
                 format!("&{mutability}{qualified}")
             }
+            TypeRef::Optional(inner) => {
+                // Preserve the Option wrapper but apply the ref transformation to the inner type.
+                // e.g. Option<String> + is_ref → Option<&str>
+                //      Option<Vec<T>> + is_ref → Option<&[T]>
+                let inner_type_str = match inner.as_ref() {
+                    TypeRef::String => format!("&{mutability}str"),
+                    TypeRef::Bytes => format!("&{mutability}[u8]"),
+                    TypeRef::Path => format!("&{mutability}std::path::Path"),
+                    TypeRef::Vec(v) => format!("&{mutability}[{}]", format_type_ref(v, type_paths)),
+                    TypeRef::Named(name) => {
+                        let qualified = type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
+                        format!("&{mutability}{qualified}")
+                    }
+                    // Primitives and other Copy types: pass by value inside Option
+                    other => format_type_ref(other, type_paths),
+                };
+                // Already wrapped in Option — return directly to avoid double-wrapping below.
+                return format!("Option<{inner_type_str}>");
+            }
             // All other types are Copy/small — pass by value even when is_ref is set
             other => format_type_ref(other, type_paths),
         }
     } else {
         format_type_ref(&param.ty, type_paths)
+    };
+
+    // Wrap in Option<> when the parameter is optional (e.g. `title: Option<&str>`).
+    // The TypeRef::Optional arm above returns early, so this only fires for the
+    // `optional: true` IR flag pattern where ty is the unwrapped inner type.
+    if param.optional {
+        format!("Option<{base}>")
+    } else {
+        base
     }
 }
 

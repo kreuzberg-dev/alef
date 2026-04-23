@@ -34,9 +34,10 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         ]
     }
 
-    fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+    fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
         let js_name = to_camel_case(name);
+        let has_error = method.error_type.is_some();
         let mut out = String::with_capacity(512);
 
         writeln!(out, "let key = wasm_bindgen::JsValue::from_str(\"{js_name}\");").ok();
@@ -46,28 +47,46 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         )
         .ok();
         writeln!(out, "if !has_method {{").ok();
-        writeln!(
-            out,
-            "    return Err(format!(\"Method '{{}}' not found on JS object\", \"{name}\").into());"
-        )
-        .ok();
+        if has_error {
+            let err_msg = format!("\"Method '{{}}' not found on JS object\".to_string(), \"{name}\"");
+            let err_expr = spec.make_error(&format!("format!({err_msg})"));
+            writeln!(out, "    return Err({err_expr});").ok();
+        } else {
+            writeln!(out, "    return Default::default();").ok();
+        }
         writeln!(out, "}}").ok();
         writeln!(out).ok();
 
-        writeln!(out, "let func_val = js_sys::Reflect::get(&self.inner, &key)").ok();
-        writeln!(
-            out,
-            "    .map_err(|_| format!(\"Failed to get method '{{}}'\", \"{name}\"))?;"
-        )
-        .ok();
+        if has_error {
+            writeln!(out, "let func_val = js_sys::Reflect::get(&self.inner, &key)").ok();
+            writeln!(
+                out,
+                "    .map_err(|_| {})?;",
+                spec.make_error(&format!("format!(\"Failed to get method '{{}}'\", \"{name}\")"))
+            )
+            .ok();
+        } else {
+            writeln!(out, "let func_val = match js_sys::Reflect::get(&self.inner, &key) {{").ok();
+            writeln!(out, "    Ok(f) => f,").ok();
+            writeln!(out, "    Err(_) => return Default::default(),").ok();
+            writeln!(out, "}};").ok();
+        }
         writeln!(out).ok();
 
-        writeln!(out, "let func: js_sys::Function = func_val.dyn_into()").ok();
-        writeln!(
-            out,
-            "    .map_err(|_| format!(\"Method '{{}}' is not a function\", \"{name}\"))?;"
-        )
-        .ok();
+        if has_error {
+            writeln!(out, "let func: js_sys::Function = func_val.dyn_into()").ok();
+            writeln!(
+                out,
+                "    .map_err(|_| {})?;",
+                spec.make_error(&format!("format!(\"Method '{{}}' is not a function\", \"{name}\")"))
+            )
+            .ok();
+        } else {
+            writeln!(out, "let func: js_sys::Function = match func_val.dyn_into() {{").ok();
+            writeln!(out, "    Ok(f) => f,").ok();
+            writeln!(out, "    Err(_) => return Default::default(),").ok();
+            writeln!(out, "}};").ok();
+        }
         writeln!(out).ok();
 
         // Build args array
@@ -79,37 +98,68 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         writeln!(out).ok();
 
         // Call the function
-        writeln!(out, "let result = func.apply(&self.inner, &args)").ok();
-        writeln!(
-            out,
-            "    .map_err(|_| format!(\"Failed to call method '{{}}'\", \"{name}\"))?;"
-        )
-        .ok();
+        if has_error {
+            writeln!(out, "let result = func.apply(&self.inner, &args)").ok();
+            writeln!(
+                out,
+                "    .map_err(|_| {})?;",
+                spec.make_error(&format!("format!(\"Failed to call method '{{}}'\", \"{name}\")"))
+            )
+            .ok();
+        } else {
+            writeln!(out, "let result = match func.apply(&self.inner, &args) {{").ok();
+            writeln!(out, "    Ok(r) => r,").ok();
+            writeln!(out, "    Err(_) => return Default::default(),").ok();
+            writeln!(out, "}};").ok();
+        }
         writeln!(out).ok();
 
         // Convert result
         let ret_ty = self.extract_ty(&method.return_type);
         if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "Ok(())").ok();
+            if has_error {
+                writeln!(out, "Ok(())").ok();
+            } else {
+                writeln!(out, "()").ok();
+            }
         } else if matches!(method.return_type, TypeRef::String) {
-            writeln!(out, "result.as_string()").ok();
-            writeln!(out, "    .ok_or_else(|| \"Expected string return\".into())").ok();
+            if has_error {
+                writeln!(out, "result.as_string()").ok();
+                writeln!(
+                    out,
+                    "    .ok_or_else(|| {})",
+                    spec.make_error("\"Expected string return\".to_string()")
+                )
+                .ok();
+            } else {
+                writeln!(out, "result.as_string().unwrap_or_default()").ok();
+            }
         } else {
-            writeln!(out, "// Convert JS result to {ret_ty}").ok();
-            writeln!(out, "result.as_string()").ok();
-            writeln!(out, "    .ok_or_else(|| \"Failed to convert result\".into())").ok();
+            if has_error {
+                writeln!(out, "// Convert JS result to {ret_ty}").ok();
+                writeln!(out, "result.as_string()").ok();
+                writeln!(
+                    out,
+                    "    .ok_or_else(|| {})",
+                    spec.make_error("\"Failed to convert result\".to_string()")
+                )
+                .ok();
+            } else {
+                writeln!(out, "result.as_string().and_then(|s| s.parse().ok()).unwrap_or_default()").ok();
+            }
         }
         out
     }
 
-    fn gen_async_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+    fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
         let js_name = to_camel_case(name);
+        let has_error = method.error_type.is_some();
         let mut out = String::with_capacity(1024);
 
-        // WASM is single-threaded, so we just call the function synchronously
-        // wrapped in an async block. If the JS function returns a Promise,
-        // we'd need JsFuture, but for now assume synchronous methods.
+        // WASM is single-threaded, so we just call the function synchronously.
+        // The #[async_trait] macro will wrap this body in a pinned future.
+        // Do NOT add Box::pin(async move { ... }) here — that causes double-boxing.
 
         writeln!(out, "let key = wasm_bindgen::JsValue::from_str(\"{js_name}\");").ok();
         writeln!(
@@ -118,61 +168,103 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         )
         .ok();
         writeln!(out, "if !has_method {{").ok();
-        writeln!(out, "    return Box::pin(async move {{").ok();
-        writeln!(
-            out,
-            "        Err(format!(\"Method '{{}}' not found on JS object\", \"{name}\").into())"
-        )
-        .ok();
-        writeln!(out, "    }});").ok();
+        if has_error {
+            let err_msg = format!("\"Method '{{}}' not found on JS object\".to_string(), \"{name}\"");
+            let err_expr = spec.make_error(&format!("format!({err_msg})"));
+            writeln!(out, "    return Err({err_expr});").ok();
+        } else {
+            writeln!(out, "    return Default::default();").ok();
+        }
         writeln!(out, "}}").ok();
         writeln!(out).ok();
 
-        writeln!(out, "let inner = self.inner.clone();").ok();
+        if has_error {
+            writeln!(out, "let func_val = js_sys::Reflect::get(&self.inner, &key)").ok();
+            writeln!(
+                out,
+                "    .map_err(|_| {})?;",
+                spec.make_error(&format!("format!(\"Failed to get method '{{}}'\", \"{name}\")"))
+            )
+            .ok();
+        } else {
+            writeln!(out, "let func_val = match js_sys::Reflect::get(&self.inner, &key) {{").ok();
+            writeln!(out, "    Ok(f) => f,").ok();
+            writeln!(out, "    Err(_) => return Default::default(),").ok();
+            writeln!(out, "}};").ok();
+        }
         writeln!(out).ok();
 
-        writeln!(out, "Box::pin(async move {{").ok();
-        writeln!(out, "    let func_val = js_sys::Reflect::get(&inner, &key)").ok();
-        writeln!(
-            out,
-            "        .map_err(|_| format!(\"Failed to get method '{{}}'\", \"{name}\"))?;"
-        )
-        .ok();
+        if has_error {
+            writeln!(out, "let func: js_sys::Function = func_val.dyn_into()").ok();
+            writeln!(
+                out,
+                "    .map_err(|_| {})?;",
+                spec.make_error(&format!("format!(\"Method '{{}}' is not a function\", \"{name}\")"))
+            )
+            .ok();
+        } else {
+            writeln!(out, "let func: js_sys::Function = match func_val.dyn_into() {{").ok();
+            writeln!(out, "    Ok(f) => f,").ok();
+            writeln!(out, "    Err(_) => return Default::default(),").ok();
+            writeln!(out, "}};").ok();
+        }
         writeln!(out).ok();
 
-        writeln!(out, "    let func: js_sys::Function = func_val.dyn_into()").ok();
-        writeln!(
-            out,
-            "        .map_err(|_| format!(\"Method '{{}}' is not a function\", \"{name}\"))?;"
-        )
-        .ok();
-        writeln!(out).ok();
-
-        writeln!(out, "    let args = js_sys::Array::new();").ok();
+        writeln!(out, "let args = js_sys::Array::new();").ok();
         for p in &method.params {
             let arg_val = build_wasm_arg(p);
-            writeln!(out, "    args.push(&{arg_val});").ok();
+            writeln!(out, "args.push(&{arg_val});").ok();
         }
         writeln!(out).ok();
 
-        writeln!(out, "    let result = func.apply(&inner, &args)").ok();
-        writeln!(
-            out,
-            "        .map_err(|_| format!(\"Failed to call method '{{}}'\", \"{name}\"))?;"
-        )
-        .ok();
-        writeln!(out).ok();
-
-        if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "    Ok(())").ok();
-        } else if matches!(method.return_type, TypeRef::String) {
-            writeln!(out, "    result.as_string()").ok();
-            writeln!(out, "        .ok_or_else(|| \"Expected string return\".into())").ok();
+        if has_error {
+            writeln!(out, "let result = func.apply(&self.inner, &args)").ok();
+            writeln!(
+                out,
+                "    .map_err(|_| {})?;",
+                spec.make_error(&format!("format!(\"Failed to call method '{{}}'\", \"{name}\")"))
+            )
+            .ok();
         } else {
-            writeln!(out, "    result.as_string()").ok();
-            writeln!(out, "        .ok_or_else(|| \"Failed to convert result\".into())").ok();
+            writeln!(out, "let result = match func.apply(&self.inner, &args) {{").ok();
+            writeln!(out, "    Ok(r) => r,").ok();
+            writeln!(out, "    Err(_) => return Default::default(),").ok();
+            writeln!(out, "}};").ok();
         }
-        writeln!(out, "}})").ok();
+        writeln!(out).ok();
+
+        // Convert result
+        if matches!(method.return_type, TypeRef::Unit) {
+            if has_error {
+                writeln!(out, "Ok(())").ok();
+            } else {
+                writeln!(out, "()").ok();
+            }
+        } else if matches!(method.return_type, TypeRef::String) {
+            if has_error {
+                writeln!(out, "result.as_string()").ok();
+                writeln!(
+                    out,
+                    "    .ok_or_else(|| {})",
+                    spec.make_error("\"Expected string return\".to_string()")
+                )
+                .ok();
+            } else {
+                writeln!(out, "result.as_string().unwrap_or_default()").ok();
+            }
+        } else {
+            if has_error {
+                writeln!(out, "result.as_string()").ok();
+                writeln!(
+                    out,
+                    "    .ok_or_else(|| {})",
+                    spec.make_error("\"Failed to convert result\".to_string()")
+                )
+                .ok();
+            } else {
+                writeln!(out, "result.as_string().and_then(|s| s.parse().ok()).unwrap_or_default()").ok();
+            }
+        }
         out
     }
 

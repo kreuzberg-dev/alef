@@ -1179,8 +1179,15 @@ fn test_wasm_async_method_body_uses_box_pin() {
 
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
+    // Plugin bridges use #[async_trait] which wraps in Box::pin automatically, so the method body
+    // should NOT contain Box::pin(async move { ... }) — that would cause double-boxing.
+    // Instead, the body should directly contain the method implementation.
     assert!(
-        code.code.contains("Box::pin(async move"),
-        "WASM async method body must return Box::pin(async move {{ ... }})"
+        code.code.contains("let key = wasm_bindgen::JsValue::from_str"),
+        "WASM async method body must contain JS reflection code"
+    );
+    assert!(
+        !code.code.contains("Box::pin(async move"),
+        "WASM async method body with #[async_trait] must NOT use Box::pin — #[async_trait] already wraps it"
     );
 }

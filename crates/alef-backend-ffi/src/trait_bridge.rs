@@ -179,71 +179,40 @@ impl FfiBridgeGenerator {
         }
         writeln!(out, "}};").ok();
 
-        // Marshal each parameter to its C representation
+        // Marshal each parameter to its C representation.
+        // When p.optional is true, the Rust type is Option<T>; treat it the same as
+        // TypeRef::Optional(T) and generate a nullable-pointer pattern.
         for p in &method.params {
-            match &p.ty {
-                TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                    let val = if p.is_ref {
-                        p.name.clone()
-                    } else {
-                        format!("{}.as_str()", p.name)
-                    };
-                    writeln!(
-                        out,
-                        "let _{name}_cs = match std::ffi::CString::new({val}) {{",
-                        name = p.name
-                    )
-                    .ok();
-                    writeln!(out, "    Ok(s) => s,").ok();
-                    writeln!(out, "    Err(_) => {{").ok();
-                    if has_error {
-                        writeln!(out, "        return Err(Box::from(\"nul byte in param {}\"));", p.name).ok();
-                    } else {
-                        let default_expr = default_for_type(&method.return_type);
-                        writeln!(out, "        return {default_expr};").ok();
-                    }
-                    writeln!(out, "    }}").ok();
-                    writeln!(out, "}};").ok();
-                    writeln!(out, "let {name}_ptr = _{name}_cs.as_ptr();", name = p.name).ok();
-                }
-                TypeRef::Json | TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                    writeln!(
-                        out,
-                        "let _{name}_json = serde_json::to_string(&{name}).unwrap_or_default();",
-                        name = p.name
-                    )
-                    .ok();
-                    writeln!(
-                        out,
-                        "let _{name}_cs = match std::ffi::CString::new(_{name}_json) {{",
-                        name = p.name
-                    )
-                    .ok();
-                    writeln!(out, "    Ok(s) => s,").ok();
-                    writeln!(out, "    Err(_) => {{").ok();
-                    if has_error {
+            let effective_optional = p.optional || matches!(&p.ty, TypeRef::Optional(_));
+            let inner_ty: &TypeRef = match &p.ty {
+                TypeRef::Optional(inner) => inner.as_ref(),
+                other => other,
+            };
+
+            if effective_optional {
+                match inner_ty {
+                    TypeRef::String | TypeRef::Char | TypeRef::Path => {
+                        // Option<&str> → nullable *const c_char via CString storage
+                        let map_expr = if p.is_ref {
+                            format!(
+                                "let _{name}_storage: Option<std::ffi::CString> = {name}.and_then(|v| std::ffi::CString::new(v).ok());",
+                                name = p.name
+                            )
+                        } else {
+                            format!(
+                                "let _{name}_storage: Option<std::ffi::CString> = {name}.as_deref().and_then(|v| std::ffi::CString::new(v).ok());",
+                                name = p.name
+                            )
+                        };
+                        writeln!(out, "{map_expr}").ok();
                         writeln!(
                             out,
-                            "        return Err(Box::from(\"nul byte in serialized param {}\"));",
-                            p.name
+                            "let {name}_ptr: *const std::ffi::c_char = _{name}_storage.as_ref().map_or(std::ptr::null(), |cs| cs.as_ptr());",
+                            name = p.name
                         )
                         .ok();
-                    } else {
-                        let default_expr = default_for_type(&method.return_type);
-                        writeln!(out, "        return {default_expr};").ok();
                     }
-                    writeln!(out, "    }}").ok();
-                    writeln!(out, "}};").ok();
-                    writeln!(out, "let {name}_ptr = _{name}_cs.as_ptr();", name = p.name).ok();
-                }
-                TypeRef::Optional(inner) => match inner.as_ref() {
-                    TypeRef::String
-                    | TypeRef::Char
-                    | TypeRef::Path
-                    | TypeRef::Named(_)
-                    | TypeRef::Json
-                    | TypeRef::Vec(_)
-                    | TypeRef::Map(_, _) => {
+                    TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                         writeln!(
                             out,
                             "let _{name}_storage: Option<std::ffi::CString> = {name}.as_ref().and_then(|v| {{",
@@ -260,30 +229,95 @@ impl FfiBridgeGenerator {
                         )
                         .ok();
                     }
-                    _ => {} // primitives: pass directly by name
-                },
-                _ => {} // primitives, bytes, duration: pass directly
+                    _ => {} // optional primitives: pass directly by name (0 = None sentinel on C side)
+                }
+            } else {
+                match inner_ty {
+                    TypeRef::String | TypeRef::Char | TypeRef::Path => {
+                        let val = if p.is_ref {
+                            p.name.clone()
+                        } else {
+                            format!("{}.as_str()", p.name)
+                        };
+                        writeln!(
+                            out,
+                            "let _{name}_cs = match std::ffi::CString::new({val}) {{",
+                            name = p.name
+                        )
+                        .ok();
+                        writeln!(out, "    Ok(s) => s,").ok();
+                        writeln!(out, "    Err(_) => {{").ok();
+                        if has_error {
+                            writeln!(out, "        return Err(Box::from(\"nul byte in param {}\"));", p.name).ok();
+                        } else {
+                            let default_expr = default_for_type(&method.return_type);
+                            writeln!(out, "        return {default_expr};").ok();
+                        }
+                        writeln!(out, "    }}").ok();
+                        writeln!(out, "}};").ok();
+                        writeln!(out, "let {name}_ptr = _{name}_cs.as_ptr();", name = p.name).ok();
+                    }
+                    TypeRef::Json | TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                        writeln!(
+                            out,
+                            "let _{name}_json = serde_json::to_string(&{name}).unwrap_or_default();",
+                            name = p.name
+                        )
+                        .ok();
+                        writeln!(
+                            out,
+                            "let _{name}_cs = match std::ffi::CString::new(_{name}_json) {{",
+                            name = p.name
+                        )
+                        .ok();
+                        writeln!(out, "    Ok(s) => s,").ok();
+                        writeln!(out, "    Err(_) => {{").ok();
+                        if has_error {
+                            writeln!(
+                                out,
+                                "        return Err(Box::from(\"nul byte in serialized param {}\"));",
+                                p.name
+                            )
+                            .ok();
+                        } else {
+                            let default_expr = default_for_type(&method.return_type);
+                            writeln!(out, "        return {default_expr};").ok();
+                        }
+                        writeln!(out, "    }}").ok();
+                        writeln!(out, "}};").ok();
+                        writeln!(out, "let {name}_ptr = _{name}_cs.as_ptr();", name = p.name).ok();
+                    }
+                    _ => {} // primitives, bytes, duration: pass directly
+                }
             }
         }
 
         // Build the argument list for the fn pointer call
         let mut call_args = vec!["self.user_data".to_string()];
         for p in &method.params {
-            let arg = match &p.ty {
-                TypeRef::String
-                | TypeRef::Char
-                | TypeRef::Path
-                | TypeRef::Json
-                | TypeRef::Named(_)
-                | TypeRef::Vec(_)
-                | TypeRef::Map(_, _) => {
-                    format!("{}_ptr", p.name)
-                }
-                TypeRef::Optional(inner) => match inner.as_ref() {
+            let effective_optional = p.optional || matches!(&p.ty, TypeRef::Optional(_));
+            let inner_ty: &TypeRef = match &p.ty {
+                TypeRef::Optional(inner) => inner.as_ref(),
+                other => other,
+            };
+            let arg = if effective_optional {
+                match inner_ty {
                     TypeRef::Primitive(_) => p.name.clone(),
                     _ => format!("{}_ptr", p.name),
-                },
-                _ => p.name.clone(),
+                }
+            } else {
+                match inner_ty {
+                    TypeRef::String
+                    | TypeRef::Char
+                    | TypeRef::Path
+                    | TypeRef::Json
+                    | TypeRef::Named(_)
+                    | TypeRef::Vec(_)
+                    | TypeRef::Map(_, _) => format!("{}_ptr", p.name),
+                    // Bool is represented as i32 in the C ABI; cast explicitly.
+                    TypeRef::Primitive(PrimitiveType::Bool) => format!("{} as i32", p.name),
+                    _ => p.name.clone(),
+                }
             };
             call_args.push(arg);
         }
@@ -513,7 +547,14 @@ impl FfiBridgeGenerator {
 
         for method in &own_methods {
             if !method.doc.is_empty() {
-                writeln!(out, "    /// {}", method.doc).ok();
+                for line in method.doc.lines() {
+                    let stripped = line.trim_start_matches("///").trim_start();
+                    if stripped.is_empty() {
+                        writeln!(out, "    ///").ok();
+                    } else {
+                        writeln!(out, "    /// {stripped}").ok();
+                    }
+                }
             }
             writeln!(out, "{}", self.vtable_fn_ptr_field(method)).ok();
         }
@@ -557,6 +598,16 @@ impl FfiBridgeGenerator {
         writeln!(out, "    user_data: *const std::ffi::c_void,").ok();
         writeln!(out, "    cached_name: String,").ok();
         writeln!(out, "    cached_version: String,").ok();
+        writeln!(out, "}}").ok();
+        writeln!(out).ok();
+        // The vtable contains raw fn pointers which are not Debug, so we implement manually.
+        writeln!(out, "impl std::fmt::Debug for {bridge} {{").ok();
+        writeln!(out, "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{").ok();
+        writeln!(out, "        f.debug_struct(\"{bridge}\")").ok();
+        writeln!(out, "            .field(\"cached_name\", &self.cached_name)").ok();
+        writeln!(out, "            .field(\"cached_version\", &self.cached_version)").ok();
+        writeln!(out, "            .finish_non_exhaustive()").ok();
+        writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
         writeln!(
@@ -1113,11 +1164,8 @@ pub fn gen_trait_bridge(
 
     let mut out = String::with_capacity(4096);
 
-    // Imports
-    for imp in generator.bridge_imports() {
-        writeln!(out, "use {imp};").ok();
-    }
-    writeln!(out).ok();
+    // Note: imports (c_void, c_char, CStr, CString, Arc) are emitted by the caller
+    // via builder.add_import() to avoid duplicates with the main gen_lib_rs imports.
 
     // Shared helper: write a C string into an out_error pointer
     writeln!(out, "/// Write an error message string into an FFI out-error pointer.").ok();
