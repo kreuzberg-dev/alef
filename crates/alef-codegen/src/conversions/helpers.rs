@@ -655,6 +655,11 @@ pub fn binding_to_core_match_arm_ext_cfg(
         let core_fields: Vec<String> = fields
             .iter()
             .map(|f| {
+                // Sanitized fields: the binding stores a different type (e.g. String for Vec<(String,String)>).
+                // Use serde_json to deserialize back to the core type.
+                if f.sanitized && matches!(f.ty, TypeRef::String) {
+                    return format!("{}: serde_json::from_str(&{}).unwrap_or_default()", f.name, f.name);
+                }
                 // Use the conversion logic from field_conversion_to_core_cfg.
                 // In an enum match arm, fields are bound by destructuring (not via `val.field`),
                 // so replace `val.{name}` with just `{name}` in the generated expression.
