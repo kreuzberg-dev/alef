@@ -370,6 +370,47 @@ module-name = "{python_package}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 features = ["pyo3/extension-module"]
 python-packages = ["{python_package}"]
+
+[dependency-groups]
+dev = ["ruff>=0.14.8", "mypy>=1.19.0"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "ANN401", "ASYNC109", "ASYNC110", "BLE001", "COM812",
+  "D100", "D104", "D107", "D205", "E501", "EM",
+  "FBT", "FIX", "ISC001", "PD011", "PGH003", "PLR2004",
+  "PLW0603", "S104", "S110", "S603", "TD", "TRY",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.lint.pylint]
+max-args = 10
+max-branches = 15
+max-returns = 10
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D103", "ANN", "PLR2004"]
+
+[tool.ruff.format]
+docstring-code-line-length = 120
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+show_error_codes = true
+implicit_reexport = false
+namespace_packages = true
 "#,
         pip_name = pip_name,
         version = version,
@@ -496,7 +537,10 @@ fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     "build": "napi build --release",
     "build:debug": "napi build",
     "build:ts": "echo 'No TypeScript wrapper to build'",
-    "test": "node -e \"console.log('Add test command')\""
+    "test": "node -e \"console.log('Add test command')\"",
+    "lint": "biome check src",
+    "lint:fix": "biome check --write src",
+    "format": "biome format --write src"
   }},
   "napi": {{
     "name": "{name}",
@@ -508,7 +552,9 @@ fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     ]
   }},
   "devDependencies": {{
-    "@napi-rs/cli": "^3.0.0"
+    "@napi-rs/cli": "^3.0.0",
+    "@biomejs/biome": "^2.4.12",
+    "typescript": "^6.0.3"
   }}
 }}
 "#,
@@ -580,6 +626,73 @@ fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/src/index.d.ts")),
             content: dts_content,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/biome.json")),
+            content: r#"{
+  "$schema": "https://biomejs.dev/schemas/2.0.0/schema.json",
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "tab",
+    "lineWidth": 120
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noExplicitAny": "warn",
+        "noImplicitAnyLet": "warn"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "trailingCommas": "all"
+    }
+  }
+}
+"#
+            .to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/tsconfig.json")),
+            content: r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
+  },
+  "include": ["src"]
+}
+"#
+            .to_string(),
             generated_header: false,
         },
     ])
@@ -1028,6 +1141,33 @@ fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
             content: phpstan_baseline_content,
             generated_header: false,
         },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/php-cs-fixer.php")),
+            content: r#"<?php
+
+$finder = (new PhpCsFixer\Finder())
+    ->in(__DIR__ . '/src')
+    ->in(__DIR__ . '/tests');
+
+return (new PhpCsFixer\Config())
+    ->setRules([
+        '@PSR12' => true,
+        '@PHP82Migration' => true,
+        'array_syntax' => ['syntax' => 'short'],
+        'single_quote' => true,
+        'trailing_comma_in_multiline' => [
+            'elements' => ['arrays', 'arguments', 'parameters'],
+        ],
+        'declare_strict_types' => true,
+        'ordered_imports' => ['sort_algorithm' => 'alpha'],
+        'no_unused_imports' => true,
+    ])
+    ->setFinder($finder)
+    ->setRiskyAllowed(true);
+"#
+            .to_string(),
+            generated_header: false,
+        },
     ])
 }
 
@@ -1155,6 +1295,43 @@ end
             content: formatter_content.to_string(),
             generated_header: false,
         },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/.credo.exs")),
+            content: r#"%{
+  configs: [
+    %{
+      name: "default",
+      strict: true,
+      parse_timeout: 5000,
+      files: %{
+        included: [
+          "lib/",
+          "src/",
+          "test/",
+          "web/",
+          "apps/*/lib/",
+          "apps/*/src/",
+          "apps/*/test/",
+          "apps/*/web/"
+        ],
+        excluded: [
+          ~r"/_build/",
+          ~r"/deps/",
+          ~r"/node_modules/"
+        ]
+      },
+      checks: %{
+        enabled: [
+          {Credo.Check.Refactor.CyclomaticComplexity, max_complexity: 16}
+        ]
+      }
+    }
+  ]
+}
+"#
+            .to_string(),
+            generated_header: false,
+        },
     ])
 }
 
@@ -1165,11 +1342,60 @@ fn scaffold_go(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gene
 
     let content = format!("module {module}\n\ngo 1.26\n", module = go_module,);
 
-    Ok(vec![GeneratedFile {
-        path: PathBuf::from("packages/go/go.mod"),
-        content,
-        generated_header: false,
-    }])
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from("packages/go/go.mod"),
+            content,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/go/.golangci.yml"),
+            content: r#"version: "2"
+
+run:
+  timeout: 5m
+  concurrency: 4
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - revive
+    - gocyclo
+    - goconst
+    - gocritic
+    - gosec
+    - misspell
+    - nakedret
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  gocyclo:
+    min-complexity: 25
+  revive:
+    confidence: 0.8
+    severity: warning
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - goconst
+        - gocyclo
+        - gosec
+"#
+            .to_string(),
+            generated_header: false,
+        },
+    ])
 }
 
 fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -1247,9 +1473,12 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
         <junit.version>5.11.4</junit.version>
-        <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
+        <maven.version>3.9.11</maven.version>
+        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.5</maven-surefire-plugin.version>
-        <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
+        <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
+        <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
+        <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-clean-plugin.version>3.4.1</maven-clean-plugin.version>
@@ -1257,13 +1486,23 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         <maven-jar-plugin.version>3.4.2</maven-jar-plugin.version>
         <maven-install-plugin.version>3.1.3</maven-install-plugin.version>
         <maven-deploy-plugin.version>3.1.3</maven-deploy-plugin.version>
-        <maven-site-plugin.version>3.21.0</maven-site-plugin.version>
+        <maven-site-plugin.version>4.0.0-M16</maven-site-plugin.version>
         <central-publishing-plugin.version>0.10.0</central-publishing-plugin.version>
         <spotless-maven-plugin.version>3.4.0</spotless-maven-plugin.version>
+        <versions-maven-plugin.version>2.21.0</versions-maven-plugin.version>
+        <maven-enforcer-plugin.version>3.6.2</maven-enforcer-plugin.version>
+        <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
+        <checkstyle.version>13.4.0</checkstyle.version>
+        <pmd.version>7.19.0</pmd.version>
         <gpg.skip>true</gpg.skip>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+            <version>1.0.0</version>
+        </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -1278,6 +1517,12 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${{junit.version}}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>4.0.0-M1</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -1339,7 +1584,11 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${{maven-surefire-plugin.version}}</version>
                 <configuration>
-                    <argLine>@{{argLine}} --enable-native-access=ALL-UNNAMED --enable-preview -Djava.library.path=${{project.basedir}}/../../target/release</argLine>
+                    <argLine>@{{argLine}} -XX:-ClassUnloading -XX:-ClassUnloadingWithConcurrentMark --enable-native-access=ALL-UNNAMED --enable-preview -Djava.library.path=${{project.basedir}}/../../target/release</argLine>
+                    <forkedProcessExitTimeoutInSeconds>600</forkedProcessExitTimeoutInSeconds>
+                    <parallel>classes</parallel>
+                    <threadCount>4</threadCount>
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
                 </configuration>
             </plugin>
             <plugin>
@@ -1381,7 +1630,7 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>${{maven-javadoc-plugin.version}}</version>
                 <configuration>
-                    <doclint>none</doclint>
+                    <doclint>all,-missing</doclint>
                     <show>protected</show>
                     <additionalOptions>--enable-preview</additionalOptions>
                     <sourcepath>${{project.basedir}}/src/main/java</sourcepath>
@@ -1391,6 +1640,116 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
                         <id>attach-javadocs</id>
                         <goals>
                             <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${{maven-enforcer-plugin.version}}</version>
+                <executions>
+                    <execution>
+                        <id>enforce-maven</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireMavenVersion>
+                                    <version>${{maven.version}}</version>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>${{maven-checkstyle-plugin.version}}</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>${{checkstyle.version}}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <configLocation>${{project.basedir}}/checkstyle.xml</configLocation>
+                    <consoleOutput>true</consoleOutput>
+                    <failsOnError>true</failsOnError>
+                    <violationSeverity>warning</violationSeverity>
+                    <propertyExpansion>config_loc=${{project.basedir}}</propertyExpansion>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>validate</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-pmd-plugin</artifactId>
+                <version>${{maven-pmd-plugin.version}}</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>net.sourceforge.pmd</groupId>
+                        <artifactId>pmd-java</artifactId>
+                        <version>${{pmd.version}}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <targetJdk>${{maven.compiler.release}}</targetJdk>
+                    <typeResolution>false</typeResolution>
+                    <rulesets>
+                        <ruleset>/rulesets/java/quickstart.xml</ruleset>
+                    </rulesets>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>pmd</goal>
+                            <goal>cpd-check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>versions-maven-plugin</artifactId>
+                <version>${{versions-maven-plugin.version}}</version>
+                <configuration>
+                    <generateBackupPoms>false</generateBackupPoms>
+                    <rulesUri>file://${{project.basedir}}/versions-rules.xml</rulesUri>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${{jacoco-maven-plugin.version}}</version>
+                <configuration>
+                    <excludes>
+                        <exclude>java/**/*</exclude>
+                        <exclude>sun/**/*</exclude>
+                        <exclude>jdk/**/*</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
                         </goals>
                     </execution>
                 </executions>
@@ -1490,7 +1849,7 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
 
     <module name="SuppressionFilter">
         <property name="file" value="${checkstyle.suppressions.file}"/>
-        <property name="optional" value="false"/>
+        <property name="optional" value="true"/>
     </module>
 
     <module name="LineLength">
@@ -1527,15 +1886,48 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         <module name="ModifierOrder"/>
         <module name="RedundantModifier"/>
 
+        <!-- Whitespace -->
+        <module name="EmptyForIteratorPad"/>
+        <module name="GenericWhitespace"/>
+        <module name="MethodParamPad"/>
+        <module name="NoWhitespaceAfter"/>
+        <module name="NoWhitespaceBefore"/>
+        <module name="OperatorWrap">
+            <property name="option" value="nl"/>
+        </module>
+        <module name="ParenPad"/>
+        <module name="TypecastParenPad"/>
+        <module name="WhitespaceAfter"/>
+        <module name="WhitespaceAround"/>
+
+        <!-- Blocks -->
+        <module name="EmptyBlock"/>
+        <module name="LeftCurly"/>
+        <module name="NeedBraces"/>
+        <module name="RightCurly"/>
+
         <!-- Coding -->
         <module name="EmptyStatement"/>
         <module name="EqualsHashCode"/>
+        <module name="IllegalInstantiation"/>
+        <module name="InnerAssignment"/>
+        <module name="MagicNumber">
+            <property name="ignoreNumbers" value="-1, 0, 1, 2"/>
+            <property name="ignoreHashCodeMethod" value="true"/>
+            <property name="ignoreAnnotation" value="true"/>
+            <property name="ignoreFieldDeclaration" value="true"/>
+        </module>
         <module name="SimplifyBooleanExpression"/>
         <module name="SimplifyBooleanReturn"/>
 
         <!-- Misc -->
         <module name="ArrayTypeStyle"/>
         <module name="UpperEll"/>
+    </module>
+
+    <!-- Javadoc -->
+    <module name="JavadocPackage">
+        <property name="allowLegacy" value="true"/>
     </module>
 </module>
 "#;
@@ -1548,11 +1940,14 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
     "https://checkstyle.org/dtds/suppressions_1_2.dtd">
 
 <suppressions>
-    <!-- Allow star imports in test files -->
-    <suppress checks="AvoidStarImport" files=".*Test\.java"/>
+    <!-- FFI constants -->
+    <suppress checks="ConstantName" files=".*FFI\.java"/>
+    <suppress checks="MagicNumber" files=".*FFI\.java"/>
 
-    <!-- Allow magic numbers in tests -->
+    <!-- Allow star imports and magic numbers in test files -->
+    <suppress checks="AvoidStarImport" files=".*Test\.java"/>
     <suppress checks="MagicNumber" files=".*Test\.java"/>
+    <suppress checks="MethodLength" files=".*Test\.java"/>
 </suppressions>
 "#;
 
@@ -1592,6 +1987,59 @@ fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Ge
         GeneratedFile {
             path: PathBuf::from("packages/java/eclipse-formatter.xml"),
             content: eclipse_formatter_xml.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/java/versions-rules.xml"),
+            content: r#"<?xml version="1.0" encoding="UTF-8"?>
+<ruleset xmlns="http://mojo.codehaus.org/versions-maven-plugin/rules/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://mojo.codehaus.org/versions-maven-plugin/rules/2.0.0
+                             https://www.mojohaus.org/versions/versions-maven-plugin/xsd/rule-2.0.0.xsd"
+         comparisonMethod="maven">
+    <ignoreVersions>
+        <ignoreVersion type="regex">(?i).*[.-](alpha|beta|rc|cr|milestone|preview|ea|eap|snapshot).*</ignoreVersion>
+        <ignoreVersion type="regex">(?i).*[.-]m\d+.*</ignoreVersion>
+    </ignoreVersions>
+</ruleset>
+"#
+            .to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/java/pmd-ruleset.xml"),
+            content: r#"<?xml version="1.0"?>
+<ruleset name="Custom PMD Ruleset"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0
+                             https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+    <description>PMD ruleset for Java bindings</description>
+
+    <rule ref="category/java/bestpractices.xml">
+        <exclude name="LooseCoupling"/>
+    </rule>
+    <rule ref="category/java/codestyle.xml">
+        <exclude name="AtLeastOneConstructor"/>
+        <exclude name="CommentDefaultAccessModifier"/>
+        <exclude name="OnlyOneReturn"/>
+    </rule>
+    <rule ref="category/java/design.xml">
+        <exclude name="LawOfDemeter"/>
+        <exclude name="DataClass"/>
+    </rule>
+    <rule ref="category/java/documentation.xml">
+        <exclude name="CommentSize"/>
+    </rule>
+    <rule ref="category/java/errorprone.xml">
+        <exclude name="EmptyCatchBlock"/>
+    </rule>
+    <rule ref="category/java/multithreading.xml"/>
+    <rule ref="category/java/performance.xml"/>
+    <rule ref="category/java/security.xml"/>
+</ruleset>
+"#
+            .to_string(),
             generated_header: false,
         },
     ])
@@ -1641,11 +2089,18 @@ fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
         authors = authors_csproj,
     );
 
-    Ok(vec![GeneratedFile {
-        path: PathBuf::from(format!("packages/csharp/{}.csproj", namespace)),
-        content,
-        generated_header: true,
-    }])
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from(format!("packages/csharp/{}.csproj", namespace)),
+            content,
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/csharp/.editorconfig"),
+            content: "root = true\n\n[*.cs]\nindent_style = space\nindent_size = 4\nmax_line_length = 120\nend_of_line = lf\ncharset = utf-8\ntrim_trailing_whitespace = true\ninsert_final_newline = true\n".to_string(),
+            generated_header: false,
+        },
+    ])
 }
 
 fn scaffold_ffi(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -2341,7 +2796,9 @@ Imports: jsonlite
 Suggests:
     testthat (>= 3.0.0),
     withr,
-    roxygen2
+    roxygen2,
+    lintr,
+    styler
 SystemRequirements: Cargo (Rust's package manager), rustc (>= 1.91)
 Config/rextendr/version: 0.4.2
 Encoding: UTF-8
@@ -2358,11 +2815,25 @@ Config/testthat/edition: 3
         license = meta.license,
     );
 
-    Ok(vec![GeneratedFile {
-        path: PathBuf::from("packages/r/DESCRIPTION"),
-        content,
-        generated_header: true,
-    }])
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from("packages/r/DESCRIPTION"),
+            content,
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/r/.lintr"),
+            content: r#"linters: linters_with_defaults(
+    line_length_linter(120),
+    object_name_linter = NULL,
+    object_usage_linter = NULL,
+    commented_code_linter = NULL
+  )
+"#
+            .to_string(),
+            generated_header: false,
+        },
+    ])
 }
 
 fn scaffold_r_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
