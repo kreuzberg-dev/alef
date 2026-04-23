@@ -287,7 +287,9 @@ fn gen_go_file(
     let mut out = String::with_capacity(4096);
 
     // Go convention: generated file marker must appear before package declaration.
+    // Blank line after header prevents revive from treating it as package doc.
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push('\n');
 
     // Compute relative path from Go output dir to project root.
     // go_output_dir is like "packages/go/", so we need "../../" to reach root.

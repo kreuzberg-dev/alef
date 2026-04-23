@@ -9,13 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.0] - 2026-04-23
 
+### Added
+
+- Scaffold: add ruff + mypy config and `[dependency-groups] dev` to Python `pyproject.toml`.
+- Scaffold: add `biome.json`, `tsconfig.json`, and `@biomejs/biome`/`typescript` devDeps to Node/TypeScript.
+- Scaffold: add `.golangci.yml` for Go with standard linter configuration.
+- Scaffold: add `.php-cs-fixer.php` for PHP with PSR-12 and PHP 8.2 migration rules.
+- Scaffold: add `.credo.exs` for Elixir with strict mode and cyclomatic complexity limit.
+- Scaffold: add `.lintr` for R with 120-char line length; add `lintr`/`styler` to DESCRIPTION Suggests.
+- Scaffold: add `.editorconfig` for C# with 120-char line length.
+- Scaffold (Java): add `versions-rules.xml` filtering alpha/beta/RC/milestone/snapshot versions.
+- Scaffold (Java): add `pmd-ruleset.xml` with standard PMD categories and exclusions.
+- Scaffold (Java): add `maven-enforcer-plugin`, `maven-checkstyle-plugin`, `maven-pmd-plugin`, `versions-maven-plugin`, `jacoco-maven-plugin` to `pom.xml`.
+- Scaffold (Java): add `jspecify` and `assertj-core` dependencies.
+
+### Changed
+
+- Scaffold (Java): update `maven-compiler-plugin` 3.14.0 → 3.15.0, `maven-source-plugin` 3.3.1 → 3.4.0, `maven-site-plugin` 3.21.0 → 4.0.0-M16.
+- Scaffold (Java): update surefire argLine with `-XX:-ClassUnloading`, parallel test execution, and 600s timeout.
+- Scaffold (Java): change javadoc doclint from `none` to `all,-missing`.
+- Scaffold (Java): add whitespace, block, and coding checks to `checkstyle.xml`; add FFI and test suppressions.
+
 ### Fixed
 
 - Codegen: fix `Map` with `Named` value conversion in optionalized `binding_to_core` path.
 - Codegen: fix WASM `js_sys` import generation, Go `gofmt` compliance, Rust e2e `is_none` assertions, PHP builder pattern.
 - Codegen: fix C# bytes pinning and `IntPtr.Zero` guard, Go `gofmt` output, Rust e2e `is_none`, Java e2e camelCase naming.
+- Codegen: fix `Vec<String>` `_refs` binding and sanitized tuple-to-vec clone in `core_to_binding`.
+- Codegen: fix `Vec<Primitive>` sanitized passthrough and enum sanitized serde round-trip.
 - Magnus: fix `funcall` API usage, visitor bridge argument passing, `Vec` conversion, optional field flattening, and `default_types` handling.
 - Magnus: simplify `gen_trait_bridge` signature — remove inline error type/constructor args, derive from config.
+- PyO3: pass enum fields directly instead of `str()` + map lookup.
+- PyO3: add `license`/`credits`/`copyright` to Python builtin names list.
+- Rustler: fix Elixir `@spec` line wrapping to respect 98-char formatter default.
 - Elixir: add `.formatter.exs` with 120-character line length; update stub wrap threshold to 120.
 - Scaffold: add `steep`, `rubocop-performance`, `rubocop-rspec` to Ruby Gemfile template.
 

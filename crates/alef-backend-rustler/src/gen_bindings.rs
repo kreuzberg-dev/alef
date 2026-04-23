@@ -1751,9 +1751,10 @@ fn gen_native_ex(
     let _ = writeln!(out, "  use RustlerPrecompiled,");
     let _ = writeln!(out, "    otp_app: :{app_name},");
     let _ = writeln!(out, "    crate: \"{app_name}_nif\",");
+    let _ = writeln!(out, "    base_url:");
     let _ = writeln!(
         out,
-        "    base_url: \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
+        "      \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
     );
     let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
     let _ = writeln!(
