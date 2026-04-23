@@ -567,8 +567,12 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
 /// Generate a Go opaque handle type wrapping an `unsafe.Pointer`.
 ///
 /// Opaque types are not JSON-serializable — they are raw C pointers passed through
-/// the FFI layer. The Go struct holds a pointer and exposes a `Free()` method and a
-/// `New{TypeName}()` constructor that calls the C `{prefix}_{type_snake}()` allocator.
+/// the FFI layer. The Go struct holds a pointer and exposes a `Free()` method.
+/// Constructors are NOT emitted here — they are generated as free function wrappers
+/// from `api.functions` entries that return this opaque type (e.g. `CreateClient`,
+/// `CreateClientFromJson`). A zero-argument `New{TypeName}()` calling
+/// `C.{prefix}_{type_snake}()` would reference a C function that does not exist in
+/// the FFI layer.
 fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     let mut out = String::with_capacity(512);
     let type_snake = typ.name.to_snake_case();
@@ -585,13 +589,8 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
-    // Opaque handles are created by factory functions (e.g., CreateEngine),
-    // not by direct constructors. Skip New{Type}() generation — the FFI
-    // only exports a _free() function for opaque types.
-    let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name.to_pascal_case());
-    writeln!(out).ok();
-
     // Free method
+    let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name.to_pascal_case());
     writeln!(out, "// Free releases the resources held by this handle.").ok();
     writeln!(out, "func (h *{}) Free() {{", typ.name).ok();
     writeln!(out, "\tif h.ptr != nil {{").ok();
