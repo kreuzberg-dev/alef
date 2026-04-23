@@ -1222,6 +1222,9 @@ fn render_assertion(
         "is_true" => {
             let _ = writeln!(out, "    assert {field_access} is True  # noqa: S101");
         }
+        "is_false" => {
+            let _ = writeln!(out, "    assert not {field_access}  # noqa: S101");
+        }
         "method_result" => {
             if let Some(method_name) = &assertion.method {
                 let call_expr = build_python_method_call(result_var, method_name, assertion.args.as_ref());

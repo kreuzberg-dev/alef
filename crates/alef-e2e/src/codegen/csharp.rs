@@ -247,19 +247,35 @@ fn render_test_method(
     out: &mut String,
     fixture: &Fixture,
     class_name: &str,
-    function_name: &str,
+    _function_name: &str,
     exception_class: &str,
-    result_var: &str,
-    args: &[crate::config::ArgMapping],
+    _result_var: &str,
+    _args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     result_is_simple: bool,
-    is_async: bool,
+    _is_async: bool,
     e2e_config: &E2eConfig,
     enum_fields: &HashMap<String, String>,
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+
+    // Resolve call config per-fixture so named calls (e.g. "parse") use the
+    // correct function name, result variable, and async flag.
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let lang = "csharp";
+    let cs_overrides = call_config.overrides.get(lang);
+    let effective_function_name = cs_overrides
+        .and_then(|o| o.function.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.function.to_upper_camel_case());
+    let effective_result_var = &call_config.result_var;
+    let effective_is_async = call_config.r#async;
+    let function_name = effective_function_name.as_str();
+    let result_var = effective_result_var.as_str();
+    let is_async = effective_is_async;
+    let args = call_config.args.as_slice();
 
     let (mut setup_lines, args_str) =
         build_args_and_setup(&fixture.input, args, class_name, e2e_config, enum_fields, &fixture.id);
@@ -310,7 +326,7 @@ fn render_test_method(
     );
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver, result_is_simple);
+        render_assertion(out, assertion, result_var, class_name, exception_class, field_resolver, result_is_simple);
     }
 
     let _ = writeln!(out, "    }}");
@@ -436,6 +452,8 @@ fn render_assertion(
     out: &mut String,
     assertion: &Assertion,
     result_var: &str,
+    class_name: &str,
+    exception_class: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
 ) {
@@ -633,11 +651,72 @@ fn render_assertion(
         "is_true" => {
             let _ = writeln!(out, "        Assert.True({field_expr});");
         }
+        "is_false" => {
+            let _ = writeln!(out, "        Assert.False({field_expr});");
+        }
         "not_error" => {
             // Already handled by the call succeeding without exception.
         }
         "error" => {
             // Handled at the test method level.
+        }
+        "method_result" => {
+            if let Some(method_name) = &assertion.method {
+                let call_expr = build_csharp_method_call(result_var, method_name, assertion.args.as_ref(), class_name);
+                let check = assertion.check.as_deref().unwrap_or("is_true");
+                match check {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            if val.as_bool() == Some(true) {
+                                let _ = writeln!(out, "        Assert.True({call_expr});");
+                            } else if val.as_bool() == Some(false) {
+                                let _ = writeln!(out, "        Assert.False({call_expr});");
+                            } else {
+                                let cs_val = json_to_csharp(val);
+                                let _ = writeln!(out, "        Assert.Equal({cs_val}, {call_expr});");
+                            }
+                        }
+                    }
+                    "is_true" => {
+                        let _ = writeln!(out, "        Assert.True({call_expr});");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        Assert.False({call_expr});");
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            let _ = writeln!(out, "        Assert.True({call_expr} >= {n}, \"expected >= {n}\");");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            let _ = writeln!(
+                                out,
+                                "        Assert.True({call_expr}.Count >= {n}, \"expected at least {n} elements\");"
+                            );
+                        }
+                    }
+                    "is_error" => {
+                        let _ = writeln!(
+                            out,
+                            "        Assert.Throws<{exception_class}>(() => {{ {call_expr}; }});"
+                        );
+                    }
+                    "contains" => {
+                        if let Some(val) = &assertion.value {
+                            let cs_val = json_to_csharp(val);
+                            let _ = writeln!(out, "        Assert.Contains({cs_val}, {call_expr});");
+                        }
+                    }
+                    other_check => {
+                        panic!("C# e2e generator: unsupported method_result check type: {other_check}");
+                    }
+                }
+            } else {
+                panic!("C# e2e generator: method_result assertion missing 'method' field");
+            }
         }
         other => {
             panic!("C# e2e generator: unsupported assertion type: {other}");
@@ -774,4 +853,54 @@ fn emit_csharp_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, 
 fn method_to_camel(snake: &str) -> String {
     use heck::ToUpperCamelCase;
     snake.to_upper_camel_case()
+}
+
+/// Build a C# call expression for a `method_result` assertion on a tree-sitter Tree.
+///
+/// Maps well-known method names to the appropriate C# static helper calls on the
+/// generated lib class, falling back to `result_var.PascalCase()` for unknowns.
+fn build_csharp_method_call(
+    result_var: &str,
+    method_name: &str,
+    args: Option<&serde_json::Value>,
+    class_name: &str,
+) -> String {
+    match method_name {
+        "root_child_count" => format!("{result_var}.RootNode.ChildCount"),
+        "root_node_type" => format!("{result_var}.RootNode.Kind"),
+        "named_children_count" => format!("{result_var}.RootNode.NamedChildCount"),
+        "has_error_nodes" => format!("{class_name}.TreeHasErrorNodes({result_var})"),
+        "error_count" => format!("{class_name}.TreeErrorCount({result_var})"),
+        "tree_to_sexp" => format!("{class_name}.TreeToSexp({result_var})"),
+        "contains_node_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("{class_name}.TreeContainsNodeType({result_var}, \"{node_type}\")")
+        }
+        "find_nodes_by_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("{class_name}.FindNodesByType({result_var}, \"{node_type}\")")
+        }
+        "run_query" => {
+            let query_source = args
+                .and_then(|a| a.get("query_source"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let language = args
+                .and_then(|a| a.get("language"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("{class_name}.RunQuery({result_var}, \"{language}\", \"{query_source}\", source)")
+        }
+        _ => {
+            use heck::ToUpperCamelCase;
+            let pascal = method_name.to_upper_camel_case();
+            format!("{result_var}.{pascal}()")
+        }
+    }
 }

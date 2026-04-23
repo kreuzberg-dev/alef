@@ -64,6 +64,7 @@ impl E2eCodegen for CCodegen {
                     .fixtures
                     .iter()
                     .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
+                    .filter(|f| f.visitor.is_none())
                     .collect();
                 if active.is_empty() { None } else { Some((group, active)) }
             })
@@ -488,14 +489,10 @@ fn render_test_file(
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        // Skip fixtures with visitor specs: C visitor support not yet implemented.
+        // Visitor fixtures are filtered out before render_test_file is called.
+        // This guard is a safety net in case a fixture reaches here unexpectedly.
         if fixture.visitor.is_some() {
-            let _ = writeln!(
-                out,
-                "/* TODO: {} - visitor pattern not supported in C yet */",
-                fixture.id
-            );
-            continue;
+            panic!("C e2e generator: visitor pattern not supported for fixture: {}", fixture.id);
         }
 
         let call_info = resolve_fixture_call_info(fixture, e2e_config, lang);
@@ -1146,6 +1143,23 @@ fn render_assertion(
         "is_true" => {
             let _ = writeln!(out, "    assert({field_expr});");
         }
+        "is_false" => {
+            let _ = writeln!(out, "    assert(!{field_expr});");
+        }
+        "method_result" => {
+            if let Some(method_name) = &assertion.method {
+                render_method_result_assertion(
+                    out,
+                    result_var,
+                    method_name,
+                    assertion.args.as_ref(),
+                    assertion.check.as_deref().unwrap_or("is_true"),
+                    assertion.value.as_ref(),
+                );
+            } else {
+                panic!("C e2e generator: method_result assertion missing 'method' field");
+            }
+        }
         "not_error" => {
             // Already handled — the NULL check above covers this.
         }
@@ -1155,6 +1169,361 @@ fn render_assertion(
         other => {
             panic!("C e2e generator: unsupported assertion type: {other}");
         }
+    }
+}
+
+/// Render a `method_result` assertion in C.
+///
+/// Emits a scoped block that calls the appropriate FFI function on `result_var`,
+/// performs the requested check, and frees any heap-allocated return values.
+fn render_method_result_assertion(
+    out: &mut String,
+    result_var: &str,
+    method_name: &str,
+    args: Option<&serde_json::Value>,
+    check: &str,
+    value: Option<&serde_json::Value>,
+) {
+    let call_expr = build_c_method_call(result_var, method_name, args);
+
+    match method_name {
+        // Integer-returning methods: no heap allocation, inline assert.
+        "has_error_nodes" | "error_count" => match check {
+            "equals" => {
+                if let Some(val) = value {
+                    let c_val = json_to_c(val);
+                    let _ = writeln!(
+                        out,
+                        "    assert({call_expr} == {c_val} && \"method_result equals assertion failed\");"
+                    );
+                }
+            }
+            "is_true" => {
+                let _ = writeln!(
+                    out,
+                    "    assert({call_expr} && \"method_result is_true assertion failed\");"
+                );
+            }
+            "is_false" => {
+                let _ = writeln!(
+                    out,
+                    "    assert(!{call_expr} && \"method_result is_false assertion failed\");"
+                );
+            }
+            "greater_than_or_equal" => {
+                if let Some(val) = value {
+                    let n = val.as_u64().unwrap_or(0);
+                    let _ = writeln!(
+                        out,
+                        "    assert({call_expr} >= {n} && \"method_result >= {n} assertion failed\");"
+                    );
+                }
+            }
+            other_check => {
+                panic!("C e2e generator: unsupported method_result check type: {other_check}");
+            }
+        },
+
+        // root_child_count / named_children_count: allocate NodeInfo, get count, free NodeInfo.
+        "root_child_count" | "named_children_count" => {
+            let _ = writeln!(out, "    {{");
+            let _ = writeln!(
+                out,
+                "        TS_PACKNodeInfo* _node_info = ts_pack_root_node_info({result_var});"
+            );
+            let _ = writeln!(
+                out,
+                "        assert(_node_info != NULL && \"root_node_info returned NULL\");"
+            );
+            let _ = writeln!(
+                out,
+                "        size_t _count = ts_pack_node_info_named_child_count(_node_info);"
+            );
+            let _ = writeln!(out, "        ts_pack_node_info_free(_node_info);");
+            match check {
+                "equals" => {
+                    if let Some(val) = value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "        assert(_count == (size_t){c_val} && \"method_result equals assertion failed\");"
+                        );
+                    }
+                }
+                "greater_than_or_equal" => {
+                    if let Some(val) = value {
+                        let n = val.as_u64().unwrap_or(0);
+                        let _ = writeln!(
+                            out,
+                            "        assert(_count >= {n} && \"method_result >= {n} assertion failed\");"
+                        );
+                    }
+                }
+                "is_true" => {
+                    let _ = writeln!(
+                        out,
+                        "        assert(_count > 0 && \"method_result is_true assertion failed\");"
+                    );
+                }
+                other_check => {
+                    panic!("C e2e generator: unsupported method_result check type: {other_check}");
+                }
+            }
+            let _ = writeln!(out, "    }}");
+        }
+
+        // String-returning methods: heap-allocated char*, must free after assert.
+        "tree_to_sexp" => {
+            let _ = writeln!(out, "    {{");
+            let _ = writeln!(out, "        char* _method_result = {call_expr};");
+            let _ = writeln!(
+                out,
+                "        assert(_method_result != NULL && \"method_result returned NULL\");"
+            );
+            match check {
+                "contains" => {
+                    if let Some(val) = value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "        assert(strstr(_method_result, {c_val}) != NULL && \"method_result contains assertion failed\");"
+                        );
+                    }
+                }
+                "equals" => {
+                    if let Some(val) = value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "        assert(str_trim_eq(_method_result, {c_val}) == 0 && \"method_result equals assertion failed\");"
+                        );
+                    }
+                }
+                "is_true" => {
+                    let _ = writeln!(
+                        out,
+                        "        assert(_method_result != NULL && strlen(_method_result) > 0 && \"method_result is_true assertion failed\");"
+                    );
+                }
+                other_check => {
+                    panic!("C e2e generator: unsupported method_result check type: {other_check}");
+                }
+            }
+            let _ = writeln!(out, "        ts_pack_free_string(_method_result);");
+            let _ = writeln!(out, "    }}");
+        }
+
+        // contains_node_type returns int32_t (boolean).
+        "contains_node_type" => match check {
+            "equals" => {
+                if let Some(val) = value {
+                    let c_val = json_to_c(val);
+                    let _ = writeln!(
+                        out,
+                        "    assert({call_expr} == {c_val} && \"method_result equals assertion failed\");"
+                    );
+                }
+            }
+            "is_true" => {
+                let _ = writeln!(
+                    out,
+                    "    assert({call_expr} && \"method_result is_true assertion failed\");"
+                );
+            }
+            "is_false" => {
+                let _ = writeln!(
+                    out,
+                    "    assert(!{call_expr} && \"method_result is_false assertion failed\");"
+                );
+            }
+            other_check => {
+                panic!("C e2e generator: unsupported method_result check type: {other_check}");
+            }
+        },
+
+        // find_nodes_by_type returns char* JSON array; count_min checks array length.
+        "find_nodes_by_type" => {
+            let _ = writeln!(out, "    {{");
+            let _ = writeln!(out, "        char* _method_result = {call_expr};");
+            let _ = writeln!(
+                out,
+                "        assert(_method_result != NULL && \"method_result returned NULL\");"
+            );
+            match check {
+                "count_min" => {
+                    if let Some(val) = value {
+                        let n = val.as_u64().unwrap_or(0);
+                        let _ = writeln!(out, "        int _elem_count = alef_json_array_count(_method_result);");
+                        let _ = writeln!(
+                            out,
+                            "        assert(_elem_count >= {n} && \"method_result count_min assertion failed\");"
+                        );
+                    }
+                }
+                "is_true" => {
+                    let _ = writeln!(
+                        out,
+                        "        assert(alef_json_array_count(_method_result) > 0 && \"method_result is_true assertion failed\");"
+                    );
+                }
+                other_check => {
+                    panic!("C e2e generator: unsupported method_result check type: {other_check}");
+                }
+            }
+            let _ = writeln!(out, "        ts_pack_free_string(_method_result);");
+            let _ = writeln!(out, "    }}");
+        }
+
+        // run_query returns char* JSON array.
+        "run_query" => {
+            let _ = writeln!(out, "    {{");
+            let _ = writeln!(out, "        char* _method_result = {call_expr};");
+            let _ = writeln!(
+                out,
+                "        assert(_method_result != NULL && \"method_result returned NULL\");"
+            );
+            match check {
+                "count_min" => {
+                    if let Some(val) = value {
+                        let n = val.as_u64().unwrap_or(0);
+                        let _ = writeln!(out, "        int _elem_count = alef_json_array_count(_method_result);");
+                        let _ = writeln!(
+                            out,
+                            "        assert(_elem_count >= {n} && \"method_result count_min assertion failed\");"
+                        );
+                    }
+                }
+                "is_true" => {
+                    let _ = writeln!(
+                        out,
+                        "        assert(alef_json_array_count(_method_result) > 0 && \"method_result is_true assertion failed\");"
+                    );
+                }
+                "contains" => {
+                    if let Some(val) = value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "        assert(strstr(_method_result, {c_val}) != NULL && \"method_result contains assertion failed\");"
+                        );
+                    }
+                }
+                other_check => {
+                    panic!("C e2e generator: unsupported method_result check type: {other_check}");
+                }
+            }
+            let _ = writeln!(out, "        ts_pack_free_string(_method_result);");
+            let _ = writeln!(out, "    }}");
+        }
+
+        // root_node_type: get NodeInfo, serialize to JSON, extract "kind" field.
+        "root_node_type" => {
+            let _ = writeln!(out, "    {{");
+            let _ = writeln!(
+                out,
+                "        TS_PACKNodeInfo* _node_info = ts_pack_root_node_info({result_var});"
+            );
+            let _ = writeln!(
+                out,
+                "        assert(_node_info != NULL && \"root_node_info returned NULL\");"
+            );
+            let _ = writeln!(out, "        char* _node_json = ts_pack_node_info_to_json(_node_info);");
+            let _ = writeln!(
+                out,
+                "        assert(_node_json != NULL && \"node_info_to_json returned NULL\");"
+            );
+            let _ = writeln!(out, "        char* _kind = alef_json_get_string(_node_json, \"kind\");");
+            let _ = writeln!(
+                out,
+                "        assert(_kind != NULL && \"kind field not found in NodeInfo JSON\");"
+            );
+            match check {
+                "equals" => {
+                    if let Some(val) = value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "        assert(strcmp(_kind, {c_val}) == 0 && \"method_result equals assertion failed\");"
+                        );
+                    }
+                }
+                "contains" => {
+                    if let Some(val) = value {
+                        let c_val = json_to_c(val);
+                        let _ = writeln!(
+                            out,
+                            "        assert(strstr(_kind, {c_val}) != NULL && \"method_result contains assertion failed\");"
+                        );
+                    }
+                }
+                "is_true" => {
+                    let _ = writeln!(
+                        out,
+                        "        assert(_kind != NULL && strlen(_kind) > 0 && \"method_result is_true assertion failed\");"
+                    );
+                }
+                other_check => {
+                    panic!("C e2e generator: unsupported method_result check type: {other_check}");
+                }
+            }
+            let _ = writeln!(out, "        free(_kind);");
+            let _ = writeln!(out, "        ts_pack_free_string(_node_json);");
+            let _ = writeln!(out, "        ts_pack_node_info_free(_node_info);");
+            let _ = writeln!(out, "    }}");
+        }
+
+        other_method => {
+            panic!("C e2e generator: unsupported method_result method: {other_method}");
+        }
+    }
+}
+
+/// Build a C call expression for a `method_result` assertion on a tree-sitter Tree.
+///
+/// Maps well-known method names to the appropriate C FFI function calls.
+/// For integer-returning methods, returns the full expression.
+/// For pointer-returning methods, returns the expression (callers allocate a block).
+fn build_c_method_call(result_var: &str, method_name: &str, args: Option<&serde_json::Value>) -> String {
+    match method_name {
+        "root_child_count" => {
+            // tree-sitter native: get root node child count via NodeInfo named_child_count.
+            format!("ts_pack_node_info_named_child_count(ts_pack_root_node_info({result_var}))")
+        }
+        "has_error_nodes" => format!("ts_pack_tree_has_error_nodes({result_var})"),
+        "error_count" => format!("ts_pack_tree_error_count({result_var})"),
+        "tree_to_sexp" => format!("ts_pack_tree_to_sexp({result_var})"),
+        "named_children_count" => {
+            format!("ts_pack_node_info_named_child_count(ts_pack_root_node_info({result_var}))")
+        }
+        "contains_node_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("ts_pack_tree_contains_node_type({result_var}, \"{node_type}\")")
+        }
+        "find_nodes_by_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("ts_pack_find_nodes_by_type({result_var}, \"{node_type}\")")
+        }
+        "run_query" => {
+            let query_source = args
+                .and_then(|a| a.get("query_source"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let language = args
+                .and_then(|a| a.get("language"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            // source and source_len are passed as NULL/0 since fixtures don't provide raw bytes here.
+            format!("ts_pack_run_query({result_var}, \"{language}\", \"{query_source}\", NULL, 0)")
+        }
+        // root_node_type is handled separately in render_method_result_assertion.
+        "root_node_type" => String::new(),
+        other_method => format!("ts_pack_{other_method}({result_var})"),
     }
 }
 

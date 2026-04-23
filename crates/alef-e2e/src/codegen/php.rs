@@ -763,7 +763,8 @@ fn render_assertion(
                     || f_lower.starts_with("document")
                     || f_lower.starts_with("structure"))
             {
-                panic!("PHP e2e generator: skipped result_is_simple for field: {f}");
+                let _ = writeln!(out, "        // skipped: result_is_simple, field '{f}' not on simple result type");
+                return;
             }
         }
     }
@@ -915,6 +916,67 @@ fn render_assertion(
         "is_true" => {
             let _ = writeln!(out, "        $this->assertTrue({field_expr});");
         }
+        "is_false" => {
+            let _ = writeln!(out, "        $this->assertFalse({field_expr});");
+        }
+        "method_result" => {
+            if let Some(method_name) = &assertion.method {
+                let call_expr = build_php_method_call(result_var, method_name, assertion.args.as_ref());
+                let check = assertion.check.as_deref().unwrap_or("is_true");
+                match check {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            if val.is_boolean() {
+                                if val.as_bool() == Some(true) {
+                                    let _ = writeln!(out, "        $this->assertTrue({call_expr});");
+                                } else {
+                                    let _ = writeln!(out, "        $this->assertFalse({call_expr});");
+                                }
+                            } else {
+                                let expected = json_to_php(val);
+                                let _ = writeln!(out, "        $this->assertEquals({expected}, {call_expr});");
+                            }
+                        }
+                    }
+                    "is_true" => {
+                        let _ = writeln!(out, "        $this->assertTrue({call_expr});");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        $this->assertFalse({call_expr});");
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            let _ = writeln!(out, "        $this->assertGreaterThanOrEqual({n}, {call_expr});");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            let _ = writeln!(out, "        $this->assertGreaterThanOrEqual({n}, count({call_expr}));");
+                        }
+                    }
+                    "is_error" => {
+                        let _ = writeln!(out, "        $this->expectException(\\Exception::class);");
+                        let _ = writeln!(out, "        {call_expr};");
+                    }
+                    "contains" => {
+                        if let Some(val) = &assertion.value {
+                            let expected = json_to_php(val);
+                            let _ = writeln!(
+                                out,
+                                "        $this->assertStringContainsString({expected}, {call_expr});"
+                            );
+                        }
+                    }
+                    other_check => {
+                        panic!("PHP e2e generator: unsupported method_result check type: {other_check}");
+                    }
+                }
+            } else {
+                panic!("PHP e2e generator: method_result assertion missing 'method' field");
+            }
+        }
         "not_error" => {
             // Already handled by the call succeeding without exception.
         }
@@ -923,6 +985,61 @@ fn render_assertion(
         }
         other => {
             panic!("PHP e2e generator: unsupported assertion type: {other}");
+        }
+    }
+}
+
+/// Build a PHP call expression for a `method_result` assertion on a tree-sitter `Tree`.
+///
+/// Maps method names to the appropriate PHP static function calls on the
+/// `TreeSitterLanguagePack` class (using the ext-php-rs snake_case method names).
+fn build_php_method_call(result_var: &str, method_name: &str, args: Option<&serde_json::Value>) -> String {
+    match method_name {
+        "root_child_count" => {
+            format!("count(TreeSitterLanguagePack::named_children_info(${result_var}))")
+        }
+        "root_node_type" => {
+            format!("TreeSitterLanguagePack::root_node_info(${result_var})->kind")
+        }
+        "named_children_count" => {
+            format!("count(TreeSitterLanguagePack::named_children_info(${result_var}))")
+        }
+        "has_error_nodes" => {
+            format!("TreeSitterLanguagePack::tree_has_error_nodes(${result_var})")
+        }
+        "error_count" => {
+            format!("TreeSitterLanguagePack::tree_error_count(${result_var})")
+        }
+        "tree_to_sexp" => {
+            format!("TreeSitterLanguagePack::tree_to_sexp(${result_var})")
+        }
+        "contains_node_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("TreeSitterLanguagePack::tree_contains_node_type(${result_var}, \"{node_type}\")")
+        }
+        "find_nodes_by_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("TreeSitterLanguagePack::find_nodes_by_type(${result_var}, \"{node_type}\")")
+        }
+        "run_query" => {
+            let query_source = args
+                .and_then(|a| a.get("query_source"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let language = args
+                .and_then(|a| a.get("language"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("TreeSitterLanguagePack::run_query(${result_var}, \"{language}\", \"{query_source}\", $source)")
+        }
+        _ => {
+            format!("${result_var}->{method_name}()")
         }
     }
 }

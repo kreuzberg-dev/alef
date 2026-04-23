@@ -111,6 +111,7 @@ impl E2eCodegen for BrewCodegen {
                 &cli_flags,
                 &e2e_config.call.args,
                 &field_resolver,
+                e2e_config,
             );
             files.push(GeneratedFile {
                 path: output_base.join(filename),
@@ -228,6 +229,14 @@ fn render_run_tests(categories: &[String]) -> String {
     let _ = writeln!(out, "    fi");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
+    let _ = writeln!(out, "assert_less_than_or_equal() {{");
+    let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
+    let _ = writeln!(out, "    if [ \"$actual\" -gt \"$expected\" ]; then");
+    let _ = writeln!(out, "        echo \"FAIL [$label]: expected $actual <= $expected\" >&2");
+    let _ = writeln!(out, "        return 1");
+    let _ = writeln!(out, "    fi");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
     let _ = writeln!(out, "assert_not_contains() {{");
     let _ = writeln!(out, "    local actual=\"$1\" expected=\"$2\" label=\"$3\"");
     let _ = writeln!(out, "    if [[ \"$actual\" == *\"$expected\"* ]]; then");
@@ -291,6 +300,7 @@ fn render_category_file(
     cli_flags: &std::collections::HashMap<String, String>,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    e2e_config: &E2eConfig,
 ) -> String {
     let safe_category = sanitize_filename(category);
     let mut out = String::new();
@@ -310,6 +320,7 @@ fn render_category_file(
             cli_flags,
             args,
             field_resolver,
+            e2e_config,
         );
         let _ = writeln!(out);
     }
@@ -333,8 +344,9 @@ fn render_test_function(
     subcommand: &str,
     static_cli_args: &[String],
     cli_flags: &std::collections::HashMap<String, String>,
-    args: &[crate::config::ArgMapping],
+    _args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
+    e2e_config: &E2eConfig,
 ) {
     let fn_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
@@ -344,8 +356,18 @@ fn render_test_function(
     let _ = writeln!(out, "test_{fn_name}() {{");
     let _ = writeln!(out, "    # {description}");
 
-    // Build the CLI command.
-    let cmd_parts = build_cli_command(fixture, binary_name, subcommand, static_cli_args, cli_flags, args);
+    // Resolve fixture-specific call config if provided, otherwise use defaults.
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+
+    // Build the CLI command using the resolved call config.
+    let cmd_parts = build_cli_command(
+        fixture,
+        binary_name,
+        subcommand,
+        static_cli_args,
+        cli_flags,
+        &call_config.args,
+    );
 
     if expects_error {
         let cmd = cmd_parts.join(" ");
@@ -465,6 +487,68 @@ fn field_to_jq_path(resolved: &str) -> String {
         return ". | length".to_string();
     }
     format!(".{resolved}")
+}
+
+/// Build a CLI command for a method_result assertion.
+///
+/// Maps method names to the appropriate tree-sitter-language-pack CLI commands.
+/// The result is returned as a command string (not quoted) to be captured in a variable.
+fn build_brew_method_call(method_name: &str, args: Option<&serde_json::Value>) -> String {
+    match method_name {
+        "root_child_count" => "tree_sitter_language_pack tree-root-child-count \"$output\"".to_string(),
+        "root_node_type" => "tree_sitter_language_pack tree-root-node-type \"$output\"".to_string(),
+        "named_children_count" => "tree_sitter_language_pack tree-named-children-count \"$output\"".to_string(),
+        "has_error_nodes" => "tree_sitter_language_pack tree-has-error-nodes \"$output\"".to_string(),
+        "error_count" => "tree_sitter_language_pack tree-error-count \"$output\"".to_string(),
+        "tree_to_sexp" => "tree_sitter_language_pack tree-to-sexp \"$output\"".to_string(),
+        "contains_node_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("tree_sitter_language_pack tree-contains-node-type \"$output\" '{node_type}'")
+        }
+        "find_nodes_by_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("tree_sitter_language_pack tree-find-nodes-by-type \"$output\" '{node_type}'")
+        }
+        "run_query" => {
+            let query_source = args
+                .and_then(|a| a.get("query_source"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let language = args
+                .and_then(|a| a.get("language"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("tree_sitter_language_pack tree-run-query \"$output\" '{language}' '{query_source}'")
+        }
+        _ => {
+            if let Some(args_val) = args {
+                let arg_str = args_val
+                    .as_object()
+                    .map(|obj| {
+                        obj.iter()
+                            .map(|(k, v)| {
+                                let val_str = match v {
+                                    serde_json::Value::String(s) => format!("'{}'", escape_shell(s)),
+                                    other => other.to_string(),
+                                };
+                                format!("--{k} {val_str}")
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .unwrap_or_default();
+                format!("tree_sitter_language_pack {method_name} \"$output\" {arg_str}")
+            } else {
+                format!("tree_sitter_language_pack {method_name} \"$output\"")
+            }
+        }
+    }
 }
 
 /// Render a single assertion as shell code.
@@ -654,6 +738,96 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
                 let _ = writeln!(out, "    local val_{safe_field}");
                 let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
                 let _ = writeln!(out, "    [ \"$val_{safe_field}\" = \"true\" ] || exit 1");
+            }
+        }
+        "is_false" => {
+            if let Some(field) = &assertion.field {
+                let resolved = field_resolver.resolve(field);
+                let jq_path = field_to_jq_path(resolved);
+                let safe_field = sanitize_ident(field);
+                let _ = writeln!(out, "    local val_{safe_field}");
+                let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                let _ = writeln!(out, "    [ \"$val_{safe_field}\" = \"false\" ] || exit 1");
+            }
+        }
+        "less_than_or_equal" => {
+            if let Some(field) = &assertion.field {
+                if let Some(val) = &assertion.value {
+                    let resolved = field_resolver.resolve(field);
+                    let jq_path = field_to_jq_path(resolved);
+                    let threshold = json_value_to_shell_string(val);
+                    let safe_field = sanitize_ident(field);
+                    let _ = writeln!(out, "    local val_{safe_field}");
+                    let _ = writeln!(out, "    val_{safe_field}=$(echo \"$output\" | jq -r '{jq_path}')");
+                    let _ = writeln!(
+                        out,
+                        "    assert_less_than_or_equal \"$val_{safe_field}\" '{threshold}' '{field}'"
+                    );
+                }
+            }
+        }
+        "method_result" => {
+            if let Some(method_name) = &assertion.method {
+                let check = assertion.check.as_deref().unwrap_or("is_true");
+                let cmd = build_brew_method_call(method_name, assertion.args.as_ref());
+                // For is_error, skip capturing the result — just run the command and check
+                // the exit code so we don't execute the method twice.
+                if check == "is_error" {
+                    let _ = writeln!(out, "    if {cmd} >/dev/null 2>&1; then");
+                    let _ = writeln!(
+                        out,
+                        "        echo 'FAIL [method_result]: expected method to raise error but it succeeded' >&2"
+                    );
+                    let _ = writeln!(out, "        return 1");
+                    let _ = writeln!(out, "    fi");
+                } else {
+                    let method_var = format!("method_result_{}", sanitize_ident(method_name));
+                    let _ = writeln!(out, "    local {method_var}");
+                    let _ = writeln!(out, "    {method_var}=$({cmd})");
+                    match check {
+                        "equals" => {
+                            if let Some(val) = &assertion.value {
+                                let expected = json_value_to_shell_string(val);
+                                let _ = writeln!(out, "    [ \"${method_var}\" = '{expected}' ] || exit 1");
+                            }
+                        }
+                        "is_true" => {
+                            let _ = writeln!(out, "    [ \"${method_var}\" = \"true\" ] || exit 1");
+                        }
+                        "is_false" => {
+                            let _ = writeln!(out, "    [ \"${method_var}\" = \"false\" ] || exit 1");
+                        }
+                        "greater_than_or_equal" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(out, "    [ \"${method_var}\" -ge {n} ] || exit 1");
+                                }
+                            }
+                        }
+                        "count_min" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(
+                                        out,
+                                        "    local count_from_method_result=$(echo \"${method_var}\" | jq 'length')"
+                                    );
+                                    let _ = writeln!(out, "    [ \"$count_from_method_result\" -ge {n} ] || exit 1");
+                                }
+                            }
+                        }
+                        "contains" => {
+                            if let Some(val) = &assertion.value {
+                                let expected = json_value_to_shell_string(val);
+                                let _ = writeln!(out, "    [[ \"${method_var}\" == *'{expected}'* ]] || exit 1");
+                            }
+                        }
+                        other_check => {
+                            panic!("Brew e2e generator: unsupported method_result check type: {other_check}");
+                        }
+                    }
+                }
+            } else {
+                panic!("method_result assertion missing 'method' field");
             }
         }
         "not_error" => {

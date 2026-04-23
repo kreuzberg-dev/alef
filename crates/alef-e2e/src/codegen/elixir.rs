@@ -134,6 +134,7 @@ impl E2eCodegen for ElixirCodegen {
             let content = render_test_file(
                 &group.category,
                 &active,
+                e2e_config,
                 &module_path,
                 &function_name,
                 result_var,
@@ -206,6 +207,7 @@ fn render_mix_exs(
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
+    e2e_config: &E2eConfig,
     module_path: &str,
     function_name: &str,
     result_var: &str,
@@ -248,6 +250,7 @@ fn render_test_file(
             render_test_case(
                 &mut out,
                 fixture,
+                e2e_config,
                 module_path,
                 function_name,
                 result_var,
@@ -432,9 +435,10 @@ fn render_elixir_header_assertions(out: &mut String, expected: &HttpExpectedResp
 fn render_test_case(
     out: &mut String,
     fixture: &Fixture,
-    module_path: &str,
-    function_name: &str,
-    result_var: &str,
+    e2e_config: &E2eConfig,
+    default_module_path: &str,
+    default_function_name: &str,
+    default_result_var: &str,
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     options_type: Option<&str>,
@@ -446,12 +450,48 @@ fn render_test_case(
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('"', "\\\"");
 
+    // Resolve per-fixture call config (falls back to default if fixture.call is None).
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let lang = "elixir";
+    let call_overrides = call_config.overrides.get(lang);
+
+    // Compute module_path and function_name from the resolved call config,
+    // applying Elixir-specific PascalCase conversion.
+    let (module_path, function_name, result_var) = if fixture.call.is_some() {
+        let raw_module = call_overrides
+            .and_then(|o| o.module.as_ref())
+            .cloned()
+            .unwrap_or_else(|| call_config.module.clone());
+        let resolved_module = if raw_module.contains('.') || raw_module.chars().next().is_some_and(|c| c.is_uppercase())
+        {
+            raw_module.clone()
+        } else {
+            elixir_module_name(&raw_module)
+        };
+        let base_fn = call_overrides
+            .and_then(|o| o.function.as_ref())
+            .cloned()
+            .unwrap_or_else(|| call_config.function.clone());
+        let resolved_fn = if call_config.r#async && !base_fn.ends_with("_async") {
+            format!("{base_fn}_async")
+        } else {
+            base_fn
+        };
+        (resolved_module, resolved_fn, call_config.result_var.clone())
+    } else {
+        (
+            default_module_path.to_string(),
+            default_function_name.to_string(),
+            default_result_var.to_string(),
+        )
+    };
+
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
-        module_path,
+        &module_path,
         options_type,
         options_default_fn,
         enum_fields,
@@ -460,20 +500,21 @@ fn render_test_case(
         handle_atom_list_fields,
     );
 
-    let _ = writeln!(out, "  describe \"{test_name}\" do");
-    let _ = writeln!(out, "    test \"{description}\" do");
-
-    for line in &setup_lines {
-        let _ = writeln!(out, "      {line}");
-    }
-
-    // Build visitor if present
+    // Build visitor if present — must happen before emitting setup_lines so the
+    // visitor setup line is included in the loop below.
     let final_args = if let Some(visitor_spec) = &fixture.visitor {
         let visitor_var = build_elixir_visitor(&mut setup_lines, visitor_spec);
         format!("{args_str}, {visitor_var}")
     } else {
         args_str
     };
+
+    let _ = writeln!(out, "  describe \"{test_name}\" do");
+    let _ = writeln!(out, "    test \"{description}\" do");
+
+    for line in &setup_lines {
+        let _ = writeln!(out, "      {line}");
+    }
 
     if expects_error {
         let _ = writeln!(
@@ -491,7 +532,7 @@ fn render_test_case(
     );
 
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver);
+        render_assertion(out, assertion, &result_var, field_resolver, &module_path);
     }
 
     let _ = writeln!(out, "    end");
@@ -622,7 +663,13 @@ fn is_numeric_expr(field_expr: &str) -> bool {
     field_expr.starts_with("length(")
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
+fn render_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+    module_path: &str,
+) {
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
@@ -777,6 +824,55 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
         "is_true" => {
             let _ = writeln!(out, "      assert {field_expr} == true");
         }
+        "is_false" => {
+            let _ = writeln!(out, "      assert {field_expr} == false");
+        }
+        "method_result" => {
+            if let Some(method_name) = &assertion.method {
+                let call_expr = build_elixir_method_call(result_var, method_name, assertion.args.as_ref(), module_path);
+                let check = assertion.check.as_deref().unwrap_or("is_true");
+                match check {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let elixir_val = json_to_elixir(val);
+                            let _ = writeln!(out, "      assert {call_expr} == {elixir_val}");
+                        }
+                    }
+                    "is_true" => {
+                        let _ = writeln!(out, "      assert {call_expr} == true");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "      assert {call_expr} == false");
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            let _ = writeln!(out, "      assert {call_expr} >= {n}");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            let _ = writeln!(out, "      assert length({call_expr}) >= {n}");
+                        }
+                    }
+                    "contains" => {
+                        if let Some(val) = &assertion.value {
+                            let elixir_val = json_to_elixir(val);
+                            let _ = writeln!(out, "      assert String.contains?({call_expr}, {elixir_val})");
+                        }
+                    }
+                    "is_error" => {
+                        let _ = writeln!(out, "      assert_raise RuntimeError, fn -> {call_expr} end");
+                    }
+                    other_check => {
+                        panic!("Elixir e2e generator: unsupported method_result check type: {other_check}");
+                    }
+                }
+            } else {
+                panic!("Elixir e2e generator: method_result assertion missing 'method' field");
+            }
+        }
         "not_error" => {
             // Already handled — the call would fail if it returned {:error, _}.
         }
@@ -786,6 +882,48 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
         other => {
             panic!("Elixir e2e generator: unsupported assertion type: {other}");
         }
+    }
+}
+
+/// Build an Elixir call expression for a `method_result` assertion on a tree-sitter result.
+/// Maps method names to the appropriate `module_path` function calls.
+fn build_elixir_method_call(
+    result_var: &str,
+    method_name: &str,
+    args: Option<&serde_json::Value>,
+    module_path: &str,
+) -> String {
+    match method_name {
+        "root_child_count" => format!("{module_path}.root_child_count({result_var})"),
+        "has_error_nodes" => format!("{module_path}.tree_has_error_nodes({result_var})"),
+        "error_count" => format!("{module_path}.tree_error_count({result_var})"),
+        "tree_to_sexp" => format!("{module_path}.tree_to_sexp({result_var})"),
+        "contains_node_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("{module_path}.tree_contains_node_type({result_var}, \"{node_type}\")")
+        }
+        "find_nodes_by_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("{module_path}.find_nodes_by_type({result_var}, \"{node_type}\")")
+        }
+        "run_query" => {
+            let query_source = args
+                .and_then(|a| a.get("query_source"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let language = args
+                .and_then(|a| a.get("language"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("{module_path}.run_query({result_var}, \"{language}\", \"{query_source}\", source)")
+        }
+        _ => format!("{module_path}.{method_name}({result_var})"),
     }
 }
 

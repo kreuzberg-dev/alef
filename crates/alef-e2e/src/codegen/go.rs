@@ -28,22 +28,17 @@ impl E2eCodegen for GoCodegen {
 
         let mut files = Vec::new();
 
-        // Resolve call config with overrides.
+        // Resolve call config with overrides (for module path and import alias).
         let call = &e2e_config.call;
         let overrides = call.overrides.get(lang);
         let module_path = overrides
             .and_then(|o| o.module.as_ref())
             .cloned()
             .unwrap_or_else(|| call.module.clone());
-        let function_name = overrides
-            .and_then(|o| o.function.as_ref())
-            .cloned()
-            .unwrap_or_else(|| call.function.clone());
         let import_alias = overrides
             .and_then(|o| o.alias.as_ref())
             .cloned()
             .unwrap_or_else(|| "pkg".to_string());
-        let result_var = &call.result_var;
 
         // Resolve package config.
         let go_pkg = e2e_config.resolve_package("go");
@@ -100,9 +95,6 @@ impl E2eCodegen for GoCodegen {
                 &active,
                 &module_path,
                 &import_alias,
-                &function_name,
-                result_var,
-                &e2e_config.call.args,
                 &field_resolver,
                 e2e_config,
             );
@@ -137,15 +129,11 @@ fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str
     out
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
     go_module_path: &str,
     import_alias: &str,
-    function_name: &str,
-    result_var: &str,
-    args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     e2e_config: &crate::config::E2eConfig,
 ) -> String {
@@ -156,16 +144,22 @@ fn render_test_file(
     let _ = writeln!(out);
 
     // Determine if we need the "os" import (mock_url args).
-    let needs_os = args.iter().any(|a| a.arg_type == "mock_url");
+    // Check all resolved per-fixture call args.
+    let needs_os = fixtures.iter().any(|f| {
+        let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
+        call_args.iter().any(|a| a.arg_type == "mock_url")
+    });
 
     // Determine if we need "encoding/json" (handle args with non-null config).
-    let needs_json = args.iter().any(|a| a.arg_type == "handle")
-        && fixtures.iter().any(|f| {
-            args.iter().filter(|a| a.arg_type == "handle").any(|a| {
+    let needs_json = fixtures.iter().any(|f| {
+        let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
+        call_args.iter().any(|a| a.arg_type == "handle") && {
+            call_args.iter().filter(|a| a.arg_type == "handle").any(|a| {
                 let v = f.input.get(&a.field).unwrap_or(&serde_json::Value::Null);
                 !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
             })
-        });
+        }
+    });
 
     // Determine if we need the "fmt" import (CustomTemplate visitor actions with placeholders).
     let needs_fmt = fixtures.iter().any(|f| {
@@ -202,7 +196,8 @@ fn render_test_file(
         })
     });
 
-    // Determine if we need the testify assert import (used for count_min, count_max).
+    // Determine if we need the testify assert import (used for count_min, count_max,
+    // is_true, is_false, and method_result assertions).
     let needs_assert = fixtures.iter().any(|f| {
         f.assertions.iter().any(|a| {
             let field_valid = a
@@ -210,7 +205,11 @@ fn render_test_file(
                 .as_ref()
                 .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
                 .unwrap_or(true);
-            matches!(a.assertion_type.as_str(), "count_min" | "count_max") && field_valid
+            let type_needs_assert = matches!(
+                a.assertion_type.as_str(),
+                "count_min" | "count_max" | "is_true" | "is_false" | "method_result"
+            );
+            type_needs_assert && field_valid
         })
     });
 
@@ -250,16 +249,7 @@ fn render_test_file(
     }
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_function(
-            &mut out,
-            fixture,
-            import_alias,
-            function_name,
-            result_var,
-            args,
-            field_resolver,
-            e2e_config,
-        );
+        render_test_function(&mut out, fixture, import_alias, field_resolver, e2e_config);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -275,19 +265,26 @@ fn render_test_file(
     out
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_test_function(
     out: &mut String,
     fixture: &Fixture,
     import_alias: &str,
-    function_name: &str,
-    result_var: &str,
-    args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     e2e_config: &crate::config::E2eConfig,
 ) {
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
+
+    // Resolve call config per-fixture (supports named calls via fixture.call).
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let lang = "go";
+    let overrides = call_config.overrides.get(lang);
+    let function_name = overrides
+        .and_then(|o| o.function.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.function.clone());
+    let result_var = &call_config.result_var;
+    let args = &call_config.args;
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
@@ -329,6 +326,10 @@ fn render_test_function(
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {
             return false;
+        }
+        // method_result assertions always use the result variable.
+        if a.assertion_type == "method_result" {
+            return true;
         }
         match &a.field {
             Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
@@ -412,19 +413,40 @@ fn render_test_function(
                         // Render into a temporary buffer so we can re-indent by one
                         // tab level to sit inside the nil-guard block.
                         let mut nil_buf = String::new();
-                        render_assertion(&mut nil_buf, assertion, result_var, field_resolver, &optional_locals);
+                        render_assertion(
+                            &mut nil_buf,
+                            assertion,
+                            result_var,
+                            import_alias,
+                            field_resolver,
+                            &optional_locals,
+                        );
                         for line in nil_buf.lines() {
                             let _ = writeln!(out, "\t{line}");
                         }
                         let _ = writeln!(out, "\t}}");
                     } else {
-                        render_assertion(out, assertion, result_var, field_resolver, &optional_locals);
+                        render_assertion(
+                            out,
+                            assertion,
+                            result_var,
+                            import_alias,
+                            field_resolver,
+                            &optional_locals,
+                        );
                     }
                     continue;
                 }
             }
         }
-        render_assertion(out, assertion, result_var, field_resolver, &optional_locals);
+        render_assertion(
+            out,
+            assertion,
+            result_var,
+            import_alias,
+            field_resolver,
+            &optional_locals,
+        );
     }
 
     let _ = writeln!(out, "}}");
@@ -536,6 +558,7 @@ fn render_assertion(
     out: &mut String,
     assertion: &Assertion,
     result_var: &str,
+    import_alias: &str,
     field_resolver: &FieldResolver,
     optional_locals: &std::collections::HashMap<String, String>,
 ) {
@@ -854,6 +877,104 @@ fn render_assertion(
                 let _ = writeln!(out_ref, "\tassert.True(t, {field_expr}, \"expected true\")");
             }
         }
+        "is_false" => {
+            if is_optional {
+                let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                let _ = writeln!(out_ref, "\t\tassert.False(t, *{field_expr}, \"expected false\")");
+                let _ = writeln!(out_ref, "\t}}");
+            } else {
+                let _ = writeln!(out_ref, "\tassert.False(t, {field_expr}, \"expected false\")");
+            }
+        }
+        "method_result" => {
+            if let Some(method_name) = &assertion.method {
+                let info = build_go_method_call(result_var, method_name, assertion.args.as_ref(), import_alias);
+                let check = assertion.check.as_deref().unwrap_or("is_true");
+                // For pointer-returning functions, dereference with `*`. Value-returning
+                // functions (e.g., NodeInfo field access) are used directly.
+                let deref_expr = if info.is_pointer {
+                    format!("*{}", info.call_expr)
+                } else {
+                    info.call_expr.clone()
+                };
+                match check {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            if val.is_boolean() {
+                                if val.as_bool() == Some(true) {
+                                    let _ = writeln!(out_ref, "\tassert.True(t, {deref_expr}, \"expected true\")");
+                                } else {
+                                    let _ = writeln!(out_ref, "\tassert.False(t, {deref_expr}, \"expected false\")");
+                                }
+                            } else {
+                                // Apply type cast to numeric literals when the method returns
+                                // a typed uint (e.g., *uint) to avoid reflect.DeepEqual
+                                // mismatches between int and uint in testify's assert.Equal.
+                                let go_val = if let Some(cast) = info.value_cast {
+                                    if val.is_number() {
+                                        format!("{cast}({})", json_to_go(val))
+                                    } else {
+                                        json_to_go(val)
+                                    }
+                                } else {
+                                    json_to_go(val)
+                                };
+                                let _ = writeln!(
+                                    out_ref,
+                                    "\tassert.Equal(t, {go_val}, {deref_expr}, \"method_result equals assertion failed\")"
+                                );
+                            }
+                        }
+                    }
+                    "is_true" => {
+                        let _ = writeln!(out_ref, "\tassert.True(t, {deref_expr}, \"expected true\")");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out_ref, "\tassert.False(t, {deref_expr}, \"expected false\")");
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            // Use the value_cast type if available (e.g., uint for named_children_count).
+                            let cast = info.value_cast.unwrap_or("uint");
+                            let _ = writeln!(
+                                out_ref,
+                                "\tassert.GreaterOrEqual(t, {deref_expr}, {cast}({n}), \"expected >= {n}\")"
+                            );
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let n = val.as_u64().unwrap_or(0);
+                            let _ = writeln!(
+                                out_ref,
+                                "\tassert.GreaterOrEqual(t, len({deref_expr}), {n}, \"expected at least {n} elements\")"
+                            );
+                        }
+                    }
+                    "contains" => {
+                        if let Some(val) = &assertion.value {
+                            let go_val = json_to_go(val);
+                            let _ = writeln!(
+                                out_ref,
+                                "\tassert.Contains(t, {deref_expr}, {go_val}, \"expected result to contain value\")"
+                            );
+                        }
+                    }
+                    "is_error" => {
+                        let _ = writeln!(out_ref, "\t{{");
+                        let _ = writeln!(out_ref, "\t\t_, methodErr := {}", info.call_expr);
+                        let _ = writeln!(out_ref, "\t\tassert.Error(t, methodErr)");
+                        let _ = writeln!(out_ref, "\t}}");
+                    }
+                    other_check => {
+                        panic!("Go e2e generator: unsupported method_result check type: {other_check}");
+                    }
+                }
+            } else {
+                panic!("Go e2e generator: method_result assertion missing 'method' field");
+            }
+        }
         "not_error" => {
             // Already handled by the `if err != nil` check above.
         }
@@ -878,6 +999,114 @@ fn render_assertion(
         }
     } else {
         out.push_str(&assertion_buf);
+    }
+}
+
+/// Metadata about the return type of a Go method call for `method_result` assertions.
+struct GoMethodCallInfo {
+    /// The call expression string.
+    call_expr: String,
+    /// Whether the return type is a pointer (needs `*` dereference for value comparison).
+    is_pointer: bool,
+    /// Optional Go type cast to apply to numeric literal values in `equals` assertions
+    /// (e.g., `"uint"` so that `0` becomes `uint(0)` to match `*uint` deref type).
+    value_cast: Option<&'static str>,
+}
+
+/// Build a Go call expression for a `method_result` assertion on a tree-sitter Tree.
+///
+/// Maps method names to the appropriate Go function calls, matching the Go binding API
+/// in `packages/go/binding.go`. Returns a [`GoMethodCallInfo`] describing the call and
+/// its return type characteristics.
+///
+/// Return types by method:
+/// - `has_error_nodes`, `contains_node_type` → `*bool` (pointer)
+/// - `error_count` → `*uint` (pointer, value_cast = "uint")
+/// - `tree_to_sexp` → `*string` (pointer)
+/// - `root_node_type` → `string` via `RootNodeInfo(tree).Kind` (value)
+/// - `named_children_count` → `uint` via `RootNodeInfo(tree).NamedChildCount` (value, value_cast = "uint")
+/// - `find_nodes_by_type` → `*[]NodeInfo` (pointer to slice)
+/// - `run_query` → `(*[]QueryMatch, error)` (pointer + error; use `is_error` check type)
+fn build_go_method_call(
+    result_var: &str,
+    method_name: &str,
+    args: Option<&serde_json::Value>,
+    import_alias: &str,
+) -> GoMethodCallInfo {
+    match method_name {
+        "root_node_type" => GoMethodCallInfo {
+            call_expr: format!("{import_alias}.RootNodeInfo({result_var}).Kind"),
+            is_pointer: false,
+            value_cast: None,
+        },
+        "named_children_count" => GoMethodCallInfo {
+            call_expr: format!("{import_alias}.RootNodeInfo({result_var}).NamedChildCount"),
+            is_pointer: false,
+            value_cast: Some("uint"),
+        },
+        "has_error_nodes" => GoMethodCallInfo {
+            call_expr: format!("{import_alias}.TreeHasErrorNodes({result_var})"),
+            is_pointer: true,
+            value_cast: None,
+        },
+        "error_count" => GoMethodCallInfo {
+            call_expr: format!("{import_alias}.TreeErrorCount({result_var})"),
+            is_pointer: true,
+            value_cast: Some("uint"),
+        },
+        "tree_to_sexp" => GoMethodCallInfo {
+            call_expr: format!("{import_alias}.TreeToSexp({result_var})"),
+            is_pointer: true,
+            value_cast: None,
+        },
+        "contains_node_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            GoMethodCallInfo {
+                call_expr: format!("{import_alias}.TreeContainsNodeType({result_var}, \"{node_type}\")"),
+                is_pointer: true,
+                value_cast: None,
+            }
+        }
+        "find_nodes_by_type" => {
+            let node_type = args
+                .and_then(|a| a.get("node_type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            GoMethodCallInfo {
+                call_expr: format!("{import_alias}.FindNodesByType({result_var}, \"{node_type}\")"),
+                is_pointer: true,
+                value_cast: None,
+            }
+        }
+        "run_query" => {
+            let query_source = args
+                .and_then(|a| a.get("query_source"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let language = args
+                .and_then(|a| a.get("language"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let query_lit = go_string_literal(query_source);
+            let lang_lit = go_string_literal(language);
+            // RunQuery returns (*[]QueryMatch, error) — use is_error check type.
+            GoMethodCallInfo {
+                call_expr: format!("{import_alias}.RunQuery({result_var}, {lang_lit}, {query_lit}, []byte(source))"),
+                is_pointer: false,
+                value_cast: None,
+            }
+        }
+        other => {
+            let method_pascal = other.to_upper_camel_case();
+            GoMethodCallInfo {
+                call_expr: format!("{result_var}.{method_pascal}()"),
+                is_pointer: false,
+                value_cast: None,
+            }
+        }
     }
 }
 
