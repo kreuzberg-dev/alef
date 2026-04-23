@@ -832,6 +832,11 @@ fn emit_csharp_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, 
         "visit_input" => "VisitContext ctx, string inputType, string name, string value",
         "visit_audio" | "visit_video" | "visit_iframe" => "VisitContext ctx, string src",
         "visit_details" => "VisitContext ctx, bool isOpen",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
+            "VisitContext ctx, string output"
+        }
+        "visit_list_start" => "VisitContext ctx, bool ordered",
+        "visit_list_end" => "VisitContext ctx, bool ordered, string output",
         _ => "VisitContext ctx",
     };
 
@@ -852,7 +857,8 @@ fn emit_csharp_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, 
             setup_lines.push(format!("        return VisitResult.Custom(\"{escaped}\");"));
         }
         CallbackAction::CustomTemplate { template } => {
-            setup_lines.push(format!("        return VisitResult.Custom($\"{template}\");"));
+            let escaped = escape_csharp(template);
+            setup_lines.push(format!("        return VisitResult.Custom($\"{escaped}\");"));
         }
     }
     setup_lines.push("    }".to_string());

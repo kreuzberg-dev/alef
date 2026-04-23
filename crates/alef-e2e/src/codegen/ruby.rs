@@ -1031,6 +1031,9 @@ fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, ac
         "visit_input" => "ctx, input_type, name, value",
         "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
         "visit_details" => "ctx, is_open",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "ctx, output",
+        "visit_list_start" => "ctx, ordered",
+        "visit_list_end" => "ctx, ordered, output",
         _ => "ctx",
     };
 
@@ -1050,7 +1053,8 @@ fn emit_ruby_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, ac
             setup_lines.push(format!("    {{ custom: {escaped} }}"));
         }
         CallbackAction::CustomTemplate { template } => {
-            setup_lines.push(format!("    {{ custom: \"{template}\" }}"));
+            let escaped = ruby_string_literal(template);
+            setup_lines.push(format!("    {{ custom: {escaped} }}"));
         }
     }
     setup_lines.push("  end".to_string());

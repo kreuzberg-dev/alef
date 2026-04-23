@@ -1231,6 +1231,11 @@ fn emit_go_visitor_method(
             format!("_ {import_alias}.NodeContext, src string")
         }
         "visit_details" => format!("_ {import_alias}.NodeContext, isOpen bool"),
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
+            format!("_ {import_alias}.NodeContext, output string")
+        }
+        "visit_list_start" => format!("_ {import_alias}.NodeContext, ordered bool"),
+        "visit_list_end" => format!("_ {import_alias}.NodeContext, ordered bool, output string"),
         _ => format!("_ {import_alias}.NodeContext"),
     };
 

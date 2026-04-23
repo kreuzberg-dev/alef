@@ -1451,6 +1451,11 @@ fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &Call
         "visit_input" => "self, ctx, input_type, name, value",
         "visit_audio" | "visit_video" | "visit_iframe" => "self, ctx, src",
         "visit_details" => "self, ctx, is_open",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
+            "self, ctx, output, *args"
+        }
+        "visit_list_start" => "self, ctx, ordered, *args",
+        "visit_list_end" => "self, ctx, ordered, output, *args",
         _ => "self, ctx, *args",
     };
 
@@ -1475,8 +1480,14 @@ fn emit_python_visitor_method(out: &mut String, method_name: &str, action: &Call
         CallbackAction::CustomTemplate { template } => {
             // Use single-quoted f-string so that double quotes inside the template
             // (e.g. `QUOTE: "{text}"`) are not misinterpreted as string delimiters.
-            // Escape any single quotes in the template to avoid breaking the literal.
-            let escaped_template = template.replace('\'', "\\'");
+            // Escape newlines/tabs/backslashes/single quotes so the template stays
+            // on a single line in the generated source.
+            let escaped_template = template
+                .replace('\\', "\\\\")
+                .replace('\'', "\\'")
+                .replace('\n', "\\n")
+                .replace('\r', "\\r")
+                .replace('\t', "\\t");
             let _ = writeln!(out, "            return {{\"custom\": f'{escaped_template}'}}");
         }
     }

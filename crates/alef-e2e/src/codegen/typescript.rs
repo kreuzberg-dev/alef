@@ -1169,6 +1169,9 @@ fn emit_typescript_visitor_method(out: &mut String, method_name: &str, action: &
         "visit_input" => "ctx, inputType, name, value",
         "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
         "visit_details" => "ctx, isOpen",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "ctx, output",
+        "visit_list_start" => "ctx, ordered",
+        "visit_list_end" => "ctx, ordered, output",
         _ => "ctx",
     };
 
