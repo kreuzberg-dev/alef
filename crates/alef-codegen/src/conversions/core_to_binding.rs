@@ -197,17 +197,11 @@ pub fn field_conversion_from_core(
             }
         }
         // Optional(Vec<Primitive>): sanitized from Option<(T, T)> → Option<Vec<T>>.
+        // The core type is a tuple, so destructure it into a Vec.
         if let TypeRef::Optional(opt_inner) = ty {
             if let TypeRef::Vec(vec_inner) = opt_inner.as_ref() {
                 if matches!(vec_inner.as_ref(), TypeRef::Primitive(_)) {
-                    return format!("{name}: val.{name}.clone()");
-                }
-            }
-        }
-        if let TypeRef::Optional(opt_inner) = ty {
-            if let TypeRef::Vec(vec_inner) = opt_inner.as_ref() {
-                if matches!(vec_inner.as_ref(), TypeRef::Primitive(_)) {
-                    return format!("{name}: val.{name}.clone()");
+                    return format!("{name}: val.{name}.map(|(a, b)| vec![a as _, b as _])");
                 }
             }
         }
@@ -530,6 +524,27 @@ pub fn field_conversion_from_core_cfg(
         {
             format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as f64).collect())")
         }
+        // Optional(Vec(u64/usize/isize)) needs element-wise i64 casting
+        TypeRef::Optional(inner)
+            if config.cast_large_ints_to_i64
+                && matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p))) =>
+        {
+            if let TypeRef::Vec(vi) = inner.as_ref() {
+                if let TypeRef::Primitive(p) = vi.as_ref() {
+                    let cast_to = binding_prim_str(p);
+                    if sanitized {
+                        // Sanitized from Option<(T, T)> → Option<Vec<T>>: destructure tuple
+                        format!("{name}: val.{name}.map(|(a, b)| vec![a as {cast_to}, b as {cast_to}])")
+                    } else {
+                        format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as {cast_to}).collect())")
+                    }
+                } else {
+                    field_conversion_from_core(name, ty, optional, sanitized, opaque_types)
+                }
+            } else {
+                field_conversion_from_core(name, ty, optional, sanitized, opaque_types)
+            }
+        }
         // Vec<Vec<f32>> needs nested element-wise cast to f64 (for embeddings, etc.)
         TypeRef::Vec(outer)
             if config.cast_f32_to_f64
@@ -588,7 +603,14 @@ pub fn field_conversion_from_core_cfg(
         {
             if let TypeRef::Primitive(p) = inner.as_ref() {
                 let cast_to = binding_prim_str(p);
-                if optional {
+                if sanitized {
+                    // Sanitized from tuple (T, T) → Vec<T>: destructure tuple into vec
+                    if optional {
+                        format!("{name}: val.{name}.map(|(a, b)| vec![a as {cast_to}, b as {cast_to}])")
+                    } else {
+                        format!("{name}: {{ let (a, b) = val.{name}; vec![a as {cast_to}, b as {cast_to}] }}")
+                    }
+                } else if optional {
                     format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as {cast_to}).collect())")
                 } else {
                     format!("{name}: val.{name}.iter().map(|&v| v as {cast_to}).collect()")

@@ -477,17 +477,26 @@ impl Backend for RustlerBackend {
 
                 content.push_str(&format!("  @doc \"{doc_line}\"\n"));
                 let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
-                if spec_inline.len() > 120 {
-                    content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                    let len = arity_types.len();
-                    for (i, t) in arity_types.iter().enumerate() {
-                        if i + 1 < len {
-                            content.push_str(&format!("          {t},\n"));
-                        } else {
-                            content.push_str(&format!("          {t}\n"));
+                if spec_inline.len() > 98 {
+                    let spec_broken = format!(
+                        "  @spec {nif_fn_name}({}) ::\n          {return_spec}",
+                        arity_types.join(", ")
+                    );
+                    if spec_broken.lines().all(|l| l.len() <= 98) {
+                        content.push_str(&spec_broken);
+                        content.push('\n');
+                    } else {
+                        content.push_str(&format!("  @spec {nif_fn_name}(\n"));
+                        let len = arity_types.len();
+                        for (i, t) in arity_types.iter().enumerate() {
+                            if i + 1 < len {
+                                content.push_str(&format!("          {t},\n"));
+                            } else {
+                                content.push_str(&format!("          {t}\n"));
+                            }
                         }
+                        content.push_str(&format!("        ) :: {return_spec}\n"));
                     }
-                    content.push_str(&format!("        ) :: {return_spec}\n"));
                 } else {
                     content.push_str(&spec_inline);
                     content.push('\n');
@@ -519,10 +528,29 @@ impl Backend for RustlerBackend {
                         content.push_str("  end\n\n");
                         // Nil/no-visitor clause
                         content.push_str(&format!("  @doc \"{doc_line}\"\n"));
-                        content.push_str(&format!(
-                            "  @spec {nif_fn_name}({}) :: {return_spec}",
-                            arity_types.join(", ")
-                        ));
+                        let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
+                        if spec_inline.len() > 98 {
+                            let spec_broken = format!(
+                                "  @spec {nif_fn_name}({}) ::\n          {return_spec}",
+                                arity_types.join(", ")
+                            );
+                            if spec_broken.lines().all(|l| l.len() <= 98) {
+                                content.push_str(&spec_broken);
+                            } else {
+                                content.push_str(&format!("  @spec {nif_fn_name}(\n"));
+                                let len = arity_types.len();
+                                for (i, t) in arity_types.iter().enumerate() {
+                                    if i + 1 < len {
+                                        content.push_str(&format!("          {t},\n"));
+                                    } else {
+                                        content.push_str(&format!("          {t}\n"));
+                                    }
+                                }
+                                content.push_str(&format!("        ) :: {return_spec}"));
+                            }
+                        } else {
+                            content.push_str(&spec_inline);
+                        }
                         content.push('\n');
                         content.push_str(&format!("  def {nif_fn_name}({}) do\n", arity_params.join(", ")));
                         content.push_str(&format!(
@@ -659,17 +687,26 @@ impl Backend for RustlerBackend {
                     specs
                 };
                 let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", type_specs.join(", "));
-                if spec_inline.len() > 120 {
-                    content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                    let len = type_specs.len();
-                    for (i, t) in type_specs.iter().enumerate() {
-                        if i + 1 < len {
-                            content.push_str(&format!("          {t},\n"));
-                        } else {
-                            content.push_str(&format!("          {t}\n"));
+                if spec_inline.len() > 98 {
+                    let spec_broken = format!(
+                        "  @spec {nif_fn_name}({}) ::\n          {return_spec}",
+                        type_specs.join(", ")
+                    );
+                    if spec_broken.lines().all(|l| l.len() <= 98) {
+                        content.push_str(&spec_broken);
+                        content.push('\n');
+                    } else {
+                        content.push_str(&format!("  @spec {nif_fn_name}(\n"));
+                        let len = type_specs.len();
+                        for (i, t) in type_specs.iter().enumerate() {
+                            if i + 1 < len {
+                                content.push_str(&format!("          {t},\n"));
+                            } else {
+                                content.push_str(&format!("          {t}\n"));
+                            }
                         }
+                        content.push_str(&format!("        ) :: {return_spec}\n"));
                     }
-                    content.push_str(&format!("        ) :: {return_spec}\n"));
                 } else {
                     content.push_str(&spec_inline);
                     content.push('\n');
@@ -1714,20 +1751,18 @@ fn gen_native_ex(
     let _ = writeln!(out, "  use RustlerPrecompiled,");
     let _ = writeln!(out, "    otp_app: :{app_name},");
     let _ = writeln!(out, "    crate: \"{app_name}_nif\",");
-    let _ = writeln!(out, "    base_url:");
     let _ = writeln!(
         out,
-        "      \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
+        "    base_url: \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
     );
     let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
     let _ = writeln!(
         out,
         "    force_build: System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev],"
     );
-    let _ = writeln!(out, "    targets:");
     let _ = writeln!(
         out,
-        "      ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),"
+        "    targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),"
     );
     let _ = writeln!(out, "    nif_versions: [\"2.16\", \"2.17\"]");
     let _ = writeln!(out);
