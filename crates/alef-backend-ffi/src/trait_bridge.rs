@@ -697,7 +697,11 @@ impl FfiBridgeGenerator {
         )
         .ok();
         writeln!(out, "        unsafe {{ fp(self.user_data, &mut _out) }};").ok();
-        writeln!(out, "        if _out.is_null() {{ return self.cached_version.clone(); }}").ok();
+        writeln!(
+            out,
+            "        if _out.is_null() {{ return self.cached_version.clone(); }}"
+        )
+        .ok();
         writeln!(
             out,
             "        // SAFETY: _out is a callee-allocated CString; we take ownership."
@@ -748,11 +752,7 @@ impl FfiBridgeGenerator {
         .ok();
         writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
         writeln!(out, "            }};").ok();
-        writeln!(
-            out,
-            "            return Err(kreuzberg::KreuzbergError::Plugin(msg));"
-        )
-        .ok();
+        writeln!(out, "            return Err(kreuzberg::KreuzbergError::Plugin(msg));").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "        Ok(())").ok();
         writeln!(out, "    }}").ok();
@@ -798,11 +798,7 @@ impl FfiBridgeGenerator {
         .ok();
         writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
         writeln!(out, "            }};").ok();
-        writeln!(
-            out,
-            "            return Err(kreuzberg::KreuzbergError::Plugin(msg));"
-        )
-        .ok();
+        writeln!(out, "            return Err(kreuzberg::KreuzbergError::Plugin(msg));").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "        Ok(())").ok();
         writeln!(out, "    }}").ok();
@@ -858,6 +854,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out, "        vtable: {vtable},", vtable = self.vtable_name(spec)).ok();
         writeln!(out, "        user_data: *const std::ffi::c_void,").ok();
         writeln!(out, "        cached_name: String,").ok();
+        writeln!(out, "        cached_version: String,").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "    unsafe impl Send for _LocalBridge {{}}").ok();
         writeln!(out, "    unsafe impl Sync for _LocalBridge {{}}").ok();
@@ -871,13 +868,12 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         if has_error {
             writeln!(
                 out,
-                ".map_err(|e| Box::from(format!(\"spawn_blocking failed in {method_name}: {{}}\", e)) as Box<dyn std::error::Error + Send + Sync>)??"
+                ".map_err(|e| {core_import}::KreuzbergError::Plugin(format!(\"spawn_blocking failed in {method_name}: {{}}\", e)))??"
             )
             .ok();
         } else {
             writeln!(out, ".unwrap_or_else(|_| Default::default())").ok();
         }
-        let _ = core_import;
         out
     }
 
@@ -1047,7 +1043,15 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out).ok();
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(out, "    if let Err(e) = registry.register(arc) {{").ok();
+
+        // Generate register call with optional extra args (e.g., priority for PostProcessor)
+        let register_call = if let Some(extra_args) = &spec.bridge_config.register_extra_args {
+            format!("registry.register(arc, {extra_args})")
+        } else {
+            "registry.register(arc)".to_string()
+        };
+
+        writeln!(out, "    if let Err(e) = {register_call} {{").ok();
         writeln!(out, "        ffi_set_out_error(out_error, &e.to_string());").ok();
         writeln!(out, "        return 1;").ok();
         writeln!(out, "    }}").ok();
@@ -1091,7 +1095,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out, "    }};").ok();
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(out, "    if let Err(e) = registry.unregister(plugin_name) {{").ok();
+        writeln!(out, "    if let Err(e) = registry.remove(plugin_name) {{").ok();
         writeln!(out, "        ffi_set_out_error(out_error, &e.to_string());").ok();
         writeln!(out, "        return 1;").ok();
         writeln!(out, "    }}").ok();
@@ -1103,8 +1107,39 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
 }
 
 // ---------------------------------------------------------------------------
-// Public entry point
+// Public entry points
 // ---------------------------------------------------------------------------
+
+/// Generate the shared FFI error-setting helper function (once per module).
+pub fn gen_ffi_set_out_error_helper() -> String {
+    let mut out = String::with_capacity(512);
+    writeln!(out, "/// Write an error message string into an FFI out-error pointer.").ok();
+    writeln!(out, "///").ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "///").ok();
+    writeln!(
+        out,
+        "/// `out_error` must be null or a valid writable `*mut *mut c_char` pointer."
+    )
+    .ok();
+    writeln!(
+        out,
+        "unsafe fn ffi_set_out_error(out_error: *mut *mut std::ffi::c_char, msg: &str) {{"
+    )
+    .ok();
+    writeln!(out, "    if !out_error.is_null() {{").ok();
+    writeln!(out, "        if let Ok(cs) = std::ffi::CString::new(msg) {{").ok();
+    writeln!(
+        out,
+        "            // SAFETY: out_error is non-null; caller must free this string."
+    )
+    .ok();
+    writeln!(out, "            unsafe {{ *out_error = cs.into_raw(); }}").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+    out
+}
 
 /// Generate all trait bridge code for a single `[[trait_bridges]]` entry.
 ///
@@ -1154,34 +1189,7 @@ pub fn gen_trait_bridge(
 
     // Note: imports (c_void, c_char, CStr, CString, Arc) are emitted by the caller
     // via builder.add_import() to avoid duplicates with the main gen_lib_rs imports.
-
-    // Shared helper: write a C string into an out_error pointer
-    writeln!(out, "/// Write an error message string into an FFI out-error pointer.").ok();
-    writeln!(out, "///").ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "///").ok();
-    writeln!(
-        out,
-        "/// `out_error` must be null or a valid writable `*mut *mut c_char` pointer."
-    )
-    .ok();
-    writeln!(
-        out,
-        "unsafe fn ffi_set_out_error(out_error: *mut *mut std::ffi::c_char, msg: &str) {{"
-    )
-    .ok();
-    writeln!(out, "    if !out_error.is_null() {{").ok();
-    writeln!(out, "        if let Ok(cs) = std::ffi::CString::new(msg) {{").ok();
-    writeln!(
-        out,
-        "            // SAFETY: out_error is non-null; caller must free this string."
-    )
-    .ok();
-    writeln!(out, "            unsafe {{ *out_error = cs.into_raw(); }}").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    writeln!(out).ok();
+    // ffi_set_out_error is also emitted once by the caller (gen_lib_rs) for all trait bridges
 
     // VTable struct
     out.push_str(&generator.gen_vtable_struct(&spec));
