@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-04-23
+
+### Fixed
+
+- FFI: generate `{prefix}_unregister_{trait_snake}` extern C function for trait bridges (was documented but missing).
+- Codegen: use fully-qualified `std::result::Result` in trait bridge return types.
+- Codegen: tuple sanitization, Go `gofmt` column alignment, error gen cleanup.
+- Go: `gofmt`-compliant struct field alignment with tab-separated columns.
+- Go: apply Go acronym uppercasing (`to_go_name`, `go_type_name`, `go_param_name`) per Go naming conventions.
+
+### Changed
+
+- Tests: align all backend test assertions with actual codegen output (Go, Magnus, NAPI, PHP, PyO3, Rustler, FFI, scaffold).
+- Tests: remove unimplemented Magnus plugin bridge tests (visitor bridge tests retained).
+- Scaffold: update file count expectations for new tsconfig.json (Node), .golangci.yml (Go), and Java config files.
+
 ## [0.6.0] - 2026-04-23
 
 ### Added
