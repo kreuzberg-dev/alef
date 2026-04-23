@@ -50,7 +50,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "    Ok(f) => f,").ok();
         if has_error {
             let err =
-                spec.make_error("format!(\"Method '{{}}' not found on bridge object: {{}}\", self.cached_name, e)");
+                spec.make_error("format!(\"Method '{}' not found on bridge object: {}\", self.cached_name, e)");
             writeln!(out, "    Err(e) => return Err({err}),").ok();
         } else {
             writeln!(out, "    Err(_) => return Default::default(),").ok();
@@ -78,7 +78,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "match result {{").ok();
         if has_error {
             let err = spec.make_error(&format!(
-                "format!(\"Plugin '{{{{}}}}' method '{}' failed: {{{{}}}}\", self.cached_name, e)",
+                "format!(\"Plugin '{{}}' method '{}' failed: {{}}\", self.cached_name, e)",
                 name
             ));
             writeln!(out, "    Err(e) => Err({err}),").ok();
@@ -127,10 +127,8 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         .ok();
         writeln!(out, "    Ok(f) => f,").ok();
         writeln!(out, "    Err(e) => {{").ok();
-        writeln!(out, "        return Box::pin(async move {{").ok();
-        let err = spec.make_error("format!(\"Method '{{}}' not found on bridge object: {{}}\", cached_name, e)");
-        writeln!(out, "            Err({err})").ok();
-        writeln!(out, "        }});").ok();
+        let err = spec.make_error("format!(\"Method '{}' not found on bridge object: {}\", cached_name, e)");
+        writeln!(out, "        return Err({err});").ok();
         writeln!(out, "    }}").ok();
         writeln!(out, "}};").ok();
 
@@ -138,12 +136,10 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         for (i, expr) in js_args_exprs.iter().enumerate() {
             writeln!(out, "let arg_{i}: napi::bindgen_prelude::Unknown = {expr};").ok();
         }
-
-        writeln!(out, "Box::pin(async move {{").ok();
+        let tuple_args: Vec<String> = (0..js_args_exprs.len()).map(|i| format!("arg_{i}")).collect();
         let tuple_str = if js_args_exprs.is_empty() {
             "()".to_string()
         } else {
-            let tuple_args: Vec<String> = (0..js_args_exprs.len()).map(|i| format!("arg_{i}")).collect();
             if js_args_exprs.len() == 1 {
                 format!("({},)", tuple_args[0])
             } else {
@@ -151,35 +147,34 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             }
         };
 
-        writeln!(out, "    let result = func.call({tuple_str});").ok();
-        writeln!(out, "    match result {{").ok();
+        writeln!(out, "let result = func.call({tuple_str});").ok();
+        writeln!(out, "match result {{").ok();
         let err = spec.make_error(&format!(
-            "format!(\"Plugin '{{{{}}}}' method '{}' failed: {{{{}}}}\", cached_name, e)",
+            "format!(\"Plugin '{{}}' method '{}' failed: {{}}\", cached_name, e)",
             name
         ));
-        writeln!(out, "        Err(e) => Err({err}),").ok();
-        writeln!(out, "        Ok(val) => {{").ok();
+        writeln!(out, "    Err(e) => Err({err}),").ok();
+        writeln!(out, "    Ok(val) => {{").ok();
         if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "            Ok(())").ok();
+            writeln!(out, "        Ok(())").ok();
         } else {
             // For most return types, attempt string coercion from the JS value
-            writeln!(out, "            // Convert JS value to Rust type via string coercion").ok();
-            writeln!(out, "            let s = val.coerce_to_string()").ok();
-            writeln!(out, "                .and_then(|s| s.into_utf8())").ok();
-            writeln!(out, "                .and_then(|s| s.into_owned())").ok();
-            writeln!(out, "                .map_err(|e| {{").ok();
+            writeln!(out, "        // Convert JS value to Rust type via string coercion").ok();
+            writeln!(out, "        let s = val.coerce_to_string()").ok();
+            writeln!(out, "            .and_then(|s| s.into_utf8())").ok();
+            writeln!(out, "            .and_then(|s| s.into_owned())").ok();
+            writeln!(out, "            .map_err(|e| {{").ok();
             let err = spec.make_error(&format!(
                 "format!(\"Failed to extract return value from method '{}': {{}}\", e)",
                 name
             ));
-            writeln!(out, "                    {err}").ok();
-            writeln!(out, "                }})?;").ok();
+            writeln!(out, "                {err}").ok();
+            writeln!(out, "            }})?;").ok();
             // Default: return as-is via Default::default() for simple types
-            writeln!(out, "            Ok(s.parse().unwrap_or_default())").ok();
+            writeln!(out, "        Ok(s.parse().unwrap_or_default())").ok();
         }
-        writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();
-        writeln!(out, "}})").ok();
+        writeln!(out, "}}").ok();
         out
     }
 
@@ -256,7 +251,21 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "            cached_name,").ok();
         writeln!(out, "        }})").ok();
         writeln!(out, "    }}").ok();
+        writeln!(out).ok();
+        writeln!(out, "    /// Extract napi::Env from the stored Object.").ok();
+        writeln!(out, "    fn env(&self) -> napi::Env {{").ok();
+        writeln!(out, "        // SAFETY: Object<'static> is 3 pointer-sized words; first word is napi_env.").ok();
+        writeln!(out, "        let raw: [*mut std::ffi::c_void; 3] = unsafe {{ std::mem::transmute_copy(&self.inner) }};").ok();
+        writeln!(out, "        napi::Env::from_raw(raw[0] as napi::sys::napi_env)").ok();
+        writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
+        writeln!(out).ok();
+        writeln!(out, "// SAFETY: The bridge is created from a NAPI Object that is pinned to the").ok();
+        writeln!(out, "// Node.js event loop thread. All access occurs on that thread. Send+Sync").ok();
+        writeln!(out, "// are required by the Plugin trait but the bridge is never actually moved").ok();
+        writeln!(out, "// across threads.").ok();
+        writeln!(out, "unsafe impl Send for {wrapper} {{}}").ok();
+        writeln!(out, "unsafe impl Sync for {wrapper} {{}}").ok();
         out
     }
 

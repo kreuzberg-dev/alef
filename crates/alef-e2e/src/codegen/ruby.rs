@@ -841,7 +841,7 @@ fn render_assertion(
             // Handled at the example level.
         }
         other => {
-            let _ = writeln!(out, "    # TODO: unsupported assertion type: {other}");
+            panic!("Ruby e2e generator: unsupported assertion type: {other}");
         }
     }
 }

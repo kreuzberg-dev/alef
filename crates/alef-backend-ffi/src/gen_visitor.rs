@@ -307,13 +307,34 @@ fn c_param_list(spec: &CallbackSpec, pascal_prefix: &str) -> String {
     parts.join(",\n            ")
 }
 
+/// Format a doc string so every line carries the `    ///` prefix.
+///
+/// Splits on `\n`, prepends `    /// ` to each line (trimming any existing
+/// leading `///` a caller may have embedded), and rejoins with `\n`.
+fn format_doc_comment(doc: &str) -> String {
+    doc.lines()
+        .map(|line| {
+            // Strip any leading `///` the caller may have pre-pended so we
+            // don't double-prefix embedded continuation lines.
+            let stripped = line.trim_start_matches("///").trim_start();
+            if stripped.is_empty() {
+                "    ///".to_string()
+            } else {
+                format!("    /// {stripped}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Generate all `Option<unsafe extern "C" fn(...)>` struct fields.
 fn gen_struct_fields(pascal_prefix: &str) -> String {
     let mut out = String::new();
     for spec in CALLBACKS {
+        let doc_lines = format_doc_comment(spec.doc);
         out.push_str(&format!(
-            "\n    /// {doc}\n    pub {name}: Option<\n        unsafe extern \"C\" fn(\n            {params}\n        ) -> i32,\n    >,\n",
-            doc = spec.doc,
+            "\n{doc_lines}\n    pub {name}: Option<\n        unsafe extern \"C\" fn(\n            {params}\n        ) -> i32,\n    >,\n",
+            doc_lines = doc_lines,
             name = spec.name,
             params = c_param_list(spec, pascal_prefix),
         ));

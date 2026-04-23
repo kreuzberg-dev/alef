@@ -861,7 +861,7 @@ fn render_assertion(
             // Handled at the test function level.
         }
         other => {
-            let _ = writeln!(out_ref, "\t// TODO: unsupported assertion type: {other}");
+            panic!("Go e2e generator: unsupported assertion type: {other}");
         }
     }
 

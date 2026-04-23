@@ -763,8 +763,7 @@ fn render_assertion(
                     || f_lower.starts_with("document")
                     || f_lower.starts_with("structure"))
             {
-                let _ = writeln!(out, "        // TODO: skipped (result_is_simple, field: {f})");
-                return;
+                panic!("PHP e2e generator: skipped result_is_simple for field: {f}");
             }
         }
     }
@@ -923,7 +922,7 @@ fn render_assertion(
             // Handled at the test method level.
         }
         other => {
-            let _ = writeln!(out, "        // TODO: unsupported assertion type: {other}");
+            panic!("PHP e2e generator: unsupported assertion type: {other}");
         }
     }
 }

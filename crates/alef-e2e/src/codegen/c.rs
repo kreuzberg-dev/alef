@@ -1153,7 +1153,7 @@ fn render_assertion(
             // Handled at the test function level.
         }
         other => {
-            let _ = writeln!(out, "    /* TODO: unsupported assertion type: {other} */");
+            panic!("C e2e generator: unsupported assertion type: {other}");
         }
     }
 }

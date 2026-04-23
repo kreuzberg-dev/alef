@@ -663,7 +663,7 @@ fn render_assertion(out: &mut String, assertion: &Assertion, field_resolver: &Fi
             // Handled at the function level (early return above).
         }
         other => {
-            let _ = writeln!(out, "    # TODO: unsupported assertion type: {other}");
+            panic!("Brew e2e generator: unsupported assertion type: {other}");
         }
     }
 }

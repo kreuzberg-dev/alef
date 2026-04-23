@@ -275,6 +275,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     // Plugin bridge support — vtable + user_data pattern for each [[trait_bridges]] entry.
     // Only emitted when the entry applies to traits present in the extracted IR.
     if !config.trait_bridges.is_empty() {
+        // Bridge code uses c_void and Arc; add them here so the builder deduplicates
+        // against the c_char/CStr/CString already added above.
+        builder.add_import("std::ffi::c_void");
+        builder.add_import("std::sync::Arc");
+
         let trait_map: ahash::AHashMap<&str, &alef_core::ir::TypeDef> = api
             .types
             .iter()

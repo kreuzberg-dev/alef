@@ -755,7 +755,7 @@ fn render_assertion(
             // Handled at the test method level.
         }
         other => {
-            let _ = writeln!(out, "        // TODO: unsupported assertion type: {other}");
+            panic!("Java e2e generator: unsupported assertion type: {other}");
         }
     }
 }

@@ -173,18 +173,21 @@ fn render_cargo_toml(
     features: &[String],
 ) -> String {
     let e2e_name = format!("{dep_name}-e2e-rust");
-    let features_str = if features.is_empty() {
+    let mut effective_features: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
+    if needs_serde_json && !effective_features.contains(&"serde") {
+        effective_features.push("serde");
+    }
+    let features_str = if effective_features.is_empty() {
         String::new()
     } else {
-        let feat_list: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
-        format!(", default-features = false, features = {:?}", feat_list)
+        format!(", default-features = false, features = {:?}", effective_features)
     };
     let dep_spec = match dep_mode {
         crate::config::DependencyMode::Registry => {
             let ver = version.unwrap_or("0.1.0");
             if crate_name != dep_name {
                 format!("{dep_name} = {{ package = \"{crate_name}\", version = \"{ver}\"{features_str} }}")
-            } else if features.is_empty() {
+            } else if effective_features.is_empty() {
                 format!("{dep_name} = \"{ver}\"")
             } else {
                 format!("{dep_name} = {{ version = \"{ver}\"{features_str} }}")
@@ -193,7 +196,7 @@ fn render_cargo_toml(
         crate::config::DependencyMode::Local => {
             if crate_name != dep_name {
                 format!("{dep_name} = {{ package = \"{crate_name}\", path = \"{crate_path}\"{features_str} }}")
-            } else if features.is_empty() {
+            } else if effective_features.is_empty() {
                 format!("{dep_name} = {{ path = \"{crate_path}\" }}")
             } else {
                 format!("{dep_name} = {{ path = \"{crate_path}\"{features_str} }}")
@@ -446,6 +449,15 @@ fn render_test_function(
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {
             return false;
+        }
+        if a.assertion_type == "method_result" {
+            // method_result assertions that would generate only a TODO comment don't use the
+            // result variable. These are: missing `method` field, or unsupported `check` type.
+            let supported_checks = ["equals", "is_true", "is_false", "greater_than_or_equal", "count_min", "is_error"];
+            let check = a.check.as_deref().unwrap_or("is_true");
+            if a.method.is_none() || !supported_checks.contains(&check) {
+                return false;
+            }
         }
         match &a.field {
             Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
@@ -1551,16 +1563,24 @@ fn render_assertion(
                             }
                         }
                     }
+                    "is_error" => {
+                        // For is_error we need the raw Result without .unwrap().
+                        let raw_call = call_expr.strip_suffix(".unwrap()").unwrap_or(&call_expr);
+                        let _ = writeln!(
+                            out,
+                            "    assert!({raw_call}.is_err(), \"expected method to return error\");"
+                        );
+                    }
                     other_check => {
-                        let _ = writeln!(out, "    // TODO: unsupported method_result check type: {other_check}");
+                        panic!("Rust e2e generator: unsupported method_result check type: {other_check}");
                     }
                 }
             } else {
-                let _ = writeln!(out, "    // TODO: method_result assertion missing 'method' field");
+                panic!("Rust e2e generator: method_result assertion missing 'method' field");
             }
         }
         other => {
-            let _ = writeln!(out, "    // TODO: unsupported assertion type: {other}");
+            panic!("Rust e2e generator: unsupported assertion type: {other}");
         }
     }
 }
