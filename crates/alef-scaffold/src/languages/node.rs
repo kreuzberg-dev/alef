@@ -1,0 +1,234 @@
+use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
+use alef_core::backend::GeneratedFile;
+use alef_core::config::{AlefConfig, Language};
+use alef_core::ir::ApiSurface;
+use std::path::PathBuf;
+
+pub fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let meta = scaffold_meta(config);
+    let version = &api.version;
+    let core_crate_dir = config.core_crate_dir();
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
+    let pkg_header = cargo_package_header(
+        &format!("{core_crate_dir}-node"),
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
+
+    let extra_deps = render_extra_deps(config, Language::Node);
+    let extra_deps_section = if extra_deps.is_empty() {
+        String::new()
+    } else {
+        format!("\n{extra_deps}")
+    };
+    let content = format!(
+        r#"{pkg_header}
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+{crate_name} = {{ path = "../{core_crate_dir}"{features} }}
+napi = {{ version = "3", features = ["async"] }}
+napi-derive = "3"
+serde = {{ version = "1", features = ["derive"] }}
+serde_json = "1"{extra_deps_section}
+
+[build-dependencies]
+napi-build = "2"
+
+[lints]
+workspace = true
+"#,
+        pkg_header = pkg_header,
+        crate_name = &config.crate_config.name,
+        core_crate_dir = core_crate_dir,
+        features = core_dep_features(config, Language::Node),
+        extra_deps_section = extra_deps_section,
+    );
+
+    Ok(vec![GeneratedFile {
+        path: PathBuf::from(format!("crates/{}-node/Cargo.toml", core_crate_dir)),
+        content,
+        generated_header: true,
+    }])
+}
+
+pub fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let meta = scaffold_meta(config);
+    let package_name = config.node_package_name();
+    let name = &config.crate_config.name;
+    let version = &api.version;
+    let pkg_dir = config.package_dir(Language::Node);
+
+    let keywords_json = if meta.keywords.is_empty() {
+        String::new()
+    } else {
+        let entries: Vec<String> = meta.keywords.iter().map(|k| format!("\"{}\"", k)).collect();
+        format!(",\n  \"keywords\": [{}]", entries.join(", "))
+    };
+
+    let homepage_json = if meta.homepage.is_empty() {
+        String::new()
+    } else {
+        format!(",\n  \"homepage\": \"{}\"", meta.homepage)
+    };
+
+    let authors_json = if meta.authors.is_empty() {
+        String::new()
+    } else {
+        format!(",\n  \"author\": \"{}\"", meta.authors.join(", "))
+    };
+
+    let content = format!(
+        r#"{{
+  "name": "{package_name}",
+  "version": "{version}",
+  "description": "{description}",
+  "license": "{license}",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "repository": "{repository}"{homepage}{authors}{keywords},
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "**/*.node"
+  ],
+  "scripts": {{
+    "build": "napi build --release",
+    "build:debug": "napi build",
+    "build:ts": "echo 'No TypeScript wrapper to build'",
+    "test": "node -e \"console.log('Add test command')\"",
+    "lint": "biome check src",
+    "lint:fix": "biome check --write src",
+    "format": "biome format --write src"
+  }},
+  "napi": {{
+    "name": "{name}",
+    "triples": [
+      "x86_64-unknown-linux-gnu",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc"
+    ]
+  }},
+  "devDependencies": {{
+    "@napi-rs/cli": "^3.0.0",
+    "@biomejs/biome": "^2.4.12",
+    "typescript": "^6.0.3"
+  }}
+}}
+"#,
+        package_name = package_name,
+        version = version,
+        description = meta.description,
+        license = meta.license,
+        repository = meta.repository,
+        homepage = homepage_json,
+        authors = authors_json,
+        keywords = keywords_json,
+        name = name,
+    );
+
+    // Crate-level package.json required by `napi build`
+    let crate_dir = config.core_crate_dir();
+    let crate_pkg = format!(
+        r#"{{
+  "name": "{package_name}",
+  "version": "{version}",
+  "description": "{description}",
+  "license": "{license}",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "index.d.ts", "*.node"],
+  "napi": {{
+    "binaryName": "{crate_dir}-node",
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc"
+    ]
+  }},
+  "scripts": {{
+    "build": "napi build --platform --release",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm --skip-optional-publish"
+  }},
+  "engines": {{ "node": ">= 18" }},
+  "devDependencies": {{ "@napi-rs/cli": "^3.6.2" }}
+}}
+"#,
+        package_name = package_name,
+        version = version,
+        description = meta.description,
+        license = meta.license,
+        crate_dir = crate_dir,
+    );
+
+    let dts_content = format!(
+        r#"export * from "../../crates/{crate_dir}-node/index";
+"#,
+        crate_dir = crate_dir,
+    );
+
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/package.json")),
+            content,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("crates/{crate_dir}-node/package.json")),
+            content: crate_pkg,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/src/index.d.ts")),
+            content: dts_content,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/tsconfig.json")),
+            content: r#"{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true
+  },
+  "include": ["src"]
+}
+"#
+            .to_string(),
+            generated_header: false,
+        },
+    ])
+}

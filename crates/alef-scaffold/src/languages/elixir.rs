@@ -1,0 +1,172 @@
+use crate::{
+    capitalize_first, cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps,
+    scaffold_meta,
+};
+use alef_core::backend::GeneratedFile;
+use alef_core::config::{AlefConfig, Language};
+use alef_core::ir::ApiSurface;
+use std::path::PathBuf;
+
+pub fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let meta = scaffold_meta(config);
+    let app_name = config.elixir_app_name();
+    let nif_name = format!("{app_name}_nif");
+    let version = &api.version;
+    let core_crate_dir = config.core_crate_dir();
+    let pkg_dir = config.package_dir(Language::Elixir);
+    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
+    let pkg_header = cargo_package_header(
+        &nif_name,
+        version,
+        "2024",
+        &meta.license,
+        &meta.description,
+        &meta.keywords,
+        &ws,
+    );
+
+    let extra_deps = render_extra_deps(config, Language::Elixir);
+    let extra_deps_section = if extra_deps.is_empty() {
+        String::new()
+    } else {
+        format!("\n{extra_deps}")
+    };
+    let content = format!(
+        r#"{pkg_header}
+
+[lib]
+name = "{nif_name}"
+path = "../../../../crates/{core_crate_dir}-elixir/src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+{crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
+rustler = "0.37"
+serde = {{ version = "1", features = ["derive"] }}
+serde_json = "1"
+tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
+
+[lints]
+workspace = true
+"#,
+        pkg_header = pkg_header,
+        nif_name = nif_name,
+        crate_name = &config.crate_config.name,
+        core_crate_dir = core_crate_dir,
+        features = core_dep_features(config, Language::Elixir),
+        extra_deps_section = extra_deps_section,
+    );
+
+    Ok(vec![GeneratedFile {
+        path: PathBuf::from(format!("{pkg_dir}/native/{nif_name}/Cargo.toml")),
+        content,
+        generated_header: true,
+    }])
+}
+
+pub fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let meta = scaffold_meta(config);
+    let app_name = config.elixir_app_name();
+    let version = &api.version;
+    let pkg_dir = config.package_dir(Language::Elixir);
+
+    let content = format!(
+        r#"defmodule {module}.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      app: :{app_name},
+      version: "{version}",
+      elixir: "~> 1.14",
+      rustler_crates: [{nif_atom}: [mode: :release]],
+      description: "{description}",
+      package: package(),
+      deps: deps()
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["{license}"],
+      links: %{{"GitHub" => "{repository}"}},
+      files: ~w(lib native .formatter.exs mix.exs README* checksum-*.exs)
+    ]
+  end
+
+  defp deps do
+    [
+      {{:rustler, "~> 0.37.0", optional: true, runtime: false}},
+      {{:rustler_precompiled, "~> 0.9"}},
+      {{:credo, "~> 1.7", only: [:dev, :test], runtime: false}},
+      {{:ex_doc, "~> 0.40", only: :dev, runtime: false}}
+    ]
+  end
+end
+"#,
+        module = capitalize_first(&app_name),
+        app_name = app_name,
+        nif_atom = format_args!("{app_name}_rustler"),
+        version = version,
+        description = meta.description,
+        license = meta.license,
+        repository = meta.repository,
+    );
+
+    let formatter_content = r#"[
+  import_deps: [:rustler],
+  inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"],
+  line_length: 120
+]
+"#;
+
+    Ok(vec![
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/mix.exs")),
+            content,
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/.formatter.exs")),
+            content: formatter_content.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/.credo.exs")),
+            content: r#"%{
+  configs: [
+    %{
+      name: "default",
+      strict: true,
+      parse_timeout: 5000,
+      files: %{
+        included: [
+          "lib/",
+          "src/",
+          "test/",
+          "web/",
+          "apps/*/lib/",
+          "apps/*/src/",
+          "apps/*/test/",
+          "apps/*/web/"
+        ],
+        excluded: [
+          ~r"/_build/",
+          ~r"/deps/",
+          ~r"/node_modules/"
+        ]
+      },
+      checks: %{
+        enabled: [
+          {Credo.Check.Refactor.CyclomaticComplexity, max_complexity: 16}
+        ]
+      }
+    }
+  ]
+}
+"#
+            .to_string(),
+            generated_header: false,
+        },
+    ])
+}
