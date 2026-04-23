@@ -146,3 +146,81 @@ pub(crate) fn to_camel_case(s: &str) -> String {
         Some(c) => c.to_lowercase().to_string() + chars.as_str(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::TEST_PREFIX;
+    use alef_core::config::Language;
+
+    #[test]
+    fn test_enum_variant_name_python() {
+        assert_eq!(enum_variant_name("Atx", Language::Python, TEST_PREFIX), "ATX");
+        assert_eq!(
+            enum_variant_name("SnakeCase", Language::Python, TEST_PREFIX),
+            "SNAKE_CASE"
+        );
+    }
+
+    #[test]
+    fn test_enum_variant_name_java() {
+        assert_eq!(enum_variant_name("Atx", Language::Java, TEST_PREFIX), "ATX");
+    }
+
+    #[test]
+    fn test_enum_variant_name_ffi() {
+        assert_eq!(enum_variant_name("Atx", Language::Ffi, TEST_PREFIX), "HTM_ATX");
+    }
+
+    #[test]
+    fn test_type_name_ffi_uses_prefix() {
+        assert_eq!(
+            type_name("ConversionOptions", Language::Ffi, "Kreuzberg"),
+            "KreuzbergConversionOptions"
+        );
+        assert_eq!(
+            type_name("ConversionResult", Language::Ffi, "Kreuzberg"),
+            "KreuzbergConversionResult"
+        );
+    }
+
+    #[test]
+    fn test_func_name_ffi_uses_prefix() {
+        assert_eq!(func_name("convert", Language::Ffi, "Kreuzberg"), "kreuzberg_convert");
+    }
+
+    #[test]
+    fn test_enum_variant_name_ffi_uses_prefix() {
+        assert_eq!(enum_variant_name("Atx", Language::Ffi, "Kreuzberg"), "KREUZBERG_ATX");
+    }
+
+    #[test]
+    fn test_field_name_go_pascal_case() {
+        assert_eq!(field_name("heading_style", Language::Go), "HeadingStyle");
+        assert_eq!(field_name("list_indent_type", Language::Go), "ListIndentType");
+    }
+
+    #[test]
+    fn test_func_name_conventions() {
+        assert_eq!(func_name("convert", Language::Python, TEST_PREFIX), "convert");
+        assert_eq!(func_name("convert_html", Language::Node, TEST_PREFIX), "convertHtml");
+        assert_eq!(func_name("convert_html", Language::Go, TEST_PREFIX), "ConvertHtml");
+        assert_eq!(func_name("convert", Language::Ffi, TEST_PREFIX), "htm_convert");
+    }
+
+    #[test]
+    fn test_type_name_ffi_prefix() {
+        assert_eq!(
+            type_name("ConversionOptions", Language::Ffi, TEST_PREFIX),
+            "HtmConversionOptions"
+        );
+        assert_eq!(
+            type_name("ConversionResult", Language::Ffi, TEST_PREFIX),
+            "HtmConversionResult"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Default value formatting
+// ---------------------------------------------------------------------------

@@ -234,14 +234,30 @@ impl FfiBridgeGenerator {
             } else {
                 match inner_ty {
                     TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                        let val = if p.is_ref {
-                            p.name.clone()
+                        // Path params are &Path / PathBuf — convert to string via to_string_lossy().
+                        // String/Char params are &str / String — use as-is or .as_str().
+                        let (val, needs_as_ref) = match inner_ty {
+                            TypeRef::Path => {
+                                let expr = format!("{}.to_string_lossy()", p.name);
+                                (expr, true) // Cow<str> needs .as_ref() for CString::new
+                            }
+                            _ => {
+                                let expr = if p.is_ref {
+                                    p.name.clone()
+                                } else {
+                                    format!("{}.as_str()", p.name)
+                                };
+                                (expr, false)
+                            }
+                        };
+                        let arg = if needs_as_ref {
+                            format!("{val}.as_ref()")
                         } else {
-                            format!("{}.as_str()", p.name)
+                            val
                         };
                         writeln!(
                             out,
-                            "let _{name}_cs = match std::ffi::CString::new({val}) {{",
+                            "let _{name}_cs = match std::ffi::CString::new({arg}) {{",
                             name = p.name
                         )
                         .ok();
@@ -713,7 +729,7 @@ impl FfiBridgeGenerator {
         writeln!(out).ok();
 
         // initialize()
-        writeln!(out, "    fn initialize(&self) -> Result<()> {{").ok();
+        writeln!(out, "    fn initialize(&self) -> {core_import}::Result<()> {{").ok();
         writeln!(
             out,
             "        let Some(fp) = self.vtable.initialize_fn else {{ return Ok(()); }};"
@@ -752,14 +768,14 @@ impl FfiBridgeGenerator {
         .ok();
         writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
         writeln!(out, "            }};").ok();
-        writeln!(out, "            return Err(kreuzberg::KreuzbergError::Plugin(msg));").ok();
+        writeln!(out, "            return Err(kreuzberg::KreuzbergError::Plugin {{ message: msg, plugin_name: String::new() }});").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "        Ok(())").ok();
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
 
         // shutdown()
-        writeln!(out, "    fn shutdown(&self) -> Result<()> {{").ok();
+        writeln!(out, "    fn shutdown(&self) -> {core_import}::Result<()> {{").ok();
         writeln!(
             out,
             "        let Some(fp) = self.vtable.shutdown_fn else {{ return Ok(()); }};"
@@ -798,7 +814,7 @@ impl FfiBridgeGenerator {
         .ok();
         writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
         writeln!(out, "            }};").ok();
-        writeln!(out, "            return Err(kreuzberg::KreuzbergError::Plugin(msg));").ok();
+        writeln!(out, "            return Err(kreuzberg::KreuzbergError::Plugin {{ message: msg, plugin_name: String::new() }});").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "        Ok(())").ok();
         writeln!(out, "    }}").ok();
@@ -868,7 +884,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         if has_error {
             writeln!(
                 out,
-                ".map_err(|e| {core_import}::KreuzbergError::Plugin(format!(\"spawn_blocking failed in {method_name}: {{}}\", e)))??"
+                ".map_err(|e| {core_import}::KreuzbergError::Plugin {{ message: format!(\"spawn_blocking failed in {method_name}: {{}}\", e), plugin_name: String::new() }})??",
             )
             .ok();
         } else {
@@ -1110,7 +1126,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out).ok();
         writeln!(out, "    let registry = {registry_getter}();").ok();
         writeln!(out, "    let mut registry = registry.write();").ok();
-        writeln!(out, "    if let Err(e) = registry.unregister(plugin_name) {{").ok();
+        writeln!(out, "    if let Err(e) = registry.remove(plugin_name) {{").ok();
         writeln!(out, "        ffi_set_out_error(out_error, &e.to_string());").ok();
         writeln!(out, "        return 1;").ok();
         writeln!(out, "    }}").ok();
