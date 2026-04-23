@@ -1230,14 +1230,6 @@ fn gen_api_py(
         .map(|e| e.name.as_str())
         .collect();
 
-    // Build lookup: simple enum name → EnumDef (for generating value→Rust-variant maps).
-    let simple_enum_defs: AHashMap<String, &alef_core::ir::EnumDef> = api
-        .enums
-        .iter()
-        .filter(|e| !generators::enum_has_data_variants(e))
-        .map(|e| (e.name.clone(), e))
-        .collect();
-
     // Determine which has_default types are referenced by function parameters (directly or nested)
     let mut needed_converters: Vec<String> = Vec::new();
     let mut visited: AHashSet<String> = AHashSet::new();
@@ -1407,55 +1399,6 @@ fn gen_api_py(
     }
     out.push_str("\n\n");
 
-    // Collect simple enums referenced by converter types (for lookup map generation).
-    // Walk all fields of needed_converters types to find enum references.
-    let mut needed_simple_enums: AHashSet<String> = AHashSet::new();
-    for type_name in &needed_converters {
-        let typ = default_types[type_name];
-        for field in &typ.fields {
-            let enum_name_opt: Option<&str> = match &field.ty {
-                TypeRef::Named(n) => Some(n.as_str()),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                TypeRef::Vec(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-            if let Some(name) = enum_name_opt {
-                if simple_enum_defs.contains_key(name) {
-                    needed_simple_enums.insert(name.to_string());
-                }
-            }
-        }
-    }
-
-    // Emit module-level lookup dicts for simple int enums.
-    // Keys are the snake_case string values that options.py assigns to Python enum members.
-    // Values are the corresponding Rust binding enum variants (accessed via attribute).
-    for enum_name in &needed_simple_enums {
-        let enum_def = simple_enum_defs[enum_name];
-        let map_name = format!("_TO_RUST_{}_MAP", enum_name.to_uppercase());
-        out.push_str(&format!("{map_name} = {{\n"));
-        for variant in &enum_def.variants {
-            let str_value = variant.name.to_snake_case();
-            out.push_str(&format!(
-                "    \"{str_value}\": _rust.{enum_name}.{},\n",
-                python_safe_name(&variant.name)
-            ));
-        }
-        out.push_str("}\n\n\n");
-    }
-
     // Generate converter functions for each needed has_default type
     for type_name in &needed_converters {
         let typ = default_types[type_name];
@@ -1525,24 +1468,10 @@ fn gen_api_py(
                             ));
                         }
                     } else {
-                        // Simple int enum: PyO3 eq_int enums can't be constructed from a string.
-                        // Look up the Rust variant by the snake_case string value that options.py produces.
-                        // Use getattr(..., 'value', ...) to normalise both plain str defaults
-                        // ("auto") and str,Enum instances (BrowserMode.AUTO) — the .value
-                        // attribute returns the underlying string in all Python versions,
-                        // while str(StrEnum.VARIANT) changed semantics in Python 3.11+.
-                        let map_name = format!("_TO_RUST_{}_MAP", nested_name.to_uppercase());
-                        if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
-                            out.push_str(&format!(
-                                "        {name}={map_name}[str(value.{name})] if value.{name} is not None else None,\n",
-                                name = field.name,
-                            ));
-                        } else {
-                            out.push_str(&format!(
-                                "        {name}={map_name}[str(value.{name})],\n",
-                                name = field.name,
-                            ));
-                        }
+                        // Simple int enum: the input value is a _rust.ConversionOptions (PyO3
+                        // struct), so its enum fields are already the correct _rust.EnumType
+                        // instances.  Pass them through directly — no string lookup needed.
+                        out.push_str(&format!("        {name}=value.{name},\n", name = field.name,));
                     }
                     continue;
                 }
@@ -1560,15 +1489,9 @@ fn gen_api_py(
                                 enum_name = enum_name,
                             ));
                         } else {
-                            // Simple int enum list: look up each element by snake_case string value.
-                            // str(v) normalises both plain str defaults and
-                            // str,Enum instances across all Python versions (str(StrEnum.X)
-                            // changed semantics in Python 3.11+).
-                            let map_name = format!("_TO_RUST_{}_MAP", enum_name.to_uppercase());
-                            out.push_str(&format!(
-                                "        {name}=[{map_name}[str(v)] for v in value.{name}],\n",
-                                name = field.name,
-                            ));
+                            // Simple int enum list: elements are already _rust.EnumType instances
+                            // since the input value is a PyO3 struct.  Pass the list through.
+                            out.push_str(&format!("        {name}=value.{name},\n", name = field.name,));
                         }
                         continue;
                     }
