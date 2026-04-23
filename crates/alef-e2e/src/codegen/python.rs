@@ -843,7 +843,8 @@ fn render_test_function(
                 "dict" => {
                     // Pass as a plain Python dict literal.
                     let literal = json_to_python_literal(value);
-                    arg_bindings.push(format!("    {var_name} = {literal}"));
+                    let noqa = if literal.contains("/tmp/") { "  # noqa: S108" } else { "" };
+                    arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
                     kwarg_exprs.push(format!("{var_name}={var_name}"));
                     continue;
                 }
@@ -930,14 +931,14 @@ fn render_test_function(
             .is_some();
 
         if has_message {
-            let _ = writeln!(out, "    with pytest.raises(Exception) as exc_info:");
+            let _ = writeln!(out, "    with pytest.raises(Exception) as exc_info:  # noqa: B017");
             let _ = writeln!(out, "        {call_expr}");
             if let Some(msg) = error_assertion.and_then(|a| a.value.as_ref()).and_then(|v| v.as_str()) {
                 let escaped = escape_python(msg);
                 let _ = writeln!(out, "    assert \"{escaped}\" in str(exc_info.value)  # noqa: S101");
             }
         } else {
-            let _ = writeln!(out, "    with pytest.raises(Exception):");
+            let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");
             let _ = writeln!(out, "        {call_expr}");
         }
 

@@ -912,11 +912,8 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out, " */").ok();
     writeln!(out, "final class VisitorBridge implements AutoCloseable {{").ok();
     writeln!(out, "    private static final Linker LINKER = Linker.nativeLinker();").ok();
-    writeln!(
-        out,
-        "    private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();"
-    )
-    .ok();
+    writeln!(out, "    private static final MethodHandles.Lookup LOOKUP =").ok();
+    writeln!(out, "        MethodHandles.lookup();").ok();
     writeln!(out).ok();
     // Named constants for VisitResult discriminant values
     writeln!(out, "    // VisitResult discriminant codes returned to C").ok();
@@ -931,14 +928,24 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     let num_fields = CALLBACKS.len() + 1; // +1 for user_data
     writeln!(
         out,
-        "    // HTMHtmVisitorCallbacks: user_data + {n} callback pointers = {total} pointer-sized slots",
+        "    // HTMHtmVisitorCallbacks: user_data + {n} callbacks",
         n = CALLBACKS.len(),
+    )
+    .ok();
+    writeln!(
+        out,
+        "    // = {total} pointer-sized slots",
         total = num_fields,
     )
     .ok();
     writeln!(
         out,
-        "    private static final long CALLBACKS_STRUCT_SIZE = (long) ValueLayout.ADDRESS.byteSize() * {num_fields}L;"
+        "    private static final long CALLBACKS_STRUCT_SIZE ="
+    )
+    .ok();
+    writeln!(
+        out,
+        "        (long) ValueLayout.ADDRESS.byteSize() * {num_fields}L;"
     )
     .ok();
     writeln!(out).ok();
@@ -958,11 +965,8 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out, "        this.visitor = visitor;").ok();
     writeln!(out, "        this.arena = Arena.ofConfined();").ok();
     writeln!(out, "        this.struct = arena.allocate(CALLBACKS_STRUCT_SIZE);").ok();
-    writeln!(
-        out,
-        "        // Slot 0: user_data = NULL (not needed; visitor captured via lambda closure)"
-    )
-    .ok();
+    writeln!(out, "        // Slot 0: user_data = NULL").ok();
+    writeln!(out, "        // (visitor captured via lambda closure)").ok();
     writeln!(out, "        struct.set(ValueLayout.ADDRESS, 0L, MemorySegment.NULL);").ok();
     writeln!(out, "        try {{").ok();
     writeln!(out, "            long offset = ValueLayout.ADDRESS.byteSize();").ok();
@@ -977,11 +981,8 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     }
     writeln!(out, "        }} catch (ReflectiveOperationException e) {{").ok();
     writeln!(out, "            arena.close();").ok();
-    writeln!(
-        out,
-        "            throw new RuntimeException(\"Failed to create visitor upcall stubs\", e);"
-    )
-    .ok();
+    writeln!(out, "            throw new RuntimeException(").ok();
+    writeln!(out, "                \"Failed to create visitor upcall stubs\", e);").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
@@ -992,7 +993,7 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
         let method_num = chunk_idx + 1;
         writeln!(
             out,
-            "    private long registerStubs{}(final long offset) throws ReflectiveOperationException {{",
+            "    private long registerStubs{}(\n            final long offset)\n            throws ReflectiveOperationException {{",
             method_num
         )
         .ok();
@@ -1053,12 +1054,18 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     .ok();
     writeln!(
         out,
-        "    //                    uintptr index_in_parent, char* parent_tag, int32 is_inline"
+        "    //   uintptr index_in_parent, char* parent_tag,"
+    )
+    .ok();
+    writeln!(out, "    //   int32 is_inline").ok();
+    writeln!(
+        out,
+        "    private static final MemoryLayout CTX_LAYOUT ="
     )
     .ok();
     writeln!(
         out,
-        "    private static final MemoryLayout CTX_LAYOUT = MemoryLayout.structLayout("
+        "        MemoryLayout.structLayout("
     )
     .ok();
     writeln!(out, "            ValueLayout.JAVA_INT.withName(\"node_type\"),").ok();
@@ -1073,19 +1080,44 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out).ok();
     writeln!(
         out,
-        "    private static NodeContext decodeNodeContext(MemorySegment ctxPtr) {{"
-    )
-    .ok();
-    writeln!(out, "        var ctx = ctxPtr.reinterpret(CTX_LAYOUT.byteSize());").ok();
-    writeln!(out, "        int nodeType = ctx.get(ValueLayout.JAVA_INT, 0L);").ok();
-    writeln!(
-        out,
-        "        var tagNamePtr = ctx.get(ValueLayout.ADDRESS, CTX_OFFSET_TAG_NAME);"
+        "    private static NodeContext decodeNodeContext("
     )
     .ok();
     writeln!(
         out,
-        "        String tagName = tagNamePtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        "            final MemorySegment ctxPtr) {{"
+    )
+    .ok();
+    writeln!(
+        out,
+        "        var ctx = ctxPtr.reinterpret("
+    )
+    .ok();
+    writeln!(out, "            CTX_LAYOUT.byteSize());").ok();
+    writeln!(
+        out,
+        "        int nodeType = ctx.get("
+    )
+    .ok();
+    writeln!(out, "            ValueLayout.JAVA_INT, 0L);").ok();
+    writeln!(
+        out,
+        "        var tagNamePtr = ctx.get("
+    )
+    .ok();
+    writeln!(
+        out,
+        "            ValueLayout.ADDRESS, CTX_OFFSET_TAG_NAME);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "        String tagName = tagNamePtr"
+    )
+    .ok();
+    writeln!(
+        out,
+        "            .reinterpret(Long.MAX_VALUE).getString(0);"
     )
     .ok();
     writeln!(
@@ -1320,13 +1352,21 @@ fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
     params.push("final MemorySegment outCustom".to_string());
     params.push("final MemorySegment outLen".to_string());
 
-    writeln!(
-        out,
-        "    int {}({}) {{",
-        handle_method_name(spec.java_method),
-        params.join(", ")
-    )
-    .ok();
+    let method_name = handle_method_name(spec.java_method);
+    let single_line = format!("    int {}({}) {{", method_name, params.join(", "));
+    if single_line.len() <= 80 {
+        writeln!(out, "{}", single_line).ok();
+    } else {
+        let indent = "            ";
+        writeln!(
+            out,
+            "    int {}(\n{}{}) {{",
+            method_name,
+            indent,
+            params.join(&format!(",\n{indent}"))
+        )
+        .ok();
+    }
     writeln!(out, "        try (var encArena = Arena.ofConfined()) {{").ok();
     writeln!(out, "            var context = decodeNodeContext(ctx);").ok();
 
