@@ -708,6 +708,32 @@ fn gen_named_let_bindings_inner(
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                 // No let binding needed — Vec<String> coerces to &[String] automatically.
             }
+            // Sanitized Vec<String> (originally Vec<tuple>): deserialize each JSON string.
+            TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() =>
+            {
+                if p.optional {
+                    write!(
+                        bindings,
+                        "let {n}_core: Option<Vec<_>> = {n}.map(|strs| \
+                         strs.into_iter()\n    \
+                         .filter_map(|s| serde_json::from_str(&s).ok())\n    \
+                         .collect()\n    \
+                         );\n    ",
+                        n = p.name,
+                    )
+                    .ok();
+                } else {
+                    write!(
+                        bindings,
+                        "let {n}_core: Vec<_> = {n}.into_iter()\n    \
+                         .filter_map(|s| serde_json::from_str(&s).ok())\n    \
+                         .collect();\n    ",
+                        n = p.name,
+                    )
+                    .ok();
+                }
+            }
             _ => {}
         }
     }
