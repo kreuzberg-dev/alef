@@ -118,7 +118,7 @@ pub fn build(config: &AlefConfig, languages: &[Language], target: Option<&RustTa
     let needs_ffi = languages.iter().any(|l| is_ffi_dependent(*l));
     let ffi_in_list = languages.contains(&Language::Ffi);
     if needs_ffi && !ffi_in_list {
-        let cmd = build_command_for_lang(Language::Ffi, crate_name, target, use_cross);
+        let cmd = build_command_for_lang(Language::Ffi, config, target, use_cross);
         eprintln!("Building FFI crate (dependency)...");
         run_shell_command(&cmd)?;
     }
@@ -129,17 +129,26 @@ pub fn build(config: &AlefConfig, languages: &[Language], target: Option<&RustTa
             continue;
         }
 
-        // Skip FFI-dependent languages if FFI was already built.
+        // Skip FFI-dependent languages if FFI was already built as dependency.
         if matches!(lang, Language::Go | Language::Java | Language::Csharp) && needs_ffi && !ffi_in_list {
             eprintln!("Skipping {lang}: FFI already built as dependency");
             continue;
         }
 
-        // Use custom build command if configured.
+        // Use custom build command from [publish.languages.{lang}] if set.
+        // Otherwise fall back to [build_commands.{lang}].build_release if set.
+        // Otherwise use the config-driven default.
         let cmd = if let Some(custom) = &lang_config.build_command {
-            custom.commands().join(" && ")
+            substitute_target(&custom.commands().join(" && "), target)
+        } else if let Some(build_cmd_cfg) = config
+            .build_commands
+            .as_ref()
+            .and_then(|m| m.get(&lang.to_string()))
+            .and_then(|c| c.build_release.as_ref())
+        {
+            substitute_target(&build_cmd_cfg.commands().join(" && "), target)
         } else {
-            build_command_for_lang(lang, crate_name, target, use_cross)
+            build_command_for_lang(lang, config, target, use_cross)
         };
 
         let target_str = target.map(|t| t.triple.as_str()).unwrap_or("host");
@@ -150,41 +159,91 @@ pub fn build(config: &AlefConfig, languages: &[Language], target: Option<&RustTa
     Ok(())
 }
 
-/// Generate the build command for a language, with optional cross-compilation target.
-fn build_command_for_lang(lang: Language, crate_name: &str, target: Option<&RustTarget>, use_cross: bool) -> String {
+/// Substitute `{target}` placeholder in a command string with the actual triple.
+fn substitute_target(cmd: &str, target: Option<&RustTarget>) -> String {
+    if let Some(t) = target {
+        cmd.replace("{target}", &t.triple)
+    } else {
+        cmd.replace("{target}", "")
+    }
+}
+
+/// Extract the Rust crate name from an output path in the config.
+///
+/// `"crates/html-to-markdown-ffi/src/"` → `Some("html-to-markdown-ffi")`
+fn crate_name_from_output(config: &AlefConfig, lang: Language) -> Option<String> {
+    let output_path = match lang {
+        Language::Python => config.output.python.as_deref(),
+        Language::Node => config.output.node.as_deref(),
+        Language::Ruby => config.output.ruby.as_deref(),
+        Language::Php => config.output.php.as_deref(),
+        Language::Elixir => config.output.elixir.as_deref(),
+        Language::Wasm => config.output.wasm.as_deref(),
+        Language::Ffi => config.output.ffi.as_deref(),
+        Language::Go => config.output.go.as_deref(),
+        Language::Java => config.output.java.as_deref(),
+        Language::Csharp => config.output.csharp.as_deref(),
+        Language::R => config.output.r.as_deref(),
+        Language::Rust => None,
+    }?;
+    let path = std::path::Path::new(output_path);
+    // Strip trailing `src/` component if present.
+    let crate_dir = if path.file_name().is_some_and(|n| n == "src") {
+        path.parent()?
+    } else {
+        path
+    };
+    crate_dir.file_name()?.to_str().map(|s| s.to_string())
+}
+
+/// Generate the build command for a language, deriving crate names from output path config.
+///
+/// Falls back to `{crate_name}-{suffix}` when no output path is configured.
+fn build_command_for_lang(lang: Language, config: &AlefConfig, target: Option<&RustTarget>, use_cross: bool) -> String {
+    let crate_name = &config.crate_config.name;
     let cargo = if use_cross { "cross" } else { "cargo" };
     let target_flag = target.map(|t| format!(" --target {}", t.triple)).unwrap_or_default();
 
     match lang {
         Language::Python => {
-            format!("maturin build --release --manifest-path crates/{crate_name}-py/Cargo.toml{target_flag}")
+            let pkg = crate_name_from_output(config, Language::Python).unwrap_or_else(|| format!("{crate_name}-py"));
+            format!("maturin build --release --manifest-path crates/{pkg}/Cargo.toml{target_flag}")
         }
         Language::Node => {
+            let pkg = crate_name_from_output(config, Language::Node).unwrap_or_else(|| format!("{crate_name}-node"));
             let napi_target = target.map(|t| format!(" --target {}", t.triple)).unwrap_or_default();
             format!(
-                "napi build --manifest-path crates/{crate_name}-node/Cargo.toml \
-                 -o crates/{crate_name}-node --platform --release{napi_target}"
+                "napi build --manifest-path crates/{pkg}/Cargo.toml \
+                 -o crates/{pkg} --platform --release{napi_target}"
             )
         }
-        Language::Wasm => "wasm-pack build crates/{crate_name}-wasm --release".replace("{crate_name}", crate_name),
+        Language::Wasm => {
+            let pkg = crate_name_from_output(config, Language::Wasm).unwrap_or_else(|| format!("{crate_name}-wasm"));
+            format!("wasm-pack build crates/{pkg} --release")
+        }
         Language::Ruby => {
-            format!("{cargo} build --release -p {crate_name}-rb{target_flag}")
+            let pkg = crate_name_from_output(config, Language::Ruby).unwrap_or_else(|| format!("{crate_name}-rb"));
+            format!("{cargo} build --release -p {pkg}{target_flag}")
         }
         Language::Php => {
-            format!("{cargo} build --release -p {crate_name}-php{target_flag}")
+            let pkg = crate_name_from_output(config, Language::Php).unwrap_or_else(|| format!("{crate_name}-php"));
+            format!("{cargo} build --release -p {pkg}{target_flag}")
         }
         Language::Ffi => {
-            format!("{cargo} build --release -p {crate_name}-ffi{target_flag}")
+            let pkg = crate_name_from_output(config, Language::Ffi).unwrap_or_else(|| format!("{crate_name}-ffi"));
+            format!("{cargo} build --release -p {pkg}{target_flag}")
         }
         Language::Go | Language::Java | Language::Csharp => {
             // FFI-dependent languages: build the FFI crate.
-            format!("{cargo} build --release -p {crate_name}-ffi{target_flag}")
+            let pkg = crate_name_from_output(config, Language::Ffi).unwrap_or_else(|| format!("{crate_name}-ffi"));
+            format!("{cargo} build --release -p {pkg}{target_flag}")
         }
         Language::Elixir => {
             format!("{cargo} build --release{target_flag}")
         }
         Language::R => {
-            format!("{cargo} build --release -p {crate_name}-r{target_flag}")
+            let pkg = crate_name_from_output(config, Language::R).unwrap_or_else(|| format!("{crate_name}-r"));
+            format!("{cargo} build --release -p {pkg}{target_flag}")
         }
         Language::Rust => {
             format!("{cargo} build --release --workspace{target_flag}")

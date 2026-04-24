@@ -21,6 +21,8 @@ pub struct PublishLanguageConfig {
     pub precondition: Option<String>,
     /// Command(s) to run before the main publish commands; aborts on failure.
     pub before: Option<StringOrVec>,
+    /// Command(s) to run after the main publish commands; aborts on failure.
+    pub after: Option<StringOrVec>,
     /// Vendoring strategy for this language.
     pub vendor_mode: Option<VendorMode>,
     /// Elixir NIF versions to build for (e.g. `["2.16", "2.17"]`).
