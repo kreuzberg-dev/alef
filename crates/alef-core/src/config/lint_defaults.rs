@@ -18,8 +18,8 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Ruby => LintConfig {
-            format: Some(StringOrVec::Single(format!("bundle exec rubocop -A {output_dir}"))),
-            check: Some(StringOrVec::Single(format!("bundle exec rubocop {output_dir}"))),
+            format: Some(StringOrVec::Single(format!("cd {output_dir} && bundle exec rubocop -A ."))),
+            check: Some(StringOrVec::Single(format!("cd {output_dir} && bundle exec rubocop ."))),
             typecheck: None,
         },
         Language::Php => LintConfig {
@@ -66,9 +66,11 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
         },
         Language::Ffi => LintConfig {
             format: Some(StringOrVec::Single(format!(
-                "find {output_dir}/tests -name '*.c' -o -name '*.h' | xargs clang-format -i"
+                "find {output_dir} -name '*.c' -o -name '*.h' | xargs clang-format -i"
             ))),
-            check: Some(StringOrVec::Single(format!("cppcheck {output_dir}/tests/"))),
+            check: Some(StringOrVec::Single(format!(
+                "cppcheck --std=c11 --enable=warning,style,performance --suppress=missingIncludeSystem {output_dir}"
+            ))),
             typecheck: None,
         },
         Language::Rust => LintConfig {

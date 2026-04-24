@@ -328,6 +328,8 @@ impl FfiBridgeGenerator {
                     | TypeRef::Map(_, _) => format!("{}_ptr", p.name),
                     // Bool is represented as i32 in the C ABI; cast explicitly.
                     TypeRef::Primitive(PrimitiveType::Bool) => format!("{} as i32", p.name),
+                    // Bytes params are &[u8]; the vtable expects *const u8.
+                    TypeRef::Bytes => format!("{}.as_ptr()", p.name),
                     _ => p.name.clone(),
                 }
             };
@@ -432,6 +434,9 @@ impl FfiBridgeGenerator {
                     )
                     .ok();
                 }
+                TypeRef::Primitive(PrimitiveType::Bool) => {
+                    writeln!(out, "Ok(_rc != 0)").ok();
+                }
                 other => {
                     let ret_ty = format_type_ref(other, &spec.type_paths);
                     writeln!(out, "Ok(_rc as {ret_ty})").ok();
@@ -466,6 +471,9 @@ impl FfiBridgeGenerator {
                     writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
                     writeln!(out, "let json = cs.to_string_lossy();").ok();
                     writeln!(out, "serde_json::from_str::<{ret_ty}>(&json).unwrap_or_default()").ok();
+                }
+                TypeRef::Primitive(PrimitiveType::Bool) => {
+                    writeln!(out, "_rc != 0").ok();
                 }
                 TypeRef::Primitive(_) | TypeRef::Duration => {
                     writeln!(out, "_rc").ok();
@@ -584,6 +592,10 @@ impl FfiBridgeGenerator {
         .ok();
 
         writeln!(out, "}}").ok();
+        let vtable = self.vtable_name(spec);
+        writeln!(out, "// SAFETY: all fields are function pointers and free_user_data, which are Send + Sync.").ok();
+        writeln!(out, "unsafe impl Send for {vtable} {{}}").ok();
+        writeln!(out, "unsafe impl Sync for {vtable} {{}}").ok();
         out
     }
 
@@ -725,7 +737,8 @@ impl FfiBridgeGenerator {
         writeln!(out).ok();
 
         // initialize()
-        writeln!(out, "    fn initialize(&self) -> {core_import}::Result<()> {{").ok();
+        let error_type = &self.error_type;
+        writeln!(out, "    fn initialize(&self) -> std::result::Result<(), {core_import}::{error_type}> {{").ok();
         writeln!(
             out,
             "        let Some(fp) = self.vtable.initialize_fn else {{ return Ok(()); }};"
@@ -775,7 +788,7 @@ impl FfiBridgeGenerator {
         writeln!(out).ok();
 
         // shutdown()
-        writeln!(out, "    fn shutdown(&self) -> {core_import}::Result<()> {{").ok();
+        writeln!(out, "    fn shutdown(&self) -> std::result::Result<(), {core_import}::{error_type}> {{").ok();
         writeln!(
             out,
             "        let Some(fp) = self.vtable.shutdown_fn else {{ return Ok(()); }};"
@@ -850,7 +863,12 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         // For async methods we block-on inside a spawn_blocking call, mirroring
         // the Go/Java/C# strategy of running synchronous C callbacks on a thread pool.
-        let sync_body = self.gen_vtable_call_body(method, spec);
+        // The sync body references `self.vtable.*` and `self.user_data`; inside the
+        // closure we have local `vtable` / `user_data` bindings instead.
+        let sync_body = self
+            .gen_vtable_call_body(method, spec)
+            .replace("self.vtable.", "vtable.")
+            .replace("self.user_data", "user_data");
         let has_error = method.error_type.is_some();
         let core_import = &self.core_import;
         let method_name = &method.name;
@@ -860,25 +878,38 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
             ""
         };
 
+        let vtable_name = self.vtable_name(spec);
         let mut out = String::with_capacity(1024);
+
+        // Wrap vtable + user_data in a Send+Sync newtype before the closure so
+        // spawn_blocking can cross thread boundaries even though *const c_void is
+        // not Send on its own.
         writeln!(out, "{cached_name_clone}let vtable = self.vtable;").ok();
         writeln!(out, "let user_data = self.user_data;").ok();
         for p in &method.params {
-            writeln!(out, "let {} = {}.clone();", p.name, p.name).ok();
+            // &Path / &[u8] don't Clone into owned types; use explicit conversions.
+            let clone_expr = match &p.ty {
+                TypeRef::Path => format!("{}.to_path_buf()", p.name),
+                TypeRef::Bytes => format!("{}.to_vec()", p.name),
+                _ => format!("{}.clone()", p.name),
+            };
+            writeln!(out, "let {} = {clone_expr};", p.name).ok();
         }
         writeln!(out).ok();
-        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
 
-        // Re-create a minimal bridge for the blocking call
-        writeln!(out, "    struct _LocalBridge {{").ok();
-        writeln!(out, "        vtable: {vtable},", vtable = self.vtable_name(spec)).ok();
-        writeln!(out, "        user_data: *const std::ffi::c_void,").ok();
-        writeln!(out, "        cached_name: String,").ok();
-        writeln!(out, "        cached_version: String,").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    unsafe impl Send for _LocalBridge {{}}").ok();
-        writeln!(out, "    unsafe impl Sync for _LocalBridge {{}}").ok();
-        writeln!(out, "    let bridge = _LocalBridge {{ vtable, user_data, cached_name: String::new(), cached_version: String::new() }};").ok();
+        // `*const c_void` is not Send, so wrap it in a newtype that is.
+        // SAFETY comment is at the declaration site; the caller guarantees
+        // that user_data is valid for any thread that calls these methods.
+        writeln!(out, "struct _SendPtr(*const std::ffi::c_void);").ok();
+        writeln!(out, "// SAFETY: caller guarantees user_data is valid across threads.").ok();
+        writeln!(out, "unsafe impl Send for _SendPtr {{}}").ok();
+        writeln!(out, "unsafe impl Sync for _SendPtr {{}}").ok();
+        writeln!(out, "let _user_data = _SendPtr(user_data);").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
+        writeln!(out, "    let vtable = vtable;").ok();
+        writeln!(out, "    let user_data = _user_data.0;").ok();
         writeln!(out, "    // Inline the sync body:").ok();
         for line in sync_body.lines() {
             writeln!(out, "    {line}").ok();
@@ -886,9 +917,15 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         writeln!(out, "}})").ok();
         writeln!(out, ".await").ok();
         if has_error {
+            let inner_error_constructor = spec.make_error("e.to_string()");
             writeln!(
                 out,
-                ".map_err(|e| {core_import}::KreuzbergError::Plugin {{ message: format!(\"spawn_blocking failed in {method_name}: {{}}\", e), plugin_name: String::new() }})??",
+                ".map_err(|e| {core_import}::KreuzbergError::Plugin {{ message: format!(\"spawn_blocking failed in {method_name}: {{}}\", e), plugin_name: String::new() }})?",
+            )
+            .ok();
+            writeln!(
+                out,
+                ".map_err(|e: Box<dyn std::error::Error + Send + Sync>| {inner_error_constructor})",
             )
             .ok();
         } else {

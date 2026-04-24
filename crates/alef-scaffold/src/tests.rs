@@ -271,18 +271,19 @@ fn test_pre_commit_config_python_node() {
     assert!(content.contains("cargo-clippy"));
     assert!(content.contains("trailing-whitespace"));
     assert!(content.contains("cargo-deny"));
-    // Python-specific
-    assert!(content.contains("ruff-pre-commit"));
-    assert!(content.contains("ruff-format"));
+    // Python-specific TOML formatting
     assert!(content.contains("pyproject-fmt"));
-    // Node-specific (oxc toolchain)
-    assert!(content.contains("oxlint"));
-    assert!(content.contains("oxfmt"));
-    // Should NOT have PHP/Ruby/Go/etc hooks
+    // Alef unified hooks replace per-language hooks
+    assert!(content.contains("alef-fmt"));
+    assert!(content.contains("alef-lint"));
+    assert!(content.contains("alef-verify"));
+    assert!(content.contains("alef-sync-versions"));
+    // No per-language hooks
+    assert!(!content.contains("ruff-pre-commit"));
+    assert!(!content.contains("oxlint"));
     assert!(!content.contains("php-lint"));
     assert!(!content.contains("golangci-lint"));
     assert!(!content.contains("mix-credo"));
-    assert!(!content.contains("rbs-validate"));
 }
 
 #[test]
@@ -294,10 +295,11 @@ fn test_pre_commit_config_ffi_only() {
     // Common + Rust hooks
     assert!(content.contains("cargo-fmt"));
     assert!(content.contains("cargo-clippy"));
-    // FFI-specific: C/C++ hooks
-    assert!(content.contains("clang-format"));
-    assert!(content.contains("cppcheck"));
-    // No Python/Node hooks
+    // Alef unified hooks present
+    assert!(content.contains("alef-fmt"));
+    assert!(content.contains("alef-lint"));
+    // No per-language hooks
+    assert!(!content.contains("clang-format"));
     assert!(!content.contains("ruff"));
     assert!(!content.contains("biome"));
 }
@@ -337,24 +339,35 @@ fn test_pre_commit_config_all_languages() {
         ],
     );
     let content = &files[0].content;
-    // All language hooks should be present
-    assert!(content.contains("ruff"));
-    assert!(content.contains("oxlint"));
-    assert!(content.contains("oxfmt"));
-    assert!(content.contains("clang-format"));
-    assert!(content.contains("golangci-lint"));
-    assert!(content.contains("cpd")); // Java
-    assert!(content.contains("dotnet-format"));
-    assert!(content.contains("mix-credo"));
-    assert!(content.contains("rubocop"));
-    assert!(content.contains("steep-check"));
-    assert!(content.contains("php-lint"));
-    assert!(content.contains("r-lintr"));
-    assert!(content.contains("r-styler"));
+    // Common hooks always present
+    assert!(content.contains("cargo-fmt"));
+    assert!(content.contains("cargo-clippy"));
+    assert!(content.contains("trailing-whitespace"));
     assert!(content.contains("typos"));
-    assert!(content.contains("mypy"));
+    // Python-specific TOML formatting
+    assert!(content.contains("pyproject-fmt"));
+    // Alef unified hooks replace all per-language hooks
+    assert!(content.contains("alef-fmt"));
+    assert!(content.contains("alef-lint"));
     assert!(content.contains("alef-verify"));
     assert!(content.contains("alef-sync-versions"));
+    // Clippy excludes for all binding crates
+    assert!(content.contains("--exclude=my-lib-py"));
+    assert!(content.contains("--exclude=my-lib-node"));
+    assert!(content.contains("--exclude=my-lib-rb"));
+    assert!(content.contains("--exclude=my-lib-php"));
+    assert!(content.contains("--exclude=my-lib-r"));
+    // No per-language hooks
+    assert!(!content.contains("ruff"));
+    assert!(!content.contains("oxlint"));
+    assert!(!content.contains("clang-format"));
+    assert!(!content.contains("golangci-lint"));
+    assert!(!content.contains("cpd"));
+    assert!(!content.contains("dotnet-format"));
+    assert!(!content.contains("mix-credo"));
+    assert!(!content.contains("rubocop"));
+    assert!(!content.contains("php-lint"));
+    assert!(!content.contains("r-lintr"));
 }
 
 // --- Oxc toolchain tests ---
@@ -432,8 +445,10 @@ fn test_precommit_no_biome_with_node() {
     assert!(!content.contains("biome-format"));
     assert!(!content.contains("biome-lint"));
     assert!(!content.contains("biomejs"));
-    assert!(content.contains("oxlint"));
-    assert!(content.contains("oxfmt"));
+    // alef-fmt/alef-lint replace oxlint/oxfmt
+    assert!(content.contains("alef-fmt"));
+    assert!(content.contains("alef-lint"));
+    assert!(!content.contains("oxlint"));
 }
 
 // --- Java checkstyle tests ---

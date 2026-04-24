@@ -38,9 +38,9 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
     fn bridge_imports(&self) -> Vec<String> {
         vec![
-            "use rustler::ResourceArc;".to_string(),
-            "use async_trait::async_trait;".to_string(),
-            "use std::sync::Arc;".to_string(),
+            "rustler::ResourceArc".to_string(),
+            "async_trait::async_trait".to_string(),
+            "std::sync::Arc".to_string(),
         ]
     }
 

@@ -36,7 +36,6 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     };
 
     let mut yaml = String::new();
-    let mut local_hooks: Vec<String> = Vec::new();
 
     // Header
     yaml.push_str(
@@ -75,7 +74,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20     - id: check-case-conflict\n\n",
     );
 
-    // TOML formatting
+    // TOML formatting (Python only)
     if has(Language::Python) {
         yaml.push_str(
             "  - repo: https://github.com/tox-dev/pyproject-fmt\n\
@@ -92,23 +91,6 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20     - id: cargo-sort\n\
          \x20       args: [-w]\n\n",
     );
-
-    // Python: ruff + mypy
-    if has(Language::Python) {
-        yaml.push_str(
-            "  # Python: ruff (linting + formatting) + mypy (type checking)\n\
-             \x20 - repo: https://github.com/astral-sh/ruff-pre-commit\n\
-             \x20   rev: v0.15.11\n\
-             \x20   hooks:\n\
-             \x20     - id: ruff\n\
-             \x20       args: [\"--fix\"]\n\
-             \x20     - id: ruff-format\n\n\
-             \x20 - repo: https://github.com/pre-commit/mirrors-mypy\n\
-             \x20   rev: v1.20.2\n\
-             \x20   hooks:\n\
-             \x20     - id: mypy\n\n",
-        );
-    }
 
     // Rust: formatting, linting, unused deps, license/advisory
     yaml.push_str("  # Rust: formatting, linting, unused deps, license/advisory\n");
@@ -149,52 +131,6 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20       args: [\"check\"]\n\n",
     );
 
-    // JavaScript/TypeScript: oxlint (linting) + oxfmt (formatting)
-    if has(Language::Node) || has(Language::Wasm) {
-        yaml.push_str(
-            "  # JavaScript/TypeScript: oxlint (linting) + oxfmt (formatting)\n\
-             \x20 - repo: https://github.com/oxc-project/mirrors-oxlint\n\
-             \x20   rev: v1.60.0\n\
-             \x20   hooks:\n\
-             \x20     - id: oxlint\n\
-             \x20       args: [\"--fix\"]\n\n",
-        );
-        // oxfmt doesn't have a pre-commit mirror yet — use a local hook
-        // oxfmt also handles TOML, JSON, YAML, and Markdown formatting
-        local_hooks.push(
-            "      - id: oxfmt\n\
-             \x20       name: oxfmt (format JS/TS/JSON/TOML)\n\
-             \x20       entry: npx oxfmt\n\
-             \x20       language: system\n\
-             \x20       files: \\.(js|jsx|ts|tsx|json|toml|yaml|yml)$\n\
-             \x20       exclude: Cargo\\.toml|pyproject\\.toml\n\
-             \x20       pass_filenames: false\n"
-                .to_string(),
-        );
-    }
-
-    // C/C++ (for FFI tests)
-    if has(Language::Ffi) {
-        yaml.push_str(&format!(
-            "  # C/C++: formatting and linting (FFI tests)\n\
-             \x20 - repo: https://github.com/pocc/pre-commit-hooks\n\
-             \x20   rev: v1.3.5\n\
-             \x20   hooks:\n\
-             \x20     - id: clang-format\n\
-             \x20       args: [--style=file]\n\
-             \x20       files: ^crates/{crate_dir}-ffi/tests/c/\n\
-             \x20     - id: cppcheck\n\
-             \x20       args:\n\
-             \x20         [\n\
-             \x20           \"--std=c11\",\n\
-             \x20           \"--enable=warning,style,performance\",\n\
-             \x20           \"--suppress=missingIncludeSystem\",\n\
-             \x20           \"--suppress=unusedStructMember\",\n\
-             \x20         ]\n\
-             \x20       files: ^crates/{crate_dir}-ffi/tests/c/\n\n",
-        ));
-    }
-
     // Markdown
     yaml.push_str(
         "  # Markdown\n\
@@ -204,7 +140,19 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20     - id: rumdl-fmt\n\n",
     );
 
-    // Spelling
+    // Alef: format, lint, verify bindings, sync versions
+    yaml.push_str(
+        "  # Alef: format and lint all binding languages, verify bindings, sync versions\n\
+         \x20 - repo: https://github.com/kreuzberg-dev/alef\n\
+         \x20   rev: v0.7.0\n\
+         \x20   hooks:\n\
+         \x20     - id: alef-fmt\n\
+         \x20     - id: alef-lint\n\
+         \x20     - id: alef-verify\n\
+         \x20     - id: alef-sync-versions\n\n",
+    );
+
+    // Spelling (last)
     yaml.push_str(
         "  # Spelling\n\
          \x20 - repo: https://github.com/crate-ci/typos\n\
@@ -213,164 +161,6 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20     - id: typos\n\
          \x20       args: [\"--force-exclude\"]\n\n",
     );
-
-    // Alef: verify bindings are up to date
-    yaml.push_str(
-        "  # Alef: verify bindings and sync versions\n\
-         \x20 - repo: https://github.com/kreuzberg-dev/alef\n\
-         \x20   rev: v0.6.1\n\
-         \x20   hooks:\n\
-         \x20     - id: alef-verify\n\
-         \x20     - id: alef-sync-versions\n\n",
-    );
-
-    // Java: copy-paste detection and style checking
-    if has(Language::Java) {
-        yaml.push_str(
-            "  # Java: copy-paste detection and style checking\n\
-             \x20 - repo: https://github.com/gherynos/pre-commit-java\n\
-             \x20   rev: v0.6.37\n\
-             \x20   hooks:\n\
-             \x20     - id: cpd\n\
-             \x20     - id: checkstyle\n\
-             \x20       args:\n\
-             \x20         [\n\
-             \x20           \"-c\",\n\
-             \x20           \"packages/java/checkstyle.xml\",\n\
-             \x20           \"-p\",\n\
-             \x20           \"packages/java/checkstyle.properties\",\n\
-             \x20         ]\n\n",
-        );
-    }
-
-    // Local hooks for language toolchains
-
-    if has(Language::Go) {
-        local_hooks.push(
-            "      - id: golangci-lint\n\
-             \x20       name: golangci-lint\n\
-             \x20       entry: bash -c 'cd packages/go && golangci-lint run ./...'\n\
-             \x20       language: system\n\
-             \x20       files: \\.go$\n\
-             \x20       pass_filenames: false\n"
-                .to_string(),
-        );
-    }
-
-    if has(Language::Ruby) {
-        let ruby_dir = config.package_dir(Language::Ruby);
-        local_hooks.push(format!(
-            "      - id: rubocop\n\
-             \x20       name: rubocop (ruby)\n\
-             \x20       entry: bash -c 'cd {ruby_dir} && bundle exec rubocop -A'\n\
-             \x20       language: system\n\
-             \x20       files: \\.(rb|rbs)$\n\
-             \x20       pass_filenames: false\n",
-        ));
-        local_hooks.push(format!(
-            "      - id: steep-check\n\
-             \x20       name: steep check (ruby)\n\
-             \x20       entry: bash -c 'cd {ruby_dir} && bundle exec steep check'\n\
-             \x20       language: system\n\
-             \x20       files: \\.(rb|rbs)$\n\
-             \x20       pass_filenames: false\n\
-             \x20       require_serial: true\n",
-        ));
-    }
-
-    if has(Language::Php) {
-        local_hooks.push(
-            "      - id: php-lint\n\
-             \x20       name: php lint (cs-fixer + phpstan)\n\
-             \x20       entry: bash -c 'cd packages/php && composer install --no-interaction --no-progress && composer run lint:fix'\n\
-             \x20       language: system\n\
-             \x20       files: ^packages/php/\n\
-             \x20       pass_filenames: false\n"
-                .to_string(),
-        );
-    }
-
-    if has(Language::Java) {
-        local_hooks.push(
-            "      - id: java-spotless\n\
-             \x20       name: spotless apply (java)\n\
-             \x20       entry: bash -lc 'if [ -f \"$HOME/.sdkman/bin/sdkman-init.sh\" ]; then source \"$HOME/.sdkman/bin/sdkman-init.sh\" && sdk env; fi; MAVEN_OPTS=\"${MAVEN_OPTS:-} --enable-native-access=ALL-UNNAMED -Dsun.misc.unsafe.memory.access=allow\" mvn -f packages/java/pom.xml -B spotless:apply -q'\n\
-             \x20       language: system\n\
-             \x20       files: ^packages/java/\n\
-             \x20       pass_filenames: false\n"
-                .to_string(),
-        );
-        local_hooks.push(
-            "      - id: java-verify\n\
-             \x20       name: maven verify (java)\n\
-             \x20       entry: bash -lc 'if [ -f \"$HOME/.sdkman/bin/sdkman-init.sh\" ]; then source \"$HOME/.sdkman/bin/sdkman-init.sh\" && sdk env; fi; MAVEN_OPTS=\"${MAVEN_OPTS:-} --enable-native-access=ALL-UNNAMED -Dsun.misc.unsafe.memory.access=allow\" mvn -f packages/java/pom.xml -B -DskipTests -Dgpg.skip=true -Dskip.rust.ffi=true verify'\n\
-             \x20       language: system\n\
-             \x20       files: ^packages/java/\n\
-             \x20       pass_filenames: false\n"
-                .to_string(),
-        );
-    }
-
-    if has(Language::Csharp) {
-        let namespace = config.csharp_namespace();
-        local_hooks.push(format!(
-            "      - id: dotnet-format\n\
-             \x20       name: dotnet format\n\
-             \x20       entry: bash -c 'dotnet format packages/csharp/{namespace}/{namespace}.csproj'\n\
-             \x20       language: system\n\
-             \x20       files: ^packages/csharp/\n\
-             \x20       pass_filenames: false\n",
-        ));
-    }
-
-    if has(Language::Elixir) {
-        local_hooks.push(
-            "      - id: mix-credo\n\
-             \x20       name: mix credo\n\
-             \x20       entry: bash -c 'cd packages/elixir && MIX_ENV=dev mix credo --strict'\n\
-             \x20       language: system\n\
-             \x20       files: ^packages/elixir/\n\
-             \x20       pass_filenames: false\n"
-                .to_string(),
-        );
-        local_hooks.push(
-            "      - id: mix-format\n\
-             \x20       name: mix format\n\
-             \x20       entry: bash -c 'cd packages/elixir && MIX_ENV=dev mix format --check-formatted'\n\
-             \x20       language: system\n\
-             \x20       files: ^packages/elixir/\n\
-             \x20       pass_filenames: false\n"
-                .to_string(),
-        );
-    }
-
-    if has(Language::R) {
-        local_hooks.push(
-            "      - id: r-lintr\n\
-             \x20       name: lintr (R)\n\
-             \x20       entry: bash -c 'cd packages/r && Rscript -e \"lints <- lintr::lint_package(); if (length(lints) > 0) { print(lints); quit(status=1) }\"'\n\
-             \x20       language: system\n\
-             \x20       files: ^packages/r/\n\
-             \x20       pass_filenames: false\n"
-                .to_string(),
-        );
-        local_hooks.push(
-            "      - id: r-styler\n\
-             \x20       name: styler format check (R)\n\
-             \x20       entry: bash -c 'cd packages/r && Rscript -e \"out <- styler::style_pkg(dry=\\\"on\\\"); if (!all(out\\$changed == FALSE)) quit(status=1)\"'\n\
-             \x20       language: system\n\
-             \x20       files: ^packages/r/\n\
-             \x20       pass_filenames: false\n"
-                .to_string(),
-        );
-    }
-
-    if !local_hooks.is_empty() {
-        yaml.push_str("  # Local hooks for language toolchains\n  - repo: local\n    hooks:\n");
-        for hook in &local_hooks {
-            yaml.push_str(hook);
-        }
-    }
 
     vec![GeneratedFile {
         path: PathBuf::from(".pre-commit-config.yaml"),
