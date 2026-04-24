@@ -17,11 +17,7 @@ enum LintPhase {
 }
 
 /// Run a single lint phase across all languages in parallel.
-fn run_phase(
-    config: &AlefConfig,
-    languages: &[Language],
-    phase: LintPhase,
-) -> anyhow::Result<()> {
+fn run_phase(config: &AlefConfig, languages: &[Language], phase: LintPhase) -> anyhow::Result<()> {
     // Build flat list of (language, command) tasks for this phase
     let tasks: Vec<(&Language, String)> = languages
         .iter()
@@ -151,12 +147,7 @@ pub fn update(config: &AlefConfig, languages: &[Language], latest: bool) -> anyh
 ///
 /// When `coverage` is true, runs coverage commands instead of regular test commands.
 /// When `e2e` is true, also runs e2e test commands.
-pub fn test(
-    config: &AlefConfig,
-    languages: &[Language],
-    e2e: bool,
-    coverage: bool,
-) -> anyhow::Result<()> {
+pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool, coverage: bool) -> anyhow::Result<()> {
     let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
         .par_iter()
         .map(|lang| {

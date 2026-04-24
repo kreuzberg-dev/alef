@@ -621,7 +621,20 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
                 type_prefix = type_prefix,
             ).ok();
         } else {
-            let default_str = default_value_for_field(field, "rust");
+            // When the binding maps the field type to String (e.g. an excluded enum), but the
+            // original default is an EnumVariant, `default_value_for_field` would emit
+            // `TypeName::Variant` which is invalid for a `String` field. Fall back to the
+            // string-literal form in that case.
+            let default_str = if inner_type == "String" {
+                if let Some(DefaultValue::EnumVariant(variant)) = &field.typed_default {
+                    use heck::ToSnakeCase;
+                    format!("\"{}\".to_string()", variant.to_snake_case())
+                } else {
+                    default_value_for_field(field, "rust")
+                }
+            } else {
+                default_value_for_field(field, "rust")
+            };
             writeln!(
                 out,
                 "        {name}: kwargs.get(ruby.to_symbol(\"{name}\")).and_then(|v| {type_prefix}::try_convert(v).ok()).unwrap_or({default}),",

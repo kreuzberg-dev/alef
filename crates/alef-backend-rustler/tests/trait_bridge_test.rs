@@ -89,6 +89,7 @@ fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     }
 }
 
@@ -101,6 +102,7 @@ fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         type_alias: Some(format!("{trait_name}Handle")),
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     }
 }
 
@@ -270,6 +272,7 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
 

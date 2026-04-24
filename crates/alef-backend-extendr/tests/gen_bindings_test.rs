@@ -629,6 +629,7 @@ mod trait_bridge {
             type_alias: None,
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         }
     }
 
@@ -641,6 +642,7 @@ mod trait_bridge {
             type_alias: Some(format!("{trait_name}Handle")),
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         }
     }
 
@@ -793,6 +795,7 @@ mod trait_bridge {
             type_alias: None,
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         };
         let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
 

@@ -290,7 +290,7 @@ pub(crate) fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: boo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{empty_api, make_field, TEST_PREFIX};
+    use crate::test_helpers::{TEST_PREFIX, empty_api, make_field};
     use alef_core::config::Language;
     use alef_core::ir::{DefaultValue, PrimitiveType, TypeRef};
 

@@ -19,19 +19,13 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str) -> SetupCon
             install: Some(StringOrVec::Single("pnpm install".to_string())),
         },
         Language::Go => SetupConfig {
-            install: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && go mod download"
-            ))),
+            install: Some(StringOrVec::Single(format!("cd {output_dir} && go mod download"))),
         },
         Language::Ruby => SetupConfig {
-            install: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && bundle install"
-            ))),
+            install: Some(StringOrVec::Single(format!("cd {output_dir} && bundle install"))),
         },
         Language::Php => SetupConfig {
-            install: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && composer install"
-            ))),
+            install: Some(StringOrVec::Single(format!("cd {output_dir} && composer install"))),
         },
         Language::Java => SetupConfig {
             install: Some(StringOrVec::Single(format!(
@@ -42,9 +36,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str) -> SetupCon
             install: Some(StringOrVec::Single(format!("dotnet restore {output_dir}"))),
         },
         Language::Elixir => SetupConfig {
-            install: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && mix deps.get"
-            ))),
+            install: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.get"))),
         },
         Language::R => SetupConfig {
             install: Some(StringOrVec::Single(format!(
@@ -89,10 +81,7 @@ mod tests {
                 continue;
             }
             let cfg = default_setup_config(lang, "packages/test");
-            assert!(
-                cfg.install.is_some(),
-                "{lang} should have a default install command"
-            );
+            assert!(cfg.install.is_some(), "{lang} should have a default install command");
         }
     }
 

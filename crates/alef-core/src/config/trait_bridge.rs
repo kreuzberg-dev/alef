@@ -40,4 +40,10 @@ pub struct TraitBridgeConfig {
     /// Example: `"0"` produces `registry.register(arc, 0)`.
     #[serde(default)]
     pub register_extra_args: Option<String>,
+    /// Language backends that should NOT generate this trait bridge.
+    /// Use backend names as they appear in `Backend::name()`, e.g. `["elixir", "wasm"]`.
+    /// When a backend's name is listed here, the bridge struct and all related code are
+    /// omitted from that backend's output.
+    #[serde(default)]
+    pub exclude_languages: Vec<String>,
 }

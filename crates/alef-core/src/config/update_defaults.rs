@@ -15,9 +15,7 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ])),
         },
         Language::Python => UpdateConfig {
-            update: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && uv sync --upgrade"
-            ))),
+            update: Some(StringOrVec::Single(format!("cd {output_dir} && uv sync --upgrade"))),
             upgrade: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && uv sync --all-packages --all-extras --upgrade"
             ))),
@@ -30,17 +28,13 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ])),
         },
         Language::Ruby => UpdateConfig {
-            update: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && bundle update --all"
-            ))),
+            update: Some(StringOrVec::Single(format!("cd {output_dir} && bundle update --all"))),
             upgrade: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && bundle update --all --conservative=false"
             ))),
         },
         Language::Php => UpdateConfig {
-            update: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && composer update"
-            ))),
+            update: Some(StringOrVec::Single(format!("cd {output_dir} && composer update"))),
             upgrade: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && composer update --with-all-dependencies"
             ))),
@@ -64,20 +58,14 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ))),
         },
         Language::Csharp => UpdateConfig {
-            update: Some(StringOrVec::Single(format!(
-                "dotnet outdated --upgrade {output_dir}"
-            ))),
+            update: Some(StringOrVec::Single(format!("dotnet outdated --upgrade {output_dir}"))),
             upgrade: Some(StringOrVec::Single(format!(
                 "dotnet outdated --upgrade --version-lock major {output_dir}"
             ))),
         },
         Language::Elixir => UpdateConfig {
-            update: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && mix deps.update --all"
-            ))),
-            upgrade: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && mix deps.update --all"
-            ))),
+            update: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.update --all"))),
+            upgrade: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.update --all"))),
         },
         Language::R => UpdateConfig {
             update: Some(StringOrVec::Single(format!(
@@ -129,14 +117,8 @@ mod tests {
                 continue;
             }
             let cfg = default_update_config(lang, "packages/test");
-            assert!(
-                cfg.update.is_some(),
-                "{lang} should have a default update command"
-            );
-            assert!(
-                cfg.upgrade.is_some(),
-                "{lang} should have a default upgrade command"
-            );
+            assert!(cfg.update.is_some(), "{lang} should have a default update command");
+            assert!(cfg.upgrade.is_some(), "{lang} should have a default upgrade command");
         }
     }
 

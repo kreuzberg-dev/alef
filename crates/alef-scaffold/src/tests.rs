@@ -80,9 +80,7 @@ fn test_api() -> ApiSurface {
 fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
     files
         .iter()
-        .filter(|f| {
-            !f.path.ends_with(".pre-commit-config.yaml") && !f.path.ends_with(".typos.toml")
-        })
+        .filter(|f| !f.path.ends_with(".pre-commit-config.yaml") && !f.path.ends_with(".typos.toml"))
         .collect()
 }
 
@@ -447,10 +445,7 @@ fn test_java_checkstyle_no_cosmetic_checks() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Java]).unwrap();
     let files = language_files(&all_files);
-    let checkstyle = files
-        .iter()
-        .find(|f| f.path.ends_with("checkstyle.xml"))
-        .unwrap();
+    let checkstyle = files.iter().find(|f| f.path.ends_with("checkstyle.xml")).unwrap();
     // Should NOT have cosmetic whitespace checks (Spotless handles formatting)
     assert!(!checkstyle.content.contains("WhitespaceAfter"));
     assert!(!checkstyle.content.contains("WhitespaceAround"));
@@ -476,10 +471,7 @@ fn test_go_golangci_v2_format() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Go]).unwrap();
     let files = language_files(&all_files);
-    let golangci = files
-        .iter()
-        .find(|f| f.path.ends_with(".golangci.yml"))
-        .unwrap();
+    let golangci = files.iter().find(|f| f.path.ends_with(".golangci.yml")).unwrap();
     assert!(golangci.content.contains("version: \"2\""));
     assert!(golangci.content.contains("default: none"));
     assert!(golangci.content.contains("settings:"));

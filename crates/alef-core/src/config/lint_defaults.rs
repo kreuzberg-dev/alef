@@ -14,9 +14,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
         },
         Language::Node | Language::Wasm => LintConfig {
             format: Some(StringOrVec::Single(format!("npx oxfmt {output_dir}"))),
-            check: Some(StringOrVec::Single(format!(
-                "npx oxlint --fix {output_dir}"
-            ))),
+            check: Some(StringOrVec::Single(format!("npx oxlint --fix {output_dir}"))),
             typecheck: None,
         },
         Language::Ruby => LintConfig {
@@ -108,10 +106,7 @@ mod tests {
     fn every_language_has_format_default() {
         for lang in all_languages() {
             let cfg = default_lint_config(lang, "packages/test");
-            assert!(
-                cfg.format.is_some(),
-                "{lang} should have a default format command"
-            );
+            assert!(cfg.format.is_some(), "{lang} should have a default format command");
         }
     }
 
@@ -119,10 +114,7 @@ mod tests {
     fn every_language_has_check_default() {
         for lang in all_languages() {
             let cfg = default_lint_config(lang, "packages/test");
-            assert!(
-                cfg.check.is_some(),
-                "{lang} should have a default check command"
-            );
+            assert!(cfg.check.is_some(), "{lang} should have a default check command");
         }
     }
 
@@ -143,10 +135,7 @@ mod tests {
         let fmt = cfg.format.unwrap().commands().join(" ");
         let check = cfg.check.unwrap().commands().join(" ");
         assert!(fmt.contains("oxfmt"), "Node format should use oxfmt, got: {fmt}");
-        assert!(
-            check.contains("oxlint"),
-            "Node check should use oxlint, got: {check}"
-        );
+        assert!(check.contains("oxlint"), "Node check should use oxlint, got: {check}");
         assert!(!fmt.contains("biome"), "Node should not reference biome");
     }
 
@@ -202,10 +191,7 @@ mod tests {
             if lang == Language::Python {
                 assert!(cfg.typecheck.is_some(), "Python should have typecheck");
             } else {
-                assert!(
-                    cfg.typecheck.is_none(),
-                    "{lang} should not have typecheck default"
-                );
+                assert!(cfg.typecheck.is_none(), "{lang} should not have typecheck default");
             }
         }
     }

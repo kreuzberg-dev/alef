@@ -261,7 +261,12 @@ pub(crate) fn render_rust_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String
     }
 }
 
-pub(crate) fn render_method_signature(method: &MethodDef, type_name_str: &str, lang: Language, ffi_prefix: &str) -> String {
+pub(crate) fn render_method_signature(
+    method: &MethodDef,
+    type_name_str: &str,
+    lang: Language,
+    ffi_prefix: &str,
+) -> String {
     let name = func_name(&method.name, lang, ffi_prefix);
     let ret = doc_type(&method.return_type, lang, ffi_prefix);
 
@@ -457,7 +462,7 @@ pub(crate) fn render_method_signature(method: &MethodDef, type_name_str: &str, l
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{make_function, make_method, make_param, TEST_PREFIX};
+    use crate::test_helpers::{TEST_PREFIX, make_function, make_method, make_param};
     use alef_core::config::Language;
     use alef_core::ir::{PrimitiveType, TypeRef};
 

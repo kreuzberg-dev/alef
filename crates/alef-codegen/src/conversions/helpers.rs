@@ -632,17 +632,30 @@ pub fn binding_to_core_match_arm_ext_cfg(
         let core_args: Vec<String> = fields
             .iter()
             .map(|f| {
+                let name = &f.name;
+                // Sanitized fields: binding uses String, use serde_json to deserialize back.
+                if f.sanitized {
+                    let expr = format!("serde_json::from_str(&{name}).unwrap_or_default()");
+                    return if f.is_boxed { format!("Box::new({expr})") } else { expr };
+                }
+                // Fields referencing excluded types: they appear as String in the binding.
+                // Use serde_json deserialization to convert back to the core type.
+                if !config.exclude_types.is_empty() && field_references_excluded_type(&f.ty, config.exclude_types) {
+                    let expr = format!("serde_json::from_str(&{name}).unwrap_or_default()");
+                    return if f.is_boxed { format!("Box::new({expr})") } else { expr };
+                }
                 // Use the conversion logic from field_conversion_to_core_cfg.
                 // In an enum match arm, fields are bound by destructuring (not via `val.field`),
                 // so replace `val.{name}` with just `{name}` in the generated expression.
-                let conv = field_conversion_to_core_cfg(&f.name, &f.ty, f.optional, config);
+                let conv = field_conversion_to_core_cfg(name, &f.ty, f.optional, config);
                 // Extract the RHS from "name: expr" format
-                if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
-                    let expr = expr.replace(&format!("val.{}", f.name), &f.name);
+                let expr = if let Some(expr) = conv.strip_prefix(&format!("{name}: ")) {
+                    let expr = expr.replace(&format!("val.{name}"), name);
                     expr.to_string()
                 } else {
                     conv
-                }
+                };
+                if f.is_boxed { format!("Box::new({expr})") } else { expr }
             })
             .collect();
         format!(
@@ -655,9 +668,9 @@ pub fn binding_to_core_match_arm_ext_cfg(
         let core_fields: Vec<String> = fields
             .iter()
             .map(|f| {
-                // Sanitized fields: the binding stores a different type (e.g. String for Vec<(String,String)>).
-                // Use serde_json to deserialize back to the core type.
-                if f.sanitized && matches!(f.ty, TypeRef::String) {
+                // Sanitized fields: the binding stores a simplified type (String for any complex type
+                // like Vec<(String,String)>, Vec<Named>, etc.). Use serde_json to deserialize back.
+                if f.sanitized {
                     return format!("{}: serde_json::from_str(&{}).unwrap_or_default()", f.name, f.name);
                 }
                 // Use the conversion logic from field_conversion_to_core_cfg.

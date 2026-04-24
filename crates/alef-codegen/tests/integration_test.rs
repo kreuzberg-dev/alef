@@ -2851,6 +2851,7 @@ fn simple_bridge_config() -> TraitBridgeConfig {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     }
 }
 
@@ -3016,6 +3017,7 @@ fn test_gen_bridge_all_includes_registration_fn_when_configured() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,

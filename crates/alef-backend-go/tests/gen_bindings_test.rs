@@ -1087,6 +1087,7 @@ fn test_gen_trait_bridges_file_produces_go_interface() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1113,6 +1114,7 @@ fn test_gen_trait_bridges_file_interface_includes_plugin_lifecycle_methods() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1160,6 +1162,7 @@ fn test_gen_trait_bridges_file_interface_includes_trait_methods_in_pascal_case()
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1193,6 +1196,7 @@ fn test_gen_trait_bridges_file_interface_method_with_error_returns_tuple_or_erro
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1228,6 +1232,7 @@ fn test_gen_trait_bridges_file_generates_exported_trampolines() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1268,6 +1273,7 @@ fn test_gen_trait_bridges_file_trampolines_retrieve_go_object_via_cgo_handle() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1303,6 +1309,7 @@ fn test_gen_trait_bridges_file_trampoline_converts_string_param_from_c() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1333,6 +1340,7 @@ fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_registe
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1375,6 +1383,7 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1413,6 +1422,7 @@ fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let config = make_config_with_bridges(vec![bridge_cfg]);
     let api = make_api_with_type(trait_type);
@@ -1450,6 +1460,7 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
 
     let api = ApiSurface {
