@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scaffold: pre-commit config now uses `alef-fmt` + `alef-lint` hooks instead of per-language hooks (ruff, mypy, oxlint, rubocop, golangci-lint, etc.).
 - Codegen(Go): Local variable names now use `go_param_name()` (lowerCamelCase) instead of `to_go_name()` (PascalCase) — fixes 50 revive `var-naming` lint violations in generated Go code (e.g. `cHTML` instead of `CHTML`).
 - Codegen(Go): Error strings in `errors.New(...)` now start with lowercase per Go conventions — fixes staticcheck `ST1005` violations.
+- Codegen(Go): Enum constant names now apply Go acronym rules (`NodeTypeHTML` instead of `NodeTypeHtml`, `ImageTypeDataURI` instead of `ImageTypeDataUri`).
+- Codegen(Go): `nodeTypeFromC` switch uses `to_go_name` for consistent acronym handling.
+- Codegen(Go): BaseVisitor methods now have doc comments — fixes revive `exported` lint violations.
+- Codegen(Go): `VisitResultPreserveHTML` (was `VisitResultPreserveHtml`).
+- Scaffold(Go): golangci config raises gocyclo threshold to 50, disables `dupSubExpr` gocritic check, suppresses `unsafeptr` govet for CGo code, disables `exported` and `package-comments` revive rules for generated code.
 
 ## [0.7.1] - 2026-04-24
 
