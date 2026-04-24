@@ -14,6 +14,10 @@ struct Cli {
     #[arg(long, default_value = "alef.toml")]
     config: PathBuf,
 
+    /// Maximum parallel jobs (0 = all cores, 1 = sequential).
+    #[arg(short, long, default_value = "0", global = true)]
+    jobs: usize,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -214,6 +218,14 @@ fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
+
+    // Configure rayon thread pool based on --jobs flag
+    if cli.jobs > 0 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(cli.jobs)
+            .build_global()
+            .ok();
+    }
 
     let config_path = &cli.config;
 

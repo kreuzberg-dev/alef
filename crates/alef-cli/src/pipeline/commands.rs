@@ -16,43 +16,50 @@ enum LintPhase {
     Typecheck,
 }
 
-/// Run selected lint phases on generated output for the given languages.
-fn run_lint_phases(config: &AlefConfig, languages: &[Language], phases: &[LintPhase]) -> anyhow::Result<()> {
-    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
-        .par_iter()
-        .map(|lang| {
+/// Run a single lint phase across all languages in parallel.
+fn run_phase(
+    config: &AlefConfig,
+    languages: &[Language],
+    phase: LintPhase,
+) -> anyhow::Result<()> {
+    // Build flat list of (language, command) tasks for this phase
+    let tasks: Vec<(&Language, String)> = languages
+        .iter()
+        .filter_map(|lang| {
             let lang_lint = config.lint_config_for_language(*lang);
-            let mut outputs = Vec::new();
+            let cmds = match phase {
+                LintPhase::Format => lang_lint.format,
+                LintPhase::Check => lang_lint.check,
+                LintPhase::Typecheck => lang_lint.typecheck,
+            };
+            cmds.map(|cmd_list| {
+                cmd_list
+                    .commands()
+                    .into_iter()
+                    .map(|c| (lang, c.to_string()))
+                    .collect::<Vec<_>>()
+            })
+        })
+        .flatten()
+        .collect();
 
-            for phase in phases {
-                let cmds = match phase {
-                    LintPhase::Format => lang_lint.format.as_ref(),
-                    LintPhase::Check => lang_lint.check.as_ref(),
-                    LintPhase::Typecheck => lang_lint.typecheck.as_ref(),
-                };
-                if let Some(cmd_list) = cmds {
-                    for cmd in cmd_list.commands() {
-                        let (stdout, stderr) = run_command_captured(cmd)?;
-                        outputs.push((cmd.to_string(), stdout, stderr));
-                    }
-                }
-            }
-
-            Ok(outputs)
+    let results: Vec<anyhow::Result<(String, String, String)>> = tasks
+        .par_iter()
+        .map(|(_, cmd)| {
+            let (stdout, stderr) = run_command_captured(cmd)?;
+            Ok((cmd.clone(), stdout, stderr))
         })
         .collect();
 
     let mut first_error: Option<anyhow::Error> = None;
     for result in results {
         match result {
-            Ok(outputs) => {
-                for (cmd, stdout, stderr) in outputs {
-                    if !stdout.is_empty() {
-                        info!("[{cmd}] stdout:\n{stdout}");
-                    }
-                    if !stderr.is_empty() {
-                        info!("[{cmd}] stderr:\n{stderr}");
-                    }
+            Ok((cmd, stdout, stderr)) => {
+                if !stdout.is_empty() {
+                    info!("[{cmd}] stdout:\n{stdout}");
+                }
+                if !stderr.is_empty() {
+                    info!("[{cmd}] stderr:\n{stderr}");
                 }
             }
             Err(e) => {
@@ -70,17 +77,22 @@ fn run_lint_phases(config: &AlefConfig, languages: &[Language], phases: &[LintPh
 }
 
 /// Run all configured lint/format commands on generated output.
+///
+/// Executes in two waves for correctness:
+/// 1. Format (all languages in parallel) — normalizes code first
+/// 2. Check + Typecheck (all languages in parallel) — validates normalized code
 pub fn lint(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
-    run_lint_phases(
-        config,
-        languages,
-        &[LintPhase::Format, LintPhase::Check, LintPhase::Typecheck],
-    )
+    // Wave 1: format all languages in parallel
+    run_phase(config, languages, LintPhase::Format)?;
+    // Wave 2: check + typecheck all languages in parallel
+    run_phase(config, languages, LintPhase::Check)?;
+    run_phase(config, languages, LintPhase::Typecheck)?;
+    Ok(())
 }
 
 /// Run only format commands on generated output.
 pub fn fmt(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
-    run_lint_phases(config, languages, &[LintPhase::Format])
+    run_phase(config, languages, LintPhase::Format)
 }
 
 /// Update dependencies for each language.
