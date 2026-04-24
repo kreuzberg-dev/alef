@@ -1086,17 +1086,8 @@ pub fn gen_visitor_file(
         "custom",
     ];
     for (i, name) in node_type_variants.iter().enumerate() {
-        let pascal = name
-            .split('_')
-            .map(|s| {
-                let mut c = s.chars();
-                match c.next() {
-                    None => String::new(),
-                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-                }
-            })
-            .collect::<String>();
-        writeln!(out, "\tcase {i}: return NodeType{pascal}").ok();
+        let go_name = alef_codegen::naming::to_go_name(name);
+        writeln!(out, "\tcase {i}: return NodeType{go_name}").ok();
     }
     writeln!(out, "\tdefault: return NodeType(\"unknown\")").ok();
     writeln!(out, "\t}}").ok();
