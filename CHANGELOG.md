@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config: default lint commands for all 12 languages with autofixes enabled (ruff --fix, rubocop -A, clippy --fix, oxlint --fix).
 - Config: default update commands for all 12 languages (cargo update, pnpm up, uv sync, bundle update, composer update, go get, mvn versions, dotnet outdated, mix deps.update, etc.).
 - Config: default setup and clean commands for all 12 languages.
+- Config: add `exclude_languages` field to `TraitBridgeConfig` for per-language trait bridge opt-out.
+- Config: add `exclude_functions` and `exclude_types` fields to `RubyConfig` for per-type/function exclusion.
+- Magnus: honor `exclude_functions`/`exclude_types` from `[ruby]` config in binding, conversion, and module init generation.
+- Magnus: detect absent `Named` types in enum variant fields and route them through `serde_json` deserialization.
+- Rustler: filter trait bridges by `exclude_languages` so excluded bridges are omitted from Elixir output.
+- Codegen: handle `EnumVariant` defaults for `String`-mapped fields in Magnus hash constructors.
+- Codegen: deduplicate `Bytes` conversion when base conversion already emits `.into()` or `.map(Into::into)`.
+- Codegen: handle sanitized and excluded-type fields in enum binding-to-core match arms with `serde_json` deserialization and `Box` wrapping.
 - Scaffold (Node): generate `.oxfmtrc.json` (120 printWidth, tabs, import sorting) and `.oxlintrc.json` (correctness=error, suspicious=warn, style=off, typescript+import plugins).
 
 ### Changed
@@ -41,8 +49,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Java backend: add missing `is_ffi_string_return()` and `java_ffi_return_cast()` marshal functions.
-- Java backend: fix `RECORD_LINE_WRAP_THRESHOLD` visibility (`pub(crate)`).
+- Java: remove dead code left over from modularization (duplicate helpers in `mod.rs`, `helpers.rs`, `marshal.rs`).
+- Java: fix empty-line-after-doc-comment clippy warnings in `marshal.rs` and `types.rs`.
+- Java: suppress `too_many_arguments` clippy warnings on `gen_main_class` and `gen_facade_class`.
+- Java: add missing `is_ffi_string_return()` and `java_ffi_return_cast()` marshal functions.
+- Java: fix `RECORD_LINE_WRAP_THRESHOLD` visibility (`pub(crate)`).
+- Docs: fix `render_method_signature` line length by splitting parameters across lines.
+- Tests: add missing `exclude_languages` field to all `TraitBridgeConfig` test initializers.
+- Tests: add missing `exclude_functions`/`exclude_types` fields to `RubyConfig` test initializers.
 
 ## [0.6.1] - 2026-04-23
 

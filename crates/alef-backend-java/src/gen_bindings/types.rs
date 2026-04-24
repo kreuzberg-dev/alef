@@ -7,8 +7,8 @@ use heck::ToSnakeCase;
 use std::fmt::Write;
 
 use super::helpers::{
-    emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name, java_apply_rename_all,
-    safe_java_field_name, RECORD_LINE_WRAP_THRESHOLD,
+    RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name,
+    java_apply_rename_all, safe_java_field_name,
 };
 
 pub(crate) fn gen_record_type(
@@ -431,7 +431,6 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
 /// `indent` is the leading whitespace prepended to each line (e.g. `""` for
 /// top-level declarations, `"    "` for class members).  Does nothing when
 /// `doc` is empty.
-
 pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     let mut body = String::with_capacity(2048);
 

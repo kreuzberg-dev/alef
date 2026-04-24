@@ -7,10 +7,7 @@ use std::fmt::Write;
 /// Check if the return type is a string-like type that requires pointer-based
 /// FFI return handling (allocate + free pattern).
 pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
-    matches!(
-        ty,
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
-    )
+    matches!(ty, TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json)
 }
 
 /// Return the Java cast expression for a primitive FFI return type.
@@ -21,10 +18,7 @@ pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
             PrimitiveType::U8 | PrimitiveType::I8 => "byte",
             PrimitiveType::U16 | PrimitiveType::I16 => "short",
             PrimitiveType::U32 | PrimitiveType::I32 => "int",
-            PrimitiveType::U64
-            | PrimitiveType::I64
-            | PrimitiveType::Usize
-            | PrimitiveType::Isize => "long",
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "long",
             PrimitiveType::F32 => "float",
             PrimitiveType::F64 => "double",
         },
@@ -300,4 +294,3 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         writeln!(out, "    }}").ok();
     }
 }
-

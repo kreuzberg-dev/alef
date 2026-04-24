@@ -54,6 +54,8 @@ fn make_config() -> AlefConfig {
             serde_rename_all: None,
             extra_dependencies: Default::default(),
             scaffold_output: Default::default(),
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
         }),
         php: None,
         elixir: None,
@@ -910,6 +912,7 @@ mod trait_bridge {
             type_alias: Some(format!("{trait_name}Handle")),
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         }
     }
 

@@ -1516,6 +1516,7 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     }
 }
 
@@ -1761,6 +1762,7 @@ fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -1793,6 +1795,7 @@ fn test_gen_registration_fn_validates_required_methods() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -1843,6 +1846,7 @@ fn test_gen_registration_fn_calls_registry_getter() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let spec = TraitBridgeSpec {
         trait_def: &trait_def,
@@ -1886,6 +1890,7 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let api = make_api_surface();
 
@@ -1918,6 +1923,7 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let api = make_api_surface();
 
@@ -1946,6 +1952,7 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let api = make_api_surface();
 
@@ -1986,6 +1993,7 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let api = make_api_surface();
 

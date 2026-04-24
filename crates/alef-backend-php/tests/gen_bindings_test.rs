@@ -1326,6 +1326,7 @@ fn make_plugin_bridge_cfg_php(trait_name: &str) -> alef_core::config::TraitBridg
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     }
 }
 
@@ -1338,6 +1339,7 @@ fn make_visitor_bridge_cfg_php(trait_name: &str, type_alias: &str) -> alef_core:
         type_alias: Some(type_alias.to_string()),
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     }
 }
 
@@ -1511,6 +1513,7 @@ fn test_php_plugin_bridge_validates_required_methods() {
         type_alias: None,
         param_name: None,
         register_extra_args: None,
+        exclude_languages: Vec::new(),
     };
     let api = make_api_php();
 

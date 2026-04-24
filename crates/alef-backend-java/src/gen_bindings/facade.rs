@@ -7,6 +7,7 @@ use std::fmt::Write;
 
 use super::helpers::is_bridge_param_java;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_facade_class(
     api: &ApiSurface,
     package: &str,

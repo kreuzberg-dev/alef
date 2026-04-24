@@ -50,6 +50,18 @@ impl Backend for MagnusBackend {
         let mapper = MagnusMapper;
         let core_import = config.core_import();
 
+        // Per-language exclusion lists from [ruby] section of alef.toml
+        let exclude_functions: std::collections::HashSet<&str> = config
+            .ruby
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+        let exclude_types: std::collections::HashSet<&str> = config
+            .ruby
+            .as_ref()
+            .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code)");
         builder.add_import(
@@ -141,6 +153,9 @@ impl Backend for MagnusBackend {
             .collect();
 
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+            if exclude_types.contains(typ.name.as_str()) {
+                continue;
+            }
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_struct(typ, &core_import, &module_name));
                 builder.add_item(&gen_opaque_struct_methods(typ, &mapper, &opaque_types));
@@ -162,13 +177,13 @@ impl Backend for MagnusBackend {
         }
 
         for enum_def in &api.enums {
-            if !is_reserved_enum(&enum_def.name) {
+            if !is_reserved_enum(&enum_def.name) && !exclude_types.contains(enum_def.name.as_str()) {
                 builder.add_item(&gen_enum(enum_def));
             }
         }
 
         for func in &api.functions {
-            if !is_reserved_fn(&func.name) {
+            if !is_reserved_fn(&func.name) && !exclude_functions.contains(func.name.as_str()) {
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(
@@ -203,7 +218,7 @@ impl Backend for MagnusBackend {
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            if typ.is_opaque {
+            if typ.is_opaque || exclude_types.contains(typ.name.as_str()) {
                 continue;
             }
             let is_strict = alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core);
@@ -219,15 +234,42 @@ impl Backend for MagnusBackend {
                 ));
             }
         }
+        // Build the set of Named types referenced in enum variant fields that have no binding
+        // struct. These are globally excluded types (e.g. PdfMetadata, ImageMetadata) that
+        // the Magnus binding represents as String. The conversion config uses this list to
+        // emit serde_json deserialization instead of .into() for those fields.
+        let known_type_names: std::collections::HashSet<&str> = api
+            .types
+            .iter()
+            .map(|t| t.name.as_str())
+            .chain(api.enums.iter().map(|e| e.name.as_str()))
+            .collect();
+        let mut absent_named_types: Vec<String> = Vec::new();
+        for e in &api.enums {
+            for variant in &e.variants {
+                for field in &variant.fields {
+                    if let TypeRef::Named(name) = &field.ty {
+                        if !known_type_names.contains(name.as_str()) && !absent_named_types.contains(name) {
+                            absent_named_types.push(name.clone());
+                        }
+                    }
+                }
+            }
+        }
+
         // Magnus generates data enums with fields, so enable binding_enums_have_data.
         // Vec<Named> fields are collapsed to String in Magnus data enum variants via
         // field_type_for_serde's catch-all arm, so use serde_json for those conversions.
         let magnus_conv_config = alef_codegen::conversions::ConversionConfig {
             binding_enums_have_data: true,
             vec_named_to_string: true,
+            exclude_types: &absent_named_types,
             ..Default::default()
         };
         for e in &api.enums {
+            if exclude_types.contains(e.name.as_str()) {
+                continue;
+            }
             if input_types.contains(&e.name) && alef_codegen::conversions::can_generate_enum_conversion(e) {
                 builder.add_item(&alef_codegen::conversions::gen_enum_from_binding_to_core_cfg(
                     e,
@@ -255,7 +297,13 @@ impl Backend for MagnusBackend {
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Ruby)?;
 
-        builder.add_item(&gen_module_init(&module_name, api, config));
+        builder.add_item(&gen_module_init(
+            &module_name,
+            api,
+            config,
+            &exclude_functions,
+            &exclude_types,
+        ));
 
         let content = builder.build();
 
@@ -1213,7 +1261,13 @@ fn gen_magnus_unimplemented_body(return_type: &alef_core::ir::TypeRef, fn_name: 
 }
 
 /// Generate the module initialization function.
-fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> String {
+fn gen_module_init(
+    module_name: &str,
+    api: &ApiSurface,
+    config: &AlefConfig,
+    exclude_functions: &std::collections::HashSet<&str>,
+    exclude_types: &std::collections::HashSet<&str>,
+) -> String {
     let mut lines = vec![
         "#[magnus::init]".to_string(),
         "fn init(ruby: &Ruby) -> Result<(), Error> {".to_string(),
@@ -1237,6 +1291,9 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     }
 
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        if exclude_types.contains(typ.name.as_str()) {
+            continue;
+        }
         let class_used = (!typ.is_opaque && !typ.fields.is_empty()) || typ.methods.iter().any(|m| !m.is_static);
         let binding = if class_used { "class" } else { "_class" };
         lines.push(format!(
@@ -1288,7 +1345,7 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     }
 
     for func in &api.functions {
-        if is_reserved_fn(&func.name) {
+        if is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
         let param_count = func.params.len();

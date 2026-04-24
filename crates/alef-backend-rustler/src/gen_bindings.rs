@@ -146,12 +146,19 @@ impl Backend for RustlerBackend {
             }
         }
 
+        let active_bridges: Vec<_> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"))
+            .cloned()
+            .collect();
+
         for func in api
             .functions
             .iter()
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
         {
-            let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+            let bridge_param = crate::trait_bridge::find_bridge_param(func, &active_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(
                     func,
@@ -182,7 +189,11 @@ impl Backend for RustlerBackend {
         }
 
         // Trait bridge wrappers — generate Rustler bridge structs that delegate to Elixir terms
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in config
+            .trait_bridges
+            .iter()
+            .filter(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"))
+        {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
                 let bridge = crate::trait_bridge::gen_trait_bridge(
                     trait_type,

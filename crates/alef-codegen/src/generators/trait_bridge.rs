@@ -532,6 +532,7 @@ mod tests {
             type_alias: None,
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         }
     }
 

@@ -13,6 +13,7 @@ use super::marshal::{
     ffi_param_name, gen_helper_methods, is_ffi_string_return, java_ffi_return_cast, marshal_param_to_ffi,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_main_class(
     api: &ApiSurface,
     _config: &AlefConfig,

@@ -67,12 +67,7 @@ pub(crate) fn make_function(
     }
 }
 
-pub(crate) fn make_field(
-    name: &str,
-    ty: TypeRef,
-    optional: bool,
-    typed_default: Option<DefaultValue>,
-) -> FieldDef {
+pub(crate) fn make_field(name: &str, ty: TypeRef, optional: bool, typed_default: Option<DefaultValue>) -> FieldDef {
     FieldDef {
         name: name.to_string(),
         ty,

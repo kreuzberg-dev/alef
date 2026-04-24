@@ -16,14 +16,10 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str) -> CleanCon
             ))),
         },
         Language::Node | Language::Wasm => CleanConfig {
-            clean: Some(StringOrVec::Single(
-                "rm -rf node_modules dist .turbo".to_string(),
-            )),
+            clean: Some(StringOrVec::Single("rm -rf node_modules dist .turbo".to_string())),
         },
         Language::Go => CleanConfig {
-            clean: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && go clean -cache"
-            ))),
+            clean: Some(StringOrVec::Single(format!("cd {output_dir} && go clean -cache"))),
         },
         Language::Ruby => CleanConfig {
             clean: Some(StringOrVec::Single(format!(
@@ -31,14 +27,10 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str) -> CleanCon
             ))),
         },
         Language::Php => CleanConfig {
-            clean: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && rm -rf vendor var"
-            ))),
+            clean: Some(StringOrVec::Single(format!("cd {output_dir} && rm -rf vendor var"))),
         },
         Language::Java => CleanConfig {
-            clean: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml clean -q"
-            ))),
+            clean: Some(StringOrVec::Single(format!("mvn -f {output_dir}/pom.xml clean -q"))),
         },
         Language::Csharp => CleanConfig {
             clean: Some(StringOrVec::Single(format!("dotnet clean {output_dir}"))),
@@ -91,10 +83,7 @@ mod tests {
                 continue;
             }
             let cfg = default_clean_config(lang, "packages/test");
-            assert!(
-                cfg.clean.is_some(),
-                "{lang} should have a default clean command"
-            );
+            assert!(cfg.clean.is_some(), "{lang} should have a default clean command");
         }
     }
 

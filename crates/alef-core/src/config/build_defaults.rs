@@ -6,17 +6,11 @@ use super::output::{BuildCommandConfig, StringOrVec};
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). The `crate_name` is the name of the core crate
 /// (e.g. `my-lib`). Both are substituted into command templates.
-pub(crate) fn default_build_config(
-    lang: Language,
-    output_dir: &str,
-    crate_name: &str,
-) -> BuildCommandConfig {
+pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name: &str) -> BuildCommandConfig {
     match lang {
         Language::Rust => BuildCommandConfig {
             build: Some(StringOrVec::Single("cargo build --workspace".to_string())),
-            build_release: Some(StringOrVec::Single(
-                "cargo build --release --workspace".to_string(),
-            )),
+            build_release: Some(StringOrVec::Single("cargo build --release --workspace".to_string())),
         },
         Language::Python => BuildCommandConfig {
             build: Some(StringOrVec::Single(format!(
@@ -43,33 +37,21 @@ pub(crate) fn default_build_config(
             ))),
         },
         Language::Go => BuildCommandConfig {
-            build: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && go build ./..."
-            ))),
-            build_release: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && go build ./..."
-            ))),
+            build: Some(StringOrVec::Single(format!("cd {output_dir} && go build ./..."))),
+            build_release: Some(StringOrVec::Single(format!("cd {output_dir} && go build ./..."))),
         },
         Language::Ruby => BuildCommandConfig {
-            build: Some(StringOrVec::Single(format!(
-                "cargo build -p {crate_name}-rb"
-            ))),
-            build_release: Some(StringOrVec::Single(format!(
-                "cargo build --release -p {crate_name}-rb"
-            ))),
+            build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-rb"))),
+            build_release: Some(StringOrVec::Single(format!("cargo build --release -p {crate_name}-rb"))),
         },
         Language::Php => BuildCommandConfig {
-            build: Some(StringOrVec::Single(format!(
-                "cargo build -p {crate_name}-php"
-            ))),
+            build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-php"))),
             build_release: Some(StringOrVec::Single(format!(
                 "cargo build --release -p {crate_name}-php"
             ))),
         },
         Language::Ffi => BuildCommandConfig {
-            build: Some(StringOrVec::Single(format!(
-                "cargo build -p {crate_name}-ffi"
-            ))),
+            build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-ffi"))),
             build_release: Some(StringOrVec::Single(format!(
                 "cargo build --release -p {crate_name}-ffi"
             ))),
@@ -92,17 +74,11 @@ pub(crate) fn default_build_config(
         },
         Language::Elixir => BuildCommandConfig {
             build: Some(StringOrVec::Single(format!("cd {output_dir} && mix compile"))),
-            build_release: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && mix compile"
-            ))),
+            build_release: Some(StringOrVec::Single(format!("cd {output_dir} && mix compile"))),
         },
         Language::R => BuildCommandConfig {
-            build: Some(StringOrVec::Single(format!(
-                "cargo build -p {crate_name}-r"
-            ))),
-            build_release: Some(StringOrVec::Single(format!(
-                "cargo build --release -p {crate_name}-r"
-            ))),
+            build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-r"))),
+            build_release: Some(StringOrVec::Single(format!("cargo build --release -p {crate_name}-r"))),
         },
     }
 }
@@ -132,10 +108,7 @@ mod tests {
     fn every_language_has_build_and_build_release() {
         for lang in all_languages() {
             let cfg = default_build_config(lang, "packages/test", "my-lib");
-            assert!(
-                cfg.build.is_some(),
-                "{lang} should have a default build command"
-            );
+            assert!(cfg.build.is_some(), "{lang} should have a default build command");
             assert!(
                 cfg.build_release.is_some(),
                 "{lang} should have a default build_release command"

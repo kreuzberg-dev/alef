@@ -8,9 +8,7 @@ use super::output::{StringOrVec, TestConfig};
 pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfig {
     match lang {
         Language::Python => TestConfig {
-            command: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && uv run pytest"
-            ))),
+            command: Some(StringOrVec::Single(format!("cd {output_dir} && uv run pytest"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && uv run pytest --cov=. --cov-report=lcov"
@@ -24,36 +22,26 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
             ))),
         },
         Language::Go => TestConfig {
-            command: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && go test ./..."
-            ))),
+            command: Some(StringOrVec::Single(format!("cd {output_dir} && go test ./..."))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && go test -coverprofile=coverage.out ./..."
             ))),
         },
         Language::Ruby => TestConfig {
-            command: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && bundle exec rspec"
-            ))),
+            command: Some(StringOrVec::Single(format!("cd {output_dir} && bundle exec rspec"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && bundle exec rspec --format documentation"
             ))),
         },
         Language::Php => TestConfig {
-            command: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && composer test"
-            ))),
+            command: Some(StringOrVec::Single(format!("cd {output_dir} && composer test"))),
             e2e: None,
-            coverage: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && composer test"
-            ))),
+            coverage: Some(StringOrVec::Single(format!("cd {output_dir} && composer test"))),
         },
         Language::Java => TestConfig {
-            command: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml test -q"
-            ))),
+            command: Some(StringOrVec::Single(format!("mvn -f {output_dir}/pom.xml test -q"))),
             e2e: None,
             coverage: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml test jacoco:report -q"
@@ -69,9 +57,7 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str) -> TestConfi
         Language::Elixir => TestConfig {
             command: Some(StringOrVec::Single(format!("cd {output_dir} && mix test"))),
             e2e: None,
-            coverage: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && mix test --cover"
-            ))),
+            coverage: Some(StringOrVec::Single(format!("cd {output_dir} && mix test --cover"))),
         },
         Language::R => TestConfig {
             command: Some(StringOrVec::Single(format!(
@@ -133,14 +119,8 @@ mod tests {
                 continue;
             }
             let cfg = default_test_config(lang, "packages/test");
-            assert!(
-                cfg.command.is_some(),
-                "{lang} should have a default test command"
-            );
-            assert!(
-                cfg.coverage.is_some(),
-                "{lang} should have a default coverage command"
-            );
+            assert!(cfg.command.is_some(), "{lang} should have a default test command");
+            assert!(cfg.coverage.is_some(), "{lang} should have a default coverage command");
         }
     }
 

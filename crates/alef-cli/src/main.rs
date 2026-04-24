@@ -462,11 +462,7 @@ fn main() -> Result<()> {
             println!("Lint complete");
             Ok(())
         }
-        Commands::Test {
-            lang,
-            e2e,
-            coverage,
-        } => {
+        Commands::Test { lang, e2e, coverage } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
             eprintln!("Running tests for: {}", format_languages(&languages));
@@ -765,9 +761,7 @@ fn main() -> Result<()> {
             eprintln!("  Formatting...");
             let _ = pipeline::fmt(&config, &languages);
 
-            println!(
-                "Initialized: {binding_count} binding files, {scaffold_count} scaffold files"
-            );
+            println!("Initialized: {binding_count} binding files, {scaffold_count} scaffold files");
             Ok(())
         }
         Commands::E2e { action } => {

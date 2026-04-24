@@ -250,11 +250,7 @@ impl FfiBridgeGenerator {
                                 (expr, false)
                             }
                         };
-                        let arg = if needs_as_ref {
-                            format!("{val}.as_ref()")
-                        } else {
-                            val
-                        };
+                        let arg = if needs_as_ref { format!("{val}.as_ref()") } else { val };
                         writeln!(
                             out,
                             "let _{name}_cs = match std::ffi::CString::new({arg}) {{",
@@ -768,7 +764,11 @@ impl FfiBridgeGenerator {
         .ok();
         writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
         writeln!(out, "            }};").ok();
-        writeln!(out, "            return Err(kreuzberg::KreuzbergError::Plugin {{ message: msg, plugin_name: String::new() }});").ok();
+        writeln!(
+            out,
+            "            return Err(kreuzberg::KreuzbergError::Plugin {{ message: msg, plugin_name: String::new() }});"
+        )
+        .ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "        Ok(())").ok();
         writeln!(out, "    }}").ok();
@@ -814,7 +814,11 @@ impl FfiBridgeGenerator {
         .ok();
         writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
         writeln!(out, "            }};").ok();
-        writeln!(out, "            return Err(kreuzberg::KreuzbergError::Plugin {{ message: msg, plugin_name: String::new() }});").ok();
+        writeln!(
+            out,
+            "            return Err(kreuzberg::KreuzbergError::Plugin {{ message: msg, plugin_name: String::new() }});"
+        )
+        .ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "        Ok(())").ok();
         writeln!(out, "    }}").ok();
@@ -1381,6 +1385,7 @@ mod tests {
             type_alias: None,
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         }
     }
 
@@ -1551,6 +1556,7 @@ mod tests {
             type_alias: None,
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         };
         let api = sample_api();
 
@@ -1588,6 +1594,7 @@ mod tests {
             type_alias: None,
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         };
         let api = sample_api();
 
@@ -1623,6 +1630,7 @@ mod tests {
             type_alias: None,
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         };
         let api = sample_api();
 
@@ -1660,6 +1668,7 @@ mod tests {
             type_alias: None,
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         };
         let api = sample_api();
 
@@ -1691,6 +1700,7 @@ mod tests {
             type_alias: None,
             param_name: None,
             register_extra_args: None,
+            exclude_languages: Vec::new(),
         };
         let api = sample_api();
 

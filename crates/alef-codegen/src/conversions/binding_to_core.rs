@@ -699,9 +699,21 @@ fn apply_core_wrapper_to_core(
             }
         }
         CoreWrapper::Bytes => {
-            // Bytes: binding Vec<u8> → core Bytes via .into()
+            // Bytes: binding Vec<u8> → core bytes::Bytes via .into().
+            // When TypeRef::Bytes already emitted a conversion (e.g. `val.{name}.into()` or
+            // `val.{name}.map(Into::into)`), applying another .into() creates an ambiguous
+            // double-into chain. Detect and dedup: use the already-generated expression as-is
+            // when it fully covers the conversion, or emit a fresh single .into() for bare fields.
             if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
-                if optional {
+                let already_converted_non_opt = expr == format!("val.{name}.into()");
+                let already_converted_opt = expr
+                    .strip_prefix(&format!("val.{name}"))
+                    .map(|s| s == ".map(Into::into)")
+                    .unwrap_or(false);
+                if already_converted_non_opt || already_converted_opt {
+                    // The base conversion already handles Bytes — pass through unchanged.
+                    conversion.to_string()
+                } else if optional {
                     format!("{name}: {expr}.map(Into::into)")
                 } else if expr == format!("val.{name}") {
                     format!("{name}: val.{name}.into()")
