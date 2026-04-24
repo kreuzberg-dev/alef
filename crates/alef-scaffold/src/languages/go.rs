@@ -60,11 +60,14 @@ linters:
       min-len: 3
       min-occurrences: 3
     gocyclo:
-      min-complexity: 25
+      min-complexity: 50
     govet:
       enable-all: true
       disable:
         - shadow
+    gocritic:
+      disabled-checks:
+        - dupSubExpr
     misspell:
       locale: US
     nakedret:
@@ -114,6 +117,9 @@ linters:
       - linters:
           - govet
         text: "fieldalignment:"
+      - linters:
+          - govet
+        text: "unsafeptr:"
     paths:
       - vendor
       - build

@@ -16,6 +16,7 @@
 /// - `ConvertWithVisitor` registers the visitor, calls the C helper to build the
 ///   callbacks struct, then calls `htm_visitor_create` / `htm_convert_with_visitor` /
 ///   `htm_visitor_free`, and unregisters the visitor on return.
+use alef_codegen::naming::go_param_name;
 use alef_core::hash::{self, CommentStyle};
 use std::fmt::Write;
 
@@ -809,7 +810,7 @@ pub fn gen_visitor_file(
     writeln!(out, "type VisitResult struct {{").ok();
     writeln!(
         out,
-        "\t// Code is the numeric visit-result code (0=Continue, 1=Skip, 2=PreserveHtml, 3=Custom, 4=Error)."
+        "\t// Code is the numeric visit-result code (0=Continue, 1=Skip, 2=PreserveHTML, 3=Custom, 4=Error)."
     )
     .ok();
     writeln!(out, "\tCode int32").ok();
@@ -841,12 +842,12 @@ pub fn gen_visitor_file(
     writeln!(out).ok();
     writeln!(
         out,
-        "// VisitResultPreserveHtml returns a PreserveHtml VisitResult (keep original HTML verbatim)."
+        "// VisitResultPreserveHTML returns a PreserveHTML VisitResult (keep original HTML verbatim)."
     )
     .ok();
     writeln!(
         out,
-        "func VisitResultPreserveHtml() VisitResult {{ return VisitResult{{Code: 2}} }}"
+        "func VisitResultPreserveHTML() VisitResult {{ return VisitResult{{Code: 2}} }}"
     )
     .ok();
     writeln!(out).ok();
@@ -913,6 +914,7 @@ pub fn gen_visitor_file(
             .into_iter()
             .map(|n| format!("\t_ = {n}"))
             .collect();
+        writeln!(out, "// {} is the default no-op implementation.", spec.go_method).ok();
         writeln!(out, "func (BaseVisitor) {}({param_str}) VisitResult {{", spec.go_method).ok();
         for b in &blank_ids {
             writeln!(out, "{b}").ok();
@@ -1230,7 +1232,8 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
 
     // Decode each extra parameter.
     for ep in spec.extra {
-        writeln!(out, "\tgo{} := {}", capitalize(ep.go_name), ep.decode).ok();
+        let var_name = go_param_name(&format!("go_{}", ep.go_name));
+        writeln!(out, "\t{var_name} := {}", ep.decode).ok();
     }
     if spec.has_is_header {
         writeln!(out, "\tgoIsHeader := isHeader != 0").ok();
@@ -1239,7 +1242,7 @@ fn gen_trampoline(out: &mut String, spec: &CallbackSpec) {
     // Build call args.
     let mut call_args = vec!["nodeCtx".to_string()];
     for ep in spec.extra {
-        call_args.push(format!("go{}", capitalize(ep.go_name)));
+        call_args.push(go_param_name(&format!("go_{}", ep.go_name)));
     }
     if spec.has_is_header {
         call_args.push("goIsHeader".to_string());
@@ -1282,8 +1285,8 @@ fn gen_convert_with_visitor(out: &mut String, ffi_prefix: &str) {
         "func ConvertWithVisitor(html string, options *ConversionOptions, visitor Visitor) (*ConversionResult, error) {{"
     )
     .ok();
-    writeln!(out, "\tcHtml := C.CString(html)").ok();
-    writeln!(out, "\tdefer C.free(unsafe.Pointer(cHtml))").ok();
+    writeln!(out, "\tcHTML := C.CString(html)").ok();
+    writeln!(out, "\tdefer C.free(unsafe.Pointer(cHTML))").ok();
     writeln!(out).ok();
     writeln!(out, "\tvar cOptions *C.HTMConversionOptions").ok();
     writeln!(out, "\tif options != nil {{").ok();
@@ -1311,7 +1314,7 @@ fn gen_convert_with_visitor(out: &mut String, ffi_prefix: &str) {
     writeln!(out).ok();
     writeln!(
         out,
-        "\tptr := C.{ffi_prefix}_convert_with_visitor(cHtml, cOptions, visitorHandle)"
+        "\tptr := C.{ffi_prefix}_convert_with_visitor(cHTML, cOptions, visitorHandle)"
     )
     .ok();
     writeln!(out, "\tif err := lastError(); err != nil {{").ok();

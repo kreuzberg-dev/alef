@@ -556,7 +556,7 @@ fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
     writeln!(out, "const (").ok();
 
     for variant in &enum_def.variants {
-        let const_name = format!("{}{}", go_enum_name, variant.name.to_pascal_case());
+        let const_name = format!("{}{}", go_enum_name, to_go_name(&variant.name));
         let wire_value = enum_variant_wire_value(variant, enum_def);
         if !variant.doc.is_empty() {
             // revive requires the first comment line to start with the const name.
