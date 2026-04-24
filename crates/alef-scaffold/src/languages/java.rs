@@ -4,7 +4,7 @@ use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-pub fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let name = &config.crate_config.name;
     let version = &api.version;
@@ -448,6 +448,7 @@ pub fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Ve
     "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
     "https://checkstyle.org/dtds/configuration_1_3.dtd">
 
+<!-- Checkstyle handles correctness checks only. Spotless handles all formatting. -->
 <module name="Checker">
     <property name="charset" value="UTF-8"/>
     <property name="severity" value="error"/>
@@ -455,7 +456,7 @@ pub fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Ve
 
     <module name="SuppressionFilter">
         <property name="file" value="${checkstyle.suppressions.file}"/>
-        <property name="optional" value="true"/>
+        <property name="optional" value="false"/>
     </module>
 
     <module name="LineLength">
@@ -492,48 +493,15 @@ pub fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Ve
         <module name="ModifierOrder"/>
         <module name="RedundantModifier"/>
 
-        <!-- Whitespace -->
-        <module name="EmptyForIteratorPad"/>
-        <module name="GenericWhitespace"/>
-        <module name="MethodParamPad"/>
-        <module name="NoWhitespaceAfter"/>
-        <module name="NoWhitespaceBefore"/>
-        <module name="OperatorWrap">
-            <property name="option" value="nl"/>
-        </module>
-        <module name="ParenPad"/>
-        <module name="TypecastParenPad"/>
-        <module name="WhitespaceAfter"/>
-        <module name="WhitespaceAround"/>
-
-        <!-- Blocks -->
-        <module name="EmptyBlock"/>
-        <module name="LeftCurly"/>
-        <module name="NeedBraces"/>
-        <module name="RightCurly"/>
-
         <!-- Coding -->
         <module name="EmptyStatement"/>
         <module name="EqualsHashCode"/>
-        <module name="IllegalInstantiation"/>
-        <module name="InnerAssignment"/>
-        <module name="MagicNumber">
-            <property name="ignoreNumbers" value="-1, 0, 1, 2"/>
-            <property name="ignoreHashCodeMethod" value="true"/>
-            <property name="ignoreAnnotation" value="true"/>
-            <property name="ignoreFieldDeclaration" value="true"/>
-        </module>
         <module name="SimplifyBooleanExpression"/>
         <module name="SimplifyBooleanReturn"/>
 
         <!-- Misc -->
         <module name="ArrayTypeStyle"/>
         <module name="UpperEll"/>
-    </module>
-
-    <!-- Javadoc -->
-    <module name="JavadocPackage">
-        <property name="allowLegacy" value="true"/>
     </module>
 </module>
 "#;

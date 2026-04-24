@@ -2,7 +2,7 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use std::path::PathBuf;
 
-pub fn scaffold_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Vec<GeneratedFile> {
+pub(crate) fn scaffold_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Vec<GeneratedFile> {
     if std::path::Path::new(".pre-commit-config.yaml").exists() {
         return vec![];
     }
@@ -12,7 +12,7 @@ pub fn scaffold_pre_commit_config(config: &AlefConfig, languages: &[Language]) -
 /// Generate the `.pre-commit-config.yaml` content based on configured languages.
 ///
 /// Separated from `scaffold_pre_commit_config` for testability.
-pub fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Vec<GeneratedFile> {
+pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Vec<GeneratedFile> {
     let has = |lang: Language| languages.contains(&lang);
     let crate_dir = config.core_crate_dir();
 
@@ -36,6 +36,7 @@ pub fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -
     };
 
     let mut yaml = String::new();
+    let mut local_hooks: Vec<String> = Vec::new();
 
     // Header
     yaml.push_str(
@@ -89,24 +90,23 @@ pub fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -
          \x20   rev: \"v2.1.3\"\n\
          \x20   hooks:\n\
          \x20     - id: cargo-sort\n\
-         \x20       args: [-w]\n\n\
-         \x20 - repo: https://github.com/ComPWA/taplo-pre-commit\n\
-         \x20   rev: v0.9.3\n\
-         \x20   hooks:\n\
-         \x20     - id: taplo-format\n\
-         \x20       exclude: \"Cargo.toml\"\n\n",
+         \x20       args: [-w]\n\n",
     );
 
-    // Python: ruff
+    // Python: ruff + mypy
     if has(Language::Python) {
         yaml.push_str(
-            "  # Python: ruff (linting + formatting)\n\
+            "  # Python: ruff (linting + formatting) + mypy (type checking)\n\
              \x20 - repo: https://github.com/astral-sh/ruff-pre-commit\n\
-             \x20   rev: v0.15.10\n\
+             \x20   rev: v0.15.11\n\
              \x20   hooks:\n\
              \x20     - id: ruff\n\
              \x20       args: [\"--fix\"]\n\
-             \x20     - id: ruff-format\n\n",
+             \x20     - id: ruff-format\n\n\
+             \x20 - repo: https://github.com/pre-commit/mirrors-mypy\n\
+             \x20   rev: v1.20.2\n\
+             \x20   hooks:\n\
+             \x20     - id: mypy\n\n",
         );
     }
 
@@ -118,13 +118,15 @@ pub fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -
          \x20   hooks:\n\
          \x20     - id: cargo-fmt\n\
          \x20       args: [\"--all\"]\n\
+         \x20       types: [rust]\n\
          \x20     - id: cargo-clippy\n\
          \x20       args:\n\
          \x20         [\n\
          \x20           \"--fix\",\n\
          \x20           \"--allow-dirty\",\n\
          \x20           \"--allow-staged\",\n\
-         \x20           \"--workspace\",\n",
+         \x20           \"--workspace\",\n\
+         \x20           \"--all-features\",\n",
     );
     yaml.push_str(&clippy_excludes);
     yaml.push_str(
@@ -147,20 +149,27 @@ pub fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -
          \x20       args: [\"check\"]\n\n",
     );
 
-    // JavaScript/TypeScript: biome + oxlint
+    // JavaScript/TypeScript: oxlint (linting) + oxfmt (formatting)
     if has(Language::Node) || has(Language::Wasm) {
         yaml.push_str(
-            "  # JavaScript/TypeScript: biome (formatting + linting)\n\
-             \x20 - repo: https://github.com/biomejs/pre-commit\n\
-             \x20   rev: v2.4.12\n\
-             \x20   hooks:\n\
-             \x20     - id: biome-format\n\
-             \x20     - id: biome-lint\n\n\
+            "  # JavaScript/TypeScript: oxlint (linting) + oxfmt (formatting)\n\
              \x20 - repo: https://github.com/oxc-project/mirrors-oxlint\n\
              \x20   rev: v1.60.0\n\
              \x20   hooks:\n\
              \x20     - id: oxlint\n\
              \x20       args: [\"--fix\"]\n\n",
+        );
+        // oxfmt doesn't have a pre-commit mirror yet — use a local hook
+        // oxfmt also handles TOML, JSON, YAML, and Markdown formatting
+        local_hooks.push(
+            "      - id: oxfmt\n\
+             \x20       name: oxfmt (format JS/TS/JSON/TOML)\n\
+             \x20       entry: npx oxfmt\n\
+             \x20       language: system\n\
+             \x20       files: \\.(js|jsx|ts|tsx|json|toml|yaml|yml)$\n\
+             \x20       exclude: Cargo\\.toml|pyproject\\.toml\n\
+             \x20       pass_filenames: false\n"
+                .to_string(),
         );
     }
 
@@ -186,36 +195,33 @@ pub fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -
         ));
     }
 
-    // Shell scripts
-    yaml.push_str(
-        "  # Shell scripts: formatting and linting\n\
-         \x20 - repo: https://github.com/scop/pre-commit-shfmt\n\
-         \x20   rev: v3.13.1-1\n\
-         \x20   hooks:\n\
-         \x20     - id: shfmt\n\
-         \x20       args: [\"-w\", \"-i\", \"2\"]\n\n\
-         \x20 - repo: https://github.com/koalaman/shellcheck-precommit\n\
-         \x20   rev: v0.11.0\n\
-         \x20   hooks:\n\
-         \x20     - id: shellcheck\n\n",
-    );
-
     // Markdown
     yaml.push_str(
         "  # Markdown\n\
          \x20 - repo: https://github.com/rvben/rumdl-pre-commit\n\
-         \x20   rev: \"v0.1.72\"\n\
+         \x20   rev: \"v0.1.80\"\n\
          \x20   hooks:\n\
          \x20     - id: rumdl-fmt\n\n",
     );
 
-    // GitHub Actions
+    // Spelling
     yaml.push_str(
-        "  # GitHub Actions\n\
-         \x20 - repo: https://github.com/rhysd/actionlint\n\
-         \x20   rev: v1.7.12\n\
+        "  # Spelling\n\
+         \x20 - repo: https://github.com/crate-ci/typos\n\
+         \x20   rev: v1.45.1\n\
          \x20   hooks:\n\
-         \x20     - id: actionlint\n\n",
+         \x20     - id: typos\n\
+         \x20       args: [\"--force-exclude\"]\n\n",
+    );
+
+    // Alef: verify bindings are up to date
+    yaml.push_str(
+        "  # Alef: verify bindings and sync versions\n\
+         \x20 - repo: https://github.com/kreuzberg-dev/alef\n\
+         \x20   rev: v0.6.1\n\
+         \x20   hooks:\n\
+         \x20     - id: alef-verify\n\
+         \x20     - id: alef-sync-versions\n\n",
     );
 
     // Java: copy-paste detection and style checking
@@ -238,7 +244,6 @@ pub fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -
     }
 
     // Local hooks for language toolchains
-    let mut local_hooks: Vec<String> = Vec::new();
 
     if has(Language::Go) {
         local_hooks.push(
@@ -253,26 +258,24 @@ pub fn generate_pre_commit_config(config: &AlefConfig, languages: &[Language]) -
     }
 
     if has(Language::Ruby) {
-        local_hooks.push(
-            "      - id: rbs-validate\n\
-             \x20       name: rbs validate\n\
-             \x20       entry: task ruby:rbs-validate\n\
+        let ruby_dir = config.package_dir(Language::Ruby);
+        local_hooks.push(format!(
+            "      - id: rubocop\n\
+             \x20       name: rubocop (ruby)\n\
+             \x20       entry: bash -c 'cd {ruby_dir} && bundle exec rubocop -A'\n\
              \x20       language: system\n\
              \x20       files: \\.(rb|rbs)$\n\
-             \x20       pass_filenames: false\n\
-             \x20       require_serial: true\n"
-                .to_string(),
-        );
-        local_hooks.push(
+             \x20       pass_filenames: false\n",
+        ));
+        local_hooks.push(format!(
             "      - id: steep-check\n\
-             \x20       name: steep check\n\
-             \x20       entry: task ruby:typecheck\n\
+             \x20       name: steep check (ruby)\n\
+             \x20       entry: bash -c 'cd {ruby_dir} && bundle exec steep check'\n\
              \x20       language: system\n\
              \x20       files: \\.(rb|rbs)$\n\
              \x20       pass_filenames: false\n\
-             \x20       require_serial: true\n"
-                .to_string(),
-        );
+             \x20       require_serial: true\n",
+        ));
     }
 
     if has(Language::Php) {

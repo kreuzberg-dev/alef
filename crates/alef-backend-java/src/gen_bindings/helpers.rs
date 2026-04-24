@@ -161,7 +161,7 @@ pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
 
 /// Maximum line length before splitting record fields across multiple lines.
 /// Checkstyle enforces 120 chars; we split at 100 to leave headroom for indentation.
-const RECORD_LINE_WRAP_THRESHOLD: usize = 100;
+pub(crate) const RECORD_LINE_WRAP_THRESHOLD: usize = 100;
 
 pub(crate) fn java_apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
     match rename_all {
@@ -172,31 +172,6 @@ pub(crate) fn java_apply_rename_all(name: &str, rename_all: Option<&str>) -> Str
         Some("lowercase") => name.to_lowercase(),
         Some("UPPERCASE") => name.to_uppercase(),
         _ => name.to_lowercase(),
-    }
-}
-
-pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
-    match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => true,
-        TypeRef::Optional(inner) => is_ffi_string_return(inner),
-        _ => false,
-    }
-}
-
-/// Returns the appropriate Java cast type for non-string FFI return values.
-pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
-    match ty {
-        TypeRef::Primitive(prim) => match prim {
-            PrimitiveType::Bool => "boolean",
-            PrimitiveType::U8 | PrimitiveType::I8 => "byte",
-            PrimitiveType::U16 | PrimitiveType::I16 => "short",
-            PrimitiveType::U32 | PrimitiveType::I32 => "int",
-            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "long",
-            PrimitiveType::F32 => "float",
-            PrimitiveType::F64 => "double",
-        },
-        TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) => "MemorySegment",
-        _ => "MemorySegment",
     }
 }
 

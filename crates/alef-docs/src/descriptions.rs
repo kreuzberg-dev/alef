@@ -305,3 +305,237 @@ pub(crate) fn generate_param_description(name: &str, ty: &TypeRef) -> String {
 
     format!("{article} {type_hint}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::TypeRef;
+
+    #[test]
+    fn test_generate_field_description_known_names() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("content", &ty), "The extracted text content");
+        assert_eq!(generate_field_description("mime_type", &ty), "The detected MIME type");
+        assert_eq!(generate_field_description("metadata", &ty), "Document metadata");
+        assert_eq!(
+            generate_field_description("tables", &ty),
+            "Tables extracted from the document"
+        );
+        assert_eq!(
+            generate_field_description("images", &ty),
+            "Images extracted from the document"
+        );
+        assert_eq!(generate_field_description("pages", &ty), "Per-page content");
+        assert_eq!(
+            generate_field_description("chunks", &ty),
+            "Text chunks for chunking/embedding"
+        );
+        assert_eq!(
+            generate_field_description("elements", &ty),
+            "Semantic document elements"
+        );
+        assert_eq!(generate_field_description("name", &ty), "The name");
+        assert_eq!(generate_field_description("path", &ty), "File path");
+        assert_eq!(
+            generate_field_description("description", &ty),
+            "Human-readable description"
+        );
+        assert_eq!(generate_field_description("version", &ty), "Version string");
+        assert_eq!(generate_field_description("id", &ty), "Unique identifier");
+        assert_eq!(
+            generate_field_description("enabled", &ty),
+            "Whether this feature is enabled"
+        );
+        assert_eq!(generate_field_description("size", &ty), "Size in bytes");
+        assert_eq!(generate_field_description("count", &ty), "Number of items");
+    }
+
+    #[test]
+    fn test_generate_field_description_prefix_patterns() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("row_count", &ty), "Number of rows");
+        assert_eq!(generate_field_description("is_valid", &ty), "Whether valid");
+        assert_eq!(generate_field_description("has_errors", &ty), "Whether errors");
+        assert_eq!(generate_field_description("max_retries", &ty), "Maximum retries");
+        assert_eq!(generate_field_description("min_confidence", &ty), "Minimum confidence");
+        assert_eq!(generate_field_description("is_ocr_enabled", &ty), "Whether ocr enabled");
+    }
+
+    #[test]
+    fn test_generate_field_description_named_type() {
+        let ty = TypeRef::Named("ExtractionConfig".to_string());
+        assert_eq!(generate_field_description("config", &ty), "Config (extraction config)");
+    }
+
+    #[test]
+    fn test_generate_field_description_fallback_snake_case() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("column_types", &ty), "Column types");
+        assert_eq!(generate_field_description("output_format", &ty), "Output format");
+    }
+
+    #[test]
+    fn test_snake_to_readable() {
+        assert_eq!(snake_to_readable("row_count"), "Row count");
+        assert_eq!(snake_to_readable("column_types"), "Column types");
+        assert_eq!(snake_to_readable("x"), "X");
+        assert_eq!(snake_to_readable(""), "");
+    }
+
+    #[test]
+    fn test_generate_enum_variant_description_well_known() {
+        assert_eq!(generate_enum_variant_description("TEXT"), "Text format");
+        assert_eq!(generate_enum_variant_description("MARKDOWN"), "Markdown format");
+        assert_eq!(
+            generate_enum_variant_description("HTML"),
+            "Preserve as HTML `<mark>` tags"
+        );
+        assert_eq!(generate_enum_variant_description("JSON"), "JSON format");
+        assert_eq!(generate_enum_variant_description("PDF"), "PDF format");
+        assert_eq!(generate_enum_variant_description("PLAIN"), "Plain text format");
+    }
+
+    #[test]
+    fn test_generate_enum_variant_description_screaming_case() {
+        assert_eq!(generate_enum_variant_description("CODE_BLOCK"), "Code block");
+        assert_eq!(generate_enum_variant_description("ORDERED_LIST"), "Ordered list");
+        assert_eq!(generate_enum_variant_description("BULLET_LIST"), "Bullet list");
+        assert_eq!(generate_enum_variant_description("HEADING"), "Heading element");
+    }
+
+    #[test]
+    fn test_generate_enum_variant_description_pascal_case() {
+        assert_eq!(generate_enum_variant_description("SingleColumn"), "Single column");
+        assert_eq!(generate_enum_variant_description("AutoOsd"), "Auto osd");
+    }
+
+    #[test]
+    fn test_generate_enum_variant_description_empty() {
+        assert_eq!(generate_enum_variant_description(""), "");
+    }
+
+    #[test]
+    fn test_determine_enum_variant_suffix_format_words() {
+        for word in ["text", "markdown", "html", "json", "csv", "xml", "pdf", "yaml"] {
+            assert_eq!(
+                determine_enum_variant_suffix(word, false),
+                "format",
+                "expected 'format' suffix for '{word}'"
+            );
+        }
+    }
+
+    #[test]
+    fn test_determine_enum_variant_suffix_element_words() {
+        for word in [
+            "heading",
+            "paragraph",
+            "blockquote",
+            "table",
+            "figure",
+            "caption",
+            "footnote",
+            "header",
+            "footer",
+            "section",
+            "title",
+            "image",
+        ] {
+            assert_eq!(
+                determine_enum_variant_suffix(word, false),
+                "element",
+                "expected 'element' suffix for '{word}'"
+            );
+        }
+    }
+
+    #[test]
+    fn test_determine_enum_variant_suffix_no_suffix_when_ending_matches_category_word() {
+        let no_suffix_cases = [
+            "extraction mode",
+            "output format",
+            "heading style",
+            "retry strategy",
+            "connection state",
+            "error status",
+            "dom element",
+            "code block",
+            "ordered list",
+            "language model",
+        ];
+        for word in no_suffix_cases {
+            assert_eq!(
+                determine_enum_variant_suffix(word, false),
+                "",
+                "expected empty suffix for '{word}'"
+            );
+        }
+    }
+
+    #[test]
+    fn test_determine_enum_variant_suffix_screaming_with_list_block_item() {
+        assert_eq!(determine_enum_variant_suffix("bullet list", true), "");
+        assert_eq!(determine_enum_variant_suffix("code block", true), "");
+        assert_eq!(determine_enum_variant_suffix("list item", true), "");
+    }
+
+    #[test]
+    fn test_determine_enum_variant_suffix_unknown_word_returns_empty() {
+        assert_eq!(determine_enum_variant_suffix("single column", false), "");
+        assert_eq!(determine_enum_variant_suffix("auto osd", false), "");
+        assert_eq!(determine_enum_variant_suffix("left", false), "");
+    }
+
+    #[test]
+    fn test_generate_field_description_count_suffix_already_plural() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("errors_count", &ty), "Number of errors");
+    }
+
+    #[test]
+    fn test_generate_field_description_count_suffix_singular_words() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("page_count", &ty), "Number of pages");
+        assert_eq!(generate_field_description("word_count", &ty), "Number of words");
+    }
+
+    #[test]
+    fn test_generate_field_description_is_prefix_multi_word() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("is_read_only", &ty), "Whether read only");
+        assert_eq!(generate_field_description("is_active", &ty), "Whether active");
+    }
+
+    #[test]
+    fn test_generate_field_description_has_prefix() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("has_metadata", &ty), "Whether metadata");
+        assert_eq!(
+            generate_field_description("has_ocr_support", &ty),
+            "Whether ocr support"
+        );
+    }
+
+    #[test]
+    fn test_generate_field_description_at_suffix_falls_back_to_snake_readable() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("created_at", &ty), "Created at");
+        assert_eq!(generate_field_description("updated_at", &ty), "Updated at");
+    }
+
+    #[test]
+    fn test_generate_field_description_max_compound_name() {
+        let ty = TypeRef::String;
+        assert_eq!(generate_field_description("max_retries", &ty), "Maximum retries");
+        assert_eq!(generate_field_description("max_size", &ty), "Maximum size");
+    }
+
+    #[test]
+    fn test_generate_field_description_primitive_type_uses_name_fallback() {
+        use alef_core::ir::PrimitiveType;
+        assert_eq!(
+            generate_field_description("confidence", &TypeRef::Primitive(PrimitiveType::F64)),
+            "Confidence"
+        );
+    }
+}

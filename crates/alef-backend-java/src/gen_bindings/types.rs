@@ -8,10 +8,8 @@ use std::fmt::Write;
 
 use super::helpers::{
     emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name, java_apply_rename_all,
-    safe_java_field_name,
+    safe_java_field_name, RECORD_LINE_WRAP_THRESHOLD,
 };
-
-const RECORD_LINE_WRAP_THRESHOLD: usize = 100;
 
 pub(crate) fn gen_record_type(
     package: &str,

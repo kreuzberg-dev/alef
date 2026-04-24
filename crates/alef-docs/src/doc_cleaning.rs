@@ -385,3 +385,291 @@ pub(crate) fn rust_links_to_plain(doc: &str) -> String {
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::Language;
+
+    #[test]
+    fn test_clean_doc_strips_examples() {
+        let doc = "Does something.\n\n# Examples\n\n```rust\nfoo();\n```\n";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert!(!cleaned.contains("Examples"));
+        assert!(!cleaned.contains("foo()"));
+        assert!(cleaned.contains("Does something"));
+    }
+
+    #[test]
+    fn test_clean_doc_strips_arguments() {
+        let doc = "Does something.\n\n# Arguments\n\n* html - The HTML string\n\nMore text.";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert!(!cleaned.contains("Arguments"));
+        assert!(!cleaned.contains("html - The HTML string"));
+        assert!(cleaned.contains("Does something"));
+        assert!(cleaned.contains("More text"));
+    }
+
+    #[test]
+    fn test_clean_doc_rust_links() {
+        let doc = "See [`field`](Self::field) for details.";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert_eq!(cleaned, "See `field` for details.");
+    }
+
+    #[test]
+    fn test_clean_doc_bare_rust_links() {
+        let doc = "See [`ConversionOptions`] for details.";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert_eq!(cleaned, "See `ConversionOptions` for details.");
+    }
+
+    #[test]
+    fn test_extract_param_docs() {
+        let doc = "Convert HTML to Markdown.\n\n# Arguments\n\n* html - The HTML string to convert\n* options - Conversion options\n";
+        let params = extract_param_docs(doc);
+        assert_eq!(
+            params.get("html").map(String::as_str),
+            Some("The HTML string to convert")
+        );
+        assert_eq!(params.get("options").map(String::as_str), Some("Conversion options"));
+    }
+
+    #[test]
+    fn test_clean_doc_empty_string_all_languages() {
+        for lang in [Language::Python, Language::Go, Language::Node, Language::Rust] {
+            assert_eq!(clean_doc("", lang), "", "empty doc for {lang:?} must stay empty");
+        }
+    }
+
+    #[test]
+    fn test_clean_doc_multiline_prose_all_paragraphs_preserved() {
+        let doc = "First line.\n\nSecond paragraph.\n\nThird paragraph.";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert!(cleaned.contains("First line."));
+        assert!(cleaned.contains("Second paragraph."));
+        assert!(cleaned.contains("Third paragraph."));
+    }
+
+    #[test]
+    fn test_clean_doc_none_becomes_nil_for_go_ruby_elixir() {
+        let doc = "Returns `None` when nothing is found.";
+        assert_eq!(clean_doc(doc, Language::Go), "Returns `nil` when nothing is found.");
+        assert_eq!(clean_doc(doc, Language::Ruby), "Returns `nil` when nothing is found.");
+        assert_eq!(clean_doc(doc, Language::Elixir), "Returns `nil` when nothing is found.");
+    }
+
+    #[test]
+    fn test_clean_doc_none_becomes_null_for_node_java_csharp_php() {
+        let doc = "Returns `None` on failure.";
+        assert_eq!(clean_doc(doc, Language::Node), "Returns `null` on failure.");
+        assert_eq!(clean_doc(doc, Language::Java), "Returns `null` on failure.");
+        assert_eq!(clean_doc(doc, Language::Csharp), "Returns `null` on failure.");
+        assert_eq!(clean_doc(doc, Language::Php), "Returns `null` on failure.");
+    }
+
+    #[test]
+    fn test_clean_doc_none_stays_none_for_python_and_rust() {
+        let doc = "Returns `None` when empty.";
+        assert_eq!(clean_doc(doc, Language::Python), "Returns `None` when empty.");
+        assert_eq!(clean_doc(doc, Language::Rust), "Returns `None` when empty.");
+    }
+
+    #[test]
+    fn test_clean_doc_none_becomes_null_uppercase_for_r_and_ffi() {
+        let doc = "Returns `None` when empty.";
+        assert_eq!(clean_doc(doc, Language::R), "Returns `NULL` when empty.");
+        assert_eq!(clean_doc(doc, Language::Ffi), "Returns `NULL` when empty.");
+    }
+
+    #[test]
+    fn test_clean_doc_python_booleans_capitalised() {
+        let doc = "Pass `true` to enable or `false` to disable.";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert_eq!(cleaned, "Pass `True` to enable or `False` to disable.");
+    }
+
+    #[test]
+    fn test_clean_doc_non_python_booleans_lowercase_unchanged() {
+        let doc = "Pass `true` to enable or `false` to disable.";
+        assert_eq!(clean_doc(doc, Language::Go), doc);
+        assert_eq!(clean_doc(doc, Language::Node), doc);
+        assert_eq!(clean_doc(doc, Language::Java), doc);
+    }
+
+    #[test]
+    fn test_clean_doc_rust_path_becomes_dot_notation_for_python() {
+        let doc = "Call `Foo::bar()` to create one.";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert!(cleaned.contains("Foo.bar()"), "expected dot notation: {cleaned}");
+        assert!(!cleaned.contains("Foo::bar()"));
+    }
+
+    #[test]
+    fn test_clean_doc_rust_path_stays_double_colon_for_php() {
+        let doc = "Call `Foo::bar()` to create one.";
+        let cleaned = clean_doc(doc, Language::Php);
+        assert!(cleaned.contains("Foo::bar()"), "PHP keeps :: notation: {cleaned}");
+    }
+
+    #[test]
+    fn test_clean_doc_non_rust_code_block_preserved() {
+        let doc = "Example:\n\n```python\nresult = convert(html)\n```\n";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert!(cleaned.contains("```python"));
+        assert!(cleaned.contains("result = convert(html)"));
+    }
+
+    #[test]
+    fn test_clean_doc_rust_code_block_stripped() {
+        let doc = "Example:\n\n```rust\nuse foo::Bar;\nBar::new().unwrap();\n```\n\nAfter block.";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert!(!cleaned.contains("use foo::Bar"), "Rust use statement must be stripped");
+        assert!(cleaned.contains("After block."));
+    }
+
+    #[test]
+    fn test_clean_doc_errors_section_heading_becomes_bold() {
+        let doc = "Summary.\n\n# Errors\n\nMay fail.\n";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert!(cleaned.contains("**Errors:**"), "heading must become bold: {cleaned}");
+        assert!(!cleaned.contains("# Errors"), "raw # heading must be gone: {cleaned}");
+    }
+
+    #[test]
+    fn test_clean_doc_returns_section_heading_becomes_bold() {
+        let doc = "Summary.\n\n# Returns\n\nSome value.\n";
+        let cleaned = clean_doc(doc, Language::Python);
+        assert!(cleaned.contains("**Returns:**"));
+        assert!(!cleaned.contains("# Returns"));
+    }
+
+    #[test]
+    fn test_clean_doc_crate_references_replaced_with_library() {
+        let doc = "Available in this crate as a public API.";
+        assert_eq!(
+            clean_doc(doc, Language::Python),
+            "Available in this library as a public API."
+        );
+    }
+
+    #[test]
+    fn test_clean_doc_inline_code_spans_survive_for_rust() {
+        let doc = "Use `None` or `false` to skip.";
+        let cleaned = clean_doc(doc, Language::Rust);
+        assert!(cleaned.contains("`None`"));
+        assert!(cleaned.contains("`false`"));
+    }
+
+    #[test]
+    fn test_clean_doc_inline_empty_string() {
+        assert_eq!(clean_doc_inline("", Language::Python), "");
+        assert_eq!(clean_doc_inline("", Language::Go), "");
+    }
+
+    #[test]
+    fn test_clean_doc_inline_collapses_multiline_to_single_line() {
+        let doc = "First sentence.\nSecond sentence.";
+        let result = clean_doc_inline(doc, Language::Python);
+        assert!(!result.contains('\n'), "inline output must be single-line: {result}");
+        assert!(result.contains("First sentence."));
+        assert!(result.contains("Second sentence."));
+    }
+
+    #[test]
+    fn test_clean_doc_inline_escapes_pipe_for_table_cells() {
+        let doc = "Value between 0 | 1.";
+        let result = clean_doc_inline(doc, Language::Python);
+        assert!(result.contains("\\|"), "pipe must be escaped: {result}");
+        assert!(!result.contains(" | "), "unescaped pipe must not remain: {result}");
+    }
+
+    #[test]
+    fn test_clean_doc_inline_applies_language_terminology() {
+        let doc = "Returns `None` when empty.";
+        assert_eq!(clean_doc_inline(doc, Language::Go), "Returns `nil` when empty.");
+        assert_eq!(clean_doc_inline(doc, Language::Node), "Returns `null` when empty.");
+    }
+
+    #[test]
+    fn test_clean_doc_inline_strips_argument_sections() {
+        let doc = "Summary.\n\n# Arguments\n\n* foo - bar\n";
+        let result = clean_doc_inline(doc, Language::Python);
+        assert!(!result.contains("Arguments"));
+        assert!(!result.contains("foo - bar"));
+        assert!(result.contains("Summary."));
+    }
+
+    #[test]
+    fn test_clean_doc_inline_filters_blank_only_lines() {
+        let doc = "\n\n  \n\nActual content.\n\n  \n";
+        let result = clean_doc_inline(doc, Language::Python);
+        assert_eq!(result, "Actual content.");
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_plain_https() {
+        let text = "See https://example.com for details.";
+        assert_eq!(wrap_bare_urls(text), "See <https://example.com> for details.");
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_plain_http() {
+        let text = "Visit http://example.com today.";
+        assert_eq!(wrap_bare_urls(text), "Visit <http://example.com> today.");
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_skips_already_angle_bracketed() {
+        let text = "See <https://example.com> already wrapped.";
+        assert_eq!(wrap_bare_urls(text), text);
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_skips_markdown_link_url() {
+        let text = "See [docs](https://example.com/docs) for more.";
+        assert_eq!(wrap_bare_urls(text), text);
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_multiple_bare_urls() {
+        let text = "A: https://a.com B: https://b.com";
+        assert_eq!(wrap_bare_urls(text), "A: <https://a.com> B: <https://b.com>");
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_mixed_bare_and_already_wrapped() {
+        let text = "Visit <https://wrapped.com> or https://bare.com";
+        assert_eq!(
+            wrap_bare_urls(text),
+            "Visit <https://wrapped.com> or <https://bare.com>"
+        );
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_url_at_start_of_string() {
+        let text = "https://example.com is the homepage.";
+        assert_eq!(wrap_bare_urls(text), "<https://example.com> is the homepage.");
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_url_at_end_of_string() {
+        let text = "Homepage: https://example.com";
+        assert_eq!(wrap_bare_urls(text), "Homepage: <https://example.com>");
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_no_urls() {
+        let text = "No links here, just prose.";
+        assert_eq!(wrap_bare_urls(text), text);
+    }
+
+    #[test]
+    fn test_wrap_bare_urls_empty_string() {
+        assert_eq!(wrap_bare_urls(""), "");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ordering helpers
+// ---------------------------------------------------------------------------
