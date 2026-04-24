@@ -289,10 +289,14 @@ pub(crate) fn extract_module(
         // External module: `pub mod foo;` — resolve to file
         let parent_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
 
-        // Try `<mod_name>.rs` first, then `<mod_name>/mod.rs`
+        // Strip the `r#` raw-identifier prefix that `syn` includes in `Ident::to_string()`.
+        // Raw identifiers like `mod r#trait;` refer to a file named `trait.rs`, not `r#trait.rs`.
+        let file_name = mod_name.strip_prefix("r#").unwrap_or(&mod_name);
+
+        // Try `<file_name>.rs` first, then `<file_name>/mod.rs`
         let candidates = [
-            parent_dir.join(format!("{mod_name}.rs")),
-            parent_dir.join(&mod_name).join("mod.rs"),
+            parent_dir.join(format!("{file_name}.rs")),
+            parent_dir.join(file_name).join("mod.rs"),
         ];
 
         let mut found = false;
