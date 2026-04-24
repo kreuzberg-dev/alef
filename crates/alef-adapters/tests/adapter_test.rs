@@ -58,6 +58,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
         setup: None,
         clean: None,
         build_commands: None,
+        publish: None,
         custom_files: None,
         custom_modules: CustomModulesConfig::default(),
         custom_registrations: CustomRegistrationsConfig::default(),

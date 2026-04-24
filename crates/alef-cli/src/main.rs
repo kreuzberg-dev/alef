@@ -167,11 +167,64 @@ enum Commands {
         #[command(subcommand)]
         action: E2eAction,
     },
+    /// Prepare, build, and package artifacts for publishing.
+    Publish {
+        #[command(subcommand)]
+        action: PublishAction,
+    },
     /// Manage the build cache.
     Cache {
         #[command(subcommand)]
         action: CacheAction,
     },
+}
+
+#[derive(Subcommand)]
+enum PublishAction {
+    /// Prepare for publishing: vendor deps, stage FFI artifacts.
+    Prepare {
+        /// Comma-separated list of languages.
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+        /// Rust target triple for cross-compilation (e.g. x86_64-unknown-linux-gnu).
+        #[arg(long)]
+        target: Option<String>,
+        /// Show what would be done without executing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Build release artifacts for a specific platform.
+    Build {
+        /// Comma-separated list of languages.
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+        /// Rust target triple (defaults to host).
+        #[arg(long)]
+        target: Option<String>,
+        /// Use `cross` instead of `cargo` for cross-compilation.
+        #[arg(long)]
+        use_cross: bool,
+    },
+    /// Package built artifacts into distributable archives.
+    Package {
+        /// Comma-separated list of languages.
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+        /// Rust target triple (auto-maps to language-specific platform names).
+        #[arg(long)]
+        target: Option<String>,
+        /// Output directory for packages.
+        #[arg(long, short, default_value = "dist")]
+        output: String,
+        /// Version string (auto-detected from Cargo.toml if absent).
+        #[arg(long)]
+        version: Option<String>,
+        /// Show what would be packaged without executing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Validate that all package manifests are consistent and ready for publishing.
+    Validate,
 }
 
 #[derive(Subcommand)]
@@ -868,6 +921,76 @@ fn main() -> Result<()> {
                         }
                         Ok(())
                     }
+                }
+            }
+        }
+        Commands::Publish { action } => {
+            let config = load_config(config_path)?;
+            match action {
+                PublishAction::Prepare { lang, target, dry_run } => {
+                    let languages = resolve_languages(&config, lang.as_deref())?;
+                    let rust_target = target
+                        .as_deref()
+                        .map(alef_publish::platform::RustTarget::parse)
+                        .transpose()?;
+                    eprintln!("Preparing publish for: {}", format_languages(&languages));
+                    alef_publish::prepare(&config, &languages, rust_target.as_ref(), dry_run)?;
+                    println!("Prepare complete");
+                    Ok(())
+                }
+                PublishAction::Build {
+                    lang,
+                    target,
+                    use_cross,
+                } => {
+                    let languages = resolve_languages(&config, lang.as_deref())?;
+                    let rust_target = target
+                        .as_deref()
+                        .map(alef_publish::platform::RustTarget::parse)
+                        .transpose()?;
+                    eprintln!("Building publish artifacts for: {}", format_languages(&languages));
+                    alef_publish::build(&config, &languages, rust_target.as_ref(), use_cross)?;
+                    println!("Build complete");
+                    Ok(())
+                }
+                PublishAction::Package {
+                    lang,
+                    target,
+                    output,
+                    version,
+                    dry_run,
+                } => {
+                    let languages = resolve_languages(&config, lang.as_deref())?;
+                    let rust_target = target
+                        .as_deref()
+                        .map(alef_publish::platform::RustTarget::parse)
+                        .transpose()?;
+                    let ver = version
+                        .or_else(|| config.resolved_version())
+                        .context("could not determine version — set --version or version_from in alef.toml")?;
+                    let output_dir = std::path::Path::new(&output);
+                    eprintln!(
+                        "Packaging {} (v{ver}) for: {}",
+                        output_dir.display(),
+                        format_languages(&languages)
+                    );
+                    alef_publish::package(&config, &languages, rust_target.as_ref(), output_dir, &ver, dry_run)?;
+                    println!("Package complete");
+                    Ok(())
+                }
+                PublishAction::Validate => {
+                    let config = load_config(config_path)?;
+                    let issues = alef_publish::validate(&config)?;
+                    if issues.is_empty() {
+                        println!("All package manifests are consistent");
+                    } else {
+                        eprintln!("Validation issues:");
+                        for issue in &issues {
+                            eprintln!("  - {issue}");
+                        }
+                        anyhow::bail!("{} validation issue(s) found", issues.len());
+                    }
+                    Ok(())
                 }
             }
         }

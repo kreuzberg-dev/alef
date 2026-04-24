@@ -137,6 +137,7 @@ pub(crate) fn make_test_config() -> alef_core::config::AlefConfig {
         setup: None,
         clean: None,
         build_commands: None,
+        publish: None,
         custom_files: None,
         adapters: vec![],
         custom_modules: CustomModulesConfig::default(),

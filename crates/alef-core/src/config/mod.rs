@@ -10,6 +10,7 @@ pub mod extras;
 pub mod languages;
 pub mod lint_defaults;
 pub mod output;
+pub mod publish;
 pub mod setup_defaults;
 pub mod test_defaults;
 pub mod trait_bridge;
@@ -30,6 +31,7 @@ pub use output::{
     BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
     ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, TextReplacement, UpdateConfig,
 };
+pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
 pub use trait_bridge::TraitBridgeConfig;
 
 /// Root configuration from alef.toml.
@@ -82,6 +84,9 @@ pub struct AlefConfig {
     pub clean: Option<HashMap<String, CleanConfig>>,
     #[serde(default)]
     pub build_commands: Option<HashMap<String, BuildCommandConfig>>,
+    /// Publish pipeline configuration (vendoring, packaging, cross-compilation).
+    #[serde(default)]
+    pub publish: Option<PublishConfig>,
     #[serde(default)]
     pub custom_files: Option<HashMap<String, Vec<PathBuf>>>,
     #[serde(default)]

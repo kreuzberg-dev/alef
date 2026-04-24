@@ -181,6 +181,7 @@ fn test_generated_code_example() {
         setup: None,
         clean: None,
         build_commands: None,
+        publish: None,
         custom_files: None,
         adapters: vec![],
         custom_modules: alef_core::config::CustomModulesConfig::default(),

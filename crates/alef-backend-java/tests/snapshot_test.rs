@@ -312,6 +312,7 @@ fn print_generated_java_code() {
         setup: None,
         clean: None,
         build_commands: None,
+        publish: None,
         custom_files: None,
         adapters: vec![],
         custom_modules: alef_core::config::CustomModulesConfig::default(),

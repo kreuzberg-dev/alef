@@ -55,6 +55,7 @@ fn make_config(app_name: &str) -> AlefConfig {
         setup: None,
         clean: None,
         build_commands: None,
+        publish: None,
         e2e: None,
         trait_bridges: vec![],
         custom_files: None,

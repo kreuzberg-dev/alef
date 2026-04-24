@@ -38,6 +38,7 @@ alef-core = { workspace = true }
 alef-docs = { workspace = true }
 alef-e2e = { workspace = true }
 alef-extract = { workspace = true }
+alef-publish = { workspace = true }
 alef-readme = { workspace = true }
 alef-scaffold = { workspace = true }
 anyhow = { workspace = true }

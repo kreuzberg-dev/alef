@@ -181,6 +181,7 @@ dependencies = [
  "alef-docs",
  "alef-e2e",
  "alef-extract",
+ "alef-publish",
  "alef-readme",
  "alef-scaffold",
  "anyhow",
@@ -250,6 +251,14 @@ dependencies = [
  "quote",
  "syn",
  "toml",
+]
+
+[[package]]
+name = "alef-publish"
+version = "0.7.1"
+dependencies = [
+ "alef-core",
+ "anyhow",
 ]
 
 [[package]]

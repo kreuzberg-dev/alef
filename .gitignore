@@ -16,6 +16,8 @@ target/
 .gemini/
 GEMINI.md
 
+.agents/
+
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .agents/
 .claude/
@@ -29,12 +31,13 @@ GEMINI.md
 .github/agents/polyglot-architect.agent.md
 .github/agents/rust-core-engineer.agent.md
 .github/agents/security-auditor.agent.md
+.github/agents/test-writer.agent.md
+.github/commands/iterate.md
+.github/commands/parallelize.md
 .github/copilot-instructions.md
 .github/skills/common-task-commands/SKILL.md
 .github/skills/quick-start/SKILL.md
-.mcp.json
 AGENTS.md
 CLAUDE.md
 GEMINI.md
 # END ai-rulez
-.agents/

@@ -19,6 +19,7 @@ members = [
     "crates/alef-docs",
     "crates/alef-e2e",
     "crates/alef-extract",
+    "crates/alef-publish",
     "crates/alef-readme",
     "crates/alef-scaffold",
 ]
@@ -52,6 +53,7 @@ alef-core = { version = "0.7.1", path = "crates/alef-core" }
 alef-docs = { version = "0.7.1", path = "crates/alef-docs" }
 alef-e2e = { version = "0.7.1", path = "crates/alef-e2e" }
 alef-extract = { version = "0.7.1", path = "crates/alef-extract" }
+alef-publish = { version = "0.7.1", path = "crates/alef-publish" }
 alef-readme = { version = "0.7.1", path = "crates/alef-readme" }
 alef-scaffold = { version = "0.7.1", path = "crates/alef-scaffold" }
 anyhow = "1"

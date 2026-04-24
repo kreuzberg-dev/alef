@@ -685,6 +685,7 @@ mod tests {
             setup: None,
             clean: None,
             build_commands: None,
+            publish: None,
             custom_files: None,
             adapters: vec![],
             custom_modules: CustomModulesConfig::default(),

@@ -1,0 +1,13 @@
+[package]
+name = "alef-publish"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Publish pipeline for the alef polyglot binding generator"
+
+[dependencies]
+alef-core = { workspace = true }
+anyhow = { workspace = true }
