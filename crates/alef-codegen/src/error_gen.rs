@@ -685,7 +685,12 @@ fn variant_display_message(variant: &ErrorVariant) -> String {
         if msg.is_empty() {
             to_snake_case(&variant.name).replace('_', " ")
         } else {
-            msg
+            // Go convention: error strings start with lowercase
+            let mut chars = msg.chars();
+            match chars.next() {
+                Some(c) => c.to_lowercase().to_string() + chars.as_str(),
+                None => msg,
+            }
         }
     } else {
         to_snake_case(&variant.name).replace('_', " ")

@@ -927,7 +927,7 @@ fn gen_function_wrapper(
                 // do not emit a nil slot for them.
                 if p.sanitized { vec![] } else { vec!["nil".to_string()] }
             } else {
-                let c_name = to_go_name(&format!("c_{}", p.name));
+                let c_name = go_param_name(&format!("c_{}", p.name));
                 if matches!(p.ty, TypeRef::Bytes) {
                     vec![c_name.clone(), format!("{}Len", c_name)]
                 } else {
@@ -1125,7 +1125,7 @@ fn gen_method_wrapper(
             .params
             .iter()
             .flat_map(|p| -> Vec<String> {
-                let c_name = to_go_name(&format!("c_{}", p.name));
+                let c_name = go_param_name(&format!("c_{}", p.name));
                 if matches!(p.ty, TypeRef::Bytes) {
                     vec![c_name.clone(), format!("{}Len", c_name)]
                 } else {
@@ -1335,7 +1335,7 @@ fn gen_param_to_c(
     // Go param names must be lowerCamelCase (no underscores), and internal C-side
     // temporaries use the same stem with acronym uppercasing applied.
     let go_param = go_param_name(&param.name);
-    let c_name = alef_codegen::naming::to_go_name(&format!("c_{}", param.name));
+    let c_name = go_param_name(&format!("c_{}", param.name));
     let err_return_prefix = if returns_value_and_error { "nil, " } else { "" };
 
     match &param.ty {

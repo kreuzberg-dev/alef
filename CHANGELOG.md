@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config: Ruby lint defaults use `cd {output_dir} && bundle exec rubocop` instead of running from project root (fixes Gemfile not found).
 - Config: FFI lint defaults search entire output directory instead of assuming `tests/` subdirectory.
 - Scaffold: pre-commit config now uses `alef-fmt` + `alef-lint` hooks instead of per-language hooks (ruff, mypy, oxlint, rubocop, golangci-lint, etc.).
+- Codegen(Go): Local variable names now use `go_param_name()` (lowerCamelCase) instead of `to_go_name()` (PascalCase) — fixes 50 revive `var-naming` lint violations in generated Go code (e.g. `cHTML` instead of `CHTML`).
+- Codegen(Go): Error strings in `errors.New(...)` now start with lowercase per Go conventions — fixes staticcheck `ST1005` violations.
 
 ## [0.7.1] - 2026-04-24
 
