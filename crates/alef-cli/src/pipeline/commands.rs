@@ -418,6 +418,32 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
     let build_results: Vec<anyhow::Result<(String, String)>> = independent
         .par_iter()
         .map(|(lang, bc)| {
+            // Check for explicit build_commands override before using backend default
+            let build_cmd_cfg = config.build_command_config_for_language(*lang);
+            let override_cmds = if release {
+                build_cmd_cfg.build_release.as_ref()
+            } else {
+                build_cmd_cfg.build.as_ref()
+            };
+            if let Some(cmd_list) = override_cmds {
+                // Use the user-provided build_commands override if the override differs from defaults
+                if config
+                    .build_commands
+                    .as_ref()
+                    .and_then(|m| m.get(&lang.to_string()))
+                    .is_some()
+                {
+                    let mut combined_output = (String::new(), String::new());
+                    for cmd in cmd_list.commands() {
+                        info!("Building {lang}: {cmd}");
+                        let (stdout, stderr) = run_command_captured(cmd)
+                            .with_context(|| format!("failed to build language bindings for {lang}"))?;
+                        combined_output.0.push_str(&stdout);
+                        combined_output.1.push_str(&stderr);
+                    }
+                    return Ok(combined_output);
+                }
+            }
             info!("Building {lang} ({})...", bc.tool);
             let build_cmd = build_command_for(*lang, bc, config, release);
             run_command_captured(&build_cmd).with_context(|| format!("failed to build language bindings for {lang}"))
@@ -446,6 +472,31 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
     let build_results: Vec<anyhow::Result<(String, String)>> = ffi_dependent
         .par_iter()
         .map(|(lang, bc)| {
+            // Check for explicit build_commands override before using backend default
+            let build_cmd_cfg = config.build_command_config_for_language(*lang);
+            let override_cmds = if release {
+                build_cmd_cfg.build_release.as_ref()
+            } else {
+                build_cmd_cfg.build.as_ref()
+            };
+            if let Some(cmd_list) = override_cmds {
+                if config
+                    .build_commands
+                    .as_ref()
+                    .and_then(|m| m.get(&lang.to_string()))
+                    .is_some()
+                {
+                    let mut combined_output = (String::new(), String::new());
+                    for cmd in cmd_list.commands() {
+                        info!("Building {lang}: {cmd}");
+                        let (stdout, stderr) = run_command_captured(cmd)
+                            .with_context(|| format!("failed to build language bindings for {lang}"))?;
+                        combined_output.0.push_str(&stdout);
+                        combined_output.1.push_str(&stderr);
+                    }
+                    return Ok(combined_output);
+                }
+            }
             info!("Building {lang} ({})...", bc.tool);
             let build_cmd = build_command_for(*lang, bc, config, release);
             run_command_captured(&build_cmd).with_context(|| format!("failed to build language bindings for {lang}"))
