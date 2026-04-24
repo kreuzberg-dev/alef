@@ -171,7 +171,7 @@ fn substitute_target(cmd: &str, target: Option<&RustTarget>) -> String {
 /// Extract the Rust crate name from an output path in the config.
 ///
 /// `"crates/html-to-markdown-ffi/src/"` → `Some("html-to-markdown-ffi")`
-fn crate_name_from_output(config: &AlefConfig, lang: Language) -> Option<String> {
+pub(crate) fn crate_name_from_output(config: &AlefConfig, lang: Language) -> Option<String> {
     let output_path = match lang {
         Language::Python => config.output.python.as_deref(),
         Language::Node => config.output.node.as_deref(),

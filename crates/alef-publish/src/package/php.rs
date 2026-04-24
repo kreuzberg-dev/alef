@@ -23,7 +23,11 @@ pub fn package_php(
     version: &str,
 ) -> Result<PackageArtifact> {
     let crate_name = &config.crate_config.name;
-    let ext_name = config.php_extension_name();
+    // Derive the extension library name from the PHP crate's output path,
+    // falling back to the default php_extension_name() if unconfigured.
+    let ext_name = crate::crate_name_from_output(config, alef_core::config::extras::Language::Php)
+        .map(|n| n.replace('-', "_"))
+        .unwrap_or_else(|| config.php_extension_name());
     let platform = target.platform_for(alef_core::config::extras::Language::Php);
     let pkg_dir = config.package_dir(alef_core::config::extras::Language::Php);
 
