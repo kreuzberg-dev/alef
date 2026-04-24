@@ -5,7 +5,9 @@
 //! `alef publish build`, and `alef publish package`. It does NOT handle
 //! registry authentication or publishing — those remain in CI actions.
 
+pub mod ffi_stage;
 pub mod platform;
+pub mod vendor;
 
 use alef_core::config::AlefConfig;
 use alef_core::config::extras::Language;
@@ -23,22 +25,36 @@ pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&Rust
         match vendor_mode {
             VendorMode::CoreOnly => {
                 let core_crate_dir = resolve_core_crate_dir(config);
+                let workspace_root = resolve_workspace_root(config);
+                let dest_dir = resolve_vendor_dest(config, lang);
                 if dry_run {
                     eprintln!("[dry-run] Would vendor core crate from {core_crate_dir} for {lang}");
                 } else {
                     eprintln!("Vendoring core crate from {core_crate_dir} for {lang}...");
-                    // TODO: Phase 2 — implement vendor_core_only()
-                    eprintln!("  vendoring not yet implemented");
+                    let generate_ws = matches!(lang, Language::Ruby);
+                    let result = vendor::vendor_core_only(
+                        Path::new(&workspace_root),
+                        Path::new(&core_crate_dir),
+                        Path::new(&dest_dir),
+                        generate_ws,
+                    )?;
+                    eprintln!("  vendored to {}", result.vendor_dir.display());
                 }
             }
             VendorMode::Full => {
                 let core_crate_dir = resolve_core_crate_dir(config);
+                let workspace_root = resolve_workspace_root(config);
+                let dest_dir = resolve_vendor_dest(config, lang);
                 if dry_run {
                     eprintln!("[dry-run] Would vendor all dependencies from {core_crate_dir} for {lang}");
                 } else {
                     eprintln!("Vendoring all dependencies from {core_crate_dir} for {lang}...");
-                    // TODO: Phase 2 — implement vendor_full()
-                    eprintln!("  full vendoring not yet implemented");
+                    let result = vendor::vendor_full(
+                        Path::new(&workspace_root),
+                        Path::new(&core_crate_dir),
+                        Path::new(&dest_dir),
+                    )?;
+                    eprintln!("  vendored to {}", result.vendor_dir.display());
                 }
             }
             VendorMode::None => {}
@@ -47,13 +63,17 @@ pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&Rust
         // Stage FFI artifacts for FFI-dependent languages.
         if is_ffi_dependent(lang) {
             if let Some(target) = target {
+                let workspace_root = resolve_workspace_root(config);
                 if dry_run {
                     let platform = target.platform_for(lang);
                     eprintln!("[dry-run] Would stage FFI artifacts for {lang} (platform: {platform})");
                 } else {
                     eprintln!("Staging FFI artifacts for {lang}...");
-                    // TODO: Phase 3 — implement ffi_stage()
-                    eprintln!("  FFI staging not yet implemented");
+                    let dest = ffi_stage::stage_ffi(config, lang, target, Path::new(&workspace_root))?;
+                    eprintln!("  staged to {}", dest.display());
+                    if let Some(header) = ffi_stage::stage_header(config, lang, target, Path::new(&workspace_root))? {
+                        eprintln!("  header staged to {}", header.display());
+                    }
                 }
             } else {
                 eprintln!("Skipping FFI staging for {lang}: no --target specified");
@@ -139,6 +159,30 @@ fn resolve_core_crate_dir(config: &AlefConfig) -> String {
         }
     }
     dir
+}
+
+/// Resolve the workspace root directory.
+fn resolve_workspace_root(config: &AlefConfig) -> String {
+    config
+        .crate_config
+        .workspace_root
+        .as_ref()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| ".".to_string())
+}
+
+/// Resolve the vendor destination directory for a language.
+fn resolve_vendor_dest(config: &AlefConfig, lang: Language) -> String {
+    let pkg_dir = config.package_dir(lang);
+    match lang {
+        Language::Ruby => format!("{pkg_dir}/vendor"),
+        Language::Elixir => {
+            let app_name = config.elixir_app_name();
+            format!("{pkg_dir}/native/{app_name}/vendor")
+        }
+        Language::R => format!("{pkg_dir}/src/rust"),
+        _ => format!("{pkg_dir}/vendor"),
+    }
 }
 
 /// Return the default vendor mode for a language.
