@@ -1,5 +1,5 @@
 use alef_core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
-use heck::{ToPascalCase, ToShoutySnakeCase};
+use heck::{ToPascalCase, ToShoutySnakeCase, ToSnakeCase};
 
 /// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
 /// These fields have no meaningful name and must be skipped in languages requiring named fields.
@@ -322,17 +322,29 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
                 let s = f.to_string();
                 if !s.contains('.') { format!("{}.0", s) } else { s }
             }
-            DefaultValue::EnumVariant(v) => match language {
-                "python" => format!("{}.{}", field.ty.type_name(), v.to_shouty_snake_case()),
-                "ruby" => format!("{}::{}", field.ty.type_name(), v.to_pascal_case()),
-                "go" => format!("{}{}", field.ty.type_name(), v.to_pascal_case()),
-                "java" => format!("{}.{}", field.ty.type_name(), v.to_shouty_snake_case()),
-                "csharp" => format!("{}.{}", field.ty.type_name(), v.to_pascal_case()),
-                "php" => format!("{}::{}", field.ty.type_name(), v.to_pascal_case()),
-                "r" => format!("{}${}", field.ty.type_name(), v.to_pascal_case()),
-                "rust" => format!("{}::{}", field.ty.type_name(), v.to_pascal_case()),
-                _ => v.clone(),
-            },
+            DefaultValue::EnumVariant(v) => {
+                // When the field's original enum type was excluded/sanitized and mapped to
+                // String, we must emit a string literal rather than an enum type path.
+                // Example: OutputFormat::Plain → "plain".to_string() (Rust), "plain" (others).
+                if matches!(field.ty, TypeRef::String) {
+                    let snake = v.to_snake_case();
+                    return match language {
+                        "rust" => format!("\"{}\".to_string()", snake),
+                        _ => format!("\"{}\"", snake),
+                    };
+                }
+                match language {
+                    "python" => format!("{}.{}", field.ty.type_name(), v.to_shouty_snake_case()),
+                    "ruby" => format!("{}::{}", field.ty.type_name(), v.to_pascal_case()),
+                    "go" => format!("{}{}", field.ty.type_name(), v.to_pascal_case()),
+                    "java" => format!("{}.{}", field.ty.type_name(), v.to_shouty_snake_case()),
+                    "csharp" => format!("{}.{}", field.ty.type_name(), v.to_pascal_case()),
+                    "php" => format!("{}::{}", field.ty.type_name(), v.to_pascal_case()),
+                    "r" => format!("{}${}", field.ty.type_name(), v.to_pascal_case()),
+                    "rust" => format!("{}::{}", field.ty.type_name(), v.to_pascal_case()),
+                    _ => v.clone(),
+                }
+            }
             DefaultValue::Empty => {
                 // Empty means "type's default" — check field type to pick the right zero value
                 match &field.ty {

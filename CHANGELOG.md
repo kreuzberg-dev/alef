@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- CLI: `alef fmt` command — run only format commands on generated output.
+- CLI: `alef update` command — orchestrate per-language dependency updates with sensible defaults. `--latest` flag for aggressive upgrades (incompatible/major version bumps).
+- CLI: `alef setup` command — install dependencies per language using per-language defaults or `[setup.<lang>]` config.
+- CLI: `alef clean` command — clean build artifacts per language using per-language defaults or `[clean.<lang>]` config.
+- CLI: `alef test --coverage` flag — run coverage commands defined in `[test.<lang>].coverage`.
+- Config: `StringOrVec` type for lint/update/test/setup/clean/build commands — supports both `format = "cmd"` and `format = ["cmd1", "cmd2"]` in alef.toml.
+- Config: `[update.<lang>]` sections in alef.toml with `update` (safe) and `upgrade` (latest) commands.
+- Config: `[setup.<lang>]` sections in alef.toml with `install` commands for dependency installation.
+- Config: `[clean.<lang>]` sections in alef.toml with `clean` commands for removing build artifacts.
+- Config: `[build_commands.<lang>]` sections in alef.toml with `build` and `build_release` commands (replaces hard-coded tool invocations).
+- Config: `coverage` field on `[test.<lang>]` — `TestConfig` fields migrated to `StringOrVec`; `command` and `e2e` also accept arrays.
+- Config: default lint commands for all 12 languages with autofixes enabled (ruff --fix, rubocop -A, clippy --fix, oxlint --fix).
+- Config: default update commands for all 12 languages (cargo update, pnpm up, uv sync, bundle update, composer update, go get, mvn versions, dotnet outdated, mix deps.update, etc.).
+- Config: default setup and clean commands for all 12 languages.
+- Scaffold (Node): generate `.oxfmtrc.json` (120 printWidth, tabs, import sorting) and `.oxlintrc.json` (correctness=error, suspicious=warn, style=off, typescript+import plugins).
+
+### Changed
+
+- CLI: `alef init` now runs full project bootstrap — generates alef.toml, extracts API, generates bindings, scaffolds manifests, and formats in one command.
+- CLI: `alef lint` refactored with `LintPhase` enum, uses `config.lint_config_for_language()` with per-language defaults instead of raw map lookup.
+- CLI: `alef generate` and `alef all` use built-in `fmt` instead of prek for post-generation formatting.
+- Scaffold (Node): replace Biome with Oxc toolchain — `oxfmt` + `oxlint` in package.json devDeps and scripts.
+- Scaffold (Java): strip cosmetic whitespace checks from checkstyle.xml (Spotless handles formatting). Remove WhitespaceAfter, WhitespaceAround, GenericWhitespace, EmptyBlock, NeedBraces, MagicNumber, JavadocPackage.
+- Scaffold (Go): update `.golangci.yml` to v2 format with full settings (errcheck exclude-functions, govet enable-all, misspell locale, revive rules, exclusions, formatters).
+- Scaffold (pre-commit): replace biome-format/biome-lint hooks with oxlint + oxfmt local hook.
+
+### Removed
+
+- CLI: `run_prek()` and `run_prek_autoupdate()` — prek is no longer auto-invoked during generation. Users can still use prek independently.
+
+### Fixed
+
+- Java backend: add missing `is_ffi_string_return()` and `java_ffi_return_cast()` marshal functions.
+- Java backend: fix `RECORD_LINE_WRAP_THRESHOLD` visibility (`pub(crate)`).
+
 ## [0.6.1] - 2026-04-23
 
 ### Fixed

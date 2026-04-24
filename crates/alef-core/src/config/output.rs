@@ -67,19 +67,69 @@ pub struct ReadmeConfig {
     pub languages: HashMap<String, JsonValue>,
 }
 
+/// A value that can be either a single string or a list of strings.
+///
+/// Deserializes from both `"cmd"` and `["cmd1", "cmd2"]` in TOML/JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum StringOrVec {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl StringOrVec {
+    /// Return all commands as a slice-like iterator.
+    pub fn commands(&self) -> Vec<&str> {
+        match self {
+            StringOrVec::Single(s) => vec![s.as_str()],
+            StringOrVec::Multiple(v) => v.iter().map(String::as_str).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LintConfig {
-    pub format: Option<String>,
-    pub check: Option<String>,
-    pub typecheck: Option<String>,
+    pub format: Option<StringOrVec>,
+    pub check: Option<StringOrVec>,
+    pub typecheck: Option<StringOrVec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    /// Command(s) for safe dependency updates (compatible versions only).
+    pub update: Option<StringOrVec>,
+    /// Command(s) for aggressive updates (including incompatible/major bumps).
+    pub upgrade: Option<StringOrVec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TestConfig {
     /// Command to run unit/integration tests for this language.
-    pub command: Option<String>,
+    pub command: Option<StringOrVec>,
     /// Command to run e2e tests for this language.
-    pub e2e: Option<String>,
+    pub e2e: Option<StringOrVec>,
+    /// Command to run tests with coverage for this language.
+    pub coverage: Option<StringOrVec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetupConfig {
+    /// Command(s) to install dependencies for this language.
+    pub install: Option<StringOrVec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanConfig {
+    /// Command(s) to clean build artifacts for this language.
+    pub clean: Option<StringOrVec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildCommandConfig {
+    /// Command(s) to build in debug mode.
+    pub build: Option<StringOrVec>,
+    /// Command(s) to build in release mode.
+    pub build_release: Option<StringOrVec>,
 }
 
 /// A single text replacement rule for version sync.
@@ -91,6 +141,277 @@ pub struct TextReplacement {
     pub search: String,
     /// Replacement string (may contain `{version}` placeholder).
     pub replace: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn string_or_vec_single_from_toml() {
+        let toml_str = r#"format = "ruff format""#;
+        #[derive(Deserialize)]
+        struct T {
+            format: StringOrVec,
+        }
+        let t: T = toml::from_str(toml_str).unwrap();
+        assert_eq!(t.format.commands(), vec!["ruff format"]);
+    }
+
+    #[test]
+    fn string_or_vec_multiple_from_toml() {
+        let toml_str = r#"format = ["cmd1", "cmd2", "cmd3"]"#;
+        #[derive(Deserialize)]
+        struct T {
+            format: StringOrVec,
+        }
+        let t: T = toml::from_str(toml_str).unwrap();
+        assert_eq!(t.format.commands(), vec!["cmd1", "cmd2", "cmd3"]);
+    }
+
+    #[test]
+    fn lint_config_backward_compat_string() {
+        let toml_str = r#"
+format = "ruff format ."
+check = "ruff check ."
+typecheck = "mypy ."
+"#;
+        let cfg: LintConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.format.unwrap().commands(), vec!["ruff format ."]);
+        assert_eq!(cfg.check.unwrap().commands(), vec!["ruff check ."]);
+        assert_eq!(cfg.typecheck.unwrap().commands(), vec!["mypy ."]);
+    }
+
+    #[test]
+    fn lint_config_array_commands() {
+        let toml_str = r#"
+format = ["cmd1", "cmd2"]
+check = "single-check"
+"#;
+        let cfg: LintConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.format.unwrap().commands(), vec!["cmd1", "cmd2"]);
+        assert_eq!(cfg.check.unwrap().commands(), vec!["single-check"]);
+        assert!(cfg.typecheck.is_none());
+    }
+
+    #[test]
+    fn lint_config_all_optional() {
+        let toml_str = "";
+        let cfg: LintConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.format.is_none());
+        assert!(cfg.check.is_none());
+        assert!(cfg.typecheck.is_none());
+    }
+
+    #[test]
+    fn update_config_from_toml() {
+        let toml_str = r#"
+update = "cargo update"
+upgrade = ["cargo upgrade --incompatible", "cargo update"]
+"#;
+        let cfg: UpdateConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.update.unwrap().commands(), vec!["cargo update"]);
+        assert_eq!(
+            cfg.upgrade.unwrap().commands(),
+            vec!["cargo upgrade --incompatible", "cargo update"]
+        );
+    }
+
+    #[test]
+    fn update_config_all_optional() {
+        let toml_str = "";
+        let cfg: UpdateConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.update.is_none());
+        assert!(cfg.upgrade.is_none());
+    }
+
+    #[test]
+    fn string_or_vec_empty_array_from_toml() {
+        let toml_str = "format = []";
+        #[derive(Deserialize)]
+        struct T {
+            format: StringOrVec,
+        }
+        let t: T = toml::from_str(toml_str).unwrap();
+        assert!(matches!(t.format, StringOrVec::Multiple(_)));
+        assert!(t.format.commands().is_empty());
+    }
+
+    #[test]
+    fn string_or_vec_single_element_array_from_toml() {
+        let toml_str = r#"format = ["cmd"]"#;
+        #[derive(Deserialize)]
+        struct T {
+            format: StringOrVec,
+        }
+        let t: T = toml::from_str(toml_str).unwrap();
+        assert_eq!(t.format.commands(), vec!["cmd"]);
+    }
+
+    #[test]
+    fn setup_config_single_string() {
+        let toml_str = r#"install = "uv sync""#;
+        let cfg: SetupConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.install.unwrap().commands(), vec!["uv sync"]);
+    }
+
+    #[test]
+    fn setup_config_array_commands() {
+        let toml_str = r#"install = ["step1", "step2"]"#;
+        let cfg: SetupConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.install.unwrap().commands(), vec!["step1", "step2"]);
+    }
+
+    #[test]
+    fn setup_config_all_optional() {
+        let toml_str = "";
+        let cfg: SetupConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.install.is_none());
+    }
+
+    #[test]
+    fn clean_config_single_string() {
+        let toml_str = r#"clean = "rm -rf dist""#;
+        let cfg: CleanConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.clean.unwrap().commands(), vec!["rm -rf dist"]);
+    }
+
+    #[test]
+    fn clean_config_array_commands() {
+        let toml_str = r#"clean = ["step1", "step2"]"#;
+        let cfg: CleanConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.clean.unwrap().commands(), vec!["step1", "step2"]);
+    }
+
+    #[test]
+    fn clean_config_all_optional() {
+        let toml_str = "";
+        let cfg: CleanConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.clean.is_none());
+    }
+
+    #[test]
+    fn build_command_config_single_strings() {
+        let toml_str = r#"
+build = "cargo build"
+build_release = "cargo build --release"
+"#;
+        let cfg: BuildCommandConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.build.unwrap().commands(), vec!["cargo build"]);
+        assert_eq!(cfg.build_release.unwrap().commands(), vec!["cargo build --release"]);
+    }
+
+    #[test]
+    fn build_command_config_array_commands() {
+        let toml_str = r#"
+build = ["step1", "step2"]
+build_release = ["step1 --release", "step2 --release"]
+"#;
+        let cfg: BuildCommandConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.build.unwrap().commands(), vec!["step1", "step2"]);
+        assert_eq!(
+            cfg.build_release.unwrap().commands(),
+            vec!["step1 --release", "step2 --release"]
+        );
+    }
+
+    #[test]
+    fn build_command_config_all_optional() {
+        let toml_str = "";
+        let cfg: BuildCommandConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.build.is_none());
+        assert!(cfg.build_release.is_none());
+    }
+
+    #[test]
+    fn test_config_backward_compat_string() {
+        let toml_str = r#"command = "pytest""#;
+        let cfg: TestConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.command.unwrap().commands(), vec!["pytest"]);
+        assert!(cfg.e2e.is_none());
+        assert!(cfg.coverage.is_none());
+    }
+
+    #[test]
+    fn test_config_array_command() {
+        let toml_str = r#"command = ["cmd1", "cmd2"]"#;
+        let cfg: TestConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.command.unwrap().commands(), vec!["cmd1", "cmd2"]);
+    }
+
+    #[test]
+    fn test_config_with_coverage() {
+        let toml_str = r#"
+command = "pytest"
+coverage = "pytest --cov=. --cov-report=term-missing"
+"#;
+        let cfg: TestConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.command.unwrap().commands(), vec!["pytest"]);
+        assert_eq!(
+            cfg.coverage.unwrap().commands(),
+            vec!["pytest --cov=. --cov-report=term-missing"]
+        );
+        assert!(cfg.e2e.is_none());
+    }
+
+    #[test]
+    fn test_config_all_optional() {
+        let toml_str = "";
+        let cfg: TestConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.command.is_none());
+        assert!(cfg.e2e.is_none());
+        assert!(cfg.coverage.is_none());
+    }
+
+    #[test]
+    fn full_alef_toml_with_lint_and_update() {
+        let toml_str = r#"
+languages = ["python", "node"]
+
+[crate]
+name = "test"
+sources = ["src/lib.rs"]
+
+[lint.python]
+format = "ruff format ."
+check = "ruff check --fix ."
+
+[lint.node]
+format = ["npx oxfmt", "npx oxlint --fix"]
+
+[update.python]
+update = "uv sync --upgrade"
+upgrade = "uv sync --all-packages --all-extras --upgrade"
+
+[update.node]
+update = "pnpm up -r"
+upgrade = ["corepack up", "pnpm up --latest -r -w"]
+"#;
+        let cfg: super::super::AlefConfig = toml::from_str(toml_str).unwrap();
+        let lint_map = cfg.lint.as_ref().unwrap();
+        assert!(lint_map.contains_key("python"));
+        assert!(lint_map.contains_key("node"));
+
+        let py_lint = lint_map.get("python").unwrap();
+        assert_eq!(py_lint.format.as_ref().unwrap().commands(), vec!["ruff format ."]);
+
+        let node_lint = lint_map.get("node").unwrap();
+        assert_eq!(
+            node_lint.format.as_ref().unwrap().commands(),
+            vec!["npx oxfmt", "npx oxlint --fix"]
+        );
+
+        let update_map = cfg.update.as_ref().unwrap();
+        assert!(update_map.contains_key("python"));
+        assert!(update_map.contains_key("node"));
+
+        let node_update = update_map.get("node").unwrap();
+        assert_eq!(node_update.update.as_ref().unwrap().commands(), vec!["pnpm up -r"]);
+        assert_eq!(
+            node_update.upgrade.as_ref().unwrap().commands(),
+            vec!["corepack up", "pnpm up --latest -r -w"]
+        );
+    }
 }
 
 /// Configuration for the `sync-versions` command.

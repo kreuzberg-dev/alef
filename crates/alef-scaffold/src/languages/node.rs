@@ -4,7 +4,7 @@ use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-pub fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
@@ -58,7 +58,7 @@ workspace = true
     }])
 }
 
-pub fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let package_name = config.node_package_name();
     let name = &config.crate_config.name;
@@ -103,9 +103,10 @@ pub fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Ve
     "build:debug": "napi build",
     "build:ts": "echo 'No TypeScript wrapper to build'",
     "test": "node -e \"console.log('Add test command')\"",
-    "lint": "biome check src",
-    "lint:fix": "biome check --write src",
-    "format": "biome format --write src"
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix"
   }},
   "napi": {{
     "name": "{name}",
@@ -118,7 +119,8 @@ pub fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Ve
   }},
   "devDependencies": {{
     "@napi-rs/cli": "^3.0.0",
-    "@biomejs/biome": "^2.4.12",
+    "oxfmt": "latest",
+    "oxlint": "latest",
     "typescript": "^6.0.3"
   }}
 }}
@@ -225,6 +227,63 @@ pub fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Ve
     "noEmit": true
   },
   "include": ["src"]
+}
+"#
+            .to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/.oxfmtrc.json")),
+            content: r#"{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 120,
+  "useTabs": true,
+  "tabWidth": 4,
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "arrowParens": "always",
+  "endOfLine": "lf",
+  "bracketSpacing": true,
+  "sortImports": true,
+  "sortPackageJson": true
+}
+"#
+            .to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/.oxlintrc.json")),
+            content: r#"{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "pedantic": "off",
+    "perf": "warn",
+    "style": "off",
+    "restriction": "off"
+  },
+  "plugins": ["typescript", "import"],
+  "env": {
+    "es6": true,
+    "node": true
+  },
+  "rules": {
+    "no-console": "warn",
+    "no-unused-vars": "warn",
+    "typescript/no-explicit-any": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["**/tests/**", "**/*.test.ts", "**/*.spec.ts"],
+      "rules": {
+        "no-console": "off",
+        "no-unused-vars": "off",
+        "typescript/no-explicit-any": "off"
+      }
+    }
+  ]
 }
 "#
             .to_string(),

@@ -2,12 +2,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+pub mod build_defaults;
+pub mod clean_defaults;
 pub mod dto;
 pub mod e2e;
 pub mod extras;
 pub mod languages;
+pub mod lint_defaults;
 pub mod output;
+pub mod setup_defaults;
+pub mod test_defaults;
 pub mod trait_bridge;
+pub mod update_defaults;
 
 // Re-exports for backward compatibility — all types were previously flat in config.rs.
 pub use dto::{
@@ -21,8 +27,8 @@ pub use languages::{
     GoConfig, JavaConfig, NodeConfig, PhpConfig, PythonConfig, RConfig, RubyConfig, StubsConfig, WasmConfig,
 };
 pub use output::{
-    ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig, ScaffoldConfig, SyncConfig, TestConfig,
-    TextReplacement,
+    BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
+    ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, TextReplacement, UpdateConfig,
 };
 pub use trait_bridge::TraitBridgeConfig;
 
@@ -67,7 +73,15 @@ pub struct AlefConfig {
     #[serde(default)]
     pub lint: Option<HashMap<String, LintConfig>>,
     #[serde(default)]
+    pub update: Option<HashMap<String, UpdateConfig>>,
+    #[serde(default)]
     pub test: Option<HashMap<String, TestConfig>>,
+    #[serde(default)]
+    pub setup: Option<HashMap<String, SetupConfig>>,
+    #[serde(default)]
+    pub clean: Option<HashMap<String, CleanConfig>>,
+    #[serde(default)]
+    pub build_commands: Option<HashMap<String, BuildCommandConfig>>,
     #[serde(default)]
     pub custom_files: Option<HashMap<String, Vec<PathBuf>>>,
     #[serde(default)]
@@ -287,6 +301,97 @@ impl AlefConfig {
                 _ => format!("packages/{lang}"),
             }
         }
+    }
+
+    /// Get the effective lint configuration for a language.
+    ///
+    /// Returns the explicit `[lint.<lang>]` config if present in alef.toml,
+    /// otherwise falls back to sensible defaults for the language.
+    pub fn lint_config_for_language(&self, lang: extras::Language) -> output::LintConfig {
+        if let Some(lint_map) = &self.lint {
+            let lang_str = lang.to_string();
+            if let Some(explicit) = lint_map.get(&lang_str) {
+                return explicit.clone();
+            }
+        }
+        let output_dir = self.package_dir(lang);
+        lint_defaults::default_lint_config(lang, &output_dir)
+    }
+
+    /// Get the effective update configuration for a language.
+    ///
+    /// Returns the explicit `[update.<lang>]` config if present in alef.toml,
+    /// otherwise falls back to sensible defaults for the language.
+    pub fn update_config_for_language(&self, lang: extras::Language) -> output::UpdateConfig {
+        if let Some(update_map) = &self.update {
+            let lang_str = lang.to_string();
+            if let Some(explicit) = update_map.get(&lang_str) {
+                return explicit.clone();
+            }
+        }
+        let output_dir = self.package_dir(lang);
+        update_defaults::default_update_config(lang, &output_dir)
+    }
+
+    /// Get the effective test configuration for a language.
+    ///
+    /// Returns the explicit `[test.<lang>]` config if present in alef.toml,
+    /// otherwise falls back to sensible defaults for the language.
+    pub fn test_config_for_language(&self, lang: extras::Language) -> output::TestConfig {
+        if let Some(test_map) = &self.test {
+            let lang_str = lang.to_string();
+            if let Some(explicit) = test_map.get(&lang_str) {
+                return explicit.clone();
+            }
+        }
+        let output_dir = self.package_dir(lang);
+        test_defaults::default_test_config(lang, &output_dir)
+    }
+
+    /// Get the effective setup configuration for a language.
+    ///
+    /// Returns the explicit `[setup.<lang>]` config if present in alef.toml,
+    /// otherwise falls back to sensible defaults for the language.
+    pub fn setup_config_for_language(&self, lang: extras::Language) -> output::SetupConfig {
+        if let Some(setup_map) = &self.setup {
+            let lang_str = lang.to_string();
+            if let Some(explicit) = setup_map.get(&lang_str) {
+                return explicit.clone();
+            }
+        }
+        let output_dir = self.package_dir(lang);
+        setup_defaults::default_setup_config(lang, &output_dir)
+    }
+
+    /// Get the effective clean configuration for a language.
+    ///
+    /// Returns the explicit `[clean.<lang>]` config if present in alef.toml,
+    /// otherwise falls back to sensible defaults for the language.
+    pub fn clean_config_for_language(&self, lang: extras::Language) -> output::CleanConfig {
+        if let Some(clean_map) = &self.clean {
+            let lang_str = lang.to_string();
+            if let Some(explicit) = clean_map.get(&lang_str) {
+                return explicit.clone();
+            }
+        }
+        let output_dir = self.package_dir(lang);
+        clean_defaults::default_clean_config(lang, &output_dir)
+    }
+
+    /// Get the effective build command configuration for a language.
+    ///
+    /// Returns the explicit `[build_commands.<lang>]` config if present in alef.toml,
+    /// otherwise falls back to sensible defaults for the language.
+    pub fn build_command_config_for_language(&self, lang: extras::Language) -> output::BuildCommandConfig {
+        if let Some(build_map) = &self.build_commands {
+            let lang_str = lang.to_string();
+            if let Some(explicit) = build_map.get(&lang_str) {
+                return explicit.clone();
+            }
+        }
+        let output_dir = self.package_dir(lang);
+        let crate_name = &self.crate_config.name;
+        build_defaults::default_build_config(lang, &output_dir, crate_name)
     }
 
     /// Get the core crate import path (e.g., "liter_llm"). Used by codegen to call into the core crate.
@@ -756,4 +861,313 @@ fn cargo_toml_has_serde(path: &std::path::Path) -> bool {
     });
 
     has_serde_json && has_serde_dep
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_config() -> AlefConfig {
+        toml::from_str(
+            r#"
+languages = ["python", "node", "rust"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn lint_config_falls_back_to_defaults() {
+        let config = minimal_config();
+        assert!(config.lint.is_none());
+
+        let py = config.lint_config_for_language(Language::Python);
+        assert!(py.format.is_some());
+        assert!(py.check.is_some());
+        assert!(py.typecheck.is_some());
+
+        let node = config.lint_config_for_language(Language::Node);
+        assert!(node.format.is_some());
+        assert!(node.check.is_some());
+    }
+
+    #[test]
+    fn lint_config_explicit_overrides_default() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[lint.python]
+format = "custom-formatter"
+check = "custom-checker"
+"#,
+        )
+        .unwrap();
+
+        let py = config.lint_config_for_language(Language::Python);
+        assert_eq!(py.format.unwrap().commands(), vec!["custom-formatter"]);
+        assert_eq!(py.check.unwrap().commands(), vec!["custom-checker"]);
+        assert!(py.typecheck.is_none()); // explicit config had no typecheck
+    }
+
+    #[test]
+    fn lint_config_partial_override_does_not_merge() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[lint.python]
+format = "only-format"
+"#,
+        )
+        .unwrap();
+
+        let py = config.lint_config_for_language(Language::Python);
+        assert_eq!(py.format.unwrap().commands(), vec!["only-format"]);
+        // Explicit config replaces entirely, no fallback for missing fields
+        assert!(py.check.is_none());
+        assert!(py.typecheck.is_none());
+    }
+
+    #[test]
+    fn lint_config_unconfigured_language_uses_defaults() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python", "node"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[lint.python]
+format = "custom"
+"#,
+        )
+        .unwrap();
+
+        // Python uses explicit config
+        let py = config.lint_config_for_language(Language::Python);
+        assert_eq!(py.format.unwrap().commands(), vec!["custom"]);
+
+        // Node falls back to defaults since not in [lint]
+        let node = config.lint_config_for_language(Language::Node);
+        let fmt = node.format.unwrap().commands().join(" ");
+        assert!(fmt.contains("oxfmt"));
+    }
+
+    #[test]
+    fn update_config_falls_back_to_defaults() {
+        let config = minimal_config();
+        assert!(config.update.is_none());
+
+        let py = config.update_config_for_language(Language::Python);
+        assert!(py.update.is_some());
+        assert!(py.upgrade.is_some());
+
+        let rust = config.update_config_for_language(Language::Rust);
+        let update = rust.update.unwrap().commands().join(" ");
+        assert!(update.contains("cargo update"));
+    }
+
+    #[test]
+    fn update_config_explicit_overrides_default() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["rust"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[update.rust]
+update = "my-custom-update"
+upgrade = ["step1", "step2"]
+"#,
+        )
+        .unwrap();
+
+        let rust = config.update_config_for_language(Language::Rust);
+        assert_eq!(rust.update.unwrap().commands(), vec!["my-custom-update"]);
+        assert_eq!(rust.upgrade.unwrap().commands(), vec!["step1", "step2"]);
+    }
+
+    #[test]
+    fn test_config_falls_back_to_defaults() {
+        let config = minimal_config();
+        assert!(config.test.is_none());
+
+        let py = config.test_config_for_language(Language::Python);
+        assert!(py.command.is_some());
+        assert!(py.coverage.is_some());
+        assert!(py.e2e.is_none());
+
+        let rust = config.test_config_for_language(Language::Rust);
+        let cmd = rust.command.unwrap().commands().join(" ");
+        assert!(cmd.contains("cargo test"));
+    }
+
+    #[test]
+    fn test_config_explicit_overrides_default() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[test.python]
+command = "my-custom-test"
+"#,
+        )
+        .unwrap();
+
+        let py = config.test_config_for_language(Language::Python);
+        assert_eq!(py.command.unwrap().commands(), vec!["my-custom-test"]);
+        assert!(py.coverage.is_none()); // explicit config had no coverage
+    }
+
+    #[test]
+    fn setup_config_falls_back_to_defaults() {
+        let config = minimal_config();
+        assert!(config.setup.is_none());
+
+        let py = config.setup_config_for_language(Language::Python);
+        assert!(py.install.is_some());
+        let install = py.install.unwrap().commands().join(" ");
+        assert!(install.contains("uv sync"));
+
+        let rust = config.setup_config_for_language(Language::Rust);
+        let install = rust.install.unwrap().commands().join(" ");
+        assert!(install.contains("rustup update"));
+    }
+
+    #[test]
+    fn setup_config_explicit_overrides_default() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["python"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[setup.python]
+install = "my-custom-install"
+"#,
+        )
+        .unwrap();
+
+        let py = config.setup_config_for_language(Language::Python);
+        assert_eq!(py.install.unwrap().commands(), vec!["my-custom-install"]);
+    }
+
+    #[test]
+    fn clean_config_falls_back_to_defaults() {
+        let config = minimal_config();
+        assert!(config.clean.is_none());
+
+        let py = config.clean_config_for_language(Language::Python);
+        assert!(py.clean.is_some());
+        let clean = py.clean.unwrap().commands().join(" ");
+        assert!(clean.contains("__pycache__"));
+
+        let rust = config.clean_config_for_language(Language::Rust);
+        let clean = rust.clean.unwrap().commands().join(" ");
+        assert!(clean.contains("cargo clean"));
+    }
+
+    #[test]
+    fn clean_config_explicit_overrides_default() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["rust"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[clean.rust]
+clean = "my-custom-clean"
+"#,
+        )
+        .unwrap();
+
+        let rust = config.clean_config_for_language(Language::Rust);
+        assert_eq!(rust.clean.unwrap().commands(), vec!["my-custom-clean"]);
+    }
+
+    #[test]
+    fn build_command_config_falls_back_to_defaults() {
+        let config = minimal_config();
+        assert!(config.build_commands.is_none());
+
+        let py = config.build_command_config_for_language(Language::Python);
+        assert!(py.build.is_some());
+        assert!(py.build_release.is_some());
+        let build = py.build.unwrap().commands().join(" ");
+        assert!(build.contains("maturin develop"));
+
+        let rust = config.build_command_config_for_language(Language::Rust);
+        let build = rust.build.unwrap().commands().join(" ");
+        assert!(build.contains("cargo build --workspace"));
+    }
+
+    #[test]
+    fn build_command_config_explicit_overrides_default() {
+        let config: AlefConfig = toml::from_str(
+            r#"
+languages = ["rust"]
+
+[crate]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[build_commands.rust]
+build = "my-custom-build"
+build_release = "my-custom-build --release"
+"#,
+        )
+        .unwrap();
+
+        let rust = config.build_command_config_for_language(Language::Rust);
+        assert_eq!(rust.build.unwrap().commands(), vec!["my-custom-build"]);
+        assert_eq!(
+            rust.build_release.unwrap().commands(),
+            vec!["my-custom-build --release"]
+        );
+    }
+
+    #[test]
+    fn build_command_config_uses_crate_name() {
+        let config = minimal_config();
+        let py = config.build_command_config_for_language(Language::Python);
+        let build = py.build.unwrap().commands().join(" ");
+        assert!(
+            build.contains("test-lib-py"),
+            "Python build should reference crate name, got: {build}"
+        );
+    }
+
+    #[test]
+    fn package_dir_defaults_are_correct() {
+        let config = minimal_config();
+        assert_eq!(config.package_dir(Language::Python), "packages/python");
+        assert_eq!(config.package_dir(Language::Node), "packages/node");
+        assert_eq!(config.package_dir(Language::Ruby), "packages/ruby");
+        assert_eq!(config.package_dir(Language::Go), "packages/go");
+        assert_eq!(config.package_dir(Language::Java), "packages/java");
+    }
 }

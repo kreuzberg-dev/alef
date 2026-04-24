@@ -97,11 +97,8 @@ impl Backend for WasmBackend {
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::unnecessary_cast, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)");
         builder.add_import("wasm_bindgen::prelude::*");
 
-        // Always import js_sys — it's used by error converters (js_sys::Object, js_sys::Reflect)
-        // and trait bridge code (js_sys::Reflect, js_sys::Function, js_sys::Object, js_sys::Array).
-        // Note: builder.add_import("js_sys") is a no-op because the builder skips bare crate
-        // names without `::`. Use add_item to emit a raw `use js_sys;` statement instead.
-        builder.add_item("use js_sys;");
+        // js_sys items are always referenced with full paths (js_sys::Object, js_sys::Reflect, etc.)
+        // so no explicit `use js_sys;` import is needed (clippy::single_component_path_imports).
 
         // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {

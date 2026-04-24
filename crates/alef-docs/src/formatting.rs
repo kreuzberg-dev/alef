@@ -286,3 +286,406 @@ pub(crate) fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: boo
     }
     doc_type(ty, lang, ffi_prefix)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{empty_api, make_field, TEST_PREFIX};
+    use alef_core::config::Language;
+    use alef_core::ir::{DefaultValue, PrimitiveType, TypeRef};
+
+    #[test]
+    fn test_doc_type_with_optional_true_wraps_correctly() {
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Python, true, TEST_PREFIX),
+            "str | None"
+        );
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Node, true, TEST_PREFIX),
+            "string | null"
+        );
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Go, true, TEST_PREFIX),
+            "*string"
+        );
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Csharp, true, TEST_PREFIX),
+            "string?"
+        );
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Ruby, true, TEST_PREFIX),
+            "String?"
+        );
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Php, true, TEST_PREFIX),
+            "?string"
+        );
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Elixir, true, TEST_PREFIX),
+            "String.t() | nil"
+        );
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::R, true, TEST_PREFIX),
+            "character or NULL"
+        );
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Rust, true, TEST_PREFIX),
+            "Option<String>"
+        );
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Ffi, true, TEST_PREFIX),
+            "const char**"
+        );
+    }
+
+    #[test]
+    fn test_doc_type_with_optional_false_is_identity() {
+        for lang in [
+            Language::Python,
+            Language::Node,
+            Language::Go,
+            Language::Java,
+            Language::Rust,
+        ] {
+            assert_eq!(
+                doc_type_with_optional(&TypeRef::String, lang, false, TEST_PREFIX),
+                crate::doc_type(&TypeRef::String, lang, TEST_PREFIX),
+                "optional=false should be identity for {lang:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_doc_type_with_optional_does_not_double_wrap_already_optional_type() {
+        let already_optional = TypeRef::Optional(Box::new(TypeRef::String));
+        assert_eq!(
+            doc_type_with_optional(&already_optional, Language::Python, true, TEST_PREFIX),
+            "str | None"
+        );
+        assert_eq!(
+            doc_type_with_optional(&already_optional, Language::Rust, true, TEST_PREFIX),
+            "Option<String>"
+        );
+    }
+
+    #[test]
+    fn test_doc_type_with_optional_java_boxes_primitive_i32() {
+        assert_eq!(
+            doc_type_with_optional(
+                &TypeRef::Primitive(PrimitiveType::I32),
+                Language::Java,
+                true,
+                TEST_PREFIX
+            ),
+            "Optional<Integer>"
+        );
+    }
+
+    #[test]
+    fn test_doc_type_with_optional_java_boxes_primitive_bool() {
+        assert_eq!(
+            doc_type_with_optional(
+                &TypeRef::Primitive(PrimitiveType::Bool),
+                Language::Java,
+                true,
+                TEST_PREFIX
+            ),
+            "Optional<Boolean>"
+        );
+    }
+
+    #[test]
+    fn test_doc_type_with_optional_java_boxes_primitive_f64() {
+        assert_eq!(
+            doc_type_with_optional(
+                &TypeRef::Primitive(PrimitiveType::F64),
+                Language::Java,
+                true,
+                TEST_PREFIX
+            ),
+            "Optional<Double>"
+        );
+    }
+
+    #[test]
+    fn test_doc_type_with_optional_java_non_primitive_not_double_boxed() {
+        assert_eq!(
+            doc_type_with_optional(&TypeRef::String, Language::Java, true, TEST_PREFIX),
+            "Optional<String>"
+        );
+    }
+
+    #[test]
+    fn test_format_default_bool_literal_python_uses_capitalised_form() {
+        let api = empty_api();
+        let field_true = make_field(
+            "flag",
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            Some(DefaultValue::BoolLiteral(true)),
+        );
+        let field_false = make_field(
+            "flag",
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            Some(DefaultValue::BoolLiteral(false)),
+        );
+        assert_eq!(
+            format_field_default(&field_true, Language::Python, &api, TEST_PREFIX),
+            "`True`"
+        );
+        assert_eq!(
+            format_field_default(&field_false, Language::Python, &api, TEST_PREFIX),
+            "`False`"
+        );
+    }
+
+    #[test]
+    fn test_format_default_bool_literal_non_python_uses_lowercase_form() {
+        let api = empty_api();
+        let field_true = make_field(
+            "flag",
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+            Some(DefaultValue::BoolLiteral(true)),
+        );
+        for lang in [Language::Rust, Language::Java, Language::Go, Language::Node] {
+            assert_eq!(
+                format_field_default(&field_true, lang, &api, TEST_PREFIX),
+                "`true`",
+                "bool literal for {lang:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_format_default_string_literal_all_languages_produce_quoted_form() {
+        let api = empty_api();
+        let field = make_field(
+            "name",
+            TypeRef::String,
+            false,
+            Some(DefaultValue::StringLiteral("hello".to_string())),
+        );
+        for lang in [
+            Language::Python,
+            Language::Rust,
+            Language::Java,
+            Language::Go,
+            Language::Node,
+        ] {
+            assert_eq!(
+                format_field_default(&field, lang, &api, TEST_PREFIX),
+                "`\"hello\"`",
+                "string literal for {lang:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_format_default_int_literal() {
+        let api = empty_api();
+        let field = make_field(
+            "count",
+            TypeRef::Primitive(PrimitiveType::U32),
+            false,
+            Some(DefaultValue::IntLiteral(42)),
+        );
+        for lang in [Language::Python, Language::Rust, Language::Java, Language::Node] {
+            assert_eq!(
+                format_field_default(&field, lang, &api, TEST_PREFIX),
+                "`42`",
+                "int literal for {lang:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_format_default_int_literal_on_duration_field_shows_ms_suffix() {
+        let api = empty_api();
+        let field = make_field(
+            "timeout",
+            TypeRef::Duration,
+            false,
+            Some(DefaultValue::IntLiteral(5000)),
+        );
+        for lang in [Language::Python, Language::Rust, Language::Java, Language::Go] {
+            assert_eq!(
+                format_field_default(&field, lang, &api, TEST_PREFIX),
+                "`5000ms`",
+                "duration field should show ms suffix for {lang:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_format_default_float_literal() {
+        let api = empty_api();
+        let field = make_field(
+            "confidence",
+            TypeRef::Primitive(PrimitiveType::F32),
+            false,
+            Some(DefaultValue::FloatLiteral(0.85)),
+        );
+        for lang in [Language::Python, Language::Rust, Language::Java] {
+            assert_eq!(
+                format_field_default(&field, lang, &api, TEST_PREFIX),
+                "`0.85`",
+                "float literal for {lang:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_format_default_enum_variant_qualified_python_and_rust() {
+        let api = empty_api();
+        let field = make_field(
+            "style",
+            TypeRef::Named("HeadingStyle".to_string()),
+            false,
+            Some(DefaultValue::EnumVariant("HeadingStyle::Atx".to_string())),
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Python, &api, TEST_PREFIX),
+            "`HeadingStyle.ATX`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Rust, &api, TEST_PREFIX),
+            "`HeadingStyle::Atx`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Java, &api, TEST_PREFIX),
+            "`HeadingStyle.ATX`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Ruby, &api, TEST_PREFIX),
+            "`:atx`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Php, &api, TEST_PREFIX),
+            "`HeadingStyle::Atx`"
+        );
+    }
+
+    #[test]
+    fn test_format_default_empty_vec_field() {
+        let api = empty_api();
+        let field = make_field(
+            "items",
+            TypeRef::Vec(Box::new(TypeRef::String)),
+            false,
+            Some(DefaultValue::Empty),
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Python, &api, TEST_PREFIX),
+            "`[]`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Rust, &api, TEST_PREFIX),
+            "`vec![]`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Java, &api, TEST_PREFIX),
+            "`Collections.emptyList()`"
+        );
+        assert_eq!(format_field_default(&field, Language::Go, &api, TEST_PREFIX), "`nil`");
+        assert_eq!(
+            format_field_default(&field, Language::Csharp, &api, TEST_PREFIX),
+            "`new List<string>()`"
+        );
+        assert_eq!(format_field_default(&field, Language::R, &api, TEST_PREFIX), "`list()`");
+        assert_eq!(format_field_default(&field, Language::Ruby, &api, TEST_PREFIX), "`[]`");
+        assert_eq!(
+            format_field_default(&field, Language::Elixir, &api, TEST_PREFIX),
+            "`[]`"
+        );
+        assert_eq!(format_field_default(&field, Language::Ffi, &api, TEST_PREFIX), "`NULL`");
+    }
+
+    #[test]
+    fn test_format_default_empty_map_field() {
+        let api = empty_api();
+        let field = make_field(
+            "attributes",
+            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+            false,
+            Some(DefaultValue::Empty),
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Python, &api, TEST_PREFIX),
+            "`{}`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Rust, &api, TEST_PREFIX),
+            "`HashMap::new()`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Java, &api, TEST_PREFIX),
+            "`Collections.emptyMap()`"
+        );
+        assert_eq!(format_field_default(&field, Language::Go, &api, TEST_PREFIX), "`nil`");
+        assert_eq!(
+            format_field_default(&field, Language::Elixir, &api, TEST_PREFIX),
+            "`%{}`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Csharp, &api, TEST_PREFIX),
+            "`new Dictionary<string, string>()`"
+        );
+    }
+
+    #[test]
+    fn test_format_default_none_on_optional_field() {
+        let api = empty_api();
+        let field = make_field("label", TypeRef::String, true, Some(DefaultValue::None));
+        assert_eq!(
+            format_field_default(&field, Language::Python, &api, TEST_PREFIX),
+            "`None`"
+        );
+        assert_eq!(
+            format_field_default(&field, Language::Node, &api, TEST_PREFIX),
+            "`null`"
+        );
+        assert_eq!(format_field_default(&field, Language::Go, &api, TEST_PREFIX), "`nil`");
+        assert_eq!(
+            format_field_default(&field, Language::Rust, &api, TEST_PREFIX),
+            "`None`"
+        );
+        assert_eq!(format_field_default(&field, Language::Ffi, &api, TEST_PREFIX), "`NULL`");
+        assert_eq!(format_field_default(&field, Language::R, &api, TEST_PREFIX), "`NULL`");
+    }
+
+    #[test]
+    fn test_format_default_none_on_non_optional_field_returns_dash() {
+        let api = empty_api();
+        let field = make_field(
+            "count",
+            TypeRef::Primitive(PrimitiveType::U32),
+            false,
+            Some(DefaultValue::None),
+        );
+        assert_eq!(format_field_default(&field, Language::Python, &api, TEST_PREFIX), "—");
+    }
+
+    #[test]
+    fn test_format_default_empty_duration_shows_zero_ms_for_non_rust() {
+        let api = empty_api();
+        let field = make_field("timeout", TypeRef::Duration, false, Some(DefaultValue::Empty));
+        assert_eq!(
+            format_field_default(&field, Language::Python, &api, TEST_PREFIX),
+            "`0ms`"
+        );
+        assert_eq!(format_field_default(&field, Language::Java, &api, TEST_PREFIX), "`0ms`");
+        assert_eq!(format_field_default(&field, Language::Go, &api, TEST_PREFIX), "`0ms`");
+    }
+
+    #[test]
+    fn test_format_default_empty_duration_rust_shows_duration_default() {
+        let api = empty_api();
+        let field = make_field("timeout", TypeRef::Duration, false, Some(DefaultValue::Empty));
+        assert_eq!(
+            format_field_default(&field, Language::Rust, &api, TEST_PREFIX),
+            "`Duration::default()`"
+        );
+    }
+}

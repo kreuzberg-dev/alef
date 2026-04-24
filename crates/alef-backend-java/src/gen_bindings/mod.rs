@@ -1,88 +1,23 @@
 use ahash::AHashSet;
-use alef_codegen::naming::{to_class_name, to_java_name};
+use alef_codegen::naming::to_class_name;
 use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-mod functions;
+mod facade;
+mod ffi_class;
 mod helpers;
 mod marshal;
+mod native_lib;
 mod types;
 
-use functions::{gen_facade_class, gen_main_class, gen_native_lib};
+use facade::gen_facade_class;
+use ffi_class::gen_main_class;
 use helpers::gen_exception_class;
+use native_lib::gen_native_lib;
 use types::{gen_builder_class, gen_enum_class, gen_opaque_handle_class, gen_record_type};
-
-/// Names that conflict with methods on `java.lang.Object` and are therefore
-/// illegal as record component names or method names in generated Java code.
-const JAVA_OBJECT_METHOD_NAMES: &[&str] = &[
-    "wait",
-    "notify",
-    "notifyAll",
-    "getClass",
-    "hashCode",
-    "equals",
-    "toString",
-    "clone",
-    "finalize",
-];
-
-/// Returns true if `name` is a tuple/unnamed field index such as `"0"`, `"1"`, `"_0"`, `"_1"`.
-/// Serde represents tuple and newtype variant fields with these numeric names. They are not
-/// real JSON keys and must not be used as Java identifiers.
-/// Escape a string for use inside a Javadoc comment.
-/// Replaces `*/` (which would close the comment) and `@` (which starts a tag).
-pub(crate) fn escape_javadoc_line(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '`' {
-            let mut code = String::new();
-            for c in chars.by_ref() {
-                if c == '`' {
-                    break;
-                }
-                code.push(c);
-            }
-            result.push_str("{@code ");
-            result.push_str(&code);
-            result.push('}');
-        } else if ch == '<' {
-            result.push_str("&lt;");
-        } else if ch == '>' {
-            result.push_str("&gt;");
-        } else if ch == '&' {
-            result.push_str("&amp;");
-        } else if ch == '*' && chars.peek() == Some(&'/') {
-            chars.next();
-            result.push_str("* /");
-        } else if ch == '@' {
-            result.push_str("{@literal @}");
-        } else {
-            result.push(ch);
-        }
-    }
-    result
-}
-
-pub(crate) fn is_tuple_field_name(name: &str) -> bool {
-    let stripped = name.trim_start_matches('_');
-    !stripped.is_empty() && stripped.chars().all(|c| c.is_ascii_digit())
-}
-
-/// Sanitise a field/parameter name that would conflict with `java.lang.Object`
-/// methods.  Conflicting names get a `_` suffix (e.g. `wait` -> `wait_`), which
-/// is then converted to camelCase by `to_java_name`.
-pub(crate) fn safe_java_field_name(name: &str) -> String {
-    let java_name = to_java_name(name);
-    if JAVA_OBJECT_METHOD_NAMES.contains(&java_name.as_str()) {
-        format!("{}Value", java_name)
-    } else {
-        java_name
-    }
-}
 
 pub struct JavaBackend;
 

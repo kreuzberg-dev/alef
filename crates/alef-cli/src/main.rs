@@ -14,6 +14,10 @@ struct Cli {
     #[arg(long, default_value = "alef.toml")]
     config: PathBuf,
 
+    /// Maximum parallel jobs (0 = all cores, 1 = sequential).
+    #[arg(short, long, default_value = "0", global = true)]
+    jobs: usize,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -71,6 +75,12 @@ enum Commands {
         #[arg(long)]
         set: Option<String>,
     },
+    /// Run format commands on generated output.
+    Fmt {
+        /// Comma-separated list of languages.
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+    },
     /// Run configured lint/format commands on generated output.
     Lint {
         /// Comma-separated list of languages.
@@ -85,6 +95,30 @@ enum Commands {
         /// Also run e2e tests.
         #[arg(long)]
         e2e: bool,
+        /// Run with coverage collection.
+        #[arg(long)]
+        coverage: bool,
+    },
+    /// Install dependencies for each language.
+    Setup {
+        /// Comma-separated list of languages.
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+    },
+    /// Clean build artifacts for each language.
+    Clean {
+        /// Comma-separated list of languages.
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+    },
+    /// Update dependencies for each language.
+    Update {
+        /// Comma-separated list of languages.
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+        /// Upgrade to latest versions, including incompatible/major bumps.
+        #[arg(long)]
+        latest: bool,
     },
     /// Verify bindings are up to date and API surface parity.
     Verify {
@@ -185,6 +219,14 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Configure rayon thread pool based on --jobs flag
+    if cli.jobs > 0 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(cli.jobs)
+            .build_global()
+            .ok();
+    }
+
     let config_path = &cli.config;
 
     match cli.command {
@@ -277,12 +319,12 @@ fn main() -> Result<()> {
             }
 
             if any_written {
-                // Format and lint all generated files via prek (best-effort).
+                // Format generated files using configured formatters.
                 // Generation hashes are already stored from in-memory content
                 // (pre-formatter), so formatter modifications don't affect
                 // staleness detection. `alef verify` compares generation-to-
                 // generation, never consulting on-disk state.
-                pipeline::run_prek();
+                pipeline::fmt(&config, &languages)?;
             }
 
             println!("Generated {total_written} files");
@@ -336,16 +378,10 @@ fn main() -> Result<()> {
             }
             eprintln!("Generating scaffolding for: {}", format_languages(&languages));
             let files = pipeline::scaffold(&api, &config, &languages)?;
-            let has_pre_commit = files.iter().any(|f| f.path.ends_with(".pre-commit-config.yaml"));
             let base_dir = std::env::current_dir()?;
             let count = pipeline::write_scaffold_files(&files, &base_dir)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
             cache::write_stage_hash("scaffold", &stage_hash, &output_paths)?;
-            // If a new .pre-commit-config.yaml was scaffolded, run prek autoupdate
-            // to bump hook revisions to the latest available versions.
-            if has_pre_commit {
-                pipeline::run_prek_autoupdate();
-            }
             println!("Generated {count} scaffold files");
             Ok(())
         }
@@ -410,6 +446,14 @@ fn main() -> Result<()> {
             println!("Build complete");
             Ok(())
         }
+        Commands::Fmt { lang } => {
+            let config = load_config(config_path)?;
+            let languages = resolve_languages(&config, lang.as_deref())?;
+            eprintln!("Formatting generated output for: {}", format_languages(&languages));
+            pipeline::fmt(&config, &languages)?;
+            println!("Format complete");
+            Ok(())
+        }
         Commands::Lint { lang } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
@@ -418,15 +462,47 @@ fn main() -> Result<()> {
             println!("Lint complete");
             Ok(())
         }
-        Commands::Test { lang, e2e } => {
+        Commands::Test {
+            lang,
+            e2e,
+            coverage,
+        } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
             eprintln!("Running tests for: {}", format_languages(&languages));
             if e2e {
                 eprintln!("  (with e2e tests)");
             }
-            pipeline::test(&config, &languages, e2e)?;
+            if coverage {
+                eprintln!("  (with coverage)");
+            }
+            pipeline::test(&config, &languages, e2e, coverage)?;
             println!("Tests complete");
+            Ok(())
+        }
+        Commands::Setup { lang } => {
+            let config = load_config(config_path)?;
+            let languages = resolve_languages(&config, lang.as_deref())?;
+            eprintln!("Setting up dependencies for: {}", format_languages(&languages));
+            pipeline::setup(&config, &languages)?;
+            println!("Setup complete");
+            Ok(())
+        }
+        Commands::Clean { lang } => {
+            let config = load_config(config_path)?;
+            let languages = resolve_languages(&config, lang.as_deref())?;
+            eprintln!("Cleaning build artifacts for: {}", format_languages(&languages));
+            pipeline::clean(&config, &languages)?;
+            println!("Clean complete");
+            Ok(())
+        }
+        Commands::Update { lang, latest } => {
+            let config = load_config(config_path)?;
+            let languages = resolve_languages(&config, lang.as_deref())?;
+            let mode = if latest { "latest" } else { "compatible" };
+            eprintln!("Updating dependencies ({mode}) for: {}", format_languages(&languages));
+            pipeline::update(&config, &languages, latest)?;
+            println!("Update complete");
             Ok(())
         }
         Commands::Verify {
@@ -603,13 +679,7 @@ fn main() -> Result<()> {
 
             eprintln!("Generating scaffolding...");
             let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
-            let has_pre_commit = scaffold_files
-                .iter()
-                .any(|f| f.path.ends_with(".pre-commit-config.yaml"));
             let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
-            if has_pre_commit {
-                pipeline::run_prek_autoupdate();
-            }
 
             eprintln!("Generating READMEs...");
             let readme_files = pipeline::readme(&api, &config, &languages)?;
@@ -631,15 +701,14 @@ fn main() -> Result<()> {
             let doc_files = alef_docs::generate_docs(&docs_api, &config, &doc_languages, "docs/reference")?;
             let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
 
-            // Format and lint all generated files via prek (best-effort)
-            eprintln!("Running formatters and linters...");
-            pipeline::run_prek();
+            // Format all generated files using configured formatters.
+            eprintln!("Running formatters...");
+            pipeline::fmt(&config, &languages)?;
 
-            // Update input hashes AFTER prek. Prek may have modified the config file
-            // (e.g. alef-sync-versions updates alef.toml) so the input hash recorded
-            // during generation is stale. Re-load config from disk and re-hash so
-            // `alef verify` sees consistent values.
-            // Generation content hashes were stored before prek — no need to recompute.
+            // Update input hashes AFTER formatting. Formatters may have modified files
+            // so the input hash recorded during generation is stale. Re-load config
+            // from disk and re-hash so `alef verify` sees consistent values.
+            // Generation content hashes were stored before formatting — no need to recompute.
             eprintln!("Updating input hashes...");
             let post_config_struct = load_config(config_path)?;
             let post_api = pipeline::extract(&post_config_struct, config_path, true)?;
@@ -663,12 +732,42 @@ fn main() -> Result<()> {
             Ok(())
         }
         Commands::Init { lang } => {
-            eprintln!("Initializing alef.toml");
+            eprintln!("Initializing alef project");
             if let Some(langs) = &lang {
                 eprintln!("  Languages: {}", langs.join(", "));
             }
-            pipeline::init(config_path, lang)?;
-            println!("Initialized alef.toml");
+            pipeline::init(config_path, lang.clone())?;
+            eprintln!("  Created alef.toml");
+
+            // Load the generated config and bootstrap the project
+            let config = load_config(config_path)?;
+            let languages = resolve_languages(&config, lang.as_deref())?;
+            let base_dir = std::env::current_dir()?;
+
+            // Extract API surface
+            let api = pipeline::extract(&config, config_path, false)?;
+
+            // Generate bindings
+            eprintln!("  Generating bindings...");
+            let bindings = pipeline::generate(&api, &config, &languages, false)?;
+            let mut binding_count: usize = 0;
+            for (lang_key, lang_files) in &bindings {
+                let single = vec![(*lang_key, lang_files.clone())];
+                binding_count += pipeline::write_files(&single, &base_dir)?;
+            }
+
+            // Scaffold package manifests and lint configs
+            eprintln!("  Generating scaffolding...");
+            let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
+            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
+
+            // Format generated code
+            eprintln!("  Formatting...");
+            let _ = pipeline::fmt(&config, &languages);
+
+            println!(
+                "Initialized: {binding_count} binding files, {scaffold_count} scaffold files"
+            );
             Ok(())
         }
         Commands::E2e { action } => {
