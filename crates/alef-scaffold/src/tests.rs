@@ -45,6 +45,7 @@ fn test_config() -> AlefConfig {
         }),
         readme: None,
         lint: None,
+        update: None,
         custom_files: None,
         adapters: vec![],
         custom_modules: CustomModulesConfig::default(),
@@ -102,15 +103,18 @@ fn test_scaffold_node() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_node: pkg package.json + crate package.json + index.d.ts + tsconfig.json; scaffold_node_cargo: Cargo.toml
-    assert_eq!(files.len(), 5);
+    // scaffold_node: pkg package.json + crate package.json + index.d.ts + tsconfig.json + .oxfmtrc.json + .oxlintrc.json; scaffold_node_cargo: Cargo.toml
+    assert_eq!(files.len(), 7);
     assert_eq!(files[0].path, PathBuf::from("packages/node/package.json"));
     assert!(files[0].content.contains("napi"));
+    assert!(files[0].content.contains("oxfmt"));
     assert_eq!(files[1].path, PathBuf::from("crates/my-lib-node/package.json"));
     assert_eq!(files[2].path, PathBuf::from("packages/node/src/index.d.ts"));
     assert_eq!(files[3].path, PathBuf::from("packages/node/tsconfig.json"));
-    assert_eq!(files[4].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
-    assert!(files[4].content.contains("napi-derive"));
+    assert_eq!(files[4].path, PathBuf::from("packages/node/.oxfmtrc.json"));
+    assert_eq!(files[5].path, PathBuf::from("packages/node/.oxlintrc.json"));
+    assert_eq!(files[6].path, PathBuf::from("crates/my-lib-node/Cargo.toml"));
+    assert!(files[6].content.contains("napi-derive"));
 }
 
 #[test]
@@ -119,8 +123,8 @@ fn test_scaffold_multiple() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Python, Language::Node]).unwrap();
     let files = language_files(&all_files);
-    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 5 files (2 package.json + index.d.ts + tsconfig.json + Cargo.toml)
-    assert_eq!(files.len(), 8);
+    // Python: 3 files (pyproject.toml + py.typed + Cargo.toml); Node: 7 files (2 package.json + index.d.ts + tsconfig.json + .oxfmtrc.json + .oxlintrc.json + Cargo.toml)
+    assert_eq!(files.len(), 10);
 }
 
 #[test]
@@ -268,10 +272,9 @@ fn test_pre_commit_config_python_node() {
     assert!(content.contains("ruff-pre-commit"));
     assert!(content.contains("ruff-format"));
     assert!(content.contains("pyproject-fmt"));
-    // Node-specific
-    assert!(content.contains("biome-format"));
-    assert!(content.contains("biome-lint"));
+    // Node-specific (oxc toolchain)
     assert!(content.contains("oxlint"));
+    assert!(content.contains("oxfmt"));
     // Should NOT have PHP/Ruby/Go/etc hooks
     assert!(!content.contains("php-lint"));
     assert!(!content.contains("golangci-lint"));
@@ -333,7 +336,8 @@ fn test_pre_commit_config_all_languages() {
     let content = &files[0].content;
     // All language hooks should be present
     assert!(content.contains("ruff"));
-    assert!(content.contains("biome"));
+    assert!(content.contains("oxlint"));
+    assert!(content.contains("oxfmt"));
     assert!(content.contains("clang-format"));
     assert!(content.contains("golangci-lint"));
     assert!(content.contains("cpd")); // Java

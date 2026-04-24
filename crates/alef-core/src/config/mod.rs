@@ -6,8 +6,10 @@ pub mod dto;
 pub mod e2e;
 pub mod extras;
 pub mod languages;
+pub mod lint_defaults;
 pub mod output;
 pub mod trait_bridge;
+pub mod update_defaults;
 
 // Re-exports for backward compatibility — all types were previously flat in config.rs.
 pub use dto::{
@@ -22,7 +24,7 @@ pub use languages::{
 };
 pub use output::{
     ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig, ScaffoldConfig, SyncConfig, TestConfig,
-    TextReplacement,
+    TextReplacement, UpdateConfig,
 };
 pub use trait_bridge::TraitBridgeConfig;
 
@@ -66,6 +68,8 @@ pub struct AlefConfig {
     pub readme: Option<ReadmeConfig>,
     #[serde(default)]
     pub lint: Option<HashMap<String, LintConfig>>,
+    #[serde(default)]
+    pub update: Option<HashMap<String, UpdateConfig>>,
     #[serde(default)]
     pub test: Option<HashMap<String, TestConfig>>,
     #[serde(default)]
@@ -287,6 +291,36 @@ impl AlefConfig {
                 _ => format!("packages/{lang}"),
             }
         }
+    }
+
+    /// Get the effective lint configuration for a language.
+    ///
+    /// Returns the explicit `[lint.<lang>]` config if present in alef.toml,
+    /// otherwise falls back to sensible defaults for the language.
+    pub fn lint_config_for_language(&self, lang: extras::Language) -> output::LintConfig {
+        if let Some(lint_map) = &self.lint {
+            let lang_str = lang.to_string();
+            if let Some(explicit) = lint_map.get(&lang_str) {
+                return explicit.clone();
+            }
+        }
+        let output_dir = self.package_dir(lang);
+        lint_defaults::default_lint_config(lang, &output_dir)
+    }
+
+    /// Get the effective update configuration for a language.
+    ///
+    /// Returns the explicit `[update.<lang>]` config if present in alef.toml,
+    /// otherwise falls back to sensible defaults for the language.
+    pub fn update_config_for_language(&self, lang: extras::Language) -> output::UpdateConfig {
+        if let Some(update_map) = &self.update {
+            let lang_str = lang.to_string();
+            if let Some(explicit) = update_map.get(&lang_str) {
+                return explicit.clone();
+            }
+        }
+        let output_dir = self.package_dir(lang);
+        update_defaults::default_update_config(lang, &output_dir)
     }
 
     /// Get the core crate import path (e.g., "liter_llm"). Used by codegen to call into the core crate.

@@ -67,11 +67,39 @@ pub struct ReadmeConfig {
     pub languages: HashMap<String, JsonValue>,
 }
 
+/// A value that can be either a single string or a list of strings.
+///
+/// Deserializes from both `"cmd"` and `["cmd1", "cmd2"]` in TOML/JSON.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum StringOrVec {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl StringOrVec {
+    /// Return all commands as a slice-like iterator.
+    pub fn commands(&self) -> Vec<&str> {
+        match self {
+            StringOrVec::Single(s) => vec![s.as_str()],
+            StringOrVec::Multiple(v) => v.iter().map(String::as_str).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LintConfig {
-    pub format: Option<String>,
-    pub check: Option<String>,
-    pub typecheck: Option<String>,
+    pub format: Option<StringOrVec>,
+    pub check: Option<StringOrVec>,
+    pub typecheck: Option<StringOrVec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    /// Command(s) for safe dependency updates (compatible versions only).
+    pub update: Option<StringOrVec>,
+    /// Command(s) for aggressive updates (including incompatible/major bumps).
+    pub upgrade: Option<StringOrVec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

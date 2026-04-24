@@ -8,36 +8,106 @@ use crate::registry;
 
 use super::helpers::{run_command, run_command_captured};
 
-/// Run configured lint/format commands on generated output.
-pub fn lint(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
-    let lint_config = config.lint.as_ref();
+/// Which lint phases to execute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LintPhase {
+    Format,
+    Check,
+    Typecheck,
+}
 
+/// Run selected lint phases on generated output for the given languages.
+fn run_lint_phases(config: &AlefConfig, languages: &[Language], phases: &[LintPhase]) -> anyhow::Result<()> {
     let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
         .par_iter()
         .map(|lang| {
-            let lang_str = lang.to_string();
+            let lang_lint = config.lint_config_for_language(*lang);
             let mut outputs = Vec::new();
-            if let Some(lint_map) = lint_config {
-                if let Some(lang_lint) = lint_map.get(&lang_str) {
-                    if let Some(fmt_cmd) = &lang_lint.format {
-                        let (stdout, stderr) = run_command_captured(fmt_cmd)?;
-                        outputs.push((fmt_cmd.clone(), stdout, stderr));
+
+            for phase in phases {
+                let cmds = match phase {
+                    LintPhase::Format => lang_lint.format.as_ref(),
+                    LintPhase::Check => lang_lint.check.as_ref(),
+                    LintPhase::Typecheck => lang_lint.typecheck.as_ref(),
+                };
+                if let Some(cmd_list) = cmds {
+                    for cmd in cmd_list.commands() {
+                        let (stdout, stderr) = run_command_captured(cmd)?;
+                        outputs.push((cmd.to_string(), stdout, stderr));
                     }
-                    if let Some(check_cmd) = &lang_lint.check {
-                        let (stdout, stderr) = run_command_captured(check_cmd)?;
-                        outputs.push((check_cmd.clone(), stdout, stderr));
+                }
+            }
+
+            Ok(outputs)
+        })
+        .collect();
+
+    let mut first_error: Option<anyhow::Error> = None;
+    for result in results {
+        match result {
+            Ok(outputs) => {
+                for (cmd, stdout, stderr) in outputs {
+                    if !stdout.is_empty() {
+                        info!("[{cmd}] stdout:\n{stdout}");
                     }
-                    if let Some(typecheck_cmd) = &lang_lint.typecheck {
-                        let (stdout, stderr) = run_command_captured(typecheck_cmd)?;
-                        outputs.push((typecheck_cmd.clone(), stdout, stderr));
+                    if !stderr.is_empty() {
+                        info!("[{cmd}] stderr:\n{stderr}");
                     }
+                }
+            }
+            Err(e) => {
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+        }
+    }
+    if let Some(e) = first_error {
+        return Err(e);
+    }
+
+    Ok(())
+}
+
+/// Run all configured lint/format commands on generated output.
+pub fn lint(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
+    run_lint_phases(
+        config,
+        languages,
+        &[LintPhase::Format, LintPhase::Check, LintPhase::Typecheck],
+    )
+}
+
+/// Run only format commands on generated output.
+pub fn fmt(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
+    run_lint_phases(config, languages, &[LintPhase::Format])
+}
+
+/// Update dependencies for each language.
+///
+/// When `latest` is true, runs the aggressive `upgrade` commands (including
+/// incompatible/major version bumps). Otherwise runs the safe `update` commands.
+pub fn update(config: &AlefConfig, languages: &[Language], latest: bool) -> anyhow::Result<()> {
+    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
+        .par_iter()
+        .map(|lang| {
+            let update_cfg = config.update_config_for_language(*lang);
+            let cmds = if latest {
+                update_cfg.upgrade.as_ref()
+            } else {
+                update_cfg.update.as_ref()
+            };
+            let mut outputs = Vec::new();
+            if let Some(cmd_list) = cmds {
+                for cmd in cmd_list.commands() {
+                    let (stdout, stderr) = run_command_captured(cmd)?;
+                    outputs.push((cmd.to_string(), stdout, stderr));
                 }
             }
             Ok(outputs)
         })
         .collect();
 
-    // Print captured output and propagate first error
     let mut first_error: Option<anyhow::Error> = None;
     for result in results {
         match result {

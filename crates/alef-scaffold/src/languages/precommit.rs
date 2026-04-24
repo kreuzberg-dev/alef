@@ -36,6 +36,7 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     };
 
     let mut yaml = String::new();
+    let mut local_hooks: Vec<String> = Vec::new();
 
     // Header
     yaml.push_str(
@@ -147,20 +148,25 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20       args: [\"check\"]\n\n",
     );
 
-    // JavaScript/TypeScript: biome + oxlint
+    // JavaScript/TypeScript: oxlint (linting) + oxfmt (formatting)
     if has(Language::Node) || has(Language::Wasm) {
         yaml.push_str(
-            "  # JavaScript/TypeScript: biome (formatting + linting)\n\
-             \x20 - repo: https://github.com/biomejs/pre-commit\n\
-             \x20   rev: v2.4.12\n\
-             \x20   hooks:\n\
-             \x20     - id: biome-format\n\
-             \x20     - id: biome-lint\n\n\
+            "  # JavaScript/TypeScript: oxlint (linting) + oxfmt (formatting)\n\
              \x20 - repo: https://github.com/oxc-project/mirrors-oxlint\n\
              \x20   rev: v1.60.0\n\
              \x20   hooks:\n\
              \x20     - id: oxlint\n\
              \x20       args: [\"--fix\"]\n\n",
+        );
+        // oxfmt doesn't have a pre-commit mirror yet — use a local hook
+        local_hooks.push(
+            "      - id: oxfmt\n\
+             \x20       name: oxfmt (format JS/TS)\n\
+             \x20       entry: npx oxfmt\n\
+             \x20       language: system\n\
+             \x20       files: \\.(js|jsx|ts|tsx|json)$\n\
+             \x20       pass_filenames: false\n"
+                .to_string(),
         );
     }
 
@@ -238,7 +244,6 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     }
 
     // Local hooks for language toolchains
-    let mut local_hooks: Vec<String> = Vec::new();
 
     if has(Language::Go) {
         local_hooks.push(
