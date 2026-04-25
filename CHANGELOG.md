@@ -5,12 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.5] - Unreleased
+## [0.7.5] - 2026-04-25
 
 ### Fixed
 
 - **Codegen**: suppress `clippy::redundant_closure` and `clippy::useless_conversion` lints in generated `From` impl blocks.
 - **Python bindings**: add `noqa` comments to generated `typing` imports.
+- **Python bindings/stubs**: force multi-line function signatures when a parameter name shadows a Python builtin (e.g. `id`, `type`, `input`), and annotate those parameters with `# noqa: A002`.
 
 ## [0.7.4] - 2026-04-25
 

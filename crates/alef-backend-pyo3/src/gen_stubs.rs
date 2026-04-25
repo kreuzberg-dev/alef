@@ -14,7 +14,7 @@ fn python_safe_name(name: &str) -> String {
 }
 
 /// Check if a parameter name shadows a Python builtin (triggers ruff A002).
-fn is_python_builtin_name(name: &str) -> bool {
+pub fn is_python_builtin_name(name: &str) -> bool {
     const BUILTINS: &[&str] = &[
         "id",
         "type",
@@ -537,13 +537,21 @@ fn gen_function_stub(func: &FunctionDef, bridge_param_names: &std::collections::
     let return_type = python_type(&func.return_type);
     let safe_name = python_safe_name(&func.name);
 
+    let has_builtin_param = params
+        .iter()
+        .any(|p| is_python_builtin_name(p.split(':').next().unwrap_or("").trim()));
     let single_line = format!("def {}({}) -> {}: ...", safe_name, params.join(", "), return_type);
-    if single_line.len() <= 100 {
+    if single_line.len() <= 100 && !has_builtin_param {
         single_line
     } else {
         let mut wrapped = format!("def {}(\n", safe_name);
         for param in &params {
-            wrapped.push_str(&format!("    {},\n", param));
+            let name = param.split(':').next().unwrap_or("").trim();
+            if is_python_builtin_name(name) {
+                wrapped.push_str(&format!("    {},  # noqa: A002\n", param));
+            } else {
+                wrapped.push_str(&format!("    {},\n", param));
+            }
         }
         wrapped.push_str(&format!(") -> {}: ...", return_type));
         wrapped

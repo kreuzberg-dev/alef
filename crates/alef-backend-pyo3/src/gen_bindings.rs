@@ -1588,12 +1588,24 @@ fn gen_api_py(
         }
 
         let return_type_str = crate::type_map::python_type(&func.return_type);
-        out.push_str(&format!(
-            "def {}({}) -> {}:\n",
-            func.name,
-            sig_parts.join(", "),
-            return_type_str
-        ));
+        let has_builtin_param = sig_parts
+            .iter()
+            .any(|p| crate::gen_stubs::is_python_builtin_name(p.split(':').next().unwrap_or("").trim()));
+        let single_line = format!("def {}({}) -> {}:\n", func.name, sig_parts.join(", "), return_type_str);
+        if single_line.len() <= 100 && !has_builtin_param {
+            out.push_str(&single_line);
+        } else {
+            out.push_str(&format!("def {}(\n", func.name));
+            for param in &sig_parts {
+                let name = param.split(':').next().unwrap_or("").trim();
+                if crate::gen_stubs::is_python_builtin_name(name) {
+                    out.push_str(&format!("    {},  # noqa: A002\n", param));
+                } else {
+                    out.push_str(&format!("    {},\n", param));
+                }
+            }
+            out.push_str(&format!(") -> {}:\n", return_type_str));
+        }
         {
             let doc_with_period = if !func.doc.is_empty() {
                 let doc_first_line = func.doc.lines().next().unwrap_or("");
