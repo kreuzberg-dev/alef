@@ -50,8 +50,10 @@ fn make_config() -> AlefConfig {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
         go: None,
         java: None,
+        kotlin: None,
         csharp: None,
         r: Some(RConfig {
             package_name: Some("testlib".to_string()),
@@ -61,6 +63,7 @@ fn make_config() -> AlefConfig {
             run_wrapper: None,
             extra_lint_paths: Vec::new(),
         }),
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,

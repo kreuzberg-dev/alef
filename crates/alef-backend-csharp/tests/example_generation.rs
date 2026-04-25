@@ -166,8 +166,12 @@ fn test_generated_code_example() {
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
         }),
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
         csharp: Some(CSharpConfig {
             namespace: Some("Kreuzberg".to_string()),
             target_framework: None,
@@ -179,6 +183,8 @@ fn test_generated_code_example() {
             project_file: None,
         }),
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,

@@ -64,6 +64,7 @@ fn make_config() -> AlefConfig {
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
         }),
+        gleam: None,
         go: Some(GoConfig {
             module: Some("github.com/test/test-lib".to_string()),
             package_name: None,
@@ -74,8 +75,11 @@ fn make_config() -> AlefConfig {
             extra_lint_paths: Vec::new(),
         }),
         java: None,
+        kotlin: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -1036,6 +1040,7 @@ fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> AlefConfi
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
         }),
+        gleam: None,
         go: Some(GoConfig {
             module: Some("github.com/test/test-lib".to_string()),
             package_name: None,
@@ -1046,8 +1051,11 @@ fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> AlefConfi
             extra_lint_paths: Vec::new(),
         }),
         java: None,
+        kotlin: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,

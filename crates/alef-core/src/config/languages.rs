@@ -351,6 +351,55 @@ fn default_java_ffi_style() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KotlinConfig {
+    pub package: Option<String>,
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GleamConfig {
+    pub app_name: Option<String>,
+    /// Erlang atom name for @external(erlang, "<nif>", ...) lookups (e.g., "my_app_nif").
+    /// Defaults to the app_name.
+    #[serde(default)]
+    pub nif_module: Option<String>,
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZigConfig {
+    pub module_name: Option<String>,
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    /// When set, this takes priority over the IR type-level serde_rename_all.
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CSharpConfig {
     pub namespace: Option<String>,
     pub target_framework: Option<String>,

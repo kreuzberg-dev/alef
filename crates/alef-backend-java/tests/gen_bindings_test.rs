@@ -45,6 +45,7 @@ fn make_test_config(package: &str) -> AlefConfig {
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
         }),
+        gleam: None,
         go: None,
         java: Some(JavaConfig {
             package: Some(package.to_string()),
@@ -56,8 +57,10 @@ fn make_test_config(package: &str) -> AlefConfig {
             extra_lint_paths: Vec::new(),
             project_file: None,
         }),
+        kotlin: None,
         csharp: None,
         r: None,
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -234,6 +237,7 @@ fn test_basic_generation() {
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
         }),
+        gleam: None,
         go: None,
         java: Some(JavaConfig {
             package: Some("com.example".to_string()),
@@ -245,8 +249,10 @@ fn test_basic_generation() {
             extra_lint_paths: Vec::new(),
             project_file: None,
         }),
+        kotlin: None,
         csharp: None,
         r: None,
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -391,10 +397,15 @@ fn test_package_default() {
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
         }),
+        gleam: None,
         go: None,
-        java: None, // No explicit package
+        java: None,
+
+        kotlin: None, // No explicit package
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -563,6 +574,7 @@ fn test_optional_field_defaults_in_builder() {
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
         }),
+        gleam: None,
         go: None,
         java: Some(JavaConfig {
             package: Some("com.example".to_string()),
@@ -574,8 +586,10 @@ fn test_optional_field_defaults_in_builder() {
             extra_lint_paths: Vec::new(),
             project_file: None,
         }),
+        kotlin: None,
         csharp: None,
         r: None,
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,

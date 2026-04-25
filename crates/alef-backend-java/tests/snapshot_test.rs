@@ -297,6 +297,7 @@ fn print_generated_java_code() {
             exclude_types: Vec::new(),
             rename_fields: Default::default(),
         }),
+        gleam: None,
         go: None,
         java: Some(JavaConfig {
             package: Some("dev.kreuzberg.extraction".to_string()),
@@ -308,8 +309,10 @@ fn print_generated_java_code() {
             extra_lint_paths: Vec::new(),
             project_file: None,
         }),
+        kotlin: None,
         csharp: None,
         r: None,
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,

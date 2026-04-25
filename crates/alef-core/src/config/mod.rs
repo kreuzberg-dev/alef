@@ -27,7 +27,8 @@ pub use e2e::E2eConfig;
 pub use extras::{AdapterConfig, AdapterParam, AdapterPattern, Language};
 pub use languages::{
     CSharpConfig, CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig, ElixirConfig, FfiConfig,
-    GoConfig, JavaConfig, NodeConfig, PhpConfig, PythonConfig, RConfig, RubyConfig, StubsConfig, WasmConfig,
+    GleamConfig, GoConfig, JavaConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig, RubyConfig,
+    StubsConfig, WasmConfig, ZigConfig,
 };
 pub use output::{
     BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
@@ -68,13 +69,19 @@ pub struct AlefConfig {
     #[serde(default)]
     pub ffi: Option<FfiConfig>,
     #[serde(default)]
+    pub gleam: Option<GleamConfig>,
+    #[serde(default)]
     pub go: Option<GoConfig>,
     #[serde(default)]
     pub java: Option<JavaConfig>,
     #[serde(default)]
+    pub kotlin: Option<KotlinConfig>,
+    #[serde(default)]
     pub csharp: Option<CSharpConfig>,
     #[serde(default)]
     pub r: Option<RConfig>,
+    #[serde(default)]
+    pub zig: Option<ZigConfig>,
     #[serde(default)]
     pub scaffold: Option<ScaffoldConfig>,
     #[serde(default)]
@@ -275,16 +282,15 @@ impl AlefConfig {
             extras::Language::Elixir => self.elixir.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::Wasm => self.wasm.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::Ffi => self.ffi.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Gleam => self.gleam.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::Go => self.go.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::Java => self.java.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Kotlin => self.kotlin.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::R => self.r.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Zig => self.zig.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::Rust => None,
-            extras::Language::Kotlin
-            | extras::Language::Swift
-            | extras::Language::Dart
-            | extras::Language::Gleam
-            | extras::Language::Zig => None,
+            extras::Language::Swift | extras::Language::Dart => None,
         };
         if let Some(renamed) = explicit {
             if renamed != field_name {
@@ -315,16 +321,15 @@ impl AlefConfig {
             extras::Language::Elixir => self.elixir.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Wasm => self.wasm.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Ffi => self.ffi.as_ref().and_then(|c| c.features.as_deref()),
+            extras::Language::Gleam => self.gleam.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Go => self.go.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Java => self.java.as_ref().and_then(|c| c.features.as_deref()),
+            extras::Language::Kotlin => self.kotlin.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::R => self.r.as_ref().and_then(|c| c.features.as_deref()),
+            extras::Language::Zig => self.zig.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Rust => None, // Rust doesn't have binding-specific features
-            extras::Language::Kotlin
-            | extras::Language::Swift
-            | extras::Language::Dart
-            | extras::Language::Gleam
-            | extras::Language::Zig => None,
+            extras::Language::Swift | extras::Language::Dart => None,
         };
         override_features.unwrap_or(&self.crate_config.features)
     }
@@ -784,6 +789,43 @@ impl AlefConfig {
         self.java_package()
     }
 
+    /// Get the Kotlin package name.
+    pub fn kotlin_package(&self) -> String {
+        self.kotlin
+            .as_ref()
+            .and_then(|k| k.package.as_ref())
+            .cloned()
+            .unwrap_or_else(|| "dev.kreuzberg".to_string())
+    }
+
+    /// Get the Gleam app name.
+    pub fn gleam_app_name(&self) -> String {
+        self.gleam
+            .as_ref()
+            .and_then(|g| g.app_name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| self.crate_config.name.replace('-', "_"))
+    }
+
+    /// Get the Gleam NIF module name (Erlang atom for @external(erlang, "<nif>", ...) lookups).
+    /// Defaults to the gleam_app_name.
+    pub fn gleam_nif_module(&self) -> String {
+        self.gleam
+            .as_ref()
+            .and_then(|g| g.nif_module.as_ref())
+            .cloned()
+            .unwrap_or_else(|| self.gleam_app_name())
+    }
+
+    /// Get the Zig module name.
+    pub fn zig_module_name(&self) -> String {
+        self.zig
+            .as_ref()
+            .and_then(|z| z.module_name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| self.crate_config.name.replace('-', "_"))
+    }
+
     /// Get the C# namespace.
     pub fn csharp_namespace(&self) -> String {
         self.csharp
@@ -877,7 +919,7 @@ impl AlefConfig {
     /// 1. Per-language config override (`[python] serde_rename_all = "..."`)
     /// 2. Language default:
     ///    - camelCase: node, wasm, java, csharp
-    ///    - snake_case: python, ruby, php, go, ffi, elixir, r
+    ///    - snake_case: python, ruby, php, go, ffi, elixir, r, kotlin, gleam, zig
     pub fn serde_rename_all_for_language(&self, lang: extras::Language) -> String {
         // 1. Check per-language config override.
         let override_val = match lang {
@@ -888,16 +930,15 @@ impl AlefConfig {
             extras::Language::Elixir => self.elixir.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Wasm => self.wasm.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Ffi => self.ffi.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Gleam => self.gleam.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Go => self.go.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Java => self.java.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Kotlin => self.kotlin.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::R => self.r.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Zig => self.zig.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Rust => None, // Rust uses native naming (snake_case)
-            extras::Language::Kotlin
-            | extras::Language::Swift
-            | extras::Language::Dart
-            | extras::Language::Gleam
-            | extras::Language::Zig => None,
+            extras::Language::Swift | extras::Language::Dart => None,
         };
 
         if let Some(val) = override_val {
@@ -918,10 +959,10 @@ impl AlefConfig {
             | extras::Language::R
             | extras::Language::Rust
             | extras::Language::Kotlin
-            | extras::Language::Swift
-            | extras::Language::Dart
             | extras::Language::Gleam
-            | extras::Language::Zig => "snake_case".to_string(),
+            | extras::Language::Zig
+            | extras::Language::Swift
+            | extras::Language::Dart => "snake_case".to_string(),
         }
     }
 

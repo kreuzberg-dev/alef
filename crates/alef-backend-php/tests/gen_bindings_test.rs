@@ -47,10 +47,16 @@ fn make_config_with_extension(extension_name: &str) -> AlefConfig {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
@@ -135,10 +141,16 @@ fn make_config() -> AlefConfig {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: None,
         readme: None,
         lint: None,
