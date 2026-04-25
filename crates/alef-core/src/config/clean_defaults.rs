@@ -82,6 +82,11 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             before: None,
             clean: None,
         },
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => CleanConfig {
+            precondition: None,
+            before: None,
+            clean: None,
+        },
     }
 }
 
@@ -104,6 +109,11 @@ mod tests {
             Language::R,
             Language::Ffi,
             Language::Rust,
+            Language::Kotlin,
+            Language::Swift,
+            Language::Dart,
+            Language::Gleam,
+            Language::Zig,
         ]
     }
 
@@ -122,7 +132,11 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_clean_command() {
         for lang in all_languages() {
-            if lang == Language::Ffi {
+            // Skip FFI and Phase 1 backends not yet implemented
+            if matches!(
+                lang,
+                Language::Ffi | Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
+            ) {
                 continue;
             }
             let c = cfg(lang, "packages/test");

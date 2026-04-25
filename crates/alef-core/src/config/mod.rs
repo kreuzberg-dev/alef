@@ -280,6 +280,11 @@ impl AlefConfig {
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::R => self.r.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::Rust => None,
+            extras::Language::Kotlin
+            | extras::Language::Swift
+            | extras::Language::Dart
+            | extras::Language::Gleam
+            | extras::Language::Zig => None,
         };
         if let Some(renamed) = explicit {
             if renamed != field_name {
@@ -315,6 +320,11 @@ impl AlefConfig {
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::R => self.r.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Rust => None, // Rust doesn't have binding-specific features
+            extras::Language::Kotlin
+            | extras::Language::Swift
+            | extras::Language::Dart
+            | extras::Language::Gleam
+            | extras::Language::Zig => None,
         };
         override_features.unwrap_or(&self.crate_config.features)
     }
@@ -883,6 +893,11 @@ impl AlefConfig {
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::R => self.r.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Rust => None, // Rust uses native naming (snake_case)
+            extras::Language::Kotlin
+            | extras::Language::Swift
+            | extras::Language::Dart
+            | extras::Language::Gleam
+            | extras::Language::Zig => None,
         };
 
         if let Some(val) = override_val {
@@ -901,7 +916,12 @@ impl AlefConfig {
             | extras::Language::Ffi
             | extras::Language::Elixir
             | extras::Language::R
-            | extras::Language::Rust => "snake_case".to_string(),
+            | extras::Language::Rust
+            | extras::Language::Kotlin
+            | extras::Language::Swift
+            | extras::Language::Dart
+            | extras::Language::Gleam
+            | extras::Language::Zig => "snake_case".to_string(),
         }
     }
 

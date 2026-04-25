@@ -16,6 +16,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "character".to_string(),
             Language::Rust => "String".to_string(),
             Language::Ffi => "const char*".to_string(),
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                "String".to_string()
+            }
         },
         TypeRef::Bytes => match lang {
             Language::Python => "bytes".to_string(),
@@ -29,6 +32,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "raw".to_string(),
             Language::Rust => "Vec<u8>".to_string(),
             Language::Ffi => "const uint8_t*".to_string(),
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                "ByteArray".to_string()
+            }
         },
         TypeRef::Primitive(p) => doc_primitive(p, lang),
         TypeRef::Optional(inner) => {
@@ -48,6 +54,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::R => format!("{inner_ty} or NULL"),
                 Language::Rust => format!("Option<{inner_ty}>"),
                 Language::Ffi => format!("{inner_ty}*"),
+                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                    format!("{inner_ty}?")
+                }
             }
         }
         TypeRef::Vec(inner) => {
@@ -74,6 +83,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                         Language::Rust => format!("Vec<{inner_ty}>"),
                         Language::Ffi => format!("{inner_ty}*"),
                         Language::Java | Language::Csharp => unreachable!(),
+                        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                            format!("List<{inner_ty}>")
+                        }
                     }
                 }
             }
@@ -99,6 +111,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::R => "list".to_string(),
                 Language::Rust => format!("HashMap<{kty}, {vty}>"),
                 Language::Ffi => "void*".to_string(),
+                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                    format!("Map<{kty}, {vty}>")
+                }
             }
         }
         TypeRef::Named(name) if name.starts_with('(') && name.ends_with(')') => {
@@ -121,6 +136,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                             Language::R => "integer".to_string(),
                             Language::Rust => trimmed.to_string(),
                             Language::Ffi => "uint64_t".to_string(),
+                            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                                "Long".to_string()
+                            }
                         },
                         s @ ("str" | "&str" | "String" | "&'static str" | "&'staticstr") => match lang {
                             Language::Python => "str".to_string(),
@@ -134,6 +152,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                             Language::R => "character".to_string(),
                             Language::Rust => s.to_string(),
                             Language::Ffi => "const char*".to_string(),
+                            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                                "String".to_string()
+                            }
                         },
                         // Slice of strings — &[&str], &'static [&'static str], Vec<String>, etc.
                         // Also covers compacted IR forms like &'static[&'staticstr]
@@ -155,6 +176,11 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                                 Language::R => "list".to_string(),
                                 Language::Rust => s.to_string(),
                                 Language::Ffi => "const char**".to_string(),
+                                Language::Kotlin
+                                | Language::Swift
+                                | Language::Dart
+                                | Language::Gleam
+                                | Language::Zig => "List<String>".to_string(),
                             }
                         }
                         other => {
@@ -181,6 +207,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::R => "list".to_string(),
                 Language::Rust => format!("({})", rendered.join(", ")),
                 Language::Ffi => "void*".to_string(),
+                Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                    format!("Pair<{}>", rendered.join(", "))
+                }
             }
         }
         TypeRef::Named(name) => type_name(name, lang, ffi_prefix),
@@ -196,6 +225,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "character".to_string(),
             Language::Rust => "PathBuf".to_string(),
             Language::Ffi => "const char*".to_string(),
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+                "String".to_string()
+            }
         },
         TypeRef::Unit => match lang {
             Language::Python => "None".to_string(),
@@ -209,6 +241,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "NULL".to_string(),
             Language::Rust => "()".to_string(),
             Language::Ffi => "void".to_string(),
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "Unit".to_string(),
         },
         TypeRef::Json => match lang {
             Language::Python => "dict[str, Any]".to_string(),
@@ -222,6 +255,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "list".to_string(),
             Language::Rust => "serde_json::Value".to_string(),
             Language::Ffi => "void*".to_string(),
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "Any".to_string(),
         },
         TypeRef::Duration => match lang {
             Language::Python => "float".to_string(),
@@ -235,6 +269,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::R => "numeric".to_string(),
             Language::Rust => "std::time::Duration".to_string(),
             Language::Ffi => "uint64_t".to_string(),
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => "Long".to_string(),
         },
     }
 }
@@ -337,6 +372,15 @@ pub(crate) fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
             PrimitiveType::Isize => "isize".to_string(),
             PrimitiveType::F32 => "f32".to_string(),
             PrimitiveType::F64 => "f64".to_string(),
+        },
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => match p {
+            PrimitiveType::Bool => "Boolean".to_string(),
+            PrimitiveType::U8 | PrimitiveType::I8 => "Byte".to_string(),
+            PrimitiveType::U16 | PrimitiveType::I16 => "Short".to_string(),
+            PrimitiveType::U32 | PrimitiveType::I32 => "Int".to_string(),
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "Long".to_string(),
+            PrimitiveType::F32 => "Float".to_string(),
+            PrimitiveType::F64 => "Double".to_string(),
         },
     }
 }

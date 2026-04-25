@@ -98,6 +98,11 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             before: None,
             install: None,
         },
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => SetupConfig {
+            precondition: None,
+            before: None,
+            install: None,
+        },
     }
 }
 
@@ -120,6 +125,11 @@ mod tests {
             Language::R,
             Language::Ffi,
             Language::Rust,
+            Language::Kotlin,
+            Language::Swift,
+            Language::Dart,
+            Language::Gleam,
+            Language::Zig,
         ]
     }
 
@@ -138,7 +148,11 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_install_command() {
         for lang in all_languages() {
-            if lang == Language::Ffi {
+            // Skip FFI and Phase 1 backends not yet implemented
+            if matches!(
+                lang,
+                Language::Ffi | Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
+            ) {
                 continue;
             }
             let c = cfg(lang, "packages/test");
@@ -149,7 +163,11 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_default_precondition() {
         for lang in all_languages() {
-            if lang == Language::Ffi {
+            // Skip FFI and Phase 1 backends not yet implemented
+            if matches!(
+                lang,
+                Language::Ffi | Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
+            ) {
                 continue;
             }
             let c = cfg(lang, "packages/test");

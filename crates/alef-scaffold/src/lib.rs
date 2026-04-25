@@ -316,6 +316,9 @@ fn scaffold_language(api: &ApiSurface, config: &AlefConfig, lang: Language) -> a
             Ok(files)
         }
         Language::Rust => Ok(vec![]), // Rust doesn't need scaffolded binding crates
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+            anyhow::bail!("Phase 1: {lang} backend not yet implemented")
+        }
     }
 }
 

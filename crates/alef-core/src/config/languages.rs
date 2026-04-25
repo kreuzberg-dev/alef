@@ -443,6 +443,7 @@ impl CustomModulesConfig {
             Language::Csharp => &self.csharp,
             Language::R => &self.r,
             Language::Rust => &[], // Rust doesn't need custom modules (no binding crate)
+            Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => &[],
         }
     }
 }

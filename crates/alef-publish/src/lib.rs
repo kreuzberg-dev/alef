@@ -185,6 +185,7 @@ pub(crate) fn crate_name_from_output(config: &AlefConfig, lang: Language) -> Opt
         Language::Csharp => config.output.csharp.as_deref(),
         Language::R => config.output.r.as_deref(),
         Language::Rust => None,
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => None,
     }?;
     let path = std::path::Path::new(output_path);
     // Strip trailing `src/` component if present.
@@ -247,6 +248,10 @@ fn build_command_for_lang(lang: Language, config: &AlefConfig, target: Option<&R
         }
         Language::Rust => {
             format!("{cargo} build --release --workspace{target_flag}")
+        }
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+            eprintln!("Warning: Phase 1: {lang} backend build command not yet implemented");
+            String::new()
         }
     }
 }

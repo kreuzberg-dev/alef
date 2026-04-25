@@ -274,6 +274,11 @@ fn lang_dir_name(lang: Language) -> &'static str {
         Language::Wasm => "wasm",
         Language::R => "r",
         Language::Rust => "rust",
+        Language::Kotlin => "kotlin",
+        Language::Swift => "swift",
+        Language::Dart => "dart",
+        Language::Gleam => "gleam",
+        Language::Zig => "zig",
     }
 }
 
@@ -292,6 +297,11 @@ fn lang_code(lang: Language) -> &'static str {
         Language::Wasm => "wasm",
         Language::R => "r",
         Language::Rust => "rust",
+        Language::Kotlin => "kotlin",
+        Language::Swift => "swift",
+        Language::Dart => "dart",
+        Language::Gleam => "gleam",
+        Language::Zig => "zig",
     }
 }
 
@@ -578,6 +588,36 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
                 config.core_import()
             ),
             "rust",
+        ),
+        Language::Kotlin => (
+            "Kotlin",
+            "Phase 1: Kotlin backend not yet implemented".to_string(),
+            "```kotlin\n// TODO: add usage example\n```".to_string(),
+            "kotlin",
+        ),
+        Language::Swift => (
+            "Swift",
+            "Phase 1: Swift backend not yet implemented".to_string(),
+            "```swift\n// TODO: add usage example\n```".to_string(),
+            "swift",
+        ),
+        Language::Dart => (
+            "Dart",
+            "Phase 1: Dart backend not yet implemented".to_string(),
+            "```dart\n// TODO: add usage example\n```".to_string(),
+            "dart",
+        ),
+        Language::Gleam => (
+            "Gleam",
+            "Phase 1: Gleam backend not yet implemented".to_string(),
+            "```gleam\n// TODO: add usage example\n```".to_string(),
+            "gleam",
+        ),
+        Language::Zig => (
+            "Zig",
+            "Phase 1: Zig backend not yet implemented".to_string(),
+            "```zig\n// TODO: add usage example\n```".to_string(),
+            "zig",
         ),
     };
 
