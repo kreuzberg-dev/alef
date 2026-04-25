@@ -240,7 +240,7 @@ fn function_emits_external_binding() {
     let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("@external(erlang, \"demo\", \"greet\")"),
+        content.contains("@external(erlang, \"Elixir.Demo.Native\", \"greet\")"),
         "missing external annotation: {content}"
     );
     assert!(content.contains("pub fn greet(who: String) -> String"));

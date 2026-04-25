@@ -209,11 +209,7 @@ fn gleam_type(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<&'static str>
     }
 }
 
-fn render_type_ref_with_imports(
-    ty: &TypeRef,
-    imports: &mut BTreeSet<&'static str>,
-    mapper: &GleamMapper,
-) -> String {
+fn render_type_ref_with_imports(ty: &TypeRef, imports: &mut BTreeSet<&'static str>, mapper: &GleamMapper) -> String {
     match ty {
         TypeRef::Optional(inner) => {
             imports.insert("import gleam/option.{type Option}");

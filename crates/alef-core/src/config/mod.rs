@@ -808,13 +808,23 @@ impl AlefConfig {
     }
 
     /// Get the Gleam NIF module name (Erlang atom for @external(erlang, "<nif>", ...) lookups).
-    /// Defaults to the gleam_app_name.
+    /// Defaults to "Elixir.<PascalCase>.Native" to match the atom registered by
+    /// `rustler::init!` in the Rustler backend.
     pub fn gleam_nif_module(&self) -> String {
+        use heck::ToUpperCamelCase;
         self.gleam
             .as_ref()
             .and_then(|g| g.nif_module.as_ref())
             .cloned()
-            .unwrap_or_else(|| self.gleam_app_name())
+            .unwrap_or_else(|| {
+                let pascal = self
+                    .elixir
+                    .as_ref()
+                    .and_then(|e| e.app_name.as_deref())
+                    .unwrap_or(&self.crate_config.name)
+                    .to_upper_camel_case();
+                format!("Elixir.{pascal}.Native")
+            })
     }
 
     /// Get the Zig module name.

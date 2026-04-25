@@ -2,8 +2,8 @@ use alef_backend_zig::ZigBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef,
-    TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
+    PrimitiveType, TypeDef, TypeRef,
 };
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -140,7 +140,10 @@ fn struct_emits_zig_struct() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
-    assert!(content.contains("@cImport(@cInclude(\"demo.h\"))"), "missing cImport: {content}");
+    assert!(
+        content.contains("@cImport(@cInclude(\"demo.h\"))"),
+        "missing cImport: {content}"
+    );
     assert!(content.contains("pub const Point = struct {"));
     assert!(content.contains("x: i32,"));
     assert!(content.contains("y: i32,"));
@@ -276,8 +279,14 @@ fn error_set_emits_zig_error_with_pascal_case_tags() {
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("pub const DemoError = error {"), "missing error set definition: {content}");
-    assert!(content.contains("ConnectionFailed,"), "missing ConnectionFailed tag: {content}");
+    assert!(
+        content.contains("pub const DemoError = error {"),
+        "missing error set definition: {content}"
+    );
+    assert!(
+        content.contains("ConnectionFailed,"),
+        "missing ConnectionFailed tag: {content}"
+    );
     assert!(content.contains("Timeout,"), "missing Timeout tag: {content}");
 }
 
@@ -307,27 +316,37 @@ fn error_returning_function_wraps_return_type() {
             name: "DemoError".into(),
             rust_path: "demo::DemoError".into(),
             original_rust_path: String::new(),
-            variants: vec![
-                ErrorVariant {
-                    name: "Connection".into(),
-                    message_template: None,
-                    fields: vec![],
-                    has_source: false,
-                    has_from: false,
-                    is_unit: true,
-                    doc: String::new(),
-                },
-            ],
+            variants: vec![ErrorVariant {
+                name: "Connection".into(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
             doc: String::new(),
         }],
     };
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("pub fn extract(path: [:0]const u8) DemoError![:0]const u8 {"), "missing error-returning function: {content}");
-    assert!(content.contains("const result = c.demo_extract(path);"), "missing C call: {content}");
-    assert!(content.contains("if (result == null or result == 0)"), "missing null/zero check: {content}");
-    assert!(content.contains("return DemoError.Connection;"), "missing error return: {content}");
+    assert!(
+        content.contains("pub fn extract(path: [:0]const u8) DemoError![:0]const u8 {"),
+        "missing error-returning function: {content}"
+    );
+    assert!(
+        content.contains("const result = c.demo_extract(path);"),
+        "missing C call: {content}"
+    );
+    assert!(
+        content.contains("if (result == null or result == 0)"),
+        "missing null/zero check: {content}"
+    );
+    assert!(
+        content.contains("return DemoError.Connection;"),
+        "missing error return: {content}"
+    );
 }
 
 #[test]
@@ -357,6 +376,12 @@ fn async_function_emits_comment_and_skips() {
 
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("// async fn — bridged to blocking via tokio runtime in C ABI"), "missing async comment: {content}");
-    assert!(!content.contains("pub fn fetch_async"), "should not emit async function signature: {content}");
+    assert!(
+        content.contains("// async fn — bridged to blocking via tokio runtime in C ABI"),
+        "missing async comment: {content}"
+    );
+    assert!(
+        !content.contains("pub fn fetch_async"),
+        "should not emit async function signature: {content}"
+    );
 }

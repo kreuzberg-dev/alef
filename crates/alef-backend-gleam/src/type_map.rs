@@ -109,10 +109,7 @@ mod tests {
 
     #[test]
     fn test_map_type_json() {
-        assert_eq!(
-            GleamMapper.map_type(&TypeRef::Json),
-            "String"
-        );
+        assert_eq!(GleamMapper.map_type(&TypeRef::Json), "String");
     }
 
     #[test]

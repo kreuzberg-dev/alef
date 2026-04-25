@@ -176,9 +176,15 @@ fn function_emits_object_member() {
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("object DemoCrate {"), "missing object wrapper: {content}");
+    assert!(
+        content.contains("object DemoCrate {"),
+        "missing object wrapper: {content}"
+    );
     assert!(content.contains("fun greetUser(userName: String): Int"));
-    assert!(content.contains("Native.greetUser(userName)"), "missing Native bridge call: {content}");
+    assert!(
+        content.contains("Bridge.greetUser(userName)"),
+        "missing Native bridge call: {content}"
+    );
 }
 
 #[test]
@@ -270,8 +276,14 @@ fn async_function_emits_suspend() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(content.contains("suspend fun fetch()"), "missing suspend: {content}");
-    assert!(content.contains("withContext(Dispatchers.IO)"), "missing withContext: {content}");
-    assert!(content.contains("Native.fetch()"), "missing Native bridge call: {content}");
+    assert!(
+        content.contains("withContext(Dispatchers.IO)"),
+        "missing withContext: {content}"
+    );
+    assert!(
+        content.contains("Bridge.fetch()"),
+        "missing Native bridge call: {content}"
+    );
     assert!(content.contains(".await()"), "missing await for async: {content}");
 }
 
@@ -389,15 +401,7 @@ fn function_imports_native_facade() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("import dev.kreuzberg.Native"),
-        "missing Java Native import: {content}"
-    );
-    assert!(
-        content.contains("import kotlinx.coroutines.Dispatchers"),
-        "missing Dispatchers import: {content}"
-    );
-    assert!(
-        content.contains("import kotlinx.coroutines.withContext"),
-        "missing withContext import: {content}"
+        content.contains("import dev.kreuzberg.DemoCrate as Bridge"),
+        "missing Java facade import alias: {content}"
     );
 }

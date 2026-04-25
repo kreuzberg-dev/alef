@@ -140,10 +140,7 @@ mod tests {
 
     #[test]
     fn test_map_type_json() {
-        assert_eq!(
-            KotlinMapper.map_type(&TypeRef::Json),
-            "String"
-        );
+        assert_eq!(KotlinMapper.map_type(&TypeRef::Json), "String");
     }
 
     #[test]
@@ -156,9 +153,6 @@ mod tests {
 
     #[test]
     fn test_duration() {
-        assert_eq!(
-            KotlinMapper.map_type(&TypeRef::Duration),
-            "Duration"
-        );
+        assert_eq!(KotlinMapper.map_type(&TypeRef::Duration), "Duration");
     }
 }

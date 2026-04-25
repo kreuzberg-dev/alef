@@ -99,10 +99,7 @@ mod tests {
 
     #[test]
     fn test_map_type_json() {
-        assert_eq!(
-            ZigMapper.map_type(&TypeRef::Json),
-            "[:0]const u8"
-        );
+        assert_eq!(ZigMapper.map_type(&TypeRef::Json), "[:0]const u8");
     }
 
     #[test]

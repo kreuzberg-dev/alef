@@ -122,7 +122,11 @@ fn emit_enum(en: &EnumDef, out: &mut String) {
             } else {
                 out.push_str(&format!("    {tag}: struct {{\n"));
                 for f in &variant.fields {
-                    let name = if f.name.is_empty() { "value".into() } else { f.name.clone() };
+                    let name = if f.name.is_empty() {
+                        "value".into()
+                    } else {
+                        f.name.clone()
+                    };
                     let ty_str = zig_field_type(&f.ty, f.optional);
                     out.push_str(&format!("        {name}: {ty_str},\n"));
                 }
@@ -170,24 +174,25 @@ fn emit_function(f: &FunctionDef, prefix: &str, out: &mut String) {
         zig_field_type(&f.return_type, false)
     };
 
-    out.push_str(&format!(
-        "pub fn {}({}) {} {{\n",
-        f.name,
-        params.join(", "),
-        return_ty
-    ));
+    out.push_str(&format!("pub fn {}({}) {} {{\n", f.name, params.join(", "), return_ty));
 
     let arg_names: Vec<String> = f.params.iter().map(|p| p.name.clone()).collect();
 
     if let Some(error_type) = &f.error_type {
         // Error-returning function: check for null/zero and fetch error code
-        out.push_str(&format!("    const result = c.{prefix}_{}({});\n", f.name, arg_names.join(", ")));
+        out.push_str(&format!(
+            "    const result = c.{prefix}_{}({});\n",
+            f.name,
+            arg_names.join(", ")
+        ));
 
         // For now, use a simple check: if result is null or zero, return error
         // In a real scenario, we'd need to know if the return type is a pointer or an integer
         // For simplicity, we'll check both
         out.push_str("    if (result == null or result == 0) {\n");
-        out.push_str(&format!("        // TODO: fetch actual error code via c.{prefix}_last_error()\n"));
+        out.push_str(&format!(
+            "        // TODO: fetch actual error code via c.{prefix}_last_error()\n"
+        ));
         out.push_str(&format!("        return {error_type}.Connection;\n"));
         out.push_str("    }\n");
         out.push_str("    return result;\n");

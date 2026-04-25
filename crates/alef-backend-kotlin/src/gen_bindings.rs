@@ -9,7 +9,7 @@ use crate::type_map::KotlinMapper;
 
 pub struct KotlinBackend;
 
-const DEFAULT_PACKAGE: &str = "dev.kreuzberg";
+const BRIDGE_ALIAS: &str = "Bridge";
 
 impl Backend for KotlinBackend {
     fn name(&self) -> &str {
@@ -56,12 +56,13 @@ impl Backend for KotlinBackend {
         }
 
         if !api.functions.is_empty() {
-            // Import the Java Native facade
-            imports.insert(format!("import {}.Native", java_package));
-            imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
-            imports.insert("import kotlinx.coroutines.withContext".to_string());
+            // Import the Java facade class with an alias so it does not collide with the
+            // Kotlin object that wraps it (both share the PascalCase crate name).
+            imports.insert(format!("import {java_package}.{module_name} as {BRIDGE_ALIAS}"));
             if api.functions.iter().any(|f| f.is_async) {
+                imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
                 imports.insert("import kotlinx.coroutines.future.await".to_string());
+                imports.insert("import kotlinx.coroutines.withContext".to_string());
             }
 
             body.push_str(&format!("object {module_name} {{\n"));
@@ -180,11 +181,18 @@ fn emit_error_type_with_imports(error: &alef_core::ir::ErrorDef, out: &mut Strin
             out.push('\n');
         }
     }
-    out.push_str(&format!("sealed class {}(message: String) : Exception(message) {{\n", error.name));
+    out.push_str(&format!(
+        "sealed class {}(message: String) : Exception(message) {{\n",
+        error.name
+    ));
     for variant in &error.variants {
         if variant.is_unit {
-            out.push_str(&format!("    object {} : {}(\"{}\")\n", variant.name, error.name,
-                variant.message_template.as_deref().unwrap_or(&variant.name)));
+            out.push_str(&format!(
+                "    object {} : {}(\"{}\")\n",
+                variant.name,
+                error.name,
+                variant.message_template.as_deref().unwrap_or(&variant.name)
+            ));
         } else {
             out.push_str(&format!("    data class {}(\n", variant.name));
             for (idx, f) in variant.fields.iter().enumerate() {
@@ -212,7 +220,12 @@ fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<Strin
     let return_ty = kotlin_type_with_string_imports(&f.return_type, false, imports);
     let async_kw = if f.is_async { "suspend " } else { "" };
     let func_name_camel = to_lower_camel(&f.name);
-    let call_args = f.params.iter().map(|p| to_lower_camel(&p.name)).collect::<Vec<_>>().join(", ");
+    let call_args = f
+        .params
+        .iter()
+        .map(|p| to_lower_camel(&p.name))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     out.push_str(&format!(
         "    {async_kw}fun {}({}): {} {{\n",
@@ -224,16 +237,19 @@ fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<Strin
     if f.is_async {
         out.push_str("        return withContext(Dispatchers.IO) {\n");
         if matches!(f.return_type, TypeRef::Unit) {
-            out.push_str(&format!("            Native.{}({})\n", func_name_camel, call_args));
+            out.push_str(&format!("            Bridge.{}({})\n", func_name_camel, call_args));
         } else {
-            out.push_str(&format!("            Native.{}({}).await()\n", func_name_camel, call_args));
+            out.push_str(&format!(
+                "            Bridge.{}({}).await()\n",
+                func_name_camel, call_args
+            ));
         }
         out.push_str("        }\n");
     } else {
         if matches!(f.return_type, TypeRef::Unit) {
-            out.push_str(&format!("        Native.{}({})\n", func_name_camel, call_args));
+            out.push_str(&format!("        Bridge.{}({})\n", func_name_camel, call_args));
         } else {
-            out.push_str(&format!("        return Native.{}({})\n", func_name_camel, call_args));
+            out.push_str(&format!("        return Bridge.{}({})\n", func_name_camel, call_args));
         }
     }
     out.push_str("    }\n");
@@ -306,8 +322,8 @@ fn kotlin_type_with_string_imports(ty: &TypeRef, optional: bool, imports: &mut B
     if optional { format!("{inner}?") } else { inner }
 }
 
-fn kotlin_package(_config: &AlefConfig) -> String {
-    DEFAULT_PACKAGE.to_string()
+fn kotlin_package(config: &AlefConfig) -> String {
+    config.kotlin_package()
 }
 
 fn java_package(config: &AlefConfig) -> String {
