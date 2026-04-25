@@ -5,7 +5,7 @@ use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 
-use crate::type_map::{c_param_type_with_paths, c_return_type_with_paths, is_void_return};
+use crate::type_map::{c_param_type_with_paths, c_return_type_with_paths, is_passthrough_return, is_void_return};
 
 use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value};
 
@@ -335,26 +335,37 @@ pub(super) fn gen_method_wrapper(
         .collect();
     let call_args = arg_names.join(", ");
 
+    // For passthrough returns (primitive non-Bool) without error/ref/cow/newtype,
+    // emit the call as a tail expression directly to avoid `let_and_return`.
+    let can_inline = is_passthrough_return(&method.return_type)
+        && !has_error
+        && !method.returns_ref
+        && !method.returns_cow
+        && method.return_newtype_wrapper.is_none();
+
     if method.is_async {
-        if method.is_static {
-            writeln!(
-                out,
-                "    let result = get_ffi_runtime().block_on(async {{ {qualified}::{method_name}({call_args}).await }});"
-            )
-            .ok();
+        let call = if method.is_static {
+            format!("get_ffi_runtime().block_on(async {{ {qualified}::{method_name}({call_args}).await }})")
         } else {
-            writeln!(
-                out,
-                "    let result = get_ffi_runtime().block_on(async {{ obj.{method_name}({call_args}).await }});"
-            )
-            .ok();
+            format!("get_ffi_runtime().block_on(async {{ obj.{method_name}({call_args}).await }})")
+        };
+        if can_inline {
+            writeln!(out, "    {call}").ok();
+        } else {
+            writeln!(out, "    let result = {call};").ok();
         }
     } else if method.is_static {
-        writeln!(out, "    let result = {qualified}::{method_name}({call_args});").ok();
+        if can_inline {
+            writeln!(out, "    {qualified}::{method_name}({call_args})").ok();
+        } else {
+            writeln!(out, "    let result = {qualified}::{method_name}({call_args});").ok();
+        }
     } else if method_name == "drop" {
         // Special case: Rust's drop method cannot be called directly with dot notation.
         // Use std::mem::drop instead.
         writeln!(out, "    std::mem::drop(obj);").ok();
+    } else if can_inline {
+        writeln!(out, "    obj.{method_name}({call_args})").ok();
     } else {
         writeln!(out, "    let result = obj.{method_name}({call_args});").ok();
     }
@@ -430,6 +441,8 @@ pub(super) fn gen_method_wrapper(
         writeln!(out, "    }}").ok();
     } else if is_void_return(&method.return_type) {
         // void, no error — result is already ()
+    } else if can_inline {
+        // Passthrough primitive: call was already emitted as tail expression
     } else {
         write!(
             out,
@@ -669,12 +682,21 @@ pub(super) fn gen_free_function(
         .collect();
     let call_args = arg_names.join(", ");
 
+    let can_inline_fn = is_passthrough_return(&func.return_type)
+        && !has_error
+        && !func.returns_ref
+        && !func.returns_cow
+        && func.return_newtype_wrapper.is_none();
+
     if func.is_async {
-        writeln!(
-            out,
-            "    let result = get_ffi_runtime().block_on(async {{ {core_fn_path}({call_args}).await }});"
-        )
-        .ok();
+        let call = format!("get_ffi_runtime().block_on(async {{ {core_fn_path}({call_args}).await }})");
+        if can_inline_fn {
+            writeln!(out, "    {call}").ok();
+        } else {
+            writeln!(out, "    let result = {call};").ok();
+        }
+    } else if can_inline_fn {
+        writeln!(out, "    {core_fn_path}({call_args})").ok();
     } else {
         writeln!(out, "    let result = {core_fn_path}({call_args});").ok();
     }
@@ -730,6 +752,8 @@ pub(super) fn gen_free_function(
         writeln!(out, "    }}").ok();
     } else if is_void_return(&func.return_type) {
         // nothing
+    } else if can_inline_fn {
+        // Passthrough primitive: call was already emitted as tail expression
     } else {
         write!(out, "{}", gen_owned_value_to_c(result_expr, &func.return_type, "    ")).ok();
     }

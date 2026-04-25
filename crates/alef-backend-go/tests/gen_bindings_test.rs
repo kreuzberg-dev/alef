@@ -1026,7 +1026,7 @@ fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> AlefConfi
             error_style: "last_error".to_string(),
             header_name: None,
             lib_name: None,
-            visitor_callbacks: false,
+            visitor_callbacks: true,
             features: None,
             serde_rename_all: None,
             exclude_functions: Vec::new(),

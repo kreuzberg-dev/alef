@@ -98,6 +98,16 @@ pub fn is_void_return(ty: &TypeRef) -> bool {
     matches!(ty, TypeRef::Unit)
 }
 
+/// Returns `true` if the return type passes through without conversion in C FFI.
+/// For these types, the call expression can be used directly as the tail expression
+/// without binding to an intermediate `let result = ...;`.
+pub fn is_passthrough_return(ty: &TypeRef) -> bool {
+    matches!(
+        ty,
+        TypeRef::Primitive(p) if !matches!(p, alef_core::ir::PrimitiveType::Bool)
+    )
+}
+
 /// Like `c_param_type` but uses full rust_path from path_map for Named types.
 pub fn c_param_type_with_paths(
     ty: &TypeRef,

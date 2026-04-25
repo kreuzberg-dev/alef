@@ -725,6 +725,8 @@ pub fn gen_static_method(
                 format!("{core_call}{err_conv}")
             } else if wrapped == format!("{val_expr}.into()") {
                 format!("{core_call}.map(Into::into){err_conv}")
+            } else if let Some(type_path) = wrapped.strip_suffix(&format!("::from({val_expr})")) {
+                format!("{core_call}.map({type_path}::from){err_conv}")
             } else {
                 format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }

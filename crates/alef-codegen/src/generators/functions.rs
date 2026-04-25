@@ -165,6 +165,8 @@ pub fn gen_function(
                     format!("{serde_bindings}{core_call}{await_kw}{serde_err_conv}")
                 } else if wrapped == "val.into()" {
                     format!("{serde_bindings}{core_call}{await_kw}.map(Into::into){serde_err_conv}")
+                } else if let Some(type_path) = wrapped.strip_suffix("::from(val)") {
+                    format!("{serde_bindings}{core_call}{await_kw}.map({type_path}::from){serde_err_conv}")
                 } else {
                     format!("{serde_bindings}{core_call}{await_kw}.map(|val| {wrapped}){serde_err_conv}")
                 }
@@ -357,6 +359,8 @@ pub fn gen_function(
                 format!("{core_call}{err_conv}")
             } else if wrapped == "val.into()" {
                 format!("{core_call}.map(Into::into){err_conv}")
+            } else if let Some(type_path) = wrapped.strip_suffix("::from(val)") {
+                format!("{core_call}.map({type_path}::from){err_conv}")
             } else {
                 format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }
