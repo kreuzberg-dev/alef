@@ -4,8 +4,10 @@ pub mod brew;
 pub mod c;
 pub mod csharp;
 pub mod elixir;
+pub mod gleam;
 pub mod go;
 pub mod java;
+pub mod kotlin;
 pub mod php;
 pub mod python;
 pub mod r;
@@ -13,6 +15,7 @@ pub mod ruby;
 pub mod rust;
 pub mod typescript;
 pub mod wasm;
+pub mod zig;
 
 use crate::config::E2eConfig;
 use crate::fixture::FixtureGroup;
@@ -63,13 +66,16 @@ pub fn all_generators() -> Vec<Box<dyn E2eCodegen>> {
         Box::new(typescript::TypeScriptCodegen),
         Box::new(go::GoCodegen),
         Box::new(java::JavaCodegen),
+        Box::new(kotlin::KotlinE2eCodegen),
         Box::new(csharp::CSharpCodegen),
         Box::new(php::PhpCodegen),
         Box::new(ruby::RubyCodegen),
         Box::new(elixir::ElixirCodegen),
+        Box::new(gleam::GleamE2eCodegen),
         Box::new(r::RCodegen),
         Box::new(wasm::WasmCodegen),
         Box::new(c::CCodegen),
+        Box::new(zig::ZigE2eCodegen),
         Box::new(brew::BrewCodegen),
     ]
 }
