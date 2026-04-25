@@ -1,8 +1,11 @@
+use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+
+use crate::type_map::GleamMapper;
 
 pub struct GleamBackend;
 
@@ -161,7 +164,8 @@ fn format_param(p: &ParamDef, imports: &mut BTreeSet<&'static str>) -> String {
 }
 
 fn gleam_type(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<&'static str>) -> String {
-    let inner = render_type_ref(ty, imports);
+    let mapper = GleamMapper;
+    let inner = render_type_ref_with_imports(ty, imports, &mapper);
     if optional {
         imports.insert("import gleam/option.{type Option}");
         format!("Option({inner})")
@@ -170,35 +174,28 @@ fn gleam_type(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<&'static str>
     }
 }
 
-fn render_type_ref(ty: &TypeRef, imports: &mut BTreeSet<&'static str>) -> String {
+fn render_type_ref_with_imports(
+    ty: &TypeRef,
+    imports: &mut BTreeSet<&'static str>,
+    mapper: &GleamMapper,
+) -> String {
     match ty {
-        TypeRef::Primitive(p) => primitive(p).to_string(),
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "String".to_string(),
-        TypeRef::Bytes => "BitArray".to_string(),
         TypeRef::Optional(inner) => {
             imports.insert("import gleam/option.{type Option}");
-            format!("Option({})", render_type_ref(inner, imports))
+            format!("Option({})", render_type_ref_with_imports(inner, imports, mapper))
         }
-        TypeRef::Vec(inner) => format!("List({})", render_type_ref(inner, imports)),
+        TypeRef::Vec(inner) => {
+            format!("List({})", render_type_ref_with_imports(inner, imports, mapper))
+        }
         TypeRef::Map(k, v) => {
             imports.insert("import gleam/dict.{type Dict}");
             format!(
                 "Dict({}, {})",
-                render_type_ref(k, imports),
-                render_type_ref(v, imports)
+                render_type_ref_with_imports(k, imports, mapper),
+                render_type_ref_with_imports(v, imports, mapper)
             )
         }
-        TypeRef::Named(name) => name.clone(),
-        TypeRef::Unit => "Nil".to_string(),
-        TypeRef::Duration => "Int".to_string(),
-    }
-}
-
-fn primitive(p: &PrimitiveType) -> &'static str {
-    match p {
-        PrimitiveType::Bool => "Bool",
-        PrimitiveType::F32 | PrimitiveType::F64 => "Float",
-        _ => "Int",
+        _ => mapper.map_type(ty),
     }
 }
 

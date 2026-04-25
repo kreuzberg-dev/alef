@@ -6,5 +6,6 @@
 //! Kotlin/Native and Kotlin Multiplatform paths are deferred to Phase 3.
 
 mod gen_bindings;
+mod type_map;
 
 pub use gen_bindings::KotlinBackend;

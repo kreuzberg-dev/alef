@@ -1,7 +1,10 @@
+use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::path::PathBuf;
+
+use crate::type_map::ZigMapper;
 
 pub struct ZigBackend;
 
@@ -156,39 +159,9 @@ fn format_param(p: &ParamDef) -> String {
 }
 
 fn zig_field_type(ty: &TypeRef, optional: bool) -> String {
-    let inner = render_type_ref(ty);
+    let mapper = ZigMapper;
+    let inner = mapper.map_type(ty);
     if optional { format!("?{inner}") } else { inner }
-}
-
-fn render_type_ref(ty: &TypeRef) -> String {
-    match ty {
-        TypeRef::Primitive(p) => primitive(p).to_string(),
-        TypeRef::String | TypeRef::Path | TypeRef::Json => "[:0]const u8".to_string(),
-        TypeRef::Char => "u21".to_string(),
-        TypeRef::Bytes => "[]const u8".to_string(),
-        TypeRef::Optional(inner) => format!("?{}", render_type_ref(inner)),
-        TypeRef::Vec(inner) => format!("[]const {}", render_type_ref(inner)),
-        TypeRef::Map(_, v) => format!("std.StringHashMap({})", render_type_ref(v)),
-        TypeRef::Named(name) => name.clone(),
-        TypeRef::Unit => "void".to_string(),
-        TypeRef::Duration => "i64".to_string(),
-    }
-}
-
-fn primitive(p: &PrimitiveType) -> &'static str {
-    match p {
-        PrimitiveType::Bool => "bool",
-        PrimitiveType::U8 => "u8",
-        PrimitiveType::U16 => "u16",
-        PrimitiveType::U32 => "u32",
-        PrimitiveType::U64 | PrimitiveType::Usize => "u64",
-        PrimitiveType::I8 => "i8",
-        PrimitiveType::I16 => "i16",
-        PrimitiveType::I32 => "i32",
-        PrimitiveType::I64 | PrimitiveType::Isize => "i64",
-        PrimitiveType::F32 => "f32",
-        PrimitiveType::F64 => "f64",
-    }
 }
 
 fn zig_module_name(crate_name: &str) -> String {

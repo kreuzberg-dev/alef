@@ -73,6 +73,7 @@ dependencies = [
 name = "alef-backend-gleam"
 version = "0.7.8"
 dependencies = [
+ "alef-codegen",
  "alef-core",
  "anyhow",
 ]
@@ -104,6 +105,7 @@ dependencies = [
 name = "alef-backend-kotlin"
 version = "0.7.8"
 dependencies = [
+ "alef-codegen",
  "alef-core",
  "anyhow",
 ]
@@ -181,6 +183,7 @@ dependencies = [
 name = "alef-backend-zig"
 version = "0.7.8"
 dependencies = [
+ "alef-codegen",
  "alef-core",
  "anyhow",
 ]

@@ -1,8 +1,11 @@
+use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+
+use crate::type_map::KotlinMapper;
 
 pub struct KotlinBackend;
 
@@ -180,49 +183,33 @@ fn format_param(p: &ParamDef, imports: &mut BTreeSet<&'static str>) -> String {
 }
 
 fn kotlin_type(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<&'static str>) -> String {
-    let inner = render_type_ref(ty, imports);
+    let inner = render_type_ref_with_imports(ty, imports);
     if optional { format!("{inner}?") } else { inner }
 }
 
-fn render_type_ref(ty: &TypeRef, imports: &mut BTreeSet<&'static str>) -> String {
+fn render_type_ref_with_imports(ty: &TypeRef, imports: &mut BTreeSet<&'static str>) -> String {
+    let mapper = KotlinMapper;
     match ty {
-        TypeRef::Primitive(p) => primitive(p).to_string(),
-        TypeRef::String | TypeRef::Json => "String".to_string(),
-        TypeRef::Char => "Char".to_string(),
-        TypeRef::Bytes => "ByteArray".to_string(),
         TypeRef::Path => {
             imports.insert("import java.nio.file.Path");
-            "Path".to_string()
+            mapper.map_type(ty)
         }
-        TypeRef::Optional(inner) => format!("{}?", render_type_ref(inner, imports)),
-        TypeRef::Vec(inner) => format!("List<{}>", render_type_ref(inner, imports)),
-        TypeRef::Map(k, v) => format!(
-            "Map<{}, {}>",
-            render_type_ref(k, imports),
-            render_type_ref(v, imports)
-        ),
-        TypeRef::Named(name) => name.clone(),
-        TypeRef::Unit => "Unit".to_string(),
         TypeRef::Duration => {
             imports.insert("import kotlin.time.Duration");
-            "Duration".to_string()
+            mapper.map_type(ty)
         }
-    }
-}
-
-fn primitive(p: &PrimitiveType) -> &'static str {
-    match p {
-        PrimitiveType::Bool => "Boolean",
-        PrimitiveType::U8 => "UByte",
-        PrimitiveType::U16 => "UShort",
-        PrimitiveType::U32 => "UInt",
-        PrimitiveType::U64 | PrimitiveType::Usize => "ULong",
-        PrimitiveType::I8 => "Byte",
-        PrimitiveType::I16 => "Short",
-        PrimitiveType::I32 => "Int",
-        PrimitiveType::I64 | PrimitiveType::Isize => "Long",
-        PrimitiveType::F32 => "Float",
-        PrimitiveType::F64 => "Double",
+        TypeRef::Optional(inner) => format!("{}?", render_type_ref_with_imports(inner, imports)),
+        TypeRef::Vec(inner) => {
+            format!("List<{}>", render_type_ref_with_imports(inner, imports))
+        }
+        TypeRef::Map(k, v) => {
+            format!(
+                "Map<{}, {}>",
+                render_type_ref_with_imports(k, imports),
+                render_type_ref_with_imports(v, imports)
+            )
+        }
+        _ => mapper.map_type(ty),
     }
 }
 
