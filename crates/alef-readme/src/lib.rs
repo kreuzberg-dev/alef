@@ -3,7 +3,12 @@
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use heck::ToUpperCamelCase;
 use minijinja::{Environment, Value};
+
+fn to_pascal_case(s: &str) -> String {
+    s.to_upper_camel_case()
+}
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -589,36 +594,59 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
             ),
             "rust",
         ),
-        Language::Kotlin => (
-            "Kotlin",
-            "Phase 1: Kotlin backend not yet implemented".to_string(),
-            "```kotlin\n// TODO: add usage example\n```".to_string(),
-            "kotlin",
-        ),
+        Language::Kotlin => {
+            let module = config.crate_config.name.replace('-', "_");
+            (
+                "Kotlin",
+                format!(
+                    "Add the generated package to your `build.gradle.kts`:\n\n```kotlin\ndependencies {{\n    implementation(\"{}:{}:VERSION\")\n}}\n```",
+                    config.kotlin_package(),
+                    module
+                ),
+                format!(
+                    "```kotlin\nimport {}.{}\n\n// Call generated APIs through the {} object.\n```",
+                    config.kotlin_package(),
+                    to_pascal_case(&config.crate_config.name),
+                    to_pascal_case(&config.crate_config.name)
+                ),
+                "kotlin",
+            )
+        }
         Language::Swift => (
             "Swift",
-            "Phase 1: Swift backend not yet implemented".to_string(),
-            "```swift\n// TODO: add usage example\n```".to_string(),
+            format!("Add to `Package.swift`:\n\n```swift\n.package(url: \"<repo-url>\", from: \"{}\")\n```", config.crate_config.name),
+            "```swift\n// Phase 2: Swift bindings via swift-bridge. Skeleton only.\n```".to_string(),
             "swift",
         ),
         Language::Dart => (
             "Dart",
-            "Phase 1: Dart backend not yet implemented".to_string(),
-            "```dart\n// TODO: add usage example\n```".to_string(),
+            format!("Add to `pubspec.yaml`:\n\n```yaml\ndependencies:\n  {}:\n    git: <repo-url>\n```", config.crate_config.name.replace('-', "_")),
+            "```dart\n// Phase 2: Dart bindings via flutter_rust_bridge. Skeleton only.\n```".to_string(),
             "dart",
         ),
-        Language::Gleam => (
-            "Gleam",
-            "Phase 1: Gleam backend not yet implemented".to_string(),
-            "```gleam\n// TODO: add usage example\n```".to_string(),
-            "gleam",
-        ),
-        Language::Zig => (
-            "Zig",
-            "Phase 1: Zig backend not yet implemented".to_string(),
-            "```zig\n// TODO: add usage example\n```".to_string(),
-            "zig",
-        ),
+        Language::Gleam => {
+            let app = config.gleam_app_name();
+            (
+                "Gleam",
+                format!("```sh\ngleam add {app}\n```"),
+                format!(
+                    "```gleam\nimport {app}\n\n// Call functions exported by the generated module.\n// The NIF is loaded via `@external(erlang, \"{}\", ...)`.\n```",
+                    config.gleam_nif_module()
+                ),
+                "gleam",
+            )
+        }
+        Language::Zig => {
+            let module = config.zig_module_name();
+            (
+                "Zig",
+                format!("Add to `build.zig.zon`:\n\n```zig\n.dependencies = .{{\n    .{module} = .{{ .url = \"<tarball-url>\" }},\n}};\n```"),
+                format!(
+                    "```zig\nconst {module} = @import(\"{module}\");\n\n// Call generated wrapper functions; strings allocated by the FFI must\n// be released with `{module}._free_string`.\n```"
+                ),
+                "zig",
+            )
+        }
     };
 
     let content = format!(

@@ -305,6 +305,7 @@ version = "0.7.10"
 dependencies = [
  "alef-core",
  "anyhow",
+ "heck",
  "minijinja",
  "serde_json",
  "serde_yaml",
