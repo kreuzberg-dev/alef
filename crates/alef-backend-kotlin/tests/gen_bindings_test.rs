@@ -2,8 +2,8 @@ use alef_backend_kotlin::KotlinBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef,
-    TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
+    PrimitiveType, TypeDef, TypeRef,
 };
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -178,7 +178,7 @@ fn function_emits_object_member() {
     let content = &files[0].content;
     assert!(content.contains("object DemoCrate {"), "missing object wrapper: {content}");
     assert!(content.contains("fun greetUser(userName: String): Int"));
-    assert!(content.contains("TODO("));
+    assert!(content.contains("Native.greetUser(userName)"), "missing Native bridge call: {content}");
 }
 
 #[test]
@@ -270,4 +270,134 @@ fn async_function_emits_suspend() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(content.contains("suspend fun fetch()"), "missing suspend: {content}");
+    assert!(content.contains("withContext(Dispatchers.IO)"), "missing withContext: {content}");
+    assert!(content.contains("Native.fetch()"), "missing Native bridge call: {content}");
+    assert!(content.contains(".await()"), "missing await for async: {content}");
+}
+
+#[test]
+fn unit_error_variant_emits_sealed_class() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "ApiError".into(),
+            rust_path: "demo::ApiError".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                ErrorVariant {
+                    name: "NotFound".into(),
+                    message_template: Some("Resource not found".into()),
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: String::new(),
+                },
+                ErrorVariant {
+                    name: "Timeout".into(),
+                    message_template: Some("Request timed out".into()),
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: String::new(),
+                },
+            ],
+            doc: String::new(),
+        }],
+    };
+
+    let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(
+        content.contains("sealed class ApiError(message: String) : Exception(message)"),
+        "missing sealed class: {content}"
+    );
+    assert!(
+        content.contains("object NotFound : ApiError("),
+        "missing NotFound variant: {content}"
+    );
+    assert!(
+        content.contains("object Timeout : ApiError("),
+        "missing Timeout variant: {content}"
+    );
+}
+
+#[test]
+fn error_variant_with_fields_emits_data_class() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "ParseError".into(),
+            rust_path: "demo::ParseError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "InvalidFormat".into(),
+                message_template: Some("Invalid format at line {0}".into()),
+                fields: vec![make_field("line_number", TypeRef::Primitive(PrimitiveType::I32), false)],
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+        }],
+    };
+
+    let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(
+        content.contains("data class InvalidFormat("),
+        "missing data class variant: {content}"
+    );
+    assert!(content.contains("val lineNumber: Int"), "missing field: {content}");
+}
+
+#[test]
+fn function_imports_native_facade() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "ping".into(),
+            rust_path: "demo::ping".into(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(
+        content.contains("import dev.kreuzberg.Native"),
+        "missing Java Native import: {content}"
+    );
+    assert!(
+        content.contains("import kotlinx.coroutines.Dispatchers"),
+        "missing Dispatchers import: {content}"
+    );
+    assert!(
+        content.contains("import kotlinx.coroutines.withContext"),
+        "missing withContext import: {content}"
+    );
 }
