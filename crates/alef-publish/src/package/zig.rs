@@ -48,18 +48,22 @@ pub fn package_zig(
     fs::create_dir_all(&lib_dir)?;
     fs::create_dir_all(&include_dir)?;
 
-    // Copy FFI shared library.
+    // Copy FFI shared library — required for the Zig package to be usable.
     let shared_lib = target.shared_lib_name(&lib_name);
-    if let Ok(shared_src) = super::find_built_artifact(workspace_root, target, &shared_lib) {
-        fs::copy(&shared_src, lib_dir.join(&shared_lib))?;
-    }
+    let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib)
+        .with_context(|| format!("locating built FFI artifact `{shared_lib}` for Zig package"))?;
+    fs::copy(&shared_src, lib_dir.join(&shared_lib)).context("copying FFI .so into Zig package")?;
 
-    // Copy C header.
+    // Copy C header — required so downstream consumers can @cInclude it.
     let ffi_crate_dir = crate::ffi_stage::find_ffi_crate_dir_pub(config, workspace_root);
     let header_src = ffi_crate_dir.join("include").join(&header_name);
-    if header_src.exists() {
-        fs::copy(&header_src, include_dir.join(&header_name))?;
+    if !header_src.exists() {
+        anyhow::bail!(
+            "FFI C header not found at {} — run `alef build --lang=ffi` first",
+            header_src.display()
+        );
     }
+    fs::copy(&header_src, include_dir.join(&header_name)).context("copying FFI header into Zig package")?;
 
     // Create tarball.
     let archive_name = format!("{pkg_name}.tar.gz");

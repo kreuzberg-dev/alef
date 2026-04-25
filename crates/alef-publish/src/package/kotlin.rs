@@ -1,7 +1,6 @@
 //! Kotlin Maven package — builds and stages the compiled jar artifact.
 
 use super::PackageArtifact;
-use crate::platform::RustTarget;
 use alef_core::config::AlefConfig;
 use anyhow::{Context, Result};
 use std::fs;
@@ -10,10 +9,11 @@ use std::path::Path;
 /// Package Kotlin bindings as a Maven artifact (jar).
 ///
 /// Produces: `{name}-{version}.jar` by running `gradle build` in the Kotlin package directory
-/// and collecting the built JAR from `build/libs/`.
+/// and collecting the built JAR from `build/libs/`. The Maven coordinate is
+/// `{kotlin_package}:{crate_name}:{version}` — the group comes from
+/// `config.kotlin_package()` and the artifact id is the crate name.
 pub fn package_kotlin(
     config: &AlefConfig,
-    _target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
     version: &str,

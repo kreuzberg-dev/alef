@@ -323,13 +323,13 @@ pub fn package(
                 Some(artifact)
             }
             Language::Kotlin => {
-                let t = target.context("--target required for Kotlin packaging")?;
-                let artifact = package::kotlin::package_kotlin(config, t, ws_root, output_dir, version)?;
+                // Kotlin/JVM packaging is target-independent — Gradle produces a JVM jar.
+                let artifact = package::kotlin::package_kotlin(config, ws_root, output_dir, version)?;
                 Some(artifact)
             }
             Language::Gleam => {
-                let t = target.context("--target required for Gleam packaging")?;
-                let artifact = package::gleam::package_gleam(config, t, ws_root, output_dir, version)?;
+                // Gleam source packaging is target-independent.
+                let artifact = package::gleam::package_gleam(config, ws_root, output_dir, version)?;
                 Some(artifact)
             }
             Language::Zig => {

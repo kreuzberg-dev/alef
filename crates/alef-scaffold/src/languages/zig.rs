@@ -6,8 +6,8 @@ use std::path::PathBuf;
 pub(crate) fn scaffold_zig(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let version = &api.version;
     let ffi_lib_name = config.ffi_lib_name();
+    let module_name = config.zig_module_name();
 
-    // build.zig: minimal Zig 0.13 build file linking the FFI library
     let build_zig = format!(
         r#"const std = @import("std");
 
@@ -15,45 +15,48 @@ pub fn build(b: *std.Build) void {{
     const target = b.standardTargetOptions(.{{}});
     const optimize = b.standardOptimizeOption(.{{}});
 
-    const lib = b.addStaticLibrary(.{{
-        .name = "zig_bindings",
-        .root_source_file = b.path("src/lib.zig"),
+    const module = b.addModule("{module_name}", .{{
+        .root_source_file = b.path("src/{module_name}.zig"),
         .target = target,
         .optimize = optimize,
     }});
+    module.linkSystemLibrary("{ffi_lib}", .{{}});
 
-    // Link the FFI library
-    lib.linkSystemLibrary("{ffi_lib}");
-
-    b.installArtifact(lib);
-
-    // Test executable
-    const exe_tests = b.addTest(.{{
-        .root_source_file = b.path("src/lib.zig"),
+    const tests = b.addTest(.{{
+        .root_source_file = b.path("src/{module_name}.zig"),
         .target = target,
         .optimize = optimize,
     }});
-    exe_tests.linkSystemLibrary("{ffi_lib}");
+    tests.linkSystemLibrary("{ffi_lib}");
 
-    const run_test = b.addRunArtifact(exe_tests);
+    const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_test.step);
+    test_step.dependOn(&run_tests.step);
 }}
 "#,
+        module_name = module_name,
         ffi_lib = ffi_lib_name,
     );
 
-    // build.zig.zon: package manifest
+    // build.zig.zon — Zig 0.13+ requires `.paths` and `.minimum_zig_version`.
     let build_zig_zon = format!(
         r#".{{
-    .name = "zig_bindings",
+    .name = "{module_name}",
     .version = "{version}",
+    .minimum_zig_version = "0.13.0",
+    .dependencies = .{{}},
+    .paths = .{{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    }},
 }}
 "#,
+        module_name = module_name,
         version = version,
     );
 
-    let gitignore = "zig-cache/\nzig-out/\n";
+    let gitignore = "zig-cache/\nzig-out/\n.zig-cache/\n";
 
     Ok(vec![
         GeneratedFile {

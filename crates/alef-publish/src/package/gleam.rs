@@ -1,19 +1,21 @@
-//! Gleam Hex package — archives the compiled Rustler NIF for distribution.
+//! Gleam Hex package — archives the source tree for distribution.
 
 use super::PackageArtifact;
-use crate::platform::RustTarget;
 use alef_core::config::AlefConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
-/// Package Gleam Rustler bindings into a Hex tarball.
+/// Package Gleam bindings into a source tarball.
 ///
-/// Produces: `{name}-{version}.tar` containing the source tree + compiled Rustler NIF,
-/// ready for `gleam hex publish`.
+/// Produces: `{name}-{version}.tar` containing the Gleam source tree.
+///
+/// Note: this is NOT a directly-uploadable Hex tarball — Hex requires the
+/// nested `metadata.config` + `contents.tar.gz` + `CHECKSUM` layout that
+/// `gleam publish` produces internally. Use this artifact for archival and
+/// run `gleam publish` from the package directory for actual Hex uploads.
 pub fn package_gleam(
     config: &AlefConfig,
-    _target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
     version: &str,

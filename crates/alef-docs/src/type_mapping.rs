@@ -18,7 +18,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Ffi => "const char*".to_string(),
             Language::Kotlin | Language::Swift | Language::Dart => "String".to_string(),
             Language::Gleam => "String".to_string(),
-            Language::Zig => "[]const u8".to_string(),
+            Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Bytes => match lang {
             Language::Python => "bytes".to_string(),
@@ -235,7 +235,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Swift => "URL".to_string(),
             Language::Dart => "String".to_string(),
             Language::Gleam => "String".to_string(),
-            Language::Zig => "[]const u8".to_string(),
+            Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Unit => match lang {
             Language::Python => "None".to_string(),
@@ -270,8 +270,10 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Kotlin => "Any".to_string(),
             Language::Swift => "Any".to_string(),
             Language::Dart => "dynamic".to_string(),
-            Language::Gleam => "Dynamic".to_string(),
-            Language::Zig => "[]const u8".to_string(),
+            // Gleam and Zig backends serialize JSON as a string (the Mappers
+            // return "String" / "[:0]const u8"); doc names must match.
+            Language::Gleam => "String".to_string(),
+            Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Duration => match lang {
             Language::Python => "float".to_string(),
@@ -435,8 +437,9 @@ pub(crate) fn doc_primitive(p: &PrimitiveType, lang: Language) -> String {
             PrimitiveType::I16 => "i16".to_string(),
             PrimitiveType::I32 => "i32".to_string(),
             PrimitiveType::I64 => "i64".to_string(),
-            PrimitiveType::Usize => "usize".to_string(),
-            PrimitiveType::Isize => "isize".to_string(),
+            // ZigMapper deliberately uses fixed-width types for FFI stability.
+            PrimitiveType::Usize => "u64".to_string(),
+            PrimitiveType::Isize => "i64".to_string(),
             PrimitiveType::F32 => "f32".to_string(),
             PrimitiveType::F64 => "f64".to_string(),
         },

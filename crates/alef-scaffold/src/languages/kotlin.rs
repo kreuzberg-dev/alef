@@ -6,10 +6,14 @@ use std::path::PathBuf;
 pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let version = &api.version;
     let kotlin_package = config.kotlin_package();
+    let project_name = config.crate_config.name.replace('-', "_");
 
-    // build.gradle.kts with Gradle, kotlinx.coroutines, JNA for FFI, and Java 21+
+    // build.gradle.kts: Kotlin 2.x DSL — `compilerOptions` block replaces the
+    // deprecated `kotlinOptions { jvmTarget }` form removed in Kotlin 2.1.
     let build_gradle = format!(
-        r#"plugins {{
+        r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {{
     `java-library`
     kotlin("jvm") version "2.1.10"
     `maven-publish`
@@ -34,9 +38,9 @@ java {{
     targetCompatibility = JavaVersion.VERSION_21
 }}
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {{
-    kotlinOptions {{
-        jvmTarget = "21"
+kotlin {{
+    compilerOptions {{
+        jvmTarget.set(JvmTarget.JVM_21)
     }}
 }}
 
@@ -52,7 +56,7 @@ publishing {{
         version = version,
     );
 
-    let settings_gradle = "rootProject.name = \"kotlin\"\n";
+    let settings_gradle = format!("rootProject.name = \"{project_name}\"\n");
 
     let gitignore = "build/\n.gradle/\n.idea/\n*.iml\n";
 
@@ -64,7 +68,7 @@ publishing {{
         },
         GeneratedFile {
             path: PathBuf::from("packages/kotlin/settings.gradle.kts"),
-            content: settings_gradle.to_string(),
+            content: settings_gradle,
             generated_header: false,
         },
         GeneratedFile {
