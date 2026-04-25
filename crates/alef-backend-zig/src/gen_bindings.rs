@@ -1,3 +1,4 @@
+use alef_codegen::c_consumer;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
@@ -101,21 +102,25 @@ impl Backend for ZigBackend {
 ///   layer. Returns a Zig slice pointing into thread-local storage; the
 ///   pointer is valid until the next FFI call.
 fn emit_helpers(prefix: &str, out: &mut String) {
+    let free_symbol = c_consumer::free_string_symbol(prefix);
+    let error_code_symbol = c_consumer::last_error_code_symbol(prefix);
+    let error_context_symbol = c_consumer::last_error_context_symbol(prefix);
+
     out.push_str("/// Free a string allocated by the FFI layer.\n");
     out.push_str(&format!(
         "/// The pointer must have been returned by a `{prefix}_*` C function.\n"
     ));
     out.push_str("/// Do NOT call this twice on the same pointer.\n");
     out.push_str("pub fn _free_string(ptr: [*c]u8) void {\n");
-    out.push_str(&format!("    c.{prefix}_free_string(ptr);\n"));
+    out.push_str(&format!("    c.{free_symbol}(ptr);\n"));
     out.push_str("}\n\n");
 
     out.push_str("/// Retrieve the last error set by the FFI layer, if any.\n");
     out.push_str("/// Returns a slice into thread-local storage valid until the next FFI call.\n");
     out.push_str("pub fn _last_error() ?[]const u8 {\n");
-    out.push_str(&format!("    const code = c.{prefix}_last_error_code();\n"));
+    out.push_str(&format!("    const code = c.{error_code_symbol}();\n"));
     out.push_str("    if (code == 0) return null;\n");
-    out.push_str(&format!("    const ctx = c.{prefix}_last_error_context();\n"));
+    out.push_str(&format!("    const ctx = c.{error_context_symbol}();\n"));
     out.push_str("    if (ctx == null) return null;\n");
     out.push_str("    return std.mem.sliceTo(ctx, 0);\n");
     out.push_str("}\n\n");
