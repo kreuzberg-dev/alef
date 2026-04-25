@@ -135,7 +135,9 @@ impl Backend for GoBackend {
             .filter_map(|b| b.type_alias.clone())
             .collect();
         // Determine if any bridge is configured for the visitor pattern.
-        let has_visitor_bridge = !config.trait_bridges.is_empty();
+        // Requires both trait_bridges to be present AND visitor_callbacks = true in [ffi].
+        let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
+        let has_visitor_bridge = !config.trait_bridges.is_empty() && visitor_callbacks_enabled;
 
         // Collect streaming adapter method names — their FFI signature uses callbacks
         // which Go's CGO wrappers can't call directly.

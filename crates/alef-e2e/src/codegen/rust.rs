@@ -3,6 +3,7 @@
 //! Generates `e2e/rust/Cargo.toml` and `tests/{category}_test.rs` files from
 //! JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
+use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::{escape_rust, rust_raw_string, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
@@ -575,17 +576,6 @@ fn render_test_function(
 // ---------------------------------------------------------------------------
 // Argument rendering
 // ---------------------------------------------------------------------------
-
-fn resolve_field<'a>(input: &'a serde_json::Value, field_path: &str) -> &'a serde_json::Value {
-    // Field paths in call config are "input.path", "input.config", etc.
-    // Since we already receive `fixture.input`, strip the leading "input." prefix.
-    let path = field_path.strip_prefix("input.").unwrap_or(field_path);
-    let mut current = input;
-    for part in path.split('.') {
-        current = current.get(part).unwrap_or(&serde_json::Value::Null);
-    }
-    current
-}
 
 fn render_rust_arg(
     name: &str,

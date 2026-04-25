@@ -1,5 +1,6 @@
 use crate::generators::RustBindingConfig;
 use alef_core::ir::EnumDef;
+use alef_core::keywords::PYTHON_KEYWORDS;
 use std::fmt::Write;
 
 /// Returns true if any variant of the enum has data fields.
@@ -129,15 +130,6 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
 
     out
 }
-
-/// Python keywords and builtins that cannot be used as variant identifiers in PyO3 enums.
-/// When a variant name matches one of these, a `#[pyo3(name = "...")]` rename attribute
-/// is emitted so the Rust identifier remains unchanged while Python sees a safe name.
-const PYTHON_KEYWORDS: &[&str] = &[
-    "None", "True", "False", "from", "import", "class", "def", "return", "yield", "pass", "break", "continue", "and",
-    "or", "not", "is", "in", "if", "else", "elif", "for", "while", "with", "as", "try", "except", "finally", "raise",
-    "del", "global", "nonlocal", "lambda", "assert", "type",
-];
 
 /// Generate an enum.
 pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
