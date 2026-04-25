@@ -118,6 +118,15 @@ fn emit_helpers(prefix: &str, out: &mut String) {
     out.push_str(&format!("    const ctx = c.{prefix}_last_error_context();\n"));
     out.push_str("    if (ctx == null) return null;\n");
     out.push_str("    return std.mem.sliceTo(ctx, 0);\n");
+    out.push_str("}\n\n");
+
+    out.push_str("/// Map the last FFI error to a typed error from the given error set.\n");
+    out.push_str("/// Coarse fallback: returns the first declared variant. Per-code dispatch\n");
+    out.push_str("/// will replace this once the IR exposes per-variant numeric codes.\n");
+    out.push_str("inline fn _first_error(comptime E: type) E {\n");
+    out.push_str("    const fields = @typeInfo(E).ErrorSet orelse return @as(E, error.Unknown);\n");
+    out.push_str("    if (fields.len == 0) unreachable;\n");
+    out.push_str("    return @field(E, fields[0].name);\n");
     out.push_str("}\n");
 }
 
@@ -231,7 +240,7 @@ fn emit_function(f: &FunctionDef, prefix: &str, out: &mut String) {
         // Fallible function: call C, then check last_error_code().
         out.push_str(&format!("    const _result = {c_call};\n"));
         out.push_str(&format!("    if (c.{prefix}_last_error_code() != 0) {{\n"));
-        out.push_str(&format!("        return _last_error_as_error({error_type});\n"));
+        out.push_str(&format!("        return _first_error({error_type});\n"));
         out.push_str("    }\n");
 
         // Free owned C strings after the error check.

@@ -4,17 +4,10 @@ use std::borrow::Cow;
 
 /// TypeMapper for Kotlin bindings.
 ///
-/// Maps Rust types to idiomatic Kotlin types:
-/// - Unsigned integers map to Kotlin's unsigned types (u32→UInt, u64→ULong)
-/// - Signed integers map to Kotlin's signed types (i32→Int, i64→Long)
-/// - Booleans map to `Boolean`
-/// - Strings map to `String`
-/// - Bytes map to `ByteArray`
-/// - Paths map to `java.nio.file.Path`
-/// - JSON becomes `String`
-/// - Optionals use Kotlin's nullable syntax (`T?`)
-/// - Collections use `List<T>` and `Map<K, V>`
-/// - Duration maps to `kotlin.time.Duration`
+/// Mirrors the Java backend's primitive mapping so that values cross the
+/// JVM/Panama boundary without sign-flipping conversions: the JVM has no
+/// native unsigned types, so unsigned integers map to the same signed
+/// primitive Java already returns.
 pub struct KotlinMapper;
 
 impl TypeMapper for KotlinMapper {
@@ -22,16 +15,13 @@ impl TypeMapper for KotlinMapper {
         use alef_core::ir::PrimitiveType;
         match prim {
             PrimitiveType::Bool => Cow::Borrowed("Boolean"),
-            PrimitiveType::U8 => Cow::Borrowed("UByte"),
-            PrimitiveType::U16 => Cow::Borrowed("UShort"),
-            PrimitiveType::U32 => Cow::Borrowed("UInt"),
-            PrimitiveType::U64 => Cow::Borrowed("ULong"),
-            PrimitiveType::Usize => Cow::Borrowed("ULong"),
-            PrimitiveType::I8 => Cow::Borrowed("Byte"),
-            PrimitiveType::I16 => Cow::Borrowed("Short"),
-            PrimitiveType::I32 => Cow::Borrowed("Int"),
-            PrimitiveType::I64 => Cow::Borrowed("Long"),
-            PrimitiveType::Isize => Cow::Borrowed("Long"),
+            PrimitiveType::U8 | PrimitiveType::I8 => Cow::Borrowed("Byte"),
+            PrimitiveType::U16 | PrimitiveType::I16 => Cow::Borrowed("Short"),
+            PrimitiveType::U32 | PrimitiveType::I32 => Cow::Borrowed("Int"),
+            PrimitiveType::U64
+            | PrimitiveType::I64
+            | PrimitiveType::Usize
+            | PrimitiveType::Isize => Cow::Borrowed("Long"),
             PrimitiveType::F32 => Cow::Borrowed("Float"),
             PrimitiveType::F64 => Cow::Borrowed("Double"),
         }
@@ -89,10 +79,11 @@ mod tests {
     }
 
     #[test]
-    fn test_primitive_unsigned() {
-        assert_eq!(KotlinMapper.primitive(&PrimitiveType::U8), "UByte");
-        assert_eq!(KotlinMapper.primitive(&PrimitiveType::U32), "UInt");
-        assert_eq!(KotlinMapper.primitive(&PrimitiveType::U64), "ULong");
+    fn test_primitive_unsigned_maps_to_signed() {
+        // Mirrors the Java backend — JVM has no native unsigned types.
+        assert_eq!(KotlinMapper.primitive(&PrimitiveType::U8), "Byte");
+        assert_eq!(KotlinMapper.primitive(&PrimitiveType::U32), "Int");
+        assert_eq!(KotlinMapper.primitive(&PrimitiveType::U64), "Long");
     }
 
     #[test]

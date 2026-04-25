@@ -178,8 +178,9 @@ fn emit_function(f: &FunctionDef, nif_module: &str, out: &mut String, imports: &
             out.push('\n');
         }
     }
+    use heck::ToSnakeCase;
     out.push_str(&format!("@external(erlang, \"{nif_module}\", \"{}\")\n", f.name));
-    out.push_str(&format!("pub fn {}(", f.name));
+    out.push_str(&format!("pub fn {}(", f.name.to_snake_case()));
     let params: Vec<String> = f.params.iter().map(|p| format_param(p, imports)).collect();
     out.push_str(&params.join(", "));
     out.push(')');
