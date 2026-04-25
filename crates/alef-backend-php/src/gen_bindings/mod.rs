@@ -505,10 +505,15 @@ impl Backend for PhpBackend {
             }
             content.push_str("     */\n");
 
-            // Method signature with type hints
+            // Method signature with type hints.
+            // PHP requires required parameters before optional ones, so stable-sort
+            // visible_params: required first, then optional (preserving relative order).
+            let mut sorted_visible_params = visible_params.clone();
+            sorted_visible_params.sort_by_key(|p| p.optional);
+
             content.push_str(&format!("    public static function {}(", method_name));
 
-            let params: Vec<String> = visible_params
+            let params: Vec<String> = sorted_visible_params
                 .iter()
                 .map(|p| {
                     let ptype = php_type(&p.ty);
@@ -537,7 +542,7 @@ impl Backend for PhpBackend {
                 namespace,
                 class_name,
                 ext_method_name,
-                visible_params
+                sorted_visible_params
                     .iter()
                     .map(|p| format!("${}", p.name))
                     .collect::<Vec<_>>()
@@ -767,11 +772,17 @@ impl Backend for PhpBackend {
                     .iter()
                     .filter(|p| !bridge_param_names_stubs.contains(p.name.as_str()))
                     .collect();
-                // PHPDoc block
+                // PHP requires required parameters before optional ones — stable sort.
+                let mut sorted_visible_params = visible_params.clone();
+                sorted_visible_params.sort_by_key(|p| p.optional);
+                // Emit PHPDoc when any param or the return type is an array, so PHPStan
+                // understands generic element types (e.g. array<string> vs bare array).
                 let has_array_params = visible_params
                     .iter()
                     .any(|p| matches!(&p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)));
-                if has_array_params {
+                let has_array_return = matches!(&func.return_type, TypeRef::Vec(_) | TypeRef::Map(_, _))
+                    || matches!(&func.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_) | TypeRef::Map(_, _)));
+                if has_array_params || has_array_return {
                     content.push_str("    /**\n");
                     for p in &visible_params {
                         let ptype = php_phpdoc_type_fq(&p.ty, &namespace);
@@ -781,7 +792,7 @@ impl Backend for PhpBackend {
                     content.push_str(&format!("     * @return {}\n", return_phpdoc));
                     content.push_str("     */\n");
                 }
-                let params: Vec<String> = visible_params
+                let params: Vec<String> = sorted_visible_params
                     .iter()
                     .map(|p| {
                         let ptype = php_type_fq(&p.ty, &namespace);

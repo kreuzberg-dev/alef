@@ -196,7 +196,7 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
              {inner_call}\n    \
          }})\n    \
          .map({returns}::from)\n    \
-         .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()).into())"
+         .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))"
     )
 }
 
