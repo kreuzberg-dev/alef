@@ -1,7 +1,7 @@
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -32,7 +32,7 @@ impl Backend for GleamBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let module_name = gleam_module_name(&config.crate_config.name);
-        let nif_module = nif_module_name(&config.crate_config.name);
+        let nif_module = config.gleam_nif_module();
 
         let mut imports: BTreeSet<&'static str> = BTreeSet::new();
         let mut body = String::new();
@@ -44,6 +44,11 @@ impl Backend for GleamBackend {
 
         for en in &api.enums {
             emit_enum(en, &mut body, &mut imports);
+            body.push('\n');
+        }
+
+        for err in &api.errors {
+            emit_error_type(err, &mut body, &mut imports);
             body.push('\n');
         }
 
@@ -135,6 +140,36 @@ fn emit_enum(en: &EnumDef, out: &mut String, imports: &mut BTreeSet<&'static str
     out.push_str("}\n");
 }
 
+fn emit_error_type(err: &ErrorDef, out: &mut String, imports: &mut BTreeSet<&'static str>) {
+    if !err.doc.is_empty() {
+        for line in err.doc.lines() {
+            out.push_str("/// ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.push_str(&format!("pub type {} {{\n", err.name));
+    for variant in &err.variants {
+        if variant.fields.is_empty() {
+            out.push_str(&format!("  {}\n", variant.name));
+        } else {
+            out.push_str(&format!("  {}(\n", variant.name));
+            for (idx, field) in variant.fields.iter().enumerate() {
+                let ty_str = gleam_type(&field.ty, field.optional, imports);
+                let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
+                let name = if field.name.is_empty() {
+                    format!("field_{idx}")
+                } else {
+                    field.name.clone()
+                };
+                out.push_str(&format!("    {name}: {ty_str}{comma}\n"));
+            }
+            out.push_str("  )\n");
+        }
+    }
+    out.push_str("}\n");
+}
+
 fn emit_function(f: &FunctionDef, nif_module: &str, out: &mut String, imports: &mut BTreeSet<&'static str>) {
     if !f.doc.is_empty() {
         for line in f.doc.lines() {
@@ -200,9 +235,5 @@ fn render_type_ref_with_imports(
 }
 
 fn gleam_module_name(crate_name: &str) -> String {
-    crate_name.replace('-', "_")
-}
-
-fn nif_module_name(crate_name: &str) -> String {
     crate_name.replace('-', "_")
 }

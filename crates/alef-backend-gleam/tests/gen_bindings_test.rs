@@ -1,9 +1,9 @@
 use alef_backend_gleam::GleamBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig};
+use alef_core::config::{AlefConfig, CrateConfig, GleamConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef,
-    TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
+    PrimitiveType, TypeDef, TypeRef,
 };
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -90,6 +90,72 @@ fn make_config() -> AlefConfig {
         wasm: None,
         ffi: None,
         gleam: None,
+        go: None,
+        java: None,
+        kotlin: None,
+        csharp: None,
+        r: None,
+        zig: None,
+        scaffold: None,
+        readme: None,
+        lint: None,
+        update: None,
+        test: None,
+        setup: None,
+        clean: None,
+        build_commands: None,
+        publish: None,
+        custom_files: None,
+        adapters: vec![],
+        custom_modules: alef_core::config::CustomModulesConfig::default(),
+        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
+        opaque_types: std::collections::HashMap::new(),
+        generate: alef_core::config::GenerateConfig::default(),
+        generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
+        sync: None,
+        e2e: None,
+        trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
+    }
+}
+
+fn make_config_with_nif(nif_module: &str) -> AlefConfig {
+    AlefConfig {
+        version: None,
+        crate_config: CrateConfig {
+            name: "demo".to_string(),
+            sources: vec![],
+            version_from: "Cargo.toml".to_string(),
+            core_import: None,
+            workspace_root: None,
+            skip_core_import: false,
+            features: vec![],
+            path_mappings: std::collections::HashMap::new(),
+            auto_path_mappings: Default::default(),
+            extra_dependencies: Default::default(),
+            source_crates: vec![],
+            error_type: None,
+            error_constructor: None,
+        },
+        languages: vec![],
+        exclude: Default::default(),
+        include: Default::default(),
+        output: Default::default(),
+        python: None,
+        node: None,
+        ruby: None,
+        php: None,
+        elixir: None,
+        wasm: None,
+        ffi: None,
+        gleam: Some(GleamConfig {
+            app_name: None,
+            nif_module: Some(nif_module.to_string()),
+            features: None,
+            serde_rename_all: None,
+            rename_fields: std::collections::HashMap::new(),
+        }),
         go: None,
         java: None,
         kotlin: None,
@@ -240,4 +306,88 @@ fn optional_field_imports_option() {
     let content = &files[0].content;
     assert!(content.contains("import gleam/option.{type Option}"));
     assert!(content.contains("value: Option(String)"));
+}
+
+#[test]
+fn error_emits_custom_type() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                ErrorVariant {
+                    name: "NotFound".into(),
+                    message_template: None,
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: String::new(),
+                },
+                ErrorVariant {
+                    name: "InvalidInput".into(),
+                    message_template: None,
+                    fields: vec![make_field("details", TypeRef::String, false)],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+            ],
+            doc: String::new(),
+        }],
+    };
+
+    let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(
+        content.contains("pub type DemoError {"),
+        "missing error type decl: {content}"
+    );
+    assert!(content.contains("NotFound"), "missing NotFound variant: {content}");
+    assert!(
+        content.contains("InvalidInput("),
+        "missing InvalidInput constructor: {content}"
+    );
+    assert!(content.contains("details: String"), "missing details field: {content}");
+}
+
+#[test]
+fn nif_module_override_uses_custom_name() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "greet".into(),
+            rust_path: "demo::greet".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("who", TypeRef::String)],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_nif("custom_nif_atom");
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+    assert!(
+        content.contains("@external(erlang, \"custom_nif_atom\", \"greet\")"),
+        "should use custom nif_module: {content}"
+    );
 }
