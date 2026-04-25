@@ -2,8 +2,11 @@
 
 pub mod c_ffi;
 pub mod cli;
+pub mod gleam;
 pub mod go;
+pub mod kotlin;
 pub mod php;
+pub mod zig;
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};

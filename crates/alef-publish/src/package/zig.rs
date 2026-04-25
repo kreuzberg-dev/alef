@@ -1,0 +1,106 @@
+//! Zig package — archives the source code + FFI shared library for distribution.
+
+use super::PackageArtifact;
+use crate::platform::RustTarget;
+use alef_core::config::AlefConfig;
+use anyhow::{Context, Result};
+use std::fs;
+use std::path::Path;
+
+/// Package Zig bindings as a source distribution with bundled FFI library.
+///
+/// Produces: `{name}-v{version}.tar.gz` containing:
+/// - `src/` — Zig source code
+/// - `lib/` — FFI shared library (.so/.dylib)
+/// - `include/` — C header
+/// - `build.zig`, `build.zig.zon` — Zig build files
+pub fn package_zig(
+    config: &AlefConfig,
+    target: &RustTarget,
+    workspace_root: &Path,
+    output_dir: &Path,
+    version: &str,
+) -> Result<PackageArtifact> {
+    let lib_name = config.ffi_lib_name();
+    let header_name = config.ffi_header_name();
+    let crate_name = &config.crate_config.name;
+    let pkg_dir = config.package_dir(alef_core::config::extras::Language::Zig);
+
+    let pkg_name = format!("{crate_name}-v{version}");
+    let staging = output_dir.join(&pkg_name);
+
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+    fs::create_dir_all(&staging)?;
+
+    // Copy Zig package source files.
+    let pkg_src = workspace_root.join(&pkg_dir);
+    if !pkg_src.exists() {
+        anyhow::bail!("Zig package directory not found: {}", pkg_dir);
+    }
+
+    copy_dir_recursive(&pkg_src, &staging).context("copying Zig package")?;
+
+    // Create lib/ and include/ directories if needed.
+    let lib_dir = staging.join("lib");
+    let include_dir = staging.join("include");
+    fs::create_dir_all(&lib_dir)?;
+    fs::create_dir_all(&include_dir)?;
+
+    // Copy FFI shared library.
+    let shared_lib = target.shared_lib_name(&lib_name);
+    if let Ok(shared_src) = super::find_built_artifact(workspace_root, target, &shared_lib) {
+        fs::copy(&shared_src, lib_dir.join(&shared_lib))?;
+    }
+
+    // Copy C header.
+    let ffi_crate_dir = crate::ffi_stage::find_ffi_crate_dir_pub(config, workspace_root);
+    let header_src = ffi_crate_dir.join("include").join(&header_name);
+    if header_src.exists() {
+        fs::copy(&header_src, include_dir.join(&header_name))?;
+    }
+
+    // Create tarball.
+    let archive_name = format!("{pkg_name}.tar.gz");
+    let archive_path = output_dir.join(&archive_name);
+    super::create_tar_gz(&staging, &archive_path)?;
+
+    // Clean up staging.
+    fs::remove_dir_all(&staging).ok();
+
+    Ok(PackageArtifact {
+        path: archive_path,
+        name: archive_name,
+        checksum: None,
+    })
+}
+
+/// Recursively copy a directory tree, excluding common ignore patterns.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    for entry in fs::read_dir(src).context("reading source directory")? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let dest_path = dst.join(&file_name);
+
+        if path.is_dir() {
+            // Skip hidden directories and common ignore patterns.
+            let name = file_name.to_string_lossy();
+            if name.starts_with('.') {
+                continue;
+            }
+            if matches!(
+                name.as_ref(),
+                "target" | "node_modules" | "__pycache__" | ".git" | "zig-cache"
+            ) {
+                continue;
+            }
+            fs::create_dir_all(&dest_path)?;
+            copy_dir_recursive(&path, &dest_path)?;
+        } else {
+            fs::copy(&path, &dest_path)?;
+        }
+    }
+    Ok(())
+}

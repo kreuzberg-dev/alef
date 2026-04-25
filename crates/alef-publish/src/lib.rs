@@ -184,8 +184,11 @@ pub(crate) fn crate_name_from_output(config: &AlefConfig, lang: Language) -> Opt
         Language::Java => config.output.java.as_deref(),
         Language::Csharp => config.output.csharp.as_deref(),
         Language::R => config.output.r.as_deref(),
+        Language::Kotlin => config.output.kotlin.as_deref(),
+        Language::Gleam => config.output.gleam.as_deref(),
+        Language::Zig => config.output.zig.as_deref(),
         Language::Rust => None,
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => None,
+        Language::Swift | Language::Dart => None,
     }?;
     let path = std::path::Path::new(output_path);
     // Strip trailing `src/` component if present.
@@ -319,6 +322,21 @@ pub fn package(
                 let artifact = package::go::package_go_ffi(config, t, ws_root, output_dir, version)?;
                 Some(artifact)
             }
+            Language::Kotlin => {
+                let t = target.context("--target required for Kotlin packaging")?;
+                let artifact = package::kotlin::package_kotlin(config, t, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            Language::Gleam => {
+                let t = target.context("--target required for Gleam packaging")?;
+                let artifact = package::gleam::package_gleam(config, t, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            Language::Zig => {
+                let t = target.context("--target required for Zig packaging")?;
+                let artifact = package::zig::package_zig(config, t, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
             Language::Rust => {
                 // CLI packaging is invoked explicitly from alef-cli, not through the language dispatch.
                 eprintln!("  CLI (Rust) packaging handled separately");
@@ -378,6 +396,9 @@ pub fn validate(config: &AlefConfig, languages: &[Language]) -> Result<Vec<Strin
             Language::Csharp => vec![], // .csproj name varies
             Language::Wasm => vec![],
             Language::R => vec!["DESCRIPTION"],
+            Language::Kotlin => vec!["build.gradle.kts"],
+            Language::Gleam => vec!["gleam.toml"],
+            Language::Zig => vec!["build.zig"],
             _ => vec![],
         };
 
