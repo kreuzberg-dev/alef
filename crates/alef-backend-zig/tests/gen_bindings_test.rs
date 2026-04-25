@@ -2,7 +2,7 @@ use alef_backend_zig::ZigBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CrateConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef,
     TypeRef,
 };
 
@@ -236,4 +236,127 @@ fn optional_field_uses_zig_optional_syntax() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(content.contains("value: ?[:0]const u8,"), "missing optional: {content}");
+}
+
+#[test]
+fn error_set_emits_zig_error_with_pascal_case_tags() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                ErrorVariant {
+                    name: "connection_failed".into(),
+                    message_template: None,
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: String::new(),
+                },
+                ErrorVariant {
+                    name: "timeout".into(),
+                    message_template: None,
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: String::new(),
+                },
+            ],
+            doc: String::new(),
+        }],
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(content.contains("pub const DemoError = error {"), "missing error set definition: {content}");
+    assert!(content.contains("ConnectionFailed,"), "missing ConnectionFailed tag: {content}");
+    assert!(content.contains("Timeout,"), "missing Timeout tag: {content}");
+}
+
+#[test]
+fn error_returning_function_wraps_return_type() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "extract".into(),
+            rust_path: "demo::extract".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("path", TypeRef::String)],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("DemoError".into()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                ErrorVariant {
+                    name: "Connection".into(),
+                    message_template: None,
+                    fields: vec![],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: true,
+                    doc: String::new(),
+                },
+            ],
+            doc: String::new(),
+        }],
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(content.contains("pub fn extract(path: [:0]const u8) DemoError![:0]const u8 {"), "missing error-returning function: {content}");
+    assert!(content.contains("const result = c.demo_extract(path);"), "missing C call: {content}");
+    assert!(content.contains("if (result == null or result == 0)"), "missing null/zero check: {content}");
+    assert!(content.contains("return DemoError.Connection;"), "missing error return: {content}");
+}
+
+#[test]
+fn async_function_emits_comment_and_skips() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "fetch_async".into(),
+            rust_path: "demo::fetch_async".into(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: true,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(content.contains("// async fn — bridged to blocking via tokio runtime in C ABI"), "missing async comment: {content}");
+    assert!(!content.contains("pub fn fetch_async"), "should not emit async function signature: {content}");
 }
