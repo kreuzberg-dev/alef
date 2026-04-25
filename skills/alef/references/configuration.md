@@ -2,14 +2,23 @@
 
 Alef is configured via `alef.toml` in your project root. Run `alef init` to generate a starter config.
 
+## Validation Behavior
+
+`alef.toml` is validated when alef loads it. Two checks emit diagnostics:
+
+1. **Required preconditions on overrides.** Any `[lint|test|build_commands|setup|update|clean].<lang>` table that overrides a main command field (`format`, `check`, `typecheck`, `command`, `coverage`, `e2e`, `update`, `upgrade`, `install`, `clean`, `build`, `build_release`) must declare a `precondition`. This guarantees the warn-and-skip semantics that built-in defaults provide carry over to user overrides — without it, a missing tool on a consumer's system would hard-fail the run instead of being skipped. Missing preconditions are a load-time error, not a warning.
+2. **Redundant-default warnings.** Any field whose value matches the built-in default verbatim emits a `tracing::warn!` naming the section and field. Pure-noise overrides clutter consumer configs; alef calls them out so they can be removed.
+
+Both behaviors are intentional. They keep consumer `alef.toml` files minimal and honest about the actual surface that's being customised.
+
 ## Minimal Example
 
 ```toml
+languages = ["python", "node", "go", "java"]
+
 [crate]
 name = "my-library"
 sources = ["src/lib.rs", "src/types.rs"]
-
-languages = ["python", "node", "go", "java"]
 
 [output]
 python = "crates/my-library-py/src/"
@@ -26,6 +35,33 @@ package_name = "@myorg/my-library"
 python = "dataclass"
 node = "interface"
 ```
+
+---
+
+## `[tools]` -- Package Manager Selection
+
+Top-level section that selects which package-manager / dev-tool variants the default per-language pipeline commands target. Every field is optional; defaults match the most common project setup.
+
+```toml
+[tools]
+python_package_manager = "uv"      # uv | pip | poetry  (default: uv)
+node_package_manager = "pnpm"      # pnpm | npm | yarn  (default: pnpm)
+rust_dev_tools = [                 # tools `alef setup rust` installs via `cargo install`
+  "cargo-edit",
+  "cargo-sort",
+  "cargo-machete",
+  "cargo-deny",
+  "cargo-llvm-cov",
+]
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `python_package_manager` | string | `"uv"` | One of `uv`, `pip`, `poetry`. Drives default Python `lint`, `test`, `setup`, `update`, `clean` commands. |
+| `node_package_manager` | string | `"pnpm"` | One of `pnpm`, `npm`, `yarn`. Drives default Node and Wasm pipeline commands. |
+| `rust_dev_tools` | string[] | see right | Defaults to `["cargo-edit", "cargo-sort", "cargo-machete", "cargo-deny", "cargo-llvm-cov"]`. Set to `[]` to skip dev-tool installation. |
+
+The selection feeds every default that calls a package-manager-specific tool — switching to `pip` swaps `uv run pytest` for `pytest`, switching to `yarn` swaps `pnpm up` for `yarn upgrade`, etc.
 
 ---
 
@@ -119,6 +155,23 @@ r = "crates/{name}-extendr/src/"
 ---
 
 ## Language-Specific Sections
+
+### Shared per-language fields
+
+The fields below are accepted on every language section listed in this document (`[python]`, `[node]`, `[ruby]`, `[php]`, `[elixir]`, `[wasm]`, `[ffi]`, `[go]`, `[java]`, `[csharp]`, `[r]`). They aren't duplicated in each table; the language-specific tables only list fields unique to that language.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `features` | string[] | inherits `[crate].features` | Per-language Cargo feature override |
+| `serde_rename_all` | string | language-idiomatic (`snake_case` for Python/Ruby/PHP/Elixir/Go/FFI; `camelCase` for Node/Wasm/Java/C#) | Override JSON field naming strategy |
+| `extra_dependencies` | map | `{}` | Additional Cargo deps for this language's binding crate (`{ "tokio" = "1" }` or full TOML spec). Not present on `[go]`, `[java]`, `[csharp]`, `[r]`. |
+| `scaffold_output` | path | derived from `[output].<lang>` | Override where this language's package files (`pyproject.toml`, `package.json`, …) are scaffolded. Not present on `[ffi]`, `[go]`, `[java]`, `[csharp]`, `[r]`. |
+| `rename_fields` | map | `{}` | Per-field name remapping. Key is `TypeName.field_name` (e.g. `"LayoutDetection.class"`), value is the desired binding field name. Applied after automatic keyword escaping. |
+| `exclude_functions` | string[] | `[]` | Functions to exclude from this language's bindings. Currently honoured by `[python]`, `[node]`, `[ruby]`, `[php]`, `[elixir]`, `[wasm]`, `[ffi]`, `[go]`. |
+| `exclude_types` | string[] | `[]` | Types to exclude from this language's bindings. Same backends as `exclude_functions`. |
+| `run_wrapper` | string | `None` | Prefix every default tool invocation with this string. Example: `[python] run_wrapper = "uv run --no-sync"` turns the default `ruff format packages/python` into `uv run --no-sync ruff format packages/python`. Applies across `lint`, `test`, `setup`, `update`, `clean`, `build` defaults. Not present on `[ffi]`. |
+| `extra_lint_paths` | string[] | `[]` | Append paths (space-separated) to default `format`, `check`, `typecheck` commands. Example: `[python] extra_lint_paths = ["scripts"]` makes `ruff format packages/python scripts`. Ignored on Java/C# when `project_file` is set. Not present on `[ffi]`. |
+| `project_file` | string | `None` | Java/C# only. When set, default lint/build/test commands target this file (`pom.xml`, `MyProject.csproj`, `MySolution.slnx`) instead of the package directory. |
 
 ### `[python]`
 
@@ -347,6 +400,33 @@ Supported patterns:
 - `callback_bridge` -- callback-based FFI bridge
 - `streaming` -- streaming/iterator pattern
 - `server_lifecycle` -- server start/stop lifecycle management
+
+---
+
+## `[[trait_bridges]]` -- Foreign Trait Implementations
+
+Generate FFI bridges so a foreign-language object can implement a Rust trait (the plugin pattern). Supported across all 11 backends; each `[[trait_bridges]]` entry produces a wrapper struct, the trait `impl`, and an optional registration function for that trait.
+
+```toml
+[[trait_bridges]]
+trait_name = "OcrBackend"
+super_trait = "Plugin"
+registry_getter = "kreuzberg::plugins::registry::get_ocr_backend_registry"
+register_fn = "register_ocr_backend"
+type_alias = "VisitorHandle"
+exclude_languages = ["wasm"]
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `trait_name` | string | *required* | Name of the Rust trait to bridge (e.g. `"OcrBackend"`) |
+| `super_trait` | string | -- | Super-trait that requires forwarding. When set, the bridge generates an `impl SuperTrait for Wrapper` block. |
+| `registry_getter` | string | -- | Rust path to the registry getter function. When set, the registration function inserts the bridge into a registry. |
+| `register_fn` | string | -- | Name of the registration function to generate. When absent, only the wrapper struct and trait impl are emitted (per-call bridge pattern). |
+| `type_alias` | string | -- | Named type alias in the IR that maps to this bridge (e.g. `"VisitorHandle"`). When a parameter has a `TypeRef::Named` matching this alias, the bridge type is substituted. |
+| `param_name` | string | -- | Parameter-name override for cases where the extractor sanitised the type (e.g. `VisitorHandle` becomes `String` because it is a type alias over `Rc<RefCell<dyn Trait>>`). |
+| `register_extra_args` | string | -- | Extra arguments appended to `registry.register(arc, …)`. E.g. `"0"` produces `registry.register(arc, 0)`. |
+| `exclude_languages` | string[] | `[]` | Backend names that should not generate this trait bridge. Backend names match `Backend::name()` (e.g. `["elixir", "wasm"]`). |
 
 ---
 
@@ -607,6 +687,60 @@ github_repo = "org/repo"
 | `registry.packages` | map | `{}` | Map of language to published package name/identifier |
 | `registry.categories` | string[] | `[]` | Fixture categories to include in registry test generation |
 | `registry.github_repo` | string | -- | GitHub repository identifier for release artifacts |
+
+---
+
+## `[publish]` -- Release Pipeline Configuration
+
+Configures the `alef publish prepare|build|package|validate` subcommands. Used to vendor the core crate, cross-compile platform-specific FFI artifacts, and assemble distributable archives.
+
+```toml
+[publish]
+core_crate = "crates/my-lib"
+
+[publish.languages.ruby]
+vendor_mode = "core-only"
+precondition = "command -v cargo >/dev/null 2>&1"
+before = ["cargo build --release -p my-lib-rb"]
+
+[publish.languages.r]
+vendor_mode = "full"
+
+[publish.languages.elixir]
+vendor_mode = "core-only"
+nif_versions = ["2.16", "2.17"]
+
+[publish.languages.c_ffi]
+pkg_config = true
+cmake_config = true
+archive_format = "tar.gz"
+
+[publish.languages.go]
+build_command = "cross build --release --target {target}"
+package_command = "custom-packager"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `core_crate` | string | auto-detected from `[crate].sources` | Path to the core Rust crate to vendor |
+| `languages.<lang>` | map | `{}` | Per-language publish overrides (table below) |
+
+### `[publish.languages.<lang>]`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `precondition` | string | -- | Shell command that must exit 0 for publish steps to run; skip with warning on failure |
+| `before` | StringOrVec | -- | Command(s) to run before main publish commands; aborts on failure |
+| `after` | StringOrVec | -- | Command(s) to run after main publish commands; aborts on failure |
+| `vendor_mode` | string | `"none"` | One of `"core-only"` (Ruby/Elixir), `"full"` (R), or `"none"` |
+| `nif_versions` | string[] | -- | Elixir NIF versions to build for (e.g. `["2.16", "2.17"]`) |
+| `build_command` | StringOrVec | per-language default | Override the cross-compilation build command |
+| `package_command` | StringOrVec | per-language default | Override the packaging command |
+| `archive_format` | string | per-language default | `"tar.gz"` or `"zip"` |
+| `pkg_config` | bool | `false` | C FFI: generate a pkg-config `.pc` file |
+| `cmake_config` | bool | `false` | C FFI: generate a CMake find module |
+
+Language keys recognised by `[publish.languages]`: `python`, `node`, `ruby`, `php`, `elixir`, `wasm`, `go`, `java`, `csharp`, `r`, `c_ffi`. The `c_ffi` key configures the standalone C FFI distribution (header + shared library + pkg-config + CMake).
 
 ---
 

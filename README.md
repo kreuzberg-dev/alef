@@ -37,10 +37,15 @@ Generate fully-typed, lint-clean language bindings for Rust libraries across 11 
 - **Package scaffolding** -- Generates complete package manifests for each language: `pyproject.toml`, `package.json`, `.gemspec`, `composer.json`, `mix.exs`, `go.mod`, `pom.xml`, `.csproj`, `DESCRIPTION` (R), and `Cargo.toml` for binding crates.
 - **E2E test generation** -- Write test fixtures as JSON, get complete runnable test suites for all configured languages. Supports 40+ assertion types, field path aliases, per-language overrides, and skip conditions.
 - **Adapter patterns** -- Define custom FFI bridging patterns in config: `sync_function`, `async_method`, `callback_bridge`, `streaming`, and `server_lifecycle`. Alef generates the glue code for each backend.
+- **Trait bridges** -- Generate FFI bridges so foreign-language objects can implement Rust traits (plugin pattern). Configured via `[[trait_bridges]]`; supported across all 11 backends.
 - **Version sync** -- Propagates the version from `Cargo.toml` to all package manifests, C headers, pkg-config files, and any custom file via regex text replacements.
 - **Build orchestration** -- Wraps `maturin`, `napi`, `wasm-pack`, and `cargo`+`cbindgen` with post-processing steps (e.g., patching `.d.ts` files for `verbatimModuleSyntax` compatibility).
+- **Pipeline commands with smart defaults** -- `alef lint`, `test`, `build`, `setup`, `update`, `clean` ship with built-in per-language defaults that dispatch on the configured package manager (`uv`/`pip`/`poetry` for Python; `pnpm`/`npm`/`yarn` for Node) via the top-level `[tools]` section. Every default carries a POSIX `command -v` precondition so missing tools warn-and-skip instead of failing the run.
+- **Override knobs that absorb common customisations** -- per-language `run_wrapper`, `extra_lint_paths`, and `project_file` (Java/C#) reduce override boilerplate so consumers rarely need to redefine entire `[lint.<lang>]` / `[build_commands.<lang>]` tables.
+- **Publish pipeline** -- `alef publish prepare|build|package|validate` vendors the core crate, cross-compiles release artifacts (cargo / cross / maturin / napi / wasm-pack), and packages distributables (C FFI tarball with pkg-config/CMake, PHP PIE archive, Go FFI tarball).
 - **Visitor FFI** -- Generates a 40-method visitor callback interface via C FFI, enabling the visitor pattern in Go, Java, C#, and other FFI-based languages.
-- **Caching** -- blake3-based content hashing skips regeneration when source and config haven't changed. `alef verify` checks staleness in CI.
+- **Config validation** -- `alef.toml` is validated at load time. Custom command tables that override a main field must declare a `precondition` so warn-and-skip behavior is preserved on user systems. Fields whose value matches the built-in default emit a `tracing::warn!` so consumer configs stay minimal.
+- **Caching** -- blake3-based content hashing skips regeneration when source and config haven't changed. `alef verify` checks staleness in CI (including README freshness).
 
 ## Supported Languages
 
@@ -131,12 +136,17 @@ alef test --lang python,go # Specific languages
 | `alef verify` | Check if bindings are up-to-date (CI mode with `--exit-code`) |
 | `alef diff` | Show what would change without writing |
 | `alef all` | Run full pipeline: generate + stubs + scaffold + readme + e2e + docs + sync |
-| `alef e2e` | Generate e2e test projects from JSON fixtures |
-| `alef cache` | Manage build cache |
+| `alef e2e` | Generate e2e test projects from JSON fixtures (subcommands: `generate`, `init`, `scaffold`, `list`, `validate`) |
+| `alef publish` | Vendor, cross-compile, and package release artifacts (subcommands: `prepare`, `build`, `package`, `validate`) |
+| `alef cache` | Manage build cache (subcommands: `clear`, `status`) |
 
 ## Configuration-Driven Defaults
 
-All operational commands (`lint`, `fmt`, `update`, `setup`, `clean`, `build`, `test`) ship with built-in per-language defaults. No configuration is required to use them — run `alef lint` or `alef update` out of the box. Override any default by adding the corresponding section to `alef.toml`:
+All operational commands (`lint`, `fmt`, `update`, `setup`, `clean`, `build`, `test`) ship with built-in per-language defaults. No configuration is required to use them — run `alef lint` or `alef update` out of the box. Defaults dispatch on the top-level `[tools]` section (package-manager selection) and per-language knobs (`run_wrapper`, `extra_lint_paths`, `project_file`) — both described below — so most consumer projects can avoid redefining whole command tables.
+
+Every built-in default declares a POSIX `command -v <tool>` **precondition**: when the underlying tool is missing on the user's system, the language is skipped with a warning rather than failing the run. When you override a main command field (`format`, `command`, `update`, `install`, `clean`, `build`, …), you **must** declare a `precondition` of your own so the warn-and-skip semantics survive on consumer systems — alef rejects override tables that omit it at config load.
+
+Override any default by adding the corresponding section to `alef.toml`:
 
 ```toml
 # Override Node lint commands
@@ -171,6 +181,50 @@ All command fields accept either a single string or an array of strings.
 
 Node and WASM scaffolding uses the [Oxc](https://oxc.rs) toolchain: `oxfmt` for formatting and `oxlint` for linting. Biome is no longer included in generated Node/WASM projects.
 
+### `[tools]` -- Package Manager Selection
+
+The top-level `[tools]` section selects which package-manager / dev-tool variants every default pipeline command targets. All fields are optional; defaults match what most projects use.
+
+```toml
+[tools]
+python_package_manager = "uv"      # uv | pip | poetry  (default: uv)
+node_package_manager = "pnpm"      # pnpm | npm | yarn  (default: pnpm)
+rust_dev_tools = [                 # tools `alef setup rust` installs via `cargo install`
+  "cargo-edit",
+  "cargo-sort",
+  "cargo-machete",
+  "cargo-deny",
+  "cargo-llvm-cov",
+]
+```
+
+The Python and Node selections drive the default `lint`, `test`, `setup`, `update`, and `clean` commands — switching to `pip` swaps `uv run pytest` for plain `pytest`, switching to `yarn` swaps `pnpm up` for `yarn upgrade`, etc. Set `rust_dev_tools = []` to skip dev-tool installation entirely.
+
+### Per-language override knobs
+
+Three optional per-language fields cover the most common reasons consumers used to redefine entire command tables. They feed into every relevant default command (`format`, `check`, `typecheck`, `command`, `coverage`, `update`, `upgrade`, `install`, `clean`, `build`, `build_release`).
+
+```toml
+# Wrap every default tool invocation. Common for projects that need to
+# inherit the package-manager environment without a `before` hook.
+[python]
+run_wrapper = "uv run --no-sync"  # → "uv run --no-sync ruff format packages/python"
+
+# Append extra paths to default lint commands.
+[python]
+extra_lint_paths = ["scripts"]    # → "ruff format packages/python scripts"
+
+# For Maven / .NET, point default lint/build/test commands at a project
+# descriptor instead of the package directory.
+[java]
+project_file = "pom.xml"
+
+[csharp]
+project_file = "MySolution.slnx"
+```
+
+`run_wrapper`, `extra_lint_paths`, and `project_file` are accepted on every binding language section (`[python]`, `[node]`, `[ruby]`, `[php]`, `[elixir]`, `[wasm]`, `[go]`, `[java]`, `[csharp]`, `[r]`). `project_file` only takes effect for `[java]` and `[csharp]`.
+
 ## Configuration Reference
 
 Alef is configured via `alef.toml` in your project root. Run `alef init` to generate a starter config.
@@ -178,11 +232,11 @@ Alef is configured via `alef.toml` in your project root. Run `alef init` to gene
 ### Minimal Example
 
 ```toml
+languages = ["python", "node", "go", "java"]
+
 [crate]
 name = "my-library"
 sources = ["src/lib.rs", "src/types.rs"]
-
-languages = ["python", "node", "go", "java"]
 
 [output]
 python = "crates/my-library-py/src/"
@@ -199,6 +253,8 @@ package_name = "@myorg/my-library"
 python = "dataclass"
 node = "interface"
 ```
+
+`languages` is a top-level array, so it must appear **before** the first `[table]` header — otherwise TOML scopes it as `[crate].languages` and parsing fails.
 
 ### `[crate]` -- Source Configuration
 
@@ -614,13 +670,13 @@ Alef ships pre-commit hooks that consumer projects can use to keep generated out
 
 ### Verify mode (CI-friendly, check-only)
 
-Fails if any generated file is stale -- does not modify files:
+Fails if any generated file is stale (including per-language READMEs) -- does not modify files:
 
 ```yaml
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.4.0
+    rev: v0.7.9
     hooks:
       - id: alef-verify
 ```
@@ -633,12 +689,24 @@ Regenerates all output (bindings, stubs, docs, readme, scaffold) when source fil
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.4.0
+    rev: v0.7.9
     hooks:
       - id: alef-generate
 ```
 
-Both hooks trigger on `.rs` and `.toml` file changes. They require `alef` to be installed and available on `PATH`.
+### README-only refresh
+
+Regenerate per-language README files without re-running the full pipeline. Useful when only the README templates or snippets have changed:
+
+```yaml
+repos:
+  - repo: https://github.com/kreuzberg-dev/alef
+    rev: v0.7.9
+    hooks:
+      - id: alef-readme
+```
+
+All hooks trigger on `.rs` and `.toml` file changes (`alef-readme` additionally watches the `[readme].template_dir` and `snippets_dir`). They require `alef` to be installed and available on `PATH`. `alef verify` checks bindings, stubs, scaffold, docs, **and** READMEs against on-disk files — staleness in any of them fails the hook.
 
 ## Contributing
 

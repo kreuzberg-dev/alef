@@ -83,26 +83,42 @@ alef test --lang python,go # Specific languages
 ### 5. Verify (CI)
 
 ```bash
-alef verify --exit-code    # Fails if any binding is stale
+alef verify --exit-code    # Fails if any binding, stub, scaffold, doc, or README is stale
 alef diff                  # Show what would change
+```
+
+### 6. Publish (release)
+
+```bash
+alef publish prepare --target x86_64-unknown-linux-gnu
+alef publish build --target x86_64-unknown-linux-gnu --use-cross
+alef publish package --output dist
+alef publish validate
 ```
 
 ## Minimal Configuration
 
 ```toml
+languages = ["python", "node", "go", "java"]
+
 [crate]
 name = "my-library"
 sources = ["src/lib.rs", "src/types.rs"]
-
-languages = ["python", "node", "go", "java"]
 
 [output]
 python = "crates/my-library-py/src/"
 node = "crates/my-library-node/src/"
 ffi = "crates/my-library-ffi/src/"
 
+# Optional: tweak which package managers the default pipeline commands use.
+[tools]
+python_package_manager = "uv"      # uv | pip | poetry  (default: uv)
+node_package_manager = "pnpm"      # pnpm | npm | yarn  (default: pnpm)
+
 [python]
 module_name = "_my_library"
+# run_wrapper, extra_lint_paths, project_file are accepted on every language
+# section to absorb common override patterns without redefining whole tables.
 
 [node]
 package_name = "@myorg/my-library"
@@ -111,6 +127,8 @@ package_name = "@myorg/my-library"
 python = "dataclass"
 node = "interface"
 ```
+
+`alef.toml` is validated at load time. Custom `[lint|test|build_commands|setup|update|clean].<lang>` tables that override a main command must declare a `precondition`; redundant fields (value identical to the built-in default) emit a `tracing::warn!` so the file stays minimal.
 
 ## Supported Languages
 
@@ -167,11 +185,13 @@ Alef provides pre-commit hooks for consumer repos:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/kreuzberg-dev/alef
-    rev: v0.5.1
+    rev: v0.7.9
     hooks:
-      - id: alef-verify    # Check-only: fails if stale
+      - id: alef-verify    # Check-only: fails if any output (incl. README) is stale
       # OR
-      - id: alef-generate  # Auto-regenerate on change
+      - id: alef-generate  # Auto-regenerate on .rs/.toml change
+      # OR
+      - id: alef-readme    # README-only refresh (template / snippets changes)
 ```
 
 ## Caching

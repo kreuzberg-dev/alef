@@ -41,7 +41,9 @@ alef generate --clean
 alef generate --lang ruby --clean
 ```
 
-Generated Rust files are auto-formatted with `cargo fmt`. Caching is based on blake3 content hashing of source files and config -- use `--clean` to force regeneration.
+Generated Rust files are auto-formatted with `cargo fmt`. After Rust formatting, alef invokes per-language formatters (`ruff format`, `oxfmt`, `gofmt`, etc.) on the generated output as a best-effort post-generation step: a missing tool, a failing `before` hook, or a non-zero formatter exit emits a warning and the run continues. Formatters are *expected* to modify generated files, so non-zero exits there must not abort `alef generate` / `alef all`. The dedicated `alef fmt` command keeps strict failure semantics.
+
+Caching is based on blake3 content hashing of source files and config -- use `--clean` to force regeneration.
 
 ---
 
@@ -255,11 +257,11 @@ alef clean --lang rust,node
 
 ## `alef verify`
 
-Verify that generated bindings are up to date. Regenerates bindings in memory and compares against files on disk. Designed for CI pipelines.
+Verify that generated output is up to date. Regenerates bindings, stubs, scaffold manifests, docs, **and per-language READMEs** in memory and compares against files on disk. Designed for CI pipelines.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--exit-code` | bool | `false` | Exit with code 1 if any binding is stale (CI mode) |
+| `--exit-code` | bool | `false` | Exit with code 1 if any output is stale (CI mode) |
 | `--compile` | bool | `false` | Also run a compilation check |
 | `--lint` | bool | `false` | Also run lint checks |
 | `--lang` | string (comma-separated) | all from config | Languages to verify |
@@ -271,7 +273,7 @@ alef verify --exit-code --compile --lint
 alef verify --lang python,node --exit-code
 ```
 
-Lists all stale files when differences are detected. Combine with `--exit-code` to fail CI when bindings are out of date.
+Lists all stale files when differences are detected. Combine with `--exit-code` to fail CI when any output is out of date. README freshness was added in v0.7.9 — `alef verify` now flags README drift the same way it flags stale bindings.
 
 ---
 
@@ -411,3 +413,68 @@ Show current cache status, including which stages have cached hashes.
 ```bash
 alef cache status
 ```
+
+---
+
+## `alef publish` -- Release Pipeline
+
+Vendor, cross-compile, and package release artifacts for distribution to language package registries. Configured via `[publish]` in `alef.toml`. Each subcommand respects per-language `precondition` / `before` / `after` hooks declared in `[publish.languages.<lang>]`.
+
+### `alef publish prepare`
+
+Stage everything needed for a publishable build: vendor the core crate (Ruby, Elixir, R via `cargo vendor` for `vendor_mode = "full"`, or path-rewriting copy for `"core-only"`), copy FFI shared libraries and headers into the language package directories.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--lang` | string (comma-separated) | all from `[publish.languages]` | Languages to prepare for |
+| `--target` | string | host triple | Rust target triple for cross-compilation (e.g. `x86_64-unknown-linux-gnu`) |
+| `--dry-run` | bool | `false` | Show what would be done without executing |
+
+```bash
+alef publish prepare
+alef publish prepare --lang ruby,elixir
+alef publish prepare --target aarch64-apple-darwin --dry-run
+```
+
+### `alef publish build`
+
+Build release artifacts for a specific platform. Auto-selects the right tool per language: `cargo` / `cross` for Rust core and FFI, `maturin build` for Python, `napi build` for Node, `wasm-pack build` for Wasm.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--lang` | string (comma-separated) | all from `[publish.languages]` | Languages to build |
+| `--target` | string | host triple | Rust target triple |
+| `--use-cross` | bool | `false` | Use [`cross`](https://github.com/cross-rs/cross) instead of `cargo` for cross-compilation |
+
+```bash
+alef publish build --target x86_64-unknown-linux-gnu --use-cross
+alef publish build --lang python,node --target aarch64-apple-darwin
+```
+
+### `alef publish package`
+
+Assemble distributable archives. Output formats per language: C FFI tarball with pkg-config + CMake configs; PHP PIE archive; Go FFI tarball; per-platform wheels / npm packages / `.gem` files for the high-level binding languages.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--lang` | string (comma-separated) | all from `[publish.languages]` | Languages to package |
+| `--target` | string | host triple | Rust target triple (auto-maps to language-specific platform names — Go's `linux_amd64`, Node's `linux-x64-gnu`, etc.) |
+| `-o`, `--output` | string | `dist` | Output directory for packages |
+| `--version` | string | from `Cargo.toml` | Override the version string written into archives |
+| `--dry-run` | bool | `false` | Show what would be packaged without executing |
+
+```bash
+alef publish package --target x86_64-unknown-linux-gnu
+alef publish package --lang ruby --output ./artifacts
+alef publish package --version 1.2.3 --dry-run
+```
+
+### `alef publish validate`
+
+Sanity-check that everything required for `cargo publish` / `pnpm publish` / `gem push` etc. is consistent: version readability, package directory existence, manifest presence, vendored dependencies. Designed to run in CI before invoking the actual `publish` step in your release workflow.
+
+```bash
+alef publish validate
+```
+
+No flags. Exits non-zero on validation failures with a list of issues.
