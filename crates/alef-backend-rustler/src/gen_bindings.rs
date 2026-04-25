@@ -449,7 +449,7 @@ impl Backend for RustlerBackend {
                 &opaque_types,
                 &default_types,
             );
-            let all_params: Vec<String> = func.params.iter().map(|p| p.name.to_snake_case()).collect();
+            let all_params: Vec<String> = func.params.iter().map(|p| elixir_safe_param_name(&p.name)).collect();
 
             // Count how many trailing parameters are optional so we can emit shorter-arity overloads.
             let trailing_optional_count = func.params.iter().rev().take_while(|p| p.optional).count();
@@ -672,7 +672,7 @@ impl Backend for RustlerBackend {
                     param_names.push("obj".to_string());
                 }
                 for p in &method.params {
-                    param_names.push(p.name.to_snake_case());
+                    param_names.push(elixir_safe_param_name(&p.name));
                 }
 
                 let return_spec = elixir_return_typespec(
@@ -1867,7 +1867,7 @@ fn gen_native_ex(
                 underscored_params.push("_obj".to_string());
             }
             for p in &method.params {
-                underscored_params.push(format!("_{}", p.name.to_snake_case()));
+                underscored_params.push(format!("_{}", elixir_safe_param_name(&p.name)));
             }
 
             last_was_multiline = write_nif_stub(&mut out, &nif_fn_name, &underscored_params, last_was_multiline);
@@ -2011,6 +2011,22 @@ fn elixir_safe_type_name(name: &str) -> String {
         format!("{name}_variant")
     } else {
         name.to_owned()
+    }
+}
+
+/// Elixir reserved words that cannot be used as parameter names.
+const ELIXIR_RESERVED_WORDS: &[&str] = &[
+    "after", "and", "catch", "cond", "do", "else", "end", "false", "fn", "for", "if", "in", "nil", "not", "or",
+    "raise", "receive", "rescue", "true", "try", "unless", "when", "with",
+];
+
+/// Ensure a parameter name does not collide with an Elixir reserved word.
+fn elixir_safe_param_name(name: &str) -> String {
+    let snake = name.to_snake_case();
+    if ELIXIR_RESERVED_WORDS.contains(&snake.as_str()) {
+        format!("{snake}_val")
+    } else {
+        snake
     }
 }
 

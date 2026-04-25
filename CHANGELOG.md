@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.4] - 2026-04-25
 
 ### Added
 
@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scaffold(PHP)**: derive Composer vendor from GitHub repository URL instead of hardcoding `kreuzberg-dev`.
 - **Scaffold(Ruby)**: use double-quoted strings for gemspec authors array.
 - **Scaffold**: default repository URL uses `example` org instead of `kreuzberg-dev`.
+- **Elixir bindings**: escape parameter names that collide with Elixir reserved words (`do`, `end`, `fn`, etc.) by appending `_val` suffix.
 
 ## [0.7.3] - 2026-04-25
 
