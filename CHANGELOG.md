@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Codegen**: extract shared trait bridge helpers (`bridge_param_type`, `visitor_param_type`, `prim`, `find_bridge_param`, `to_camel_case`) into `alef-codegen::generators::trait_bridge`, removing ~600 lines of duplication across 7 backend crates.
 - **Codegen**: remove duplicate `format_type_ref` from extendr backend in favor of the shared implementation.
+- **Codegen**: consolidate `PYTHON_KEYWORDS` constant — delete duplicate from `alef-codegen::generators::enums`, import from `alef-core::keywords`.
+- **E2E**: extract shared `resolve_field()` helper from `rust.rs` and `python.rs` into `codegen/mod.rs`.
 
 ### Fixed
 
