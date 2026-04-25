@@ -5,7 +5,7 @@ use alef_codegen::generators::{self};
 use alef_codegen::naming::to_node_name;
 use alef_codegen::shared::{self, constructor_parts};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
@@ -399,7 +399,7 @@ impl Backend for WasmBackend {
         Some(BuildConfig {
             tool: "wasm-pack",
             crate_suffix: "-wasm",
-            depends_on_ffi: false,
+            build_dep: BuildDependency::None,
             post_build: vec![],
         })
     }

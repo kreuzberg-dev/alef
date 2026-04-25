@@ -1022,6 +1022,9 @@ fn load_config(path: &std::path::Path) -> Result<alef_core::config::AlefConfig> 
         std::fs::read_to_string(path).with_context(|| format!("Failed to read config: {}", path.display()))?;
     let config: alef_core::config::AlefConfig =
         toml::from_str(&content).with_context(|| "Failed to parse alef.toml")?;
+    config
+        .validate()
+        .with_context(|| format!("alef.toml validation failed ({})", path.display()))?;
     Ok(config)
 }
 

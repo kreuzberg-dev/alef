@@ -698,6 +698,7 @@ mod tests {
             sync: None,
             e2e: None,
             trait_bridges: vec![],
+            tools: ToolsConfig::default(),
         }
     }
 

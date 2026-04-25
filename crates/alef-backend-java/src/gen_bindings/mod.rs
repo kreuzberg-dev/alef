@@ -1,6 +1,6 @@
 use ahash::AHashSet;
 use alef_codegen::naming::to_class_name;
-use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::collections::HashSet;
@@ -282,7 +282,7 @@ impl Backend for JavaBackend {
         Some(BuildConfig {
             tool: "mvn",
             crate_suffix: "",
-            depends_on_ffi: true,
+            build_dep: BuildDependency::Ffi,
             post_build: vec![],
         })
     }

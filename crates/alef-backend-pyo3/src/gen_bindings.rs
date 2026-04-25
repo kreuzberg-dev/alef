@@ -2,7 +2,7 @@ use crate::type_map::Pyo3Mapper;
 use ahash::{AHashMap, AHashSet};
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
-use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{
     AdapterPattern, AlefConfig, DtoConfig, Language, PythonDtoStyle, detect_serde_available, resolve_output_dir,
 };
@@ -596,7 +596,7 @@ impl Backend for Pyo3Backend {
         Some(BuildConfig {
             tool: "maturin",
             crate_suffix: "-py",
-            depends_on_ffi: false,
+            build_dep: BuildDependency::None,
             post_build: vec![],
         })
     }

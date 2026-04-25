@@ -13,8 +13,10 @@ pub mod output;
 pub mod publish;
 pub mod setup_defaults;
 pub mod test_defaults;
+pub mod tools;
 pub mod trait_bridge;
 pub mod update_defaults;
+pub mod validation;
 
 // Re-exports for backward compatibility — all types were previously flat in config.rs.
 pub use dto::{
@@ -32,6 +34,7 @@ pub use output::{
     ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, TextReplacement, UpdateConfig,
 };
 pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
+pub use tools::{DEFAULT_RUST_DEV_TOOLS, ToolsConfig, require_tool, require_tools};
 pub use trait_bridge::TraitBridgeConfig;
 
 /// Root configuration from alef.toml.
@@ -122,6 +125,11 @@ pub struct AlefConfig {
     /// foreign language objects to implement Rust traits.
     #[serde(default)]
     pub trait_bridges: Vec<TraitBridgeConfig>,
+    /// Global tooling preferences — package managers and dev tools used by
+    /// the default per-language pipeline commands. Sensible defaults apply
+    /// when omitted.
+    #[serde(default)]
+    pub tools: ToolsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -358,6 +366,16 @@ impl AlefConfig {
         }
     }
 
+    /// Validate user-supplied pipeline overrides.
+    ///
+    /// Custom `[lint|test|build_commands|setup|update|clean].<lang>` tables
+    /// that override a main command field must declare a `precondition`
+    /// so the step degrades gracefully when the underlying tool is missing
+    /// on the user's system. See [`validation::validate`] for details.
+    pub fn validate(&self) -> Result<(), crate::error::AlefError> {
+        validation::validate(self)
+    }
+
     /// Get the effective lint configuration for a language.
     ///
     /// Returns the explicit `[lint.<lang>]` config if present in alef.toml,
@@ -370,7 +388,7 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        lint_defaults::default_lint_config(lang, &output_dir)
+        lint_defaults::default_lint_config(lang, &output_dir, &self.tools)
     }
 
     /// Get the effective update configuration for a language.
@@ -385,7 +403,7 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        update_defaults::default_update_config(lang, &output_dir)
+        update_defaults::default_update_config(lang, &output_dir, &self.tools)
     }
 
     /// Get the effective test configuration for a language.
@@ -400,7 +418,7 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        test_defaults::default_test_config(lang, &output_dir)
+        test_defaults::default_test_config(lang, &output_dir, &self.tools)
     }
 
     /// Get the effective setup configuration for a language.
@@ -415,7 +433,7 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        setup_defaults::default_setup_config(lang, &output_dir)
+        setup_defaults::default_setup_config(lang, &output_dir, &self.tools)
     }
 
     /// Get the effective clean configuration for a language.
@@ -430,7 +448,7 @@ impl AlefConfig {
             }
         }
         let output_dir = self.package_dir(lang);
-        clean_defaults::default_clean_config(lang, &output_dir)
+        clean_defaults::default_clean_config(lang, &output_dir, &self.tools)
     }
 
     /// Get the effective build command configuration for a language.
@@ -446,7 +464,7 @@ impl AlefConfig {
         }
         let output_dir = self.package_dir(lang);
         let crate_name = &self.crate_config.name;
-        build_defaults::default_build_config(lang, &output_dir, crate_name)
+        build_defaults::default_build_config(lang, &output_dir, crate_name, &self.tools)
     }
 
     /// Get the core crate import path (e.g., "liter_llm"). Used by codegen to call into the core crate.
@@ -1288,20 +1306,14 @@ check = "golangci-lint run ./..."
     }
 
     #[test]
-    fn default_lint_config_has_no_precondition_or_before() {
+    fn default_lint_config_has_command_v_precondition() {
         let config = minimal_config();
         let py = config.lint_config_for_language(Language::Python);
-        assert!(
-            py.precondition.is_none(),
-            "default lint config should have no precondition"
-        );
+        assert_eq!(py.precondition.as_deref(), Some("command -v ruff >/dev/null 2>&1"));
         assert!(py.before.is_none(), "default lint config should have no before");
 
         let go = config.lint_config_for_language(Language::Go);
-        assert!(
-            go.precondition.is_none(),
-            "default Go lint config should have no precondition"
-        );
+        assert_eq!(go.precondition.as_deref(), Some("command -v gofmt >/dev/null 2>&1"));
         assert!(go.before.is_none(), "default Go lint config should have no before");
     }
 
@@ -1337,13 +1349,10 @@ command = "pytest"
     }
 
     #[test]
-    fn default_test_config_has_no_precondition_or_before() {
+    fn default_test_config_has_command_v_precondition() {
         let config = minimal_config();
         let py = config.test_config_for_language(Language::Python);
-        assert!(
-            py.precondition.is_none(),
-            "default test config should have no precondition"
-        );
+        assert_eq!(py.precondition.as_deref(), Some("command -v uv >/dev/null 2>&1"));
         assert!(py.before.is_none(), "default test config should have no before");
     }
 
@@ -1379,13 +1388,10 @@ install = "uv sync"
     }
 
     #[test]
-    fn default_setup_config_has_no_precondition_or_before() {
+    fn default_setup_config_has_command_v_precondition() {
         let config = minimal_config();
         let py = config.setup_config_for_language(Language::Python);
-        assert!(
-            py.precondition.is_none(),
-            "default setup config should have no precondition"
-        );
+        assert_eq!(py.precondition.as_deref(), Some("command -v uv >/dev/null 2>&1"));
         assert!(py.before.is_none(), "default setup config should have no before");
     }
 
@@ -1421,13 +1427,10 @@ update = "cargo update"
     }
 
     #[test]
-    fn default_update_config_has_no_precondition_or_before() {
+    fn default_update_config_has_command_v_precondition() {
         let config = minimal_config();
         let rust = config.update_config_for_language(Language::Rust);
-        assert!(
-            rust.precondition.is_none(),
-            "default update config should have no precondition"
-        );
+        assert_eq!(rust.precondition.as_deref(), Some("command -v cargo >/dev/null 2>&1"));
         assert!(rust.before.is_none(), "default update config should have no before");
     }
 
@@ -1463,14 +1466,19 @@ clean = "cargo clean"
     }
 
     #[test]
-    fn default_clean_config_has_no_precondition_or_before() {
+    fn default_clean_config_precondition_matches_toolchain_use() {
         let config = minimal_config();
+        // Rust clean uses `cargo clean` → precondition guards on cargo.
         let rust = config.clean_config_for_language(Language::Rust);
-        assert!(
-            rust.precondition.is_none(),
-            "default clean config should have no precondition"
-        );
+        assert_eq!(rust.precondition.as_deref(), Some("command -v cargo >/dev/null 2>&1"));
         assert!(rust.before.is_none(), "default clean config should have no before");
+
+        // Python clean is pure shell `rm -rf …` → no precondition needed.
+        let py = config.clean_config_for_language(Language::Python);
+        assert!(
+            py.precondition.is_none(),
+            "pure-shell clean should not have a precondition"
+        );
     }
 
     #[test]
@@ -1506,13 +1514,10 @@ build_release = "cd packages/go && go build -ldflags='-s -w' ./..."
     }
 
     #[test]
-    fn default_build_command_config_has_no_precondition_or_before() {
+    fn default_build_command_config_has_command_v_precondition() {
         let config = minimal_config();
         let rust = config.build_command_config_for_language(Language::Rust);
-        assert!(
-            rust.precondition.is_none(),
-            "default build command config should have no precondition"
-        );
+        assert_eq!(rust.precondition.as_deref(), Some("command -v cargo >/dev/null 2>&1"));
         assert!(
             rust.before.is_none(),
             "default build command config should have no before"

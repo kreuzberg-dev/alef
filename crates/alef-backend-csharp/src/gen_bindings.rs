@@ -1,6 +1,6 @@
 use crate::type_map::csharp_type;
 use alef_codegen::naming::to_csharp_name;
-use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, AlefConfig, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
@@ -266,7 +266,7 @@ impl Backend for CsharpBackend {
         Some(BuildConfig {
             tool: "dotnet",
             crate_suffix: "",
-            depends_on_ffi: true,
+            build_dep: BuildDependency::Ffi,
             post_build: vec![],
         })
     }

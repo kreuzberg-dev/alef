@@ -327,6 +327,7 @@ fn print_generated_java_code() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     let result = backend.generate_bindings(&api, &config).unwrap();
