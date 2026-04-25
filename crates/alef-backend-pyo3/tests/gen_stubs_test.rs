@@ -58,6 +58,7 @@ fn make_config_with_stubs() -> AlefConfig {
             exclude_types: Vec::new(),
             extra_dependencies: Default::default(),
             scaffold_output: Default::default(),
+            rename_fields: Default::default(),
         }),
         node: None,
         ruby: None,

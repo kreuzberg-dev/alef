@@ -42,6 +42,7 @@ fn make_test_config(package: &str) -> AlefConfig {
             serde_rename_all: None,
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
+            rename_fields: Default::default(),
         }),
         go: None,
         java: Some(JavaConfig {
@@ -49,6 +50,7 @@ fn make_test_config(package: &str) -> AlefConfig {
             ffi_style: "panama".to_string(),
             features: None,
             serde_rename_all: None,
+            rename_fields: Default::default(),
         }),
         csharp: None,
         r: None,
@@ -224,6 +226,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
+            rename_fields: Default::default(),
         }),
         go: None,
         java: Some(JavaConfig {
@@ -231,6 +234,7 @@ fn test_basic_generation() {
             ffi_style: "panama".to_string(),
             features: None,
             serde_rename_all: None,
+            rename_fields: Default::default(),
         }),
         csharp: None,
         r: None,
@@ -374,6 +378,7 @@ fn test_package_default() {
             serde_rename_all: None,
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
+            rename_fields: Default::default(),
         }),
         go: None,
         java: None, // No explicit package
@@ -543,6 +548,7 @@ fn test_optional_field_defaults_in_builder() {
             serde_rename_all: None,
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
+            rename_fields: Default::default(),
         }),
         go: None,
         java: Some(JavaConfig {
@@ -550,6 +556,7 @@ fn test_optional_field_defaults_in_builder() {
             ffi_style: "panama".to_string(),
             features: None,
             serde_rename_all: None,
+            rename_fields: Default::default(),
         }),
         csharp: None,
         r: None,

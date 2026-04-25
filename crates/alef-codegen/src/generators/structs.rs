@@ -141,6 +141,86 @@ pub fn gen_struct_with_per_field_attrs(
     sb.build()
 }
 
+/// Generate a struct definition using the builder, with per-field attribute and name override callbacks.
+///
+/// This is the most flexible variant.  Use it when the target language may need to escape
+/// reserved keywords in field names (e.g. Python's `class` → `class_`).
+///
+/// * `extra_field_attrs` — called per field, returns additional `#[…]` attribute strings to
+///   append **after** `cfg.field_attrs`.  Return an empty vec for the default behaviour.
+/// * `field_name_override` — called per field, returns `Some(escaped_name)` when the Rust
+///   binding struct field name should differ from `field.name` (e.g. for keyword escaping),
+///   or `None` to keep the original name.
+///
+/// When a field name is overridden the caller is responsible for adding the appropriate
+/// language attribute (e.g. `pyo3(get, name = "original")`) via `extra_field_attrs`.
+/// `cfg.field_attrs` is **still** applied for non-renamed fields; for renamed fields the
+/// caller should replace the default field attrs entirely by returning them from
+/// `extra_field_attrs` and passing a modified `cfg` with empty `field_attrs`.
+pub fn gen_struct_with_rename(
+    typ: &TypeDef,
+    mapper: &dyn TypeMapper,
+    cfg: &RustBindingConfig,
+    extra_field_attrs: impl Fn(&alef_core::ir::FieldDef) -> Vec<String>,
+    field_name_override: impl Fn(&alef_core::ir::FieldDef) -> Option<String>,
+) -> String {
+    let mut sb = StructBuilder::new(&typ.name);
+    for attr in cfg.struct_attrs {
+        sb.add_attr(attr);
+    }
+
+    let field_names: Vec<_> = typ.fields.iter().filter(|f| f.cfg.is_none()).map(|f| &f.name).collect();
+    if has_similar_names(&field_names) {
+        sb.add_attr("allow(clippy::similar_names)");
+    }
+
+    for d in cfg.struct_derives {
+        sb.add_derive(d);
+    }
+    let opaque_fields: Vec<&str> = typ
+        .fields
+        .iter()
+        .filter(|f| f.cfg.is_none() && field_references_opaque_type(&f.ty, cfg.opaque_type_names))
+        .map(|f| f.name.as_str())
+        .collect();
+    sb.add_derive("Default");
+    sb.add_derive("serde::Serialize");
+    sb.add_derive("serde::Deserialize");
+    let has_serde = true;
+    for field in &typ.fields {
+        if field.cfg.is_some() {
+            continue;
+        }
+        let force_optional = cfg.option_duration_on_defaults
+            && typ.has_default
+            && !field.optional
+            && matches!(field.ty, TypeRef::Duration);
+        let ty = if (field.optional || force_optional) && !matches!(field.ty, TypeRef::Optional(_)) {
+            mapper.optional(&mapper.map_type(&field.ty))
+        } else {
+            mapper.map_type(&field.ty)
+        };
+        let name_override = field_name_override(field);
+        let extra_attrs = extra_field_attrs(field);
+        // When the field name is overridden (keyword-escaped), skip cfg.field_attrs so the
+        // caller's extra_field_attrs callback can supply the full replacement attr set
+        // (e.g. `pyo3(get, name = "class")` instead of the default `pyo3(get)`).
+        let mut attrs: Vec<String> = if name_override.is_some() && !extra_attrs.is_empty() {
+            extra_attrs
+        } else {
+            let mut a: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
+            a.extend(extra_attrs);
+            a
+        };
+        if has_serde && opaque_fields.contains(&field.name.as_str()) {
+            attrs.push("serde(skip)".to_string());
+        }
+        let emit_name = name_override.unwrap_or_else(|| field.name.clone());
+        sb.add_field_with_doc(&emit_name, &ty, attrs, &field.doc);
+    }
+    sb.build()
+}
+
 /// Generate a struct definition using the builder.
 pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfig) -> String {
     let mut sb = StructBuilder::new(&typ.name);

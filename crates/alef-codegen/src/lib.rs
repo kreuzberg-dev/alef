@@ -6,6 +6,7 @@ pub mod config_gen;
 pub mod conversions;
 pub mod error_gen;
 pub mod generators;
+pub mod keywords;
 pub mod naming;
 pub mod shared;
 pub mod type_mapper;

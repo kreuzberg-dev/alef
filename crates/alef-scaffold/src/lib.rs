@@ -179,11 +179,25 @@ pub fn scaffold(api: &ApiSurface, config: &AlefConfig, languages: &[Language]) -
     // Project-level files that depend on the full set of configured languages
     files.extend(scaffold_pre_commit_config(config, languages));
 
-    // rust-toolchain.toml — include wasm32 target when wasm is configured
-    if languages.contains(&Language::Wasm) && !std::path::Path::new("rust-toolchain.toml").exists() {
+    // rust-toolchain.toml — pin Rust version, include wasm32 target when wasm is configured
+    if !std::path::Path::new("rust-toolchain.toml").exists() {
+        let targets = if languages.contains(&Language::Wasm) {
+            "\ntargets = [\"wasm32-unknown-unknown\"]\n"
+        } else {
+            "\n"
+        };
         files.push(GeneratedFile {
             path: std::path::PathBuf::from("rust-toolchain.toml"),
-            content: "[toolchain]\nchannel = \"stable\"\ncomponents = [\"rust-src\"]\ntargets = [\"wasm32-unknown-unknown\"]\n".to_string(),
+            content: format!("[toolchain]\nchannel = \"1.95\"\ncomponents = [\"rust-src\", \"rustfmt\", \"clippy\"]\n{targets}"),
+            generated_header: false,
+        });
+    }
+
+    // .cargo/config.toml — wasm32 getrandom backend when wasm is configured
+    if languages.contains(&Language::Wasm) && !std::path::Path::new(".cargo/config.toml").exists() {
+        files.push(GeneratedFile {
+            path: std::path::PathBuf::from(".cargo/config.toml"),
+            content: "[build]\nincremental = true\n\n[target.wasm32-unknown-unknown]\nrustflags = [\"-C\", \"target-feature=+bulk-memory\", \"--cfg\", \"getrandom_backend=\\\"wasm_js\\\"\"]\n\n[net]\ngit-fetch-with-cli = true\n\n[registries.crates-io]\nprotocol = \"sparse\"\n".to_string(),
             generated_header: false,
         });
     }

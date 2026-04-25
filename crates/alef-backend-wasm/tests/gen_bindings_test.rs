@@ -62,6 +62,7 @@ fn make_config() -> AlefConfig {
             serde_rename_all: None,
             type_prefix: None,
             extra_dependencies: std::collections::HashMap::new(),
+            rename_fields: Default::default(),
         }),
         ffi: None,
         go: None,

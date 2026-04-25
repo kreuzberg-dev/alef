@@ -45,6 +45,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
             serde_rename_all: None,
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
+            rename_fields: Default::default(),
         }),
         go: None,
         java: None,

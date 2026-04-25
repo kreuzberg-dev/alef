@@ -58,6 +58,7 @@ fn make_config() -> AlefConfig {
             exclude_types: Vec::new(),
             extra_dependencies: Default::default(),
             scaffold_output: Default::default(),
+            rename_fields: Default::default(),
         }),
         node: None,
         ruby: None,
@@ -1357,6 +1358,7 @@ fn test_return_type_exported_from_native_module_not_options() {
         exclude_types: Vec::new(),
         extra_dependencies: Default::default(),
         scaffold_output: Default::default(),
+        rename_fields: Default::default(),
     });
 
     let files = backend

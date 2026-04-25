@@ -5,7 +5,7 @@ use crate::generators::binding_helpers::{
     wrap_return_with_mutex,
 };
 use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
-use crate::shared::{constructor_parts, function_params, function_sig_defaults, partition_methods};
+use crate::shared::{function_params, function_sig_defaults, partition_methods};
 use crate::type_mapper::TypeMapper;
 use ahash::AHashSet;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
@@ -19,13 +19,28 @@ pub fn is_trait_method_name(name: &str) -> bool {
 
 /// Generate a constructor method.
 pub fn gen_constructor(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfig) -> String {
+    gen_constructor_with_renames(typ, mapper, cfg, None)
+}
+
+/// Like `gen_constructor` but with field renames for keyword escaping.
+pub fn gen_constructor_with_renames(
+    typ: &TypeDef,
+    mapper: &dyn TypeMapper,
+    cfg: &RustBindingConfig,
+    field_renames: Option<&std::collections::HashMap<String, String>>,
+) -> String {
     let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
 
     // For types with has_default, generate optional kwargs-style constructor
     let (param_list, sig_defaults, assignments) = if typ.has_default {
-        crate::shared::config_constructor_parts_with_options(&typ.fields, &map_fn, cfg.option_duration_on_defaults)
+        crate::shared::config_constructor_parts_with_renames(
+            &typ.fields,
+            &map_fn,
+            cfg.option_duration_on_defaults,
+            field_renames,
+        )
     } else {
-        constructor_parts(&typ.fields, &map_fn)
+        crate::shared::constructor_parts_with_renames(&typ.fields, &map_fn, field_renames)
     };
 
     let mut out = String::with_capacity(512);
@@ -814,6 +829,18 @@ pub fn gen_impl_block(
     adapter_bodies: &AdapterBodies,
     opaque_types: &AHashSet<String>,
 ) -> String {
+    gen_impl_block_with_renames(typ, mapper, cfg, adapter_bodies, opaque_types, None)
+}
+
+/// Like `gen_impl_block` but with field renames for keyword escaping in the constructor.
+pub fn gen_impl_block_with_renames(
+    typ: &TypeDef,
+    mapper: &dyn TypeMapper,
+    cfg: &RustBindingConfig,
+    adapter_bodies: &AdapterBodies,
+    opaque_types: &AHashSet<String>,
+    field_renames: Option<&std::collections::HashMap<String, String>>,
+) -> String {
     let (instance, statics) = partition_methods(&typ.methods);
     // Compute effective (non-sanitized or adapter-overridden) method counts for the early-return
     // check. Sanitized methods without adapters are skipped in the loops below, so they do not
@@ -837,7 +864,7 @@ pub fn gen_impl_block(
 
     // Constructor
     if !typ.fields.is_empty() {
-        out.push_str(&gen_constructor(typ, mapper, cfg));
+        out.push_str(&gen_constructor_with_renames(typ, mapper, cfg, field_renames));
         out.push_str("\n\n");
     }
 
