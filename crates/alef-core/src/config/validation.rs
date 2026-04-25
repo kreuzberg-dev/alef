@@ -233,12 +233,18 @@ fn commands_eq(a: &Option<StringOrVec>, b: &Option<StringOrVec>) -> bool {
 
 /// Warn for each field in LintConfig that matches the default.
 fn warn_lint_defaults(lang_str: &str, user_cfg: &LintConfig, default_cfg: &LintConfig) {
-    if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
-        if u == d {
-            tracing::warn!(
-                "[lint.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
-                lang = lang_str
-            );
+    // Only warn about a redundant precondition when no main command fields are set.
+    // When main commands are set, validation *requires* a precondition, so warning
+    // to remove it would be contradictory.
+    let has_custom_main = user_cfg.format.is_some() || user_cfg.check.is_some() || user_cfg.typecheck.is_some();
+    if !has_custom_main {
+        if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
+            if u == d {
+                tracing::warn!(
+                    "[lint.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
+                    lang = lang_str
+                );
+            }
         }
     }
     if commands_eq(&user_cfg.before, &default_cfg.before) && user_cfg.before.is_some() {
@@ -269,12 +275,15 @@ fn warn_lint_defaults(lang_str: &str, user_cfg: &LintConfig, default_cfg: &LintC
 
 /// Warn for each field in TestConfig that matches the default.
 fn warn_test_defaults(lang_str: &str, user_cfg: &TestConfig, default_cfg: &TestConfig) {
-    if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
-        if u == d {
-            tracing::warn!(
-                "[test.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
-                lang = lang_str
-            );
+    let has_custom_main = user_cfg.command.is_some() || user_cfg.e2e.is_some() || user_cfg.coverage.is_some();
+    if !has_custom_main {
+        if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
+            if u == d {
+                tracing::warn!(
+                    "[test.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
+                    lang = lang_str
+                );
+            }
         }
     }
     if commands_eq(&user_cfg.before, &default_cfg.before) && user_cfg.before.is_some() {
@@ -305,12 +314,15 @@ fn warn_test_defaults(lang_str: &str, user_cfg: &TestConfig, default_cfg: &TestC
 
 /// Warn for each field in BuildCommandConfig that matches the default.
 fn warn_build_defaults(lang_str: &str, user_cfg: &BuildCommandConfig, default_cfg: &BuildCommandConfig) {
-    if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
-        if u == d {
-            tracing::warn!(
-                "[build_commands.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
-                lang = lang_str
-            );
+    let has_custom_main = user_cfg.build.is_some() || user_cfg.build_release.is_some();
+    if !has_custom_main {
+        if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
+            if u == d {
+                tracing::warn!(
+                    "[build_commands.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
+                    lang = lang_str
+                );
+            }
         }
     }
     if commands_eq(&user_cfg.before, &default_cfg.before) && user_cfg.before.is_some() {
@@ -335,12 +347,15 @@ fn warn_build_defaults(lang_str: &str, user_cfg: &BuildCommandConfig, default_cf
 
 /// Warn for each field in SetupConfig that matches the default.
 fn warn_setup_defaults(lang_str: &str, user_cfg: &SetupConfig, default_cfg: &SetupConfig) {
-    if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
-        if u == d {
-            tracing::warn!(
-                "[setup.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
-                lang = lang_str
-            );
+    let has_custom_main = user_cfg.install.is_some();
+    if !has_custom_main {
+        if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
+            if u == d {
+                tracing::warn!(
+                    "[setup.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
+                    lang = lang_str
+                );
+            }
         }
     }
     if commands_eq(&user_cfg.before, &default_cfg.before) && user_cfg.before.is_some() {
@@ -359,12 +374,15 @@ fn warn_setup_defaults(lang_str: &str, user_cfg: &SetupConfig, default_cfg: &Set
 
 /// Warn for each field in UpdateConfig that matches the default.
 fn warn_update_defaults(lang_str: &str, user_cfg: &UpdateConfig, default_cfg: &UpdateConfig) {
-    if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
-        if u == d {
-            tracing::warn!(
-                "[update.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
-                lang = lang_str
-            );
+    let has_custom_main = user_cfg.update.is_some() || user_cfg.upgrade.is_some();
+    if !has_custom_main {
+        if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
+            if u == d {
+                tracing::warn!(
+                    "[update.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
+                    lang = lang_str
+                );
+            }
         }
     }
     if commands_eq(&user_cfg.before, &default_cfg.before) && user_cfg.before.is_some() {
@@ -389,12 +407,15 @@ fn warn_update_defaults(lang_str: &str, user_cfg: &UpdateConfig, default_cfg: &U
 
 /// Warn for each field in CleanConfig that matches the default.
 fn warn_clean_defaults(lang_str: &str, user_cfg: &CleanConfig, default_cfg: &CleanConfig) {
-    if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
-        if u == d {
-            tracing::warn!(
-                "[clean.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
-                lang = lang_str
-            );
+    let has_custom_main = user_cfg.clean.is_some();
+    if !has_custom_main {
+        if let (Some(u), Some(d)) = (&user_cfg.precondition, &default_cfg.precondition) {
+            if u == d {
+                tracing::warn!(
+                    "[clean.{lang}] field `precondition` matches the built-in default — remove it from alef.toml to avoid drift",
+                    lang = lang_str
+                );
+            }
         }
     }
     if commands_eq(&user_cfg.before, &default_cfg.before) && user_cfg.before.is_some() {
@@ -827,6 +848,23 @@ sources = ["src/lib.rs"]
         assert!(logs_contain(
             "[lint.python] field `precondition` matches the built-in default"
         ));
+    }
+
+    #[test]
+    #[traced_test]
+    fn precondition_matching_default_not_warned_when_main_commands_are_custom() {
+        // When main command fields are custom, validation *requires* a precondition.
+        // Warning about the precondition matching the built-in default would be contradictory
+        // (remove it → validation fails), so no precondition warning should fire.
+        let config = parse(&format!(
+            "{base}\n\n[lint.python]\nformat = \"black .\"\nprecondition = \"command -v ruff >/dev/null 2>&1\"\n",
+            base = base_config()
+        ));
+        validate(&config).expect("config should validate");
+        assert!(
+            !logs_contain("[lint.python] field `precondition` matches the built-in default"),
+            "precondition warning must be suppressed when main command fields are set"
+        );
     }
 
     #[test]

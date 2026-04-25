@@ -1105,9 +1105,12 @@ fn verify_file(path: &std::path::Path, expected_hash: &str, label: &str, stale: 
             stale.push(format!("[{label}] {}", path.display()));
         }
     } else {
-        // Legacy file without embedded hash — compare stripped content directly.
+        // Legacy file without embedded hash — normalize before comparing so
+        // that whitespace-only differences (e.g. trailing spaces, blank-line
+        // runs) don't produce false positives.
         let stripped = alef_core::hash::strip_hash_line(&disk_content);
-        if alef_core::hash::hash_content(&stripped) != expected_hash {
+        let normalized = pipeline::normalize_content(path, &stripped);
+        if alef_core::hash::hash_content(&normalized) != expected_hash {
             stale.push(format!("[{label}] {}", path.display()));
         }
     }

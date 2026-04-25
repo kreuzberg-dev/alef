@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.10] - 2026-04-25
+
+### Fixed
+
+- **Validation**: redundant-default warnings no longer fire for `precondition` fields when the section has custom main commands (format/check/typecheck/command/e2e). Previously, `alef verify` would warn to remove the precondition while simultaneously requiring it — a contradiction.
+- **Verify**: legacy README comparison now normalizes whitespace before hashing, preventing false-positive "stale bindings" reports from trailing-space or blank-line differences.
+
 ## [0.7.9] - 2026-04-25
 
 ### Added
