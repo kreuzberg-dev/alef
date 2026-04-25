@@ -116,23 +116,19 @@ impl E2eCodegen for GleamE2eCodegen {
 // ---------------------------------------------------------------------------
 
 fn render_gleam_toml(pkg_path: &str, pkg_name: &str, dep_mode: crate::config::DependencyMode) -> String {
-    let dep_block = match dep_mode {
+    let deps = match dep_mode {
         crate::config::DependencyMode::Registry => {
             format!(
-                r#"[[dependencies]]
-name = "{pkg_name}"
-package = "{pkg_name}"
-version = ">= 0.1.0"
-"#
+                r#"{pkg_name} = ">= 0.1.0"
+gleam_stdlib = ">= 0.34.0 and < 2.0.0"
+gleeunit = ">= 1.0.0 and < 2.0.0""#
             )
         }
         crate::config::DependencyMode::Local => {
             format!(
-                r#"[[dependencies]]
-name = "{pkg_name}"
-package = "{pkg_name}"
-path = "{pkg_path}"
-"#
+                r#"{pkg_name} = {{ path = "{pkg_path}" }}
+gleam_stdlib = ">= 0.34.0 and < 2.0.0"
+gleeunit = ">= 1.0.0 and < 2.0.0""#
             )
         }
     };
@@ -140,12 +136,10 @@ path = "{pkg_path}"
     format!(
         r#"name = "e2e_gleam"
 version = "0.1.0"
+target = "erlang"
 
-{dep_block}
-[[dependencies]]
-name = "gleeunit"
-package = "gleeunit"
-version = ">= 1.0.0"
+[dependencies]
+{deps}
 "#
     )
 }
@@ -169,8 +163,37 @@ fn render_test_file(
     let _ = writeln!(out, "import {module_path}");
     let _ = writeln!(out);
 
-    let _ = writeln!(out, "pub fn {module_path}_test() {{");
+    // Track which modules we need to import based on assertions used.
+    let mut needed_modules: std::collections::BTreeSet<&'static str> = std::collections::BTreeSet::new();
 
+    // First pass: determine which helper modules we need.
+    for fixture in fixtures {
+        for assertion in &fixture.assertions {
+            match assertion.assertion_type.as_str() {
+                "contains" | "contains_all" | "not_contains" | "starts_with" | "ends_with" | "min_length" | "max_length" | "contains_any" => {
+                    needed_modules.insert("string");
+                }
+                "not_empty" | "is_empty" | "count_min" | "count_equals" => {
+                    needed_modules.insert("list");
+                }
+                "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => {
+                    needed_modules.insert("int");
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Emit additional imports.
+    for module in &needed_modules {
+        let _ = writeln!(out, "import gleam/{module}");
+    }
+
+    if !needed_modules.is_empty() {
+        let _ = writeln!(out);
+    }
+
+    // Each fixture becomes its own test function.
     for fixture in fixtures {
         render_test_case(
             &mut out,
@@ -183,9 +206,9 @@ fn render_test_file(
             field_resolver,
             enum_fields,
         );
+        let _ = writeln!(out);
     }
 
-    let _ = writeln!(out, "}}");
     out
 }
 
@@ -212,13 +235,17 @@ fn render_test_case(
     let result_var = &call_config.result_var;
     let args = &call_config.args;
 
-    let _test_name = sanitize_ident(&fixture.id);
+    let test_name = sanitize_ident(&fixture.id);
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id);
 
-    let _ = writeln!(out, "  // {description}");
+    // gleeunit discovers tests as top-level `pub fn <name>_test()` functions —
+    // emit one function per fixture so failures point at the offending fixture.
+    let _ = writeln!(out, "// {description}");
+    let _ = writeln!(out, "pub fn {test_name}_test() {{");
+
     for line in &setup_lines {
         let _ = writeln!(out, "  {line}");
     }
@@ -226,8 +253,9 @@ fn render_test_case(
     if expects_error {
         let _ = writeln!(
             out,
-            "  {module_path}.{function_name}({args_str}) |> should.fail()"
+            "  {module_path}.{function_name}({args_str}) |> should.be_error()"
         );
+        let _ = writeln!(out, "}}");
         return;
     }
 
@@ -246,6 +274,8 @@ fn render_test_case(
             enum_fields,
         );
     }
+
+    let _ = writeln!(out, "}}");
 }
 
 /// Build setup lines and the argument list for the function call.

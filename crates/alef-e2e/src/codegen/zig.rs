@@ -66,13 +66,10 @@ impl E2eCodegen for ZigE2eCodegen {
             generated_header: false,
         });
 
-        // Generate build.zig.
-        files.push(GeneratedFile {
-            path: output_base.join("build.zig"),
-            content: render_build_zig(),
-            generated_header: false,
-        });
+        // Get the module name for imports.
+        let module_name = alef_config.zig_module_name();
 
+        // Generate build.zig - collect test file names first.
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
             &e2e_config.fields_optional,
@@ -80,7 +77,8 @@ impl E2eCodegen for ZigE2eCodegen {
             &e2e_config.fields_array,
         );
 
-        // Generate test files per category.
+        // Generate test files per category and collect their names.
+        let mut test_filenames: Vec<String> = Vec::new();
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
@@ -93,6 +91,7 @@ impl E2eCodegen for ZigE2eCodegen {
             }
 
             let filename = format!("{}_test.zig", sanitize_filename(&group.category));
+            test_filenames.push(filename.clone());
             let content = render_test_file(
                 &group.category,
                 &active,
@@ -102,6 +101,7 @@ impl E2eCodegen for ZigE2eCodegen {
                 &e2e_config.call.args,
                 &field_resolver,
                 &e2e_config.fields_enum,
+                &module_name,
             );
             files.push(GeneratedFile {
                 path: output_base.join("src").join(filename),
@@ -109,6 +109,16 @@ impl E2eCodegen for ZigE2eCodegen {
                 generated_header: true,
             });
         }
+
+        // Generate build.zig with collected test files.
+        files.insert(
+            files.iter().position(|f| f.path.file_name().is_some_and(|n| n == "build.zig.zon")).unwrap_or(1),
+            GeneratedFile {
+                path: output_base.join("build.zig"),
+                content: render_build_zig(&test_filenames),
+                generated_header: false,
+            },
+        );
 
         Ok(files)
     }
@@ -156,25 +166,47 @@ fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::config:
     )
 }
 
-fn render_build_zig() -> String {
-    r#"const std = @import("std");
+fn render_build_zig(test_filenames: &[String]) -> String {
+    if test_filenames.is_empty() {
+        return r#"const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const tests = b.addTest(.{
-        .root_source_file = b.path("src/main_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_tests.step);
 }
 "#
-        .to_string()
+            .to_string();
+    }
+
+    let mut content = String::from("const std = @import(\"std\");\n\npub fn build(b: *std.Build) void {\n");
+    content.push_str("    const target = b.standardTargetOptions(.{});\n");
+    content.push_str("    const optimize = b.standardOptimizeOption(.{});\n");
+    content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n\n");
+
+    for filename in test_filenames {
+        // Convert filename like "basic_test.zig" to a test name
+        let test_name = filename.trim_end_matches("_test.zig");
+        content.push_str(&format!(
+            "    const {test_name}_tests = b.addTest(.{{\n"
+        ));
+        content.push_str(&format!(
+            "        .root_source_file = b.path(\"src/{filename}\"),\n"
+        ));
+        content.push_str("        .target = target,\n");
+        content.push_str("        .optimize = optimize,\n");
+        content.push_str("    });\n");
+        content.push_str(&format!(
+            "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
+        ));
+        content.push_str(&format!(
+            "    test_step.dependOn(&{test_name}_run.step);\n\n"
+        ));
+    }
+
+    content.push_str("}\n");
+    content
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -187,11 +219,13 @@ fn render_test_file(
     args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     enum_fields: &HashSet<String>,
+    module_name: &str,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     let _ = writeln!(out, "const std = @import(\"std\");");
     let _ = writeln!(out, "const testing = std.testing;");
+    let _ = writeln!(out, "const {module_name} = @import(\"{module_name}\");");
     let _ = writeln!(out);
 
     let _ = writeln!(out, "// E2e tests for category: {category}");
@@ -207,6 +241,7 @@ fn render_test_file(
             args,
             field_resolver,
             enum_fields,
+            module_name,
         );
         let _ = writeln!(out);
     }
@@ -224,6 +259,7 @@ fn render_test_fn(
     _args: &[crate::config::ArgMapping],
     field_resolver: &FieldResolver,
     enum_fields: &HashSet<String>,
+    module_name: &str,
 ) {
     // Resolve per-fixture call config.
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
@@ -254,12 +290,12 @@ fn render_test_fn(
     }
 
     if expects_error {
-        let _ = writeln!(out, "    const result = {function_name}({args_str});");
-        let _ = writeln!(out, "    try testing.expect(@typeInfo(@TypeOf(result)) == .Union);");
+        let _ = writeln!(out, "    const result = {module_name}.{function_name}({args_str});");
+        let _ = writeln!(out, "    try testing.expect(@typeInfo(@TypeOf(result)) == .ErrorUnion);");
         return;
     }
 
-    let _ = writeln!(out, "    const {result_var} = {function_name}({args_str});");
+    let _ = writeln!(out, "    const {result_var} = {module_name}.{function_name}({args_str});");
 
     for assertion in &fixture.assertions {
         render_assertion(
