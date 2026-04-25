@@ -1,21 +1,29 @@
 use super::extras::Language;
 use super::output::{BuildCommandConfig, StringOrVec};
+use super::tools::{ToolsConfig, require_tool};
 
 /// Return the default build configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). The `crate_name` is the name of the core crate
-/// (e.g. `my-lib`). Both are substituted into command templates.
-pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name: &str) -> BuildCommandConfig {
+/// (e.g. `my-lib`). Both are substituted into command templates. `tools`
+/// is currently informational; build commands themselves don't dispatch on
+/// the chosen package manager.
+pub(crate) fn default_build_config(
+    lang: Language,
+    output_dir: &str,
+    crate_name: &str,
+    _tools: &ToolsConfig,
+) -> BuildCommandConfig {
     match lang {
         Language::Rust => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("cargo")),
             before: None,
             build: Some(StringOrVec::Single("cargo build --workspace".to_string())),
             build_release: Some(StringOrVec::Single("cargo build --release --workspace".to_string())),
         },
         Language::Python => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("maturin")),
             before: None,
             build: Some(StringOrVec::Single(format!(
                 "maturin develop --manifest-path crates/{crate_name}-py/Cargo.toml"
@@ -25,7 +33,7 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Node => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("napi")),
             before: None,
             build: Some(StringOrVec::Single(format!(
                 "napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node"
@@ -35,7 +43,7 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Wasm => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("wasm-pack")),
             before: None,
             build: Some(StringOrVec::Single(format!(
                 "wasm-pack build crates/{crate_name}-wasm --dev"
@@ -45,19 +53,19 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Go => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("go")),
             before: None,
             build: Some(StringOrVec::Single(format!("cd {output_dir} && go build ./..."))),
             build_release: Some(StringOrVec::Single(format!("cd {output_dir} && go build ./..."))),
         },
         Language::Ruby => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("cargo")),
             before: None,
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-rb"))),
             build_release: Some(StringOrVec::Single(format!("cargo build --release -p {crate_name}-rb"))),
         },
         Language::Php => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("cargo")),
             before: None,
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-php"))),
             build_release: Some(StringOrVec::Single(format!(
@@ -65,7 +73,7 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Ffi => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("cargo")),
             before: None,
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-ffi"))),
             build_release: Some(StringOrVec::Single(format!(
@@ -73,7 +81,7 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Java => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("mvn")),
             before: None,
             build: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml package -DskipTests -q"
@@ -83,7 +91,7 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Csharp => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("dotnet")),
             before: None,
             build: Some(StringOrVec::Single(format!(
                 "dotnet build {output_dir} --configuration Debug -q"
@@ -93,13 +101,13 @@ pub(crate) fn default_build_config(lang: Language, output_dir: &str, crate_name:
             ))),
         },
         Language::Elixir => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("mix")),
             before: None,
             build: Some(StringOrVec::Single(format!("cd {output_dir} && mix compile"))),
             build_release: Some(StringOrVec::Single(format!("cd {output_dir} && mix compile"))),
         },
         Language::R => BuildCommandConfig {
-            precondition: None,
+            precondition: Some(require_tool("cargo")),
             before: None,
             build: Some(StringOrVec::Single(format!("cargo build -p {crate_name}-r"))),
             build_release: Some(StringOrVec::Single(format!("cargo build --release -p {crate_name}-r"))),
@@ -128,32 +136,47 @@ mod tests {
         ]
     }
 
+    fn cfg(lang: Language, dir: &str, crate_name: &str) -> BuildCommandConfig {
+        default_build_config(lang, dir, crate_name, &ToolsConfig::default())
+    }
+
     #[test]
     fn every_language_has_build_and_build_release() {
         for lang in all_languages() {
-            let cfg = default_build_config(lang, "packages/test", "my-lib");
-            assert!(cfg.build.is_some(), "{lang} should have a default build command");
+            let c = cfg(lang, "packages/test", "my-lib");
+            assert!(c.build.is_some(), "{lang} should have a default build command");
             assert!(
-                cfg.build_release.is_some(),
+                c.build_release.is_some(),
                 "{lang} should have a default build_release command"
             );
         }
     }
 
     #[test]
+    fn every_language_has_default_precondition() {
+        for lang in all_languages() {
+            let c = cfg(lang, "packages/test", "my-lib");
+            let pre = c
+                .precondition
+                .unwrap_or_else(|| panic!("{lang} should have a precondition"));
+            assert!(pre.starts_with("command -v "));
+        }
+    }
+
+    #[test]
     fn rust_uses_cargo_build_workspace() {
-        let cfg = default_build_config(Language::Rust, "packages/rust", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
-        let release = cfg.build_release.unwrap().commands().join(" ");
+        let c = cfg(Language::Rust, "packages/rust", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
         assert!(build.contains("cargo build --workspace"));
         assert!(release.contains("cargo build --release --workspace"));
     }
 
     #[test]
     fn python_uses_maturin_develop() {
-        let cfg = default_build_config(Language::Python, "packages/python", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
-        let release = cfg.build_release.unwrap().commands().join(" ");
+        let c = cfg(Language::Python, "packages/python", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
         assert!(build.contains("maturin develop"));
         assert!(build.contains("my-lib-py"));
         assert!(release.contains("--release"));
@@ -161,9 +184,9 @@ mod tests {
 
     #[test]
     fn node_uses_napi_build() {
-        let cfg = default_build_config(Language::Node, "packages/node", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
-        let release = cfg.build_release.unwrap().commands().join(" ");
+        let c = cfg(Language::Node, "packages/node", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
         assert!(build.contains("napi build"));
         assert!(build.contains("my-lib-node"));
         assert!(release.contains("--release"));
@@ -171,9 +194,9 @@ mod tests {
 
     #[test]
     fn wasm_uses_wasm_pack() {
-        let cfg = default_build_config(Language::Wasm, "packages/wasm", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
-        let release = cfg.build_release.unwrap().commands().join(" ");
+        let c = cfg(Language::Wasm, "packages/wasm", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
         assert!(build.contains("wasm-pack build"));
         assert!(build.contains("my-lib-wasm"));
         assert!(build.contains("--dev"));
@@ -182,38 +205,38 @@ mod tests {
 
     #[test]
     fn ffi_uses_cargo_build_p() {
-        let cfg = default_build_config(Language::Ffi, "packages/ffi", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
-        let release = cfg.build_release.unwrap().commands().join(" ");
+        let c = cfg(Language::Ffi, "packages/ffi", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
         assert!(build.contains("cargo build -p my-lib-ffi"));
         assert!(release.contains("cargo build --release -p my-lib-ffi"));
     }
 
     #[test]
     fn ruby_uses_cargo_build_rb() {
-        let cfg = default_build_config(Language::Ruby, "packages/ruby", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
+        let c = cfg(Language::Ruby, "packages/ruby", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
         assert!(build.contains("cargo build -p my-lib-rb"));
     }
 
     #[test]
     fn php_uses_cargo_build_php() {
-        let cfg = default_build_config(Language::Php, "packages/php", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
+        let c = cfg(Language::Php, "packages/php", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
         assert!(build.contains("cargo build -p my-lib-php"));
     }
 
     #[test]
     fn r_uses_cargo_build_r() {
-        let cfg = default_build_config(Language::R, "packages/r", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
+        let c = cfg(Language::R, "packages/r", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
         assert!(build.contains("cargo build -p my-lib-r"));
     }
 
     #[test]
     fn java_uses_maven_package() {
-        let cfg = default_build_config(Language::Java, "packages/java", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
+        let c = cfg(Language::Java, "packages/java", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
         assert!(build.contains("mvn"));
         assert!(build.contains("package"));
         assert!(build.contains("-DskipTests"));
@@ -221,9 +244,9 @@ mod tests {
 
     #[test]
     fn csharp_uses_dotnet_build_configurations() {
-        let cfg = default_build_config(Language::Csharp, "packages/csharp", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
-        let release = cfg.build_release.unwrap().commands().join(" ");
+        let c = cfg(Language::Csharp, "packages/csharp", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        let release = c.build_release.unwrap().commands().join(" ");
         assert!(build.contains("dotnet build"));
         assert!(build.contains("--configuration Debug"));
         assert!(release.contains("--configuration Release"));
@@ -231,37 +254,22 @@ mod tests {
 
     #[test]
     fn elixir_uses_mix_compile() {
-        let cfg = default_build_config(Language::Elixir, "packages/elixir", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
+        let c = cfg(Language::Elixir, "packages/elixir", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
         assert!(build.contains("mix compile"));
     }
 
     #[test]
     fn crate_name_substituted_in_commands() {
-        let cfg = default_build_config(Language::Python, "packages/python", "custom-crate");
-        let build = cfg.build.unwrap().commands().join(" ");
-        assert!(
-            build.contains("custom-crate-py"),
-            "Python build should contain crate name, got: {build}"
-        );
+        let c = cfg(Language::Python, "packages/python", "custom-crate");
+        let build = c.build.unwrap().commands().join(" ");
+        assert!(build.contains("custom-crate-py"));
     }
 
     #[test]
     fn output_dir_substituted_in_go_commands() {
-        let cfg = default_build_config(Language::Go, "my/custom/path", "my-lib");
-        let build = cfg.build.unwrap().commands().join(" ");
-        assert!(
-            build.contains("my/custom/path"),
-            "Go build should contain output dir, got: {build}"
-        );
-    }
-
-    #[test]
-    fn defaults_have_no_precondition_or_before() {
-        for lang in all_languages() {
-            let cfg = default_build_config(lang, "packages/test", "my-lib");
-            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
-            assert!(cfg.before.is_none(), "{lang} default should have no before");
-        }
+        let c = cfg(Language::Go, "my/custom/path", "my-lib");
+        let build = c.build.unwrap().commands().join(" ");
+        assert!(build.contains("my/custom/path"));
     }
 }

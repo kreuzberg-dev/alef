@@ -69,6 +69,7 @@ fn make_config_with_extension(extension_name: &str) -> AlefConfig {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     }
 }
 
@@ -154,6 +155,7 @@ fn make_config() -> AlefConfig {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     }
 }
 

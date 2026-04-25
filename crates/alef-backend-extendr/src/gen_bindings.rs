@@ -1,7 +1,7 @@
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
@@ -292,7 +292,7 @@ impl Backend for ExtendrBackend {
         Some(BuildConfig {
             tool: "cargo",
             crate_suffix: "-extendr",
-            depends_on_ffi: false,
+            build_dep: BuildDependency::None,
             post_build: vec![],
         })
     }

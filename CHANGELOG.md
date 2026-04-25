@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI**: `alef verify` now checks README freshness — regenerated READMEs are compared with on-disk files.
 - **Hooks**: `alef-readme` pre-commit hook to regenerate README files for all configured languages.
 - **Scaffold**: scaffolded `.pre-commit-config.yaml` includes `alef-readme` hook.
+- **Config**: top-level `[tools]` section selects per-language tool variants — `python_package_manager` (uv | pip | poetry), `node_package_manager` (pnpm | npm | yarn), and `rust_dev_tools` (list of `cargo install` targets). Per-language pipeline defaults dispatch on these choices.
+- **Pipelines**: every per-language default (lint, test, build, setup, update, clean) now declares a POSIX `command -v <tool>` precondition so steps gracefully warn-and-skip when the underlying tool is missing on the user's system.
+- **Setup**: Rust `setup` default now installs the full polyrepo dev-tool set — `cargo-edit`, `cargo-sort`, `cargo-machete`, `cargo-deny`, `cargo-llvm-cov` — plus `rustfmt` and `clippy` rustup components. The list is overridable via `[tools].rust_dev_tools`.
+- **Init**: `alef init` emits a commented `[tools]` block in the generated `alef.toml` with all alternatives documented.
+- **Validation**: `alef.toml` is validated at load time. Custom `[lint|test|build_commands|setup|update|clean].<lang>` tables that override a main command field must declare a `precondition` so the warn-and-skip behavior is preserved on user systems.
+- **Scaffold**: FFI Cargo.toml gains a `[dev-dependencies]` block with `tempfile`. Dependency pins audited and policy documented.
+
+### Changed
+
+- **Pipelines**: `default_*_config` functions now take a `&ToolsConfig` argument so per-language defaults can dispatch on the project's chosen package manager.
+- **Generate**: `alef generate`'s post-generation format step (already wired in 0.7.x) now degrades to a per-language warning when the formatter binary is missing, instead of aborting the entire run, thanks to the new default preconditions.
 
 ## [0.7.8] - 2026-04-25
 

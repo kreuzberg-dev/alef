@@ -187,6 +187,15 @@ fn generate_init_config(crate_name: &str, _crate_version: &str, languages: &[Str
         config.push_str(&format!("\n[csharp]\nnamespace = \"{}\"\n", to_pascal_case(crate_name)));
     }
 
+    // Global tooling preferences. All fields are optional; the defaults shown
+    // match alef's built-in behavior — uncomment to override.
+    config.push_str(
+        "\n[tools]\n\
+         # python_package_manager = \"uv\"   # uv | pip | poetry\n\
+         # node_package_manager = \"pnpm\"   # pnpm | npm | yarn\n\
+         # rust_dev_tools = [\"cargo-edit\", \"cargo-sort\", \"cargo-machete\", \"cargo-deny\", \"cargo-llvm-cov\"]\n",
+    );
+
     config
 }
 

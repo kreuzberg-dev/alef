@@ -4,7 +4,7 @@ mod types;
 
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
-use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
@@ -82,7 +82,7 @@ impl Backend for FfiBackend {
         Some(BuildConfig {
             tool: "cargo",
             crate_suffix: "-ffi",
-            depends_on_ffi: false,
+            build_dep: BuildDependency::None,
             post_build: vec![],
         })
     }

@@ -60,6 +60,7 @@ fn make_config(app_name: &str) -> AlefConfig {
         publish: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
         custom_files: None,
         adapters: vec![],
         custom_modules: alef_core::config::CustomModulesConfig::default(),

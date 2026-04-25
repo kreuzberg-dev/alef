@@ -63,6 +63,7 @@ fn test_config() -> AlefConfig {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: ToolsConfig::default(),
     }
 }
 
@@ -180,6 +181,26 @@ fn test_scaffold_ffi_with_core_import() {
     let cmake = &files[1].content;
     assert!(cmake.contains("find_package"));
     assert!(cmake.contains("my-lib-ffi::my-lib-ffi"));
+}
+
+#[test]
+fn test_scaffold_ffi_deps_are_pinned() {
+    // Audit: FFI Cargo.toml ships sensible, current dependency pins.
+    // Bumping cbindgen requires re-generating headers; treat this test as a
+    // canary — if it fails, audit cbindgen's changelog before adjusting.
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
+    let files = language_files(&all_files);
+    let cargo_toml = &files[0].content;
+    assert!(
+        cargo_toml.contains("cbindgen = \"0.29\""),
+        "cbindgen should be pinned to a specific minor for reproducible headers"
+    );
+    assert!(cargo_toml.contains("serde_json = \"1\""));
+    assert!(cargo_toml.contains("tokio = "));
+    assert!(cargo_toml.contains("[dev-dependencies]"));
+    assert!(cargo_toml.contains("tempfile = \"3\""));
 }
 
 #[test]

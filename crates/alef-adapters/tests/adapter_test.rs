@@ -72,6 +72,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         adapters: vec![],
+        tools: Default::default(),
     }
 }
 

@@ -75,6 +75,7 @@ fn make_test_config(package: &str) -> AlefConfig {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     }
 }
 
@@ -260,6 +261,7 @@ fn test_basic_generation() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     // Generate bindings
@@ -407,6 +409,7 @@ fn test_package_default() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -584,6 +587,7 @@ fn test_optional_field_defaults_in_builder() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     // Generate bindings

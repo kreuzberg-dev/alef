@@ -150,6 +150,7 @@ pub(crate) fn make_test_config() -> alef_core::config::AlefConfig {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     }
 }
 

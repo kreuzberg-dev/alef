@@ -19,6 +19,12 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &AlefConfig) -> anyhow::Res
         &ws,
     );
 
+    // FFI Cargo.toml dependency policy:
+    // - `serde_json` and `tokio` are pinned to major versions; cargo will pick
+    //   the latest compatible release on `cargo update`.
+    // - `cbindgen` is pinned to a specific minor since header generation
+    //   output changes between minors and we want reproducible headers.
+    //   Bump intentionally and verify generated headers in CI when updating.
     let content = format!(
         r#"{pkg_header}
 repository = "{repository}"
@@ -36,6 +42,9 @@ default = []
 
 [build-dependencies]
 cbindgen = "0.29"
+
+[dev-dependencies]
+tempfile = "3"
 "#,
         pkg_header = pkg_header,
         repository = meta.repository,

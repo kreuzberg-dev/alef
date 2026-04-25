@@ -8,7 +8,7 @@ use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::conversions::ConversionConfig;
 use alef_codegen::generators::RustBindingConfig;
 use alef_codegen::generators::{self, AsyncPattern};
-use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, detect_serde_available, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
@@ -841,7 +841,7 @@ impl Backend for PhpBackend {
         Some(BuildConfig {
             tool: "cargo",
             crate_suffix: "-php",
-            depends_on_ffi: false,
+            build_dep: BuildDependency::None,
             post_build: vec![],
         })
     }

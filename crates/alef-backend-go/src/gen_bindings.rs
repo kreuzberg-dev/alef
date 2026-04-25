@@ -1,6 +1,6 @@
 use crate::type_map::{go_optional_type, go_type};
 use alef_codegen::naming::{go_param_name, go_type_name, to_go_name};
-use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, AlefConfig, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, DefaultValue, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
@@ -236,7 +236,7 @@ impl Backend for GoBackend {
         Some(BuildConfig {
             tool: "go",
             crate_suffix: "",
-            depends_on_ffi: true,
+            build_dep: BuildDependency::Ffi,
             post_build: vec![],
         })
     }

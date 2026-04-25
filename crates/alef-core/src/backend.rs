@@ -2,6 +2,18 @@ use crate::config::{AlefConfig, Language};
 use crate::ir::ApiSurface;
 use std::path::PathBuf;
 
+/// Build-time dependency for a language backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BuildDependency {
+    /// Backend has no external build dependencies.
+    #[default]
+    None,
+    /// Backend depends on the C FFI base being built first (Go, Java, C#, Zig).
+    Ffi,
+    /// Backend depends on the Rustler NIF being built first (Gleam).
+    Rustler,
+}
+
 /// Build configuration for a language backend.
 #[derive(Debug, Clone)]
 pub struct BuildConfig {
@@ -9,10 +21,17 @@ pub struct BuildConfig {
     pub tool: &'static str,
     /// Crate suffix for Rust binding crate (e.g., "-node", "-py", "-wasm", "-ffi").
     pub crate_suffix: &'static str,
-    /// Whether this language depends on the FFI crate being built first (Go, Java, C#).
-    pub depends_on_ffi: bool,
+    /// Build-time dependency for this backend.
+    pub build_dep: BuildDependency,
     /// Post-processing steps to run after build.
     pub post_build: Vec<PostBuildStep>,
+}
+
+impl BuildConfig {
+    /// Returns whether this backend depends on the C FFI base (backwards compatibility).
+    pub fn depends_on_ffi(&self) -> bool {
+        matches!(self.build_dep, BuildDependency::Ffi)
+    }
 }
 
 /// A post-build processing step.
@@ -26,6 +45,13 @@ pub enum PostBuildStep {
         find: &'static str,
         /// Text to replace with.
         replace: &'static str,
+    },
+    /// Run an external command (e.g., for generated code post-processing via flutter_rust_bridge).
+    RunCommand {
+        /// Command to execute.
+        cmd: &'static str,
+        /// Command arguments.
+        args: Vec<&'static str>,
     },
 }
 

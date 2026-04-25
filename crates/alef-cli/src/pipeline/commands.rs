@@ -357,7 +357,7 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
         }
         let backend = registry::get_backend(lang);
         if let Some(bc) = backend.build_config() {
-            if bc.depends_on_ffi {
+            if bc.depends_on_ffi() {
                 ffi_dependent.push((lang, bc));
                 need_ffi = true;
             } else {
@@ -690,6 +690,11 @@ fn run_post_build(
                 } else {
                     debug!("Post-build patch target not found: {}", file_path.display());
                 }
+            }
+            PostBuildStep::RunCommand { cmd, args } => {
+                // TODO: Wire up post-build command execution for Dart flutter_rust_bridge codegen.
+                // For now, this is unimplemented() to allow Phase 0 to compile.
+                debug!("Post-build command {} not yet executed: {:?}", cmd, args);
             }
         }
     }

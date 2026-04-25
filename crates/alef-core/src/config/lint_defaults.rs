@@ -1,28 +1,31 @@
 use super::extras::Language;
 use super::output::{LintConfig, StringOrVec};
+use super::tools::{ToolsConfig, require_tool};
 
 /// Return the default lint configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). It is substituted into command templates.
-pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
+/// `tools` selects per-language tool variants (currently informational; lint
+/// commands themselves don't depend on the chosen package manager).
+pub fn default_lint_config(lang: Language, output_dir: &str, _tools: &ToolsConfig) -> LintConfig {
     match lang {
         Language::Python => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("ruff")),
             before: None,
             format: Some(StringOrVec::Single(format!("ruff format {output_dir}"))),
             check: Some(StringOrVec::Single(format!("ruff check --fix {output_dir}"))),
             typecheck: Some(StringOrVec::Single(format!("mypy {output_dir}"))),
         },
         Language::Node | Language::Wasm => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("npx")),
             before: None,
             format: Some(StringOrVec::Single(format!("npx oxfmt {output_dir}"))),
             check: Some(StringOrVec::Single(format!("npx oxlint --fix {output_dir}"))),
             typecheck: None,
         },
         Language::Ruby => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("bundle")),
             before: None,
             format: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && bundle exec rubocop -A ."
@@ -31,14 +34,14 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Php => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("composer")),
             before: None,
             format: Some(StringOrVec::Single(format!("cd {output_dir} && composer run format"))),
             check: Some(StringOrVec::Single(format!("cd {output_dir} && composer run lint"))),
             typecheck: None,
         },
         Language::Go => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("gofmt")),
             before: None,
             format: Some(StringOrVec::Single(format!("gofmt -w {output_dir}"))),
             check: Some(StringOrVec::Single(format!(
@@ -47,7 +50,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Java => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("mvn")),
             before: None,
             format: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml spotless:apply -q"
@@ -58,7 +61,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Csharp => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("dotnet")),
             before: None,
             format: Some(StringOrVec::Single(format!("dotnet format {output_dir}"))),
             check: Some(StringOrVec::Single(format!(
@@ -67,14 +70,14 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Elixir => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("mix")),
             before: None,
             format: Some(StringOrVec::Single(format!("cd {output_dir} && mix format"))),
             check: Some(StringOrVec::Single(format!("cd {output_dir} && mix credo --strict"))),
             typecheck: None,
         },
         Language::R => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("Rscript")),
             before: None,
             format: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && Rscript -e \"styler::style_pkg()\""
@@ -85,7 +88,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Ffi => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("clang-format")),
             before: None,
             format: Some(StringOrVec::Single(format!(
                 "find {output_dir} -name '*.c' -o -name '*.h' | xargs clang-format -i"
@@ -96,7 +99,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str) -> LintConfig {
             typecheck: None,
         },
         Language::Rust => LintConfig {
-            precondition: None,
+            precondition: Some(require_tool("cargo")),
             before: None,
             format: Some(StringOrVec::Single("cargo fmt".to_string())),
             check: Some(StringOrVec::Single(
@@ -128,38 +131,57 @@ mod tests {
         ]
     }
 
+    fn cfg(lang: Language, dir: &str) -> LintConfig {
+        default_lint_config(lang, dir, &ToolsConfig::default())
+    }
+
     #[test]
     fn every_language_has_format_default() {
         for lang in all_languages() {
-            let cfg = default_lint_config(lang, "packages/test");
-            assert!(cfg.format.is_some(), "{lang} should have a default format command");
+            let c = cfg(lang, "packages/test");
+            assert!(c.format.is_some(), "{lang} should have a default format command");
         }
     }
 
     #[test]
     fn every_language_has_check_default() {
         for lang in all_languages() {
-            let cfg = default_lint_config(lang, "packages/test");
-            assert!(cfg.check.is_some(), "{lang} should have a default check command");
+            let c = cfg(lang, "packages/test");
+            assert!(c.check.is_some(), "{lang} should have a default check command");
+        }
+    }
+
+    #[test]
+    fn every_language_has_default_precondition() {
+        for lang in all_languages() {
+            let c = cfg(lang, "packages/test");
+            let pre = c
+                .precondition
+                .unwrap_or_else(|| panic!("{lang} default lint should have a precondition"));
+            assert!(
+                pre.starts_with("command -v "),
+                "{lang} precondition should use POSIX `command -v`, got: {pre}"
+            );
         }
     }
 
     #[test]
     fn python_defaults_use_ruff_and_mypy() {
-        let cfg = default_lint_config(Language::Python, "packages/python");
-        let fmt = cfg.format.unwrap().commands().join(" ");
-        let check = cfg.check.unwrap().commands().join(" ");
-        let tc = cfg.typecheck.unwrap().commands().join(" ");
+        let c = cfg(Language::Python, "packages/python");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        let tc = c.typecheck.unwrap().commands().join(" ");
         assert!(fmt.contains("ruff format"));
         assert!(check.contains("ruff check"));
         assert!(tc.contains("mypy"));
+        assert_eq!(c.precondition.as_deref(), Some("command -v ruff >/dev/null 2>&1"));
     }
 
     #[test]
     fn node_defaults_use_oxc() {
-        let cfg = default_lint_config(Language::Node, "packages/node");
-        let fmt = cfg.format.unwrap().commands().join(" ");
-        let check = cfg.check.unwrap().commands().join(" ");
+        let c = cfg(Language::Node, "packages/node");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
         assert!(fmt.contains("oxfmt"), "Node format should use oxfmt, got: {fmt}");
         assert!(check.contains("oxlint"), "Node check should use oxlint, got: {check}");
         assert!(!fmt.contains("biome"), "Node should not reference biome");
@@ -167,20 +189,19 @@ mod tests {
 
     #[test]
     fn wasm_defaults_match_node() {
-        let node = default_lint_config(Language::Node, "packages/node");
-        let wasm = default_lint_config(Language::Wasm, "packages/wasm");
+        let node = cfg(Language::Node, "packages/node");
+        let wasm = cfg(Language::Wasm, "packages/wasm");
         let node_fmt = node.format.unwrap().commands().join(" ");
         let wasm_fmt = wasm.format.unwrap().commands().join(" ");
-        // Same tool, different dir
         assert!(node_fmt.contains("oxfmt"));
         assert!(wasm_fmt.contains("oxfmt"));
     }
 
     #[test]
     fn java_defaults_use_spotless() {
-        let cfg = default_lint_config(Language::Java, "packages/java");
-        let fmt = cfg.format.unwrap().commands().join(" ");
-        let check = cfg.check.unwrap().commands().join(" ");
+        let c = cfg(Language::Java, "packages/java");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
         assert!(fmt.contains("spotless:apply"));
         assert!(check.contains("spotless:check"));
         assert!(check.contains("checkstyle:check"));
@@ -188,46 +209,31 @@ mod tests {
 
     #[test]
     fn rust_defaults_use_cargo() {
-        let cfg = default_lint_config(Language::Rust, "packages/rust");
-        let fmt = cfg.format.unwrap().commands().join(" ");
-        let check = cfg.check.unwrap().commands().join(" ");
+        let c = cfg(Language::Rust, "packages/rust");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
         assert!(fmt.contains("cargo fmt"));
         assert!(check.contains("cargo clippy"));
     }
 
     #[test]
     fn output_dir_substituted_in_commands() {
-        let cfg = default_lint_config(Language::Go, "my/custom/dir");
-        let fmt = cfg.format.unwrap().commands().join(" ");
-        let check = cfg.check.unwrap().commands().join(" ");
-        assert!(
-            fmt.contains("my/custom/dir"),
-            "Go format should contain output dir, got: {fmt}"
-        );
-        assert!(
-            check.contains("my/custom/dir"),
-            "Go check should contain output dir, got: {check}"
-        );
+        let c = cfg(Language::Go, "my/custom/dir");
+        let fmt = c.format.unwrap().commands().join(" ");
+        let check = c.check.unwrap().commands().join(" ");
+        assert!(fmt.contains("my/custom/dir"));
+        assert!(check.contains("my/custom/dir"));
     }
 
     #[test]
     fn only_python_has_typecheck_default() {
         for lang in all_languages() {
-            let cfg = default_lint_config(lang, "packages/test");
+            let c = cfg(lang, "packages/test");
             if lang == Language::Python {
-                assert!(cfg.typecheck.is_some(), "Python should have typecheck");
+                assert!(c.typecheck.is_some(), "Python should have typecheck");
             } else {
-                assert!(cfg.typecheck.is_none(), "{lang} should not have typecheck default");
+                assert!(c.typecheck.is_none(), "{lang} should not have typecheck default");
             }
-        }
-    }
-
-    #[test]
-    fn defaults_have_no_precondition_or_before() {
-        for lang in all_languages() {
-            let cfg = default_lint_config(lang, "packages/test");
-            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
-            assert!(cfg.before.is_none(), "{lang} default should have no before");
         }
     }
 }

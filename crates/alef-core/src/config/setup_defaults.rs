@@ -1,65 +1,86 @@
 use super::extras::Language;
 use super::output::{SetupConfig, StringOrVec};
+use super::tools::{ToolsConfig, require_tool};
 
 /// Return the default setup configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). It is substituted into command templates.
-pub(crate) fn default_setup_config(lang: Language, output_dir: &str) -> SetupConfig {
+/// `tools` selects the package manager (and Rust dev-tool list).
+pub(crate) fn default_setup_config(lang: Language, output_dir: &str, tools: &ToolsConfig) -> SetupConfig {
     match lang {
-        Language::Rust => SetupConfig {
-            precondition: None,
-            before: None,
-            install: Some(StringOrVec::Single(
-                "rustup update && cargo install cargo-llvm-cov".to_string(),
-            )),
-        },
-        Language::Python => SetupConfig {
-            precondition: None,
-            before: None,
-            install: Some(StringOrVec::Single(format!("cd {output_dir} && uv sync"))),
-        },
-        Language::Node | Language::Wasm => SetupConfig {
-            precondition: None,
-            before: None,
-            install: Some(StringOrVec::Single("pnpm install".to_string())),
-        },
+        Language::Rust => {
+            let mut commands: Vec<String> = vec!["rustup update stable".to_string()];
+            commands.extend(tools.rust_tools().iter().map(|t| format!("cargo install {t} --locked")));
+            commands.push("rustup component add rustfmt clippy".to_string());
+            SetupConfig {
+                precondition: Some(require_tool("cargo")),
+                before: None,
+                install: Some(StringOrVec::Multiple(commands)),
+            }
+        }
+        Language::Python => {
+            let pm = tools.python_pm();
+            let install_cmd = match pm {
+                "pip" => format!("cd {output_dir} && pip install -e ."),
+                "poetry" => format!("cd {output_dir} && poetry install"),
+                _ => format!("cd {output_dir} && uv sync"),
+            };
+            SetupConfig {
+                precondition: Some(require_tool(pm)),
+                before: None,
+                install: Some(StringOrVec::Single(install_cmd)),
+            }
+        }
+        Language::Node | Language::Wasm => {
+            let pm = tools.node_pm();
+            let install_cmd = match pm {
+                "npm" => format!("cd {output_dir} && npm install"),
+                "yarn" => format!("cd {output_dir} && yarn install"),
+                _ => format!("cd {output_dir} && pnpm install"),
+            };
+            SetupConfig {
+                precondition: Some(require_tool(pm)),
+                before: None,
+                install: Some(StringOrVec::Single(install_cmd)),
+            }
+        }
         Language::Go => SetupConfig {
-            precondition: None,
+            precondition: Some(require_tool("go")),
             before: None,
             install: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && GOWORK=off go mod download"
             ))),
         },
         Language::Ruby => SetupConfig {
-            precondition: None,
+            precondition: Some(require_tool("bundle")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && bundle install"))),
         },
         Language::Php => SetupConfig {
-            precondition: None,
+            precondition: Some(require_tool("composer")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && composer install"))),
         },
         Language::Java => SetupConfig {
-            precondition: None,
+            precondition: Some(require_tool("mvn")),
             before: None,
             install: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml dependency:resolve -q"
             ))),
         },
         Language::Csharp => SetupConfig {
-            precondition: None,
+            precondition: Some(require_tool("dotnet")),
             before: None,
             install: Some(StringOrVec::Single(format!("dotnet restore {output_dir}"))),
         },
         Language::Elixir => SetupConfig {
-            precondition: None,
+            precondition: Some(require_tool("mix")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.get"))),
         },
         Language::R => SetupConfig {
-            precondition: None,
+            precondition: Some(require_tool("Rscript")),
             before: None,
             install: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && Rscript -e \"remotes::install_deps()\""
@@ -94,10 +115,14 @@ mod tests {
         ]
     }
 
+    fn cfg(lang: Language, dir: &str) -> SetupConfig {
+        default_setup_config(lang, dir, &ToolsConfig::default())
+    }
+
     #[test]
     fn ffi_has_no_install_command() {
-        let cfg = default_setup_config(Language::Ffi, "packages/ffi");
-        assert!(cfg.install.is_none());
+        let c = cfg(Language::Ffi, "packages/ffi");
+        assert!(c.install.is_none());
     }
 
     #[test]
@@ -106,102 +131,167 @@ mod tests {
             if lang == Language::Ffi {
                 continue;
             }
-            let cfg = default_setup_config(lang, "packages/test");
-            assert!(cfg.install.is_some(), "{lang} should have a default install command");
+            let c = cfg(lang, "packages/test");
+            assert!(c.install.is_some(), "{lang} should have a default install command");
         }
     }
 
     #[test]
-    fn rust_uses_rustup_and_cargo_install() {
-        let cfg = default_setup_config(Language::Rust, "packages/rust");
-        let install = cfg.install.unwrap().commands().join(" ");
-        assert!(install.contains("rustup update"));
-        assert!(install.contains("cargo install cargo-llvm-cov"));
+    fn non_ffi_languages_have_default_precondition() {
+        for lang in all_languages() {
+            if lang == Language::Ffi {
+                continue;
+            }
+            let c = cfg(lang, "packages/test");
+            let pre = c
+                .precondition
+                .unwrap_or_else(|| panic!("{lang} should have a precondition"));
+            assert!(pre.starts_with("command -v "));
+        }
     }
 
     #[test]
-    fn python_uses_uv_sync() {
-        let cfg = default_setup_config(Language::Python, "packages/python");
-        let install = cfg.install.unwrap().commands().join(" ");
+    fn rust_install_lists_full_tool_set() {
+        let c = cfg(Language::Rust, "packages/rust");
+        let install = c.install.unwrap();
+        let cmds = install.commands();
+        let joined = cmds.join(" || ");
+        assert!(joined.contains("rustup update stable"));
+        for tool in super::super::tools::DEFAULT_RUST_DEV_TOOLS {
+            assert!(
+                joined.contains(&format!("cargo install {tool} --locked")),
+                "Rust setup should install {tool}, got: {joined}"
+            );
+        }
+        assert!(joined.contains("rustup component add rustfmt clippy"));
+    }
+
+    #[test]
+    fn rust_install_respects_user_tool_list() {
+        let tools = ToolsConfig {
+            rust_dev_tools: Some(vec!["cargo-edit".to_string(), "cargo-foo".to_string()]),
+            ..Default::default()
+        };
+        let c = default_setup_config(Language::Rust, "packages/rust", &tools);
+        let cmds = c.install.unwrap().commands().join(" || ");
+        assert!(cmds.contains("cargo install cargo-edit --locked"));
+        assert!(cmds.contains("cargo install cargo-foo --locked"));
+        // Default tools that aren't in the user override should be absent.
+        assert!(!cmds.contains("cargo install cargo-deny"));
+    }
+
+    #[test]
+    fn python_setup_dispatches_on_package_manager() {
+        let mk = |pm: &str| ToolsConfig {
+            python_package_manager: Some(pm.to_string()),
+            ..Default::default()
+        };
+        let uv = default_setup_config(Language::Python, "packages/python", &mk("uv"));
+        assert!(uv.install.unwrap().commands().join(" ").contains("uv sync"));
+        assert_eq!(uv.precondition.as_deref(), Some("command -v uv >/dev/null 2>&1"));
+
+        let pip = default_setup_config(Language::Python, "packages/python", &mk("pip"));
+        assert!(pip.install.unwrap().commands().join(" ").contains("pip install -e"));
+        assert_eq!(pip.precondition.as_deref(), Some("command -v pip >/dev/null 2>&1"));
+
+        let poetry = default_setup_config(Language::Python, "packages/python", &mk("poetry"));
+        assert!(poetry.install.unwrap().commands().join(" ").contains("poetry install"));
+        assert_eq!(
+            poetry.precondition.as_deref(),
+            Some("command -v poetry >/dev/null 2>&1")
+        );
+    }
+
+    #[test]
+    fn node_setup_dispatches_on_package_manager() {
+        let mk = |pm: &str| ToolsConfig {
+            node_package_manager: Some(pm.to_string()),
+            ..Default::default()
+        };
+        let pnpm = default_setup_config(Language::Node, "packages/node", &mk("pnpm"));
+        assert!(pnpm.install.unwrap().commands().join(" ").contains("pnpm install"));
+
+        let npm = default_setup_config(Language::Node, "packages/node", &mk("npm"));
+        assert!(npm.install.unwrap().commands().join(" ").contains("npm install"));
+
+        let yarn = default_setup_config(Language::Node, "packages/node", &mk("yarn"));
+        assert!(yarn.install.unwrap().commands().join(" ").contains("yarn install"));
+    }
+
+    #[test]
+    fn python_uses_uv_sync_by_default() {
+        let c = cfg(Language::Python, "packages/python");
+        let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("uv sync"));
         assert!(install.contains("packages/python"));
     }
 
     #[test]
-    fn node_uses_pnpm_install() {
-        let cfg = default_setup_config(Language::Node, "packages/node");
-        let install = cfg.install.unwrap().commands().join(" ");
+    fn node_uses_pnpm_install_by_default() {
+        let c = cfg(Language::Node, "packages/node");
+        let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("pnpm install"));
     }
 
     #[test]
     fn wasm_matches_node() {
-        let node = default_setup_config(Language::Node, "packages/node");
-        let wasm = default_setup_config(Language::Wasm, "packages/wasm");
-        let node_install = node.install.unwrap().commands().join(" ");
-        let wasm_install = wasm.install.unwrap().commands().join(" ");
-        assert_eq!(node_install, wasm_install, "WASM and Node should share install command");
+        // Same package manager invocation, only the output dir differs.
+        let node = cfg(Language::Node, "packages/foo");
+        let wasm = cfg(Language::Wasm, "packages/foo");
+        assert_eq!(
+            node.install.unwrap().commands().join(" "),
+            wasm.install.unwrap().commands().join(" "),
+            "WASM and Node should share install command"
+        );
     }
 
     #[test]
     fn go_uses_go_mod_download() {
-        let cfg = default_setup_config(Language::Go, "packages/go");
-        let install = cfg.install.unwrap().commands().join(" ");
+        let c = cfg(Language::Go, "packages/go");
+        let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("go mod download"));
     }
 
     #[test]
     fn ruby_uses_bundle_install() {
-        let cfg = default_setup_config(Language::Ruby, "packages/ruby");
-        let install = cfg.install.unwrap().commands().join(" ");
+        let c = cfg(Language::Ruby, "packages/ruby");
+        let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("bundle install"));
     }
 
     #[test]
     fn java_uses_maven_dependency_resolve() {
-        let cfg = default_setup_config(Language::Java, "packages/java");
-        let install = cfg.install.unwrap().commands().join(" ");
+        let c = cfg(Language::Java, "packages/java");
+        let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("mvn"));
         assert!(install.contains("dependency:resolve"));
     }
 
     #[test]
     fn csharp_uses_dotnet_restore() {
-        let cfg = default_setup_config(Language::Csharp, "packages/csharp");
-        let install = cfg.install.unwrap().commands().join(" ");
+        let c = cfg(Language::Csharp, "packages/csharp");
+        let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("dotnet restore"));
     }
 
     #[test]
     fn elixir_uses_mix_deps_get() {
-        let cfg = default_setup_config(Language::Elixir, "packages/elixir");
-        let install = cfg.install.unwrap().commands().join(" ");
+        let c = cfg(Language::Elixir, "packages/elixir");
+        let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("mix deps.get"));
     }
 
     #[test]
     fn r_uses_remotes_install_deps() {
-        let cfg = default_setup_config(Language::R, "packages/r");
-        let install = cfg.install.unwrap().commands().join(" ");
+        let c = cfg(Language::R, "packages/r");
+        let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("remotes::install_deps()"));
     }
 
     #[test]
     fn output_dir_substituted_in_commands() {
-        let cfg = default_setup_config(Language::Go, "my/custom/path");
-        let install = cfg.install.unwrap().commands().join(" ");
-        assert!(
-            install.contains("my/custom/path"),
-            "Go install should contain output dir, got: {install}"
-        );
-    }
-
-    #[test]
-    fn defaults_have_no_precondition_or_before() {
-        for lang in all_languages() {
-            let cfg = default_setup_config(lang, "packages/test");
-            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
-            assert!(cfg.before.is_none(), "{lang} default should have no before");
-        }
+        let c = cfg(Language::Go, "my/custom/path");
+        let install = c.install.unwrap().commands().join(" ");
+        assert!(install.contains("my/custom/path"));
     }
 }

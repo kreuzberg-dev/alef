@@ -5,7 +5,7 @@ use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::naming::to_node_name;
 use alef_codegen::shared::{can_auto_delegate, function_params, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, BuildConfig, Capabilities, GeneratedFile, PostBuildStep};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, ParamDef, TypeDef, TypeRef};
@@ -439,7 +439,7 @@ impl Backend for NapiBackend {
         Some(BuildConfig {
             tool: "napi",
             crate_suffix: "-node",
-            depends_on_ffi: false,
+            build_dep: BuildDependency::None,
             post_build: vec![PostBuildStep::PatchFile {
                 path: "index.d.ts",
                 find: "export declare const enum",

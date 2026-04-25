@@ -94,6 +94,7 @@ fn make_config() -> AlefConfig {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     }
 }
 
@@ -1063,6 +1064,7 @@ fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> AlefConfi
         sync: None,
         e2e: None,
         trait_bridges: bridge_configs,
+        tools: Default::default(),
     }
 }
 

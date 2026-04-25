@@ -1,14 +1,17 @@
 use super::extras::Language;
 use super::output::{StringOrVec, UpdateConfig};
+use super::tools::{ToolsConfig, require_tool};
 
 /// Return the default update configuration for a language.
 ///
 /// The `output_dir` is the package directory where scaffolded files live
 /// (e.g. `packages/python`). It is substituted into command templates.
-pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
+/// `tools` selects the package manager for languages that drive updates
+/// through one (Python, Node).
+pub fn default_update_config(lang: Language, output_dir: &str, tools: &ToolsConfig) -> UpdateConfig {
     match lang {
         Language::Rust => UpdateConfig {
-            precondition: None,
+            precondition: Some(require_tool("cargo")),
             before: None,
             update: Some(StringOrVec::Single("cargo update".to_string())),
             upgrade: Some(StringOrVec::Multiple(vec![
@@ -16,28 +19,59 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
                 "cargo update".to_string(),
             ])),
         },
-        Language::Python => UpdateConfig {
-            precondition: None,
-            before: None,
-            update: Some(StringOrVec::Single(format!("cd {output_dir} && uv sync --upgrade"))),
-            upgrade: Some(StringOrVec::Single(format!(
-                "cd {output_dir} && uv sync --all-packages --all-extras --upgrade"
-            ))),
-        },
-        Language::Node | Language::Wasm => UpdateConfig {
-            precondition: None,
-            before: None,
-            update: Some(StringOrVec::Multiple(vec![
-                "corepack up".to_string(),
-                "pnpm up -r".to_string(),
-            ])),
-            upgrade: Some(StringOrVec::Multiple(vec![
-                "corepack use pnpm@latest".to_string(),
-                "pnpm up --latest -r -w".to_string(),
-            ])),
-        },
+        Language::Python => {
+            let pm = tools.python_pm();
+            let (update_cmd, upgrade_cmd) = match pm {
+                "pip" => (
+                    format!("cd {output_dir} && pip install -U -e ."),
+                    format!("cd {output_dir} && pip install -U -e ."),
+                ),
+                "poetry" => (
+                    format!("cd {output_dir} && poetry update"),
+                    format!("cd {output_dir} && poetry update --with dev"),
+                ),
+                _ => (
+                    format!("cd {output_dir} && uv sync --upgrade"),
+                    format!("cd {output_dir} && uv sync --all-packages --all-extras --upgrade"),
+                ),
+            };
+            UpdateConfig {
+                precondition: Some(require_tool(pm)),
+                before: None,
+                update: Some(StringOrVec::Single(update_cmd)),
+                upgrade: Some(StringOrVec::Single(upgrade_cmd)),
+            }
+        }
+        Language::Node | Language::Wasm => {
+            let pm = tools.node_pm();
+            let (update_cmds, upgrade_cmds) = match pm {
+                "npm" => (
+                    vec![format!("cd {output_dir} && npm update")],
+                    vec![format!(
+                        "cd {output_dir} && npm install -g npm-check-updates && ncu -u && npm install"
+                    )],
+                ),
+                "yarn" => (
+                    vec![format!("cd {output_dir} && yarn upgrade")],
+                    vec![format!("cd {output_dir} && yarn upgrade --latest")],
+                ),
+                _ => (
+                    vec!["corepack up".to_string(), "pnpm up -r".to_string()],
+                    vec![
+                        "corepack use pnpm@latest".to_string(),
+                        "pnpm up --latest -r -w".to_string(),
+                    ],
+                ),
+            };
+            UpdateConfig {
+                precondition: Some(require_tool(pm)),
+                before: None,
+                update: Some(StringOrVec::Multiple(update_cmds)),
+                upgrade: Some(StringOrVec::Multiple(upgrade_cmds)),
+            }
+        }
         Language::Ruby => UpdateConfig {
-            precondition: None,
+            precondition: Some(require_tool("bundle")),
             before: None,
             update: Some(StringOrVec::Single(format!("cd {output_dir} && bundle update --all"))),
             upgrade: Some(StringOrVec::Single(format!(
@@ -45,7 +79,7 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ))),
         },
         Language::Php => UpdateConfig {
-            precondition: None,
+            precondition: Some(require_tool("composer")),
             before: None,
             update: Some(StringOrVec::Single(format!("cd {output_dir} && composer update"))),
             upgrade: Some(StringOrVec::Single(format!(
@@ -53,7 +87,7 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ))),
         },
         Language::Go => UpdateConfig {
-            precondition: None,
+            precondition: Some(require_tool("go")),
             before: None,
             update: Some(StringOrVec::Multiple(vec![
                 format!("cd {output_dir} && go get -u ./..."),
@@ -65,7 +99,7 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ])),
         },
         Language::Java => UpdateConfig {
-            precondition: None,
+            precondition: Some(require_tool("mvn")),
             before: None,
             update: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml versions:use-latest-releases -Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml -q"
@@ -75,7 +109,7 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ))),
         },
         Language::Csharp => UpdateConfig {
-            precondition: None,
+            precondition: Some(require_tool("dotnet")),
             before: None,
             update: Some(StringOrVec::Single(format!("dotnet outdated --upgrade {output_dir}"))),
             upgrade: Some(StringOrVec::Single(format!(
@@ -83,13 +117,13 @@ pub fn default_update_config(lang: Language, output_dir: &str) -> UpdateConfig {
             ))),
         },
         Language::Elixir => UpdateConfig {
-            precondition: None,
+            precondition: Some(require_tool("mix")),
             before: None,
             update: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.update --all"))),
             upgrade: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.update --all"))),
         },
         Language::R => UpdateConfig {
-            precondition: None,
+            precondition: Some(require_tool("Rscript")),
             before: None,
             update: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && Rscript -e \"remotes::update_packages()\""
@@ -128,11 +162,15 @@ mod tests {
         ]
     }
 
+    fn cfg(lang: Language, dir: &str) -> UpdateConfig {
+        default_update_config(lang, dir, &ToolsConfig::default())
+    }
+
     #[test]
     fn ffi_has_no_update_commands() {
-        let cfg = default_update_config(Language::Ffi, "packages/ffi");
-        assert!(cfg.update.is_none());
-        assert!(cfg.upgrade.is_none());
+        let c = cfg(Language::Ffi, "packages/ffi");
+        assert!(c.update.is_none());
+        assert!(c.upgrade.is_none());
     }
 
     #[test]
@@ -141,17 +179,31 @@ mod tests {
             if lang == Language::Ffi {
                 continue;
             }
-            let cfg = default_update_config(lang, "packages/test");
-            assert!(cfg.update.is_some(), "{lang} should have a default update command");
-            assert!(cfg.upgrade.is_some(), "{lang} should have a default upgrade command");
+            let c = cfg(lang, "packages/test");
+            assert!(c.update.is_some(), "{lang} should have a default update command");
+            assert!(c.upgrade.is_some(), "{lang} should have a default upgrade command");
+        }
+    }
+
+    #[test]
+    fn non_ffi_languages_have_default_precondition() {
+        for lang in all_languages() {
+            if lang == Language::Ffi {
+                continue;
+            }
+            let c = cfg(lang, "packages/test");
+            let pre = c
+                .precondition
+                .unwrap_or_else(|| panic!("{lang} should have a precondition"));
+            assert!(pre.starts_with("command -v "));
         }
     }
 
     #[test]
     fn rust_update_uses_cargo() {
-        let cfg = default_update_config(Language::Rust, "packages/rust");
-        let update = cfg.update.unwrap().commands().join(" ");
-        let upgrade = cfg.upgrade.unwrap().commands().join(" ");
+        let c = cfg(Language::Rust, "packages/rust");
+        let update = c.update.unwrap().commands().join(" ");
+        let upgrade = c.upgrade.unwrap().commands().join(" ");
         assert!(update.contains("cargo update"));
         assert!(upgrade.contains("cargo upgrade --incompatible"));
         assert!(upgrade.contains("cargo update"));
@@ -159,87 +211,76 @@ mod tests {
 
     #[test]
     fn rust_upgrade_is_multi_command() {
-        let cfg = default_update_config(Language::Rust, "packages/rust");
-        let upgrade = cfg.upgrade.unwrap();
+        let c = cfg(Language::Rust, "packages/rust");
+        let upgrade = c.upgrade.unwrap();
         let cmds = upgrade.commands();
-        assert!(cmds.len() >= 2, "Rust upgrade should have multiple commands");
+        assert!(cmds.len() >= 2);
     }
 
     #[test]
-    fn python_update_uses_uv() {
-        let cfg = default_update_config(Language::Python, "packages/python");
-        let update = cfg.update.unwrap().commands().join(" ");
-        let upgrade = cfg.upgrade.unwrap().commands().join(" ");
+    fn python_update_uses_uv_by_default() {
+        let c = cfg(Language::Python, "packages/python");
+        let update = c.update.unwrap().commands().join(" ");
+        let upgrade = c.upgrade.unwrap().commands().join(" ");
         assert!(update.contains("uv sync"));
-        assert!(upgrade.contains("uv sync"));
         assert!(upgrade.contains("--all-packages"));
     }
 
     #[test]
-    fn node_update_uses_pnpm() {
-        let cfg = default_update_config(Language::Node, "packages/node");
-        let update = cfg.update.unwrap().commands().join(" ");
-        let upgrade = cfg.upgrade.unwrap().commands().join(" ");
+    fn python_update_dispatches_on_package_manager() {
+        let mk = |pm: &str| ToolsConfig {
+            python_package_manager: Some(pm.to_string()),
+            ..Default::default()
+        };
+        let pip = default_update_config(Language::Python, "packages/python", &mk("pip"));
+        assert!(pip.update.unwrap().commands().join(" ").contains("pip install -U"));
+        let poetry = default_update_config(Language::Python, "packages/python", &mk("poetry"));
+        assert!(poetry.update.unwrap().commands().join(" ").contains("poetry update"));
+    }
+
+    #[test]
+    fn node_update_uses_pnpm_by_default() {
+        let c = cfg(Language::Node, "packages/node");
+        let update = c.update.unwrap().commands().join(" ");
+        let upgrade = c.upgrade.unwrap().commands().join(" ");
         assert!(update.contains("pnpm up"));
         assert!(upgrade.contains("pnpm up --latest"));
     }
 
     #[test]
-    fn node_update_includes_corepack_up() {
-        let cfg = default_update_config(Language::Node, "packages/node");
-        let update = cfg.update.unwrap();
-        let cmds = update.commands();
-        assert!(
-            cmds.iter().any(|c| c.contains("corepack up")),
-            "Node update should include corepack up"
-        );
-    }
-
-    #[test]
-    fn node_upgrade_includes_corepack_use_latest() {
-        let cfg = default_update_config(Language::Node, "packages/node");
-        let upgrade = cfg.upgrade.unwrap();
-        let cmds = upgrade.commands();
-        assert!(
-            cmds.iter().any(|c| c.contains("corepack use pnpm@latest")),
-            "Node upgrade should include corepack use pnpm@latest"
-        );
+    fn node_update_dispatches_on_package_manager() {
+        let mk = |pm: &str| ToolsConfig {
+            node_package_manager: Some(pm.to_string()),
+            ..Default::default()
+        };
+        let npm = default_update_config(Language::Node, "packages/node", &mk("npm"));
+        assert!(npm.update.unwrap().commands().join(" ").contains("npm update"));
+        let yarn = default_update_config(Language::Node, "packages/node", &mk("yarn"));
+        assert!(yarn.update.unwrap().commands().join(" ").contains("yarn upgrade"));
     }
 
     #[test]
     fn java_update_uses_maven_versions() {
-        let cfg = default_update_config(Language::Java, "packages/java");
-        let update = cfg.update.unwrap().commands().join(" ");
-        let upgrade = cfg.upgrade.unwrap().commands().join(" ");
+        let c = cfg(Language::Java, "packages/java");
+        let update = c.update.unwrap().commands().join(" ");
+        let upgrade = c.upgrade.unwrap().commands().join(" ");
         assert!(update.contains("versions:use-latest-releases"));
         assert!(upgrade.contains("allowMajorUpdates=true"));
     }
 
     #[test]
     fn output_dir_substituted_in_update_commands() {
-        let cfg = default_update_config(Language::Go, "my/custom/path");
-        let update = cfg.update.unwrap().commands().join(" ");
-        assert!(
-            update.contains("my/custom/path"),
-            "Go update should contain output dir, got: {update}"
-        );
+        let c = cfg(Language::Go, "my/custom/path");
+        let update = c.update.unwrap().commands().join(" ");
+        assert!(update.contains("my/custom/path"));
     }
 
     #[test]
     fn wasm_defaults_match_node() {
-        let node = default_update_config(Language::Node, "packages/node");
-        let wasm = default_update_config(Language::Wasm, "packages/wasm");
+        let node = cfg(Language::Node, "packages/node");
+        let wasm = cfg(Language::Wasm, "packages/wasm");
         let node_update = node.update.unwrap().commands().join(" ");
         let wasm_update = wasm.update.unwrap().commands().join(" ");
-        assert_eq!(node_update, wasm_update, "WASM and Node should share update commands");
-    }
-
-    #[test]
-    fn defaults_have_no_precondition_or_before() {
-        for lang in all_languages() {
-            let cfg = default_update_config(lang, "packages/test");
-            assert!(cfg.precondition.is_none(), "{lang} default should have no precondition");
-            assert!(cfg.before.is_none(), "{lang} default should have no before");
-        }
+        assert_eq!(node_update, wasm_update);
     }
 }

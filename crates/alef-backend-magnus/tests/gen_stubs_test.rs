@@ -105,6 +105,7 @@ fn make_config_with_stubs() -> AlefConfig {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     }
 }
 
@@ -647,6 +648,7 @@ fn test_rbs_stubs_without_config() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     let result = backend.generate_type_stubs(&api, &config);
@@ -955,6 +957,7 @@ fn test_module_naming_from_crate_name() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     let result = backend.generate_type_stubs(&api, &config);

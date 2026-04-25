@@ -200,6 +200,7 @@ fn test_basic_generation() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     // Generate bindings
@@ -352,6 +353,7 @@ fn test_namespace_resolution() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -432,6 +434,7 @@ fn test_generated_header() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -595,6 +598,7 @@ fn test_type_mapping() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -733,6 +737,7 @@ fn test_tuple_struct_fields_skipped() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);
@@ -864,6 +869,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         sync: None,
         e2e: None,
         trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
     };
 
     let result = backend.generate_bindings(&api, &config);
