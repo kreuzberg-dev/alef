@@ -56,6 +56,7 @@ fn make_config() -> AlefConfig {
             scaffold_output: Default::default(),
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
+            rename_fields: Default::default(),
         }),
         php: None,
         elixir: None,

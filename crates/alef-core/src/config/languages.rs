@@ -43,6 +43,11 @@ pub struct PythonConfig {
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
     pub scaffold_output: Option<PathBuf>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name` (e.g.
+    /// `"LayoutDetection.class"`), value is the desired binding field name. Applied after
+    /// automatic keyword escaping, so an explicit entry takes priority.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +82,10 @@ pub struct NodeConfig {
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
     pub scaffold_output: Option<PathBuf>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +112,10 @@ pub struct RubyConfig {
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
     pub scaffold_output: Option<PathBuf>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +146,10 @@ pub struct PhpConfig {
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
     pub scaffold_output: Option<PathBuf>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +173,10 @@ pub struct ElixirConfig {
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
     pub scaffold_output: Option<PathBuf>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -186,6 +207,10 @@ pub struct WasmConfig {
     /// Additional Cargo dependencies for the WASM binding crate only.
     #[serde(default)]
     pub extra_dependencies: HashMap<String, toml::Value>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,6 +238,10 @@ pub struct FfiConfig {
     /// Types to exclude from FFI binding generation.
     #[serde(default)]
     pub exclude_types: Vec<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 fn default_error_style() -> String {
@@ -230,6 +259,10 @@ pub struct GoConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,6 +276,10 @@ pub struct JavaConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 fn default_java_ffi_style() -> String {
@@ -259,6 +296,10 @@ pub struct CSharpConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -270,6 +311,10 @@ pub struct RConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
+    /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
 /// Custom modules that alef should declare (mod X;) but not generate.

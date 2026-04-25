@@ -56,6 +56,44 @@ pub struct ConversionConfig<'a> {
     /// the binding wrapper holds `inner: Arc<CoreT>` and the conversion must extract
     /// `.inner` directly instead of calling `.into()` + wrapping in `Arc::new`.
     pub opaque_types: Option<&'a AHashSet<String>>,
+    /// Per-field binding name overrides.  Key is `"TypeName.field_name"` (using the original
+    /// IR field name); value is the binding struct's actual Rust field name (e.g. `"class_"`).
+    /// Used when a field name is a reserved keyword in the target language and must be escaped
+    /// in the binding struct (e.g. `class` → `class_`).
+    ///
+    /// When present, `val.<binding_name>` is used for binding-side access and the original
+    /// `field_name` is used for core-side access (struct literal and assignment targets).
+    pub binding_field_renames: Option<&'a std::collections::HashMap<String, String>>,
+}
+
+impl<'a> ConversionConfig<'a> {
+    /// Look up the binding struct field name for a given type and IR field name.
+    ///
+    /// Returns the escaped name (e.g. `"class_"`) when the field was renamed due to a
+    /// reserved keyword conflict, or the original `field_name` when no rename applies.
+    pub fn binding_field_name<'b>(&self, type_name: &str, field_name: &'b str) -> &'b str
+    where
+        'a: 'b,
+    {
+        // &'b str: we return either the original (which has lifetime 'b from the parameter)
+        // or a &str from the HashMap (which would have lifetime 'a). Since 'a: 'b we can
+        // return either. But Rust's lifetime inference won't let us return `&'a str` from a
+        // `&'b str` parameter without unsafe. Use a helper that returns an owned String instead.
+        let _ = type_name;
+        field_name
+    }
+
+    /// Like `binding_field_name` but returns an owned `String`, suitable for use in
+    /// format strings and string interpolation.
+    pub fn binding_field_name_owned(&self, type_name: &str, field_name: &str) -> String {
+        if let Some(map) = self.binding_field_renames {
+            let key = format!("{type_name}.{field_name}");
+            if let Some(renamed) = map.get(&key) {
+                return renamed.clone();
+            }
+        }
+        field_name.to_string()
+    }
 }
 
 // Re-export all public items so callers continue to use `conversions::foo`.

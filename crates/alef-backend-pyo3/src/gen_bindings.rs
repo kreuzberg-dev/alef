@@ -10,22 +10,6 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-/// Convert an identifier to be safe for use as a Python attribute name by appending `_`
-/// to reserved keywords and builtins that cannot be used as identifiers.
-fn python_safe_name(name: &str) -> String {
-    const PYTHON_KEYWORDS: &[&str] = &[
-        "from", "import", "class", "def", "return", "yield", "pass", "break", "continue", "and", "or", "not", "is",
-        "in", "if", "else", "elif", "for", "while", "with", "as", "try", "except", "finally", "raise", "del", "global",
-        "nonlocal", "lambda", "assert", "type", // Python builtins that cannot be used as identifiers
-        "None", "True", "False",
-    ];
-    if PYTHON_KEYWORDS.contains(&name) {
-        format!("{name}_")
-    } else {
-        name.to_string()
-    }
-}
-
 pub struct Pyo3Backend;
 
 impl Pyo3Backend {
@@ -302,8 +286,62 @@ impl Backend for Pyo3Backend {
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&generators::gen_struct(typ, &mapper, &cfg));
-                let impl_block = generators::gen_impl_block(typ, &mapper, &cfg, &adapter_bodies, &opaque_types);
+                //
+                // Use gen_struct_with_rename so that fields whose names are Python reserved
+                // keywords (e.g. `class`) are emitted with an escaped name in the Rust struct
+                // (e.g. `class_`) while the original name is preserved in the PyO3 property
+                // attribute (e.g. `#[pyo3(get, name = "class")]`) and the serde rename
+                // attribute (`#[serde(rename = "class")]`) so the user-facing API is unchanged.
+                let type_name = typ.name.clone();
+                let config_ref = config;
+                builder.add_item(&generators::gen_struct_with_rename(
+                    typ,
+                    &mapper,
+                    &cfg,
+                    |field| {
+                        // When the field needs a keyword-escape rename, replace the default
+                        // `pyo3(get)` with `pyo3(get, name = "original")` and add a serde
+                        // rename attr so JSON serialization still uses the original name.
+                        // Returning a non-empty vec here suppresses cfg.field_attrs for this
+                        // field (gen_struct_with_rename skips cfg.field_attrs when the name is
+                        // overridden AND extra_field_attrs is non-empty).
+                        if config_ref
+                            .resolve_field_name(alef_core::config::Language::Python, &type_name, &field.name)
+                            .is_some()
+                        {
+                            vec![
+                                format!("pyo3(get, name = \"{}\")", field.name),
+                                format!("serde(rename = \"{}\")", field.name),
+                            ]
+                        } else {
+                            vec![]
+                        }
+                    },
+                    |field| config_ref.resolve_field_name(alef_core::config::Language::Python, &type_name, &field.name),
+                ));
+                // Build per-type field renames for the constructor
+                let py_field_renames: std::collections::HashMap<String, String> = typ
+                    .fields
+                    .iter()
+                    .filter_map(|field| {
+                        config_ref
+                            .resolve_field_name(alef_core::config::Language::Python, &type_name, &field.name)
+                            .map(|renamed| (field.name.clone(), renamed))
+                    })
+                    .collect();
+                let renames_ref = if py_field_renames.is_empty() {
+                    None
+                } else {
+                    Some(&py_field_renames)
+                };
+                let impl_block = generators::gen_impl_block_with_renames(
+                    typ,
+                    &mapper,
+                    &cfg,
+                    &adapter_bodies,
+                    &opaque_types,
+                    renames_ref,
+                );
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }
@@ -396,8 +434,25 @@ impl Backend for Pyo3Backend {
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
+        // Build a rename map for all fields that needed keyword escaping so that From impls
+        // use the correct binding struct field names (e.g. `class_` not `class`).
+        let mut py_field_renames = std::collections::HashMap::new();
+        for typ in api.types.iter().filter(|t| !t.is_trait) {
+            for field in &typ.fields {
+                if let Some(escaped) =
+                    config.resolve_field_name(alef_core::config::Language::Python, &typ.name, &field.name)
+                {
+                    py_field_renames.insert(format!("{}.{}", typ.name, field.name), escaped);
+                }
+            }
+        }
         let pyo3_conversion_cfg = alef_codegen::conversions::ConversionConfig {
             option_duration_on_defaults: true,
+            binding_field_renames: if py_field_renames.is_empty() {
+                None
+            } else {
+                Some(&py_field_renames)
+            },
             ..Default::default()
         };
         // From/Into conversions — separate sets for each direction
@@ -466,7 +521,7 @@ impl Backend for Pyo3Backend {
             None => return Ok(vec![]),
         };
 
-        let content = crate::gen_stubs::gen_stubs(api, &config.trait_bridges);
+        let content = crate::gen_stubs::gen_stubs(api, &config.trait_bridges, config);
 
         let stubs_path = resolve_output_dir(
             Some(&stubs_config.output),
@@ -834,7 +889,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
                     (hint, default)
                 };
 
-                let safe_name = python_safe_name(&field.name);
+                let safe_name = alef_core::keywords::python_ident(&field.name);
                 if !field.doc.is_empty() {
                     out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
                     out.push_str(&format!(
@@ -996,7 +1051,7 @@ fn gen_typeddict(
         } else {
             type_hint
         };
-        let safe_name = python_safe_name(&field.name);
+        let safe_name = alef_core::keywords::python_ident(&field.name);
         if !field.doc.is_empty() {
             out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
             out.push_str(&format!(

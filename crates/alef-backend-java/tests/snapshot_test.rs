@@ -294,6 +294,7 @@ fn print_generated_java_code() {
             serde_rename_all: None,
             exclude_functions: Vec::new(),
             exclude_types: Vec::new(),
+            rename_fields: Default::default(),
         }),
         go: None,
         java: Some(JavaConfig {
@@ -301,6 +302,7 @@ fn print_generated_java_code() {
             ffi_style: "panama".to_string(),
             features: None,
             serde_rename_all: None,
+            rename_fields: Default::default(),
         }),
         csharp: None,
         r: None,

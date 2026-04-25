@@ -79,12 +79,13 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 continue;
             }
             // Duration field stored as Option<u64/i64>: only override when Some
+            let binding_name = config.binding_field_name_owned(&typ.name, &field.name);
             if !field.optional && matches!(field.ty, TypeRef::Duration) {
                 let cast = if config.cast_large_ints_to_i64 { " as u64" } else { "" };
                 writeln!(
                     out,
-                    "        if let Some(__v) = val.{} {{ __result.{} = std::time::Duration::from_millis(__v{cast}); }}",
-                    field.name, field.name
+                    "        if let Some(__v) = val.{binding_name} {{ __result.{} = std::time::Duration::from_millis(__v{cast}); }}",
+                    field.name
                 )
                 .ok();
                 continue;
@@ -93,6 +94,12 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 gen_optionalized_field_to_core(&field.name, &field.ty, config)
             } else {
                 field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
+            };
+            // Apply binding field name substitution for keyword-escaped fields.
+            let conversion = if binding_name != field.name {
+                conversion.replace(&format!("val.{}", field.name), &format!("val.{binding_name}"))
+            } else {
+                conversion
             };
             // Strip the "name: " prefix to get just the expression, then assign
             if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
@@ -198,6 +205,15 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 &field.vec_inner_core_wrapper,
                 field.optional,
             )
+        };
+        // When the binding struct uses a keyword-escaped field name (e.g. `class_` for `class`),
+        // replace `val.{field.name}` access patterns in the conversion expression with
+        // `val.{binding_name}` so the generated From impl compiles.
+        let binding_name = config.binding_field_name_owned(&typ.name, &field.name);
+        let conversion = if binding_name != field.name {
+            conversion.replace(&format!("val.{}", field.name), &format!("val.{binding_name}"))
+        } else {
+            conversion
         };
         writeln!(out, "            {conversion},").ok();
     }

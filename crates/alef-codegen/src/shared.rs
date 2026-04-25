@@ -1,5 +1,6 @@
 use ahash::AHashSet;
 use alef_core::ir::{DefaultValue, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeRef};
+use std::collections::HashMap;
 
 /// Returns true if this parameter is required but must be promoted to optional
 /// because it follows an optional parameter in the list.
@@ -150,6 +151,17 @@ pub fn partition_methods(methods: &[MethodDef]) -> (Vec<&MethodDef>, Vec<&Method
 /// Returns (param_list, signature_with_defaults, field_assignments).
 /// If param_list exceeds 100 chars, uses multiline format with trailing commas.
 pub fn constructor_parts(fields: &[FieldDef], type_mapper: &dyn Fn(&TypeRef) -> String) -> (String, String, String) {
+    constructor_parts_with_renames(fields, type_mapper, None)
+}
+
+/// Like `constructor_parts` but with optional field renames for keyword escaping.
+/// `field_renames` maps original field name → binding field name (e.g. "class" → "class_").
+/// Parameters keep the original name (valid in Rust), struct literal uses the renamed field.
+pub fn constructor_parts_with_renames(
+    fields: &[FieldDef],
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    field_renames: Option<&HashMap<String, String>>,
+) -> (String, String, String) {
     // Sort fields: required first, then optional.
     // Many FFI frameworks (PyO3, NAPI) require required params before optional ones.
     // Skip cfg-gated fields — they depend on features that may not be enabled.
@@ -179,11 +191,19 @@ pub fn constructor_parts(fields: &[FieldDef], type_mapper: &dyn Fn(&TypeRef) -> 
         })
         .collect();
 
-    // Assignments keep original field order (for struct literal), excluding cfg-gated
+    // Assignments keep original field order (for struct literal), excluding cfg-gated.
+    // When a field is renamed, emit `renamed: original` instead of just `original`.
     let assignments: Vec<String> = fields
         .iter()
         .filter(|f| f.cfg.is_none())
-        .map(|f| f.name.clone())
+        .map(|f| {
+            if let Some(renames) = field_renames {
+                if let Some(renamed) = renames.get(&f.name) {
+                    return format!("{}: {}", renamed, f.name);
+                }
+            }
+            f.name.clone()
+        })
         .collect();
 
     // Format param_list with line wrapping if needed
@@ -289,20 +309,31 @@ pub fn config_constructor_parts_with_options(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     option_duration_on_defaults: bool,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults)
+    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, None)
+}
+
+/// Like `config_constructor_parts_with_options` but with field renames for keyword escaping.
+pub fn config_constructor_parts_with_renames(
+    fields: &[FieldDef],
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    option_duration_on_defaults: bool,
+    field_renames: Option<&HashMap<String, String>>,
+) -> (String, String, String) {
+    config_constructor_parts_inner(fields, type_mapper, option_duration_on_defaults, field_renames)
 }
 
 pub fn config_constructor_parts(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, false)
+    config_constructor_parts_inner(fields, type_mapper, false, None)
 }
 
 fn config_constructor_parts_inner(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
     option_duration_on_defaults: bool,
+    field_renames: Option<&HashMap<String, String>>,
 ) -> (String, String, String) {
     let mut sorted_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.cfg.is_none()).collect();
     sorted_fields.sort_by_key(|f| f.optional as u8);
@@ -330,25 +361,30 @@ fn config_constructor_parts_inner(
         .collect::<Vec<_>>()
         .join(", ");
 
-    // Assignments use unwrap_or_else with the typed default
+    // Assignments use unwrap_or_else with the typed default.
+    // `binding_name` is the struct field name (possibly renamed for keyword escaping),
+    // `f.name` is the original name used as the constructor parameter.
     let assignments: Vec<String> = fields
         .iter()
         .filter(|f| f.cfg.is_none())
         .map(|f| {
+            let binding_name = field_renames
+                .and_then(|r| r.get(&f.name))
+                .map_or_else(|| f.name.as_str(), |s| s.as_str());
             // Duration fields on has_default types are stored as Option<u64> when
             // option_duration_on_defaults is set — treat them as passthrough.
             if option_duration_on_defaults && matches!(f.ty, TypeRef::Duration) {
-                return format!("{}: {}", f.name, f.name);
+                return format!("{}: {}", binding_name, f.name);
             }
             if f.optional || matches!(&f.ty, TypeRef::Optional(_)) {
                 // Optional fields: passthrough (both param and field are Option<T>)
-                format!("{}: {}", f.name, f.name)
+                format!("{}: {}", binding_name, f.name)
             } else if let Some(ref typed_default) = f.typed_default {
                 // For EnumVariant and Empty defaults, use unwrap_or_default()
                 // because we can't generate qualified Rust paths here.
                 match typed_default {
                     DefaultValue::EnumVariant(_) | DefaultValue::Empty => {
-                        format!("{}: {}.unwrap_or_default()", f.name, f.name)
+                        format!("{}: {}.unwrap_or_default()", binding_name, f.name)
                     }
                     _ => {
                         let default_val = format_default_value(typed_default);
@@ -358,10 +394,10 @@ fn config_constructor_parts_inner(
                             DefaultValue::BoolLiteral(_)
                             | DefaultValue::IntLiteral(_)
                             | DefaultValue::FloatLiteral(_) => {
-                                format!("{}: {}.unwrap_or({})", f.name, f.name, default_val)
+                                format!("{}: {}.unwrap_or({})", binding_name, f.name, default_val)
                             }
                             _ => {
-                                format!("{}: {}.unwrap_or_else(|| {})", f.name, f.name, default_val)
+                                format!("{}: {}.unwrap_or_else(|| {})", binding_name, f.name, default_val)
                             }
                         }
                     }
@@ -369,7 +405,7 @@ fn config_constructor_parts_inner(
             } else {
                 // All binding types should impl Default (enums default to first variant,
                 // structs default via From<CoreType::default()>). unwrap_or_default() works.
-                format!("{}: {}.unwrap_or_default()", f.name, f.name)
+                format!("{}: {}.unwrap_or_default()", binding_name, f.name)
             }
         })
         .collect();

@@ -56,6 +56,7 @@ fn make_config() -> AlefConfig {
             package_name: Some("testlib".to_string()),
             features: None,
             serde_rename_all: None,
+            rename_fields: Default::default(),
         }),
         scaffold: None,
         readme: None,

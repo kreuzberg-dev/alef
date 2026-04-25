@@ -32,7 +32,7 @@ pub(crate) fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyh
 
 [lib]
 name = "{lib_name}"
-path = "../../../../../crates/{core_crate_dir}-rb/src/lib.rs"
+path = "../src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]

@@ -1,22 +1,16 @@
 use crate::type_map::python_type;
-use alef_core::config::TraitBridgeConfig;
+use alef_core::config::{AlefConfig, Language, TraitBridgeConfig};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
-/// Convert a name to be safe for Python by escaping reserved keywords.
+/// Convert an identifier to a Python-safe name by escaping reserved keywords.
+///
+/// Delegates to the shared keyword list in `alef_core::keywords` so there is a single
+/// source of truth for Python reserved words.  Use `resolve_field_name` on the config
+/// when a per-field explicit rename is possible; this function handles the automatic
+/// keyword-escape fallback for method names, enum variant names, etc.
 fn python_safe_name(name: &str) -> String {
-    const PYTHON_KEYWORDS: &[&str] = &[
-        "from", "import", "class", "def", "return", "yield", "pass", "break", "continue", "and", "or", "not", "is",
-        "in", "if", "else", "elif", "for", "while", "with", "as", "try", "except", "finally", "raise", "del", "global",
-        "nonlocal", "lambda", "assert", "type",
-        // Built-in constants that are also reserved in some contexts
-        "None", "True", "False",
-    ];
-    if PYTHON_KEYWORDS.contains(&name) {
-        format!("{name}_")
-    } else {
-        name.to_string()
-    }
+    alef_core::keywords::python_ident(name)
 }
 
 /// Check if a parameter name shadows a Python builtin (triggers ruff A002).
@@ -97,7 +91,7 @@ fn constructor_param_type(ty: &TypeRef, api: &ApiSurface) -> String {
     }
 }
 
-pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig]) -> String {
+pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: &AlefConfig) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut lines: Vec<String> = header.lines().map(str::to_string).collect();
     lines.push("".to_string());
@@ -119,7 +113,7 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig]) -> Strin
         .partition(|typ| typ.is_opaque);
 
     for typ in &non_opaque {
-        lines.push(gen_type_stub(typ, api));
+        lines.push(gen_type_stub(typ, api, config));
         lines.push("".to_string());
     }
 
@@ -173,12 +167,17 @@ fn gen_opaque_type_stub(typ: &TypeDef) -> String {
 }
 
 /// Generate a Python type stub for a struct.
-fn gen_type_stub(typ: &TypeDef, api: &ApiSurface) -> String {
+fn gen_type_stub(typ: &TypeDef, api: &ApiSurface, config: &AlefConfig) -> String {
     let mut lines = vec![];
 
     lines.push(format!("class {}:", typ.name));
 
-    // Add field type annotations
+    // Add field type annotations.
+    // Field names that are Python reserved keywords are shown with their escaped name
+    // (e.g. `class_`) because that is the attribute name callers must use in Python.
+    // The underlying `#[pyo3(get, name = "class")]` attribute on the Rust struct exposes
+    // it as `obj.class_` (the escaped name), NOT as `obj.class`, because `class` is a
+    // syntax error in a Python attribute access expression.  The stub must match.
     for field in &typ.fields {
         let type_str = python_type(&field.ty);
         // Duration fields on has_default types are Option<u64> in PyO3, so annotate as int | None
@@ -188,11 +187,16 @@ fn gen_type_stub(typ: &TypeDef, api: &ApiSurface) -> String {
         } else {
             type_str
         };
-        lines.push(format!("    {}: {}", field.name, field_type));
+        // Resolve the field name: use config-driven rename if available, otherwise apply
+        // automatic keyword escaping via python_safe_name.
+        let stub_field_name = config
+            .resolve_field_name(Language::Python, &typ.name, &field.name)
+            .unwrap_or_else(|| field.name.clone());
+        lines.push(format!("    {stub_field_name}: {field_type}"));
     }
 
     // Add __init__ signature
-    lines.push(gen_type_init_stub(typ, api));
+    lines.push(gen_type_init_stub(typ, api, config));
 
     // Add instance methods
     for method in &typ.methods {
@@ -212,7 +216,7 @@ fn gen_type_stub(typ: &TypeDef, api: &ApiSurface) -> String {
 }
 
 /// Generate __init__ signature stub for a struct.
-fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
+fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface, config: &AlefConfig) -> String {
     // Partition fields into required (non-optional) and optional.
     //
     // When `typ.has_default` is true, the Rust binding uses
@@ -231,13 +235,18 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
         !f.optional && !is_optional_duration
     });
 
-    // Generate required params first, then optional params
-    // For constructor params, use str instead of enum types (PyO3 accepts any string)
+    // Generate required params first, then optional params.
+    // For constructor params, use str instead of enum types (PyO3 accepts any string).
+    // Field names that are Python reserved keywords are emitted with their escaped name
+    // (e.g. `class_`) so the generated `__init__` signature is valid Python syntax.
     let mut params: Vec<String> = required
         .iter()
         .map(|f| {
             let param_type = constructor_param_type(&f.ty, api);
-            format!("{}: {}", f.name, param_type)
+            let param_name = config
+                .resolve_field_name(Language::Python, &typ.name, &f.name)
+                .unwrap_or_else(|| f.name.clone());
+            format!("{param_name}: {param_type}")
         })
         .collect();
 
@@ -248,7 +257,10 @@ fn gen_type_init_stub(typ: &TypeDef, api: &ApiSurface) -> String {
         } else {
             type_str
         };
-        format!("{}: {} = None", f.name, param_type)
+        let param_name = config
+            .resolve_field_name(Language::Python, &typ.name, &f.name)
+            .unwrap_or_else(|| f.name.clone());
+        format!("{param_name}: {param_type} = None")
     }));
 
     // If any parameter shadows a Python builtin we must use the multi-line form so we can

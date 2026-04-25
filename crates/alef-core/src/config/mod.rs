@@ -241,6 +241,52 @@ impl Default for GenerateConfig {
 // ---------------------------------------------------------------------------
 
 impl AlefConfig {
+    /// Resolve the binding field name for a given language, type, and field.
+    ///
+    /// Resolution order (highest to lowest priority):
+    /// 1. Per-language `rename_fields` map for the key `"TypeName.field_name"`.
+    /// 2. Automatic keyword escaping: if the field name is a reserved keyword in the target
+    ///    language, append `_` (e.g. `class` → `class_`).
+    /// 3. Original field name unchanged.
+    ///
+    /// Returns `Some(escaped_name)` when the field needs renaming, `None` when the original
+    /// name can be used as-is.  Call sites that always need a `String` should use
+    /// `resolve_field_name(...).unwrap_or_else(|| field_name.to_string())`.
+    pub fn resolve_field_name(&self, lang: extras::Language, type_name: &str, field_name: &str) -> Option<String> {
+        // 1. Explicit per-language rename_fields entry.
+        let explicit_key = format!("{type_name}.{field_name}");
+        let explicit = match lang {
+            extras::Language::Python => self.python.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Node => self.node.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Ruby => self.ruby.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Php => self.php.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Elixir => self.elixir.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Wasm => self.wasm.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Ffi => self.ffi.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Go => self.go.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Java => self.java.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::R => self.r.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Rust => None,
+        };
+        if let Some(renamed) = explicit {
+            if renamed != field_name {
+                return Some(renamed.clone());
+            }
+            return None;
+        }
+
+        // 2. Automatic keyword escaping.
+        match lang {
+            extras::Language::Python => crate::keywords::python_safe_name(field_name),
+            // Java and C# use PascalCase for field names so `class` becomes `Class` — no conflict.
+            // Go uses PascalCase for exported fields — no conflict.
+            // JS/TS uses camelCase — `class` becomes `class` but is a JS keyword; Node backend
+            // handles this via js_name attributes at the napi layer. For now only Python is wired.
+            _ => None,
+        }
+    }
+
     /// Get the features to use for a specific language's binding crate.
     /// Checks for a per-language override first, then falls back to `[crate] features`.
     pub fn features_for_language(&self, lang: extras::Language) -> &[String] {

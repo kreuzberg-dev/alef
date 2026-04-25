@@ -167,6 +167,19 @@ pub fn gen_from_core_to_binding_cfg(
         if field.cfg.is_some() {
             continue;
         }
+        // In core→binding direction, the binding struct field may be keyword-escaped
+        // (e.g. `class_` for `class`). The generated conversion has `field.name: expr`
+        // on the left side — rename it to `binding_name: expr` when needed.
+        let binding_field = config.binding_field_name_owned(&typ.name, &field.name);
+        let conversion = if binding_field != field.name {
+            if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
+                format!("{binding_field}: {expr}")
+            } else {
+                conversion
+            }
+        } else {
+            conversion
+        };
         writeln!(out, "            {conversion},").ok();
     }
 

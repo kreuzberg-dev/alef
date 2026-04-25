@@ -6,6 +6,7 @@ pub mod config;
 pub mod error;
 pub mod hash;
 pub mod ir;
+pub mod keywords;
 
 pub use backend::{Backend, Capabilities, GeneratedFile};
 pub use config::{AlefConfig, resolve_output_dir};

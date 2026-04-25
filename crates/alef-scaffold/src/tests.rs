@@ -81,7 +81,13 @@ fn test_api() -> ApiSurface {
 fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
     files
         .iter()
-        .filter(|f| !f.path.ends_with(".pre-commit-config.yaml") && !f.path.ends_with(".typos.toml"))
+        .filter(|f| {
+            let p = f.path.to_string_lossy();
+            !p.ends_with(".pre-commit-config.yaml")
+                && !p.ends_with(".typos.toml")
+                && !p.ends_with("rust-toolchain.toml")
+                && !p.ends_with(".cargo/config.toml")
+        })
         .collect()
 }
 
@@ -254,9 +260,7 @@ fn test_scaffold_ruby_production_features() {
     );
     assert!(files[7].content.contains("magnus"));
     assert!(
-        files[7]
-            .content
-            .contains("path = \"../src/lib.rs\""),
+        files[7].content.contains("path = \"../src/lib.rs\""),
         "Ruby Cargo.toml [lib] must set path to the binding source crate"
     );
 }

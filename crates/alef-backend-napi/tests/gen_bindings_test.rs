@@ -52,6 +52,7 @@ fn make_config() -> AlefConfig {
             exclude_types: Vec::new(),
             extra_dependencies: Default::default(),
             scaffold_output: Default::default(),
+            rename_fields: Default::default(),
         }),
         ruby: None,
         php: None,

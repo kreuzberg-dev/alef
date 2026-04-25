@@ -90,9 +90,10 @@ pub use binding_helpers::{
 pub use enums::{enum_has_data_variants, gen_enum, gen_pyo3_data_enum};
 pub use functions::{collect_explicit_core_imports, collect_trait_imports, gen_function, has_unresolved_trait_methods};
 pub use methods::{
-    gen_constructor, gen_impl_block, gen_method, gen_opaque_impl_block, gen_static_method, is_trait_method_name,
+    gen_constructor, gen_constructor_with_renames, gen_impl_block, gen_impl_block_with_renames, gen_method,
+    gen_opaque_impl_block, gen_static_method, is_trait_method_name,
 };
 pub use structs::{
     can_generate_default_impl, gen_opaque_struct, gen_opaque_struct_prefixed, gen_struct, gen_struct_default_impl,
-    gen_struct_with_per_field_attrs, type_needs_mutex,
+    gen_struct_with_per_field_attrs, gen_struct_with_rename, type_needs_mutex,
 };
