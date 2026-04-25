@@ -575,6 +575,16 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Ruby, TEST_PREFIX), "String");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Rust, TEST_PREFIX), "Vec<u8>");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Ffi, TEST_PREFIX), "const uint8_t*");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Kotlin, TEST_PREFIX), "ByteArray");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Gleam, TEST_PREFIX), "BitArray");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Zig, TEST_PREFIX), "[]const u8");
+    }
+
+    #[test]
+    fn test_doc_type_string_kotlin_gleam_zig() {
+        assert_eq!(doc_type(&TypeRef::String, Language::Kotlin, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::String, Language::Gleam, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::String, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
 
     #[test]
@@ -590,6 +600,9 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Unit, Language::R, TEST_PREFIX), "NULL");
         assert_eq!(doc_type(&TypeRef::Unit, Language::Rust, TEST_PREFIX), "()");
         assert_eq!(doc_type(&TypeRef::Unit, Language::Ffi, TEST_PREFIX), "void");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Kotlin, TEST_PREFIX), "Unit");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Gleam, TEST_PREFIX), "Nil");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Zig, TEST_PREFIX), "void");
     }
 
     #[test]
@@ -605,6 +618,9 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Path, Language::R, TEST_PREFIX), "character");
         assert_eq!(doc_type(&TypeRef::Path, Language::Rust, TEST_PREFIX), "PathBuf");
         assert_eq!(doc_type(&TypeRef::Path, Language::Ffi, TEST_PREFIX), "const char*");
+        assert_eq!(doc_type(&TypeRef::Path, Language::Kotlin, TEST_PREFIX), "Path");
+        assert_eq!(doc_type(&TypeRef::Path, Language::Gleam, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::Path, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
 
     #[test]
@@ -626,6 +642,11 @@ mod tests {
             "serde_json::Value"
         );
         assert_eq!(doc_type(&TypeRef::Json, Language::Ffi, TEST_PREFIX), "void*");
+        assert_eq!(doc_type(&TypeRef::Json, Language::Kotlin, TEST_PREFIX), "Any");
+        // GleamMapper and ZigMapper return String / [:0]const u8 — JSON is
+        // serialized as a string at the FFI boundary in those backends.
+        assert_eq!(doc_type(&TypeRef::Json, Language::Gleam, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::Json, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
 
     #[test]
@@ -863,6 +884,80 @@ mod tests {
                 doc_type(&TypeRef::Primitive(prim.clone()), Language::Ffi, TEST_PREFIX),
                 *expected,
                 "FFI primitive {prim:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_doc_type_all_kotlin_primitives() {
+        let cases: &[(PrimitiveType, &str)] = &[
+            (PrimitiveType::Bool, "Boolean"),
+            (PrimitiveType::U8, "Byte"),
+            (PrimitiveType::I8, "Byte"),
+            (PrimitiveType::U16, "Short"),
+            (PrimitiveType::I16, "Short"),
+            (PrimitiveType::U32, "Int"),
+            (PrimitiveType::I32, "Int"),
+            (PrimitiveType::U64, "Long"),
+            (PrimitiveType::I64, "Long"),
+            (PrimitiveType::Usize, "Long"),
+            (PrimitiveType::Isize, "Long"),
+            (PrimitiveType::F32, "Float"),
+            (PrimitiveType::F64, "Double"),
+        ];
+        for (prim, expected) in cases {
+            assert_eq!(
+                doc_type(&TypeRef::Primitive(prim.clone()), Language::Kotlin, TEST_PREFIX),
+                *expected,
+                "Kotlin primitive {prim:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_doc_type_all_gleam_primitives() {
+        let cases: &[(PrimitiveType, &str)] = &[
+            (PrimitiveType::Bool, "Bool"),
+            (PrimitiveType::U8, "Int"),
+            (PrimitiveType::U64, "Int"),
+            (PrimitiveType::I32, "Int"),
+            (PrimitiveType::Usize, "Int"),
+            (PrimitiveType::F32, "Float"),
+            (PrimitiveType::F64, "Float"),
+        ];
+        for (prim, expected) in cases {
+            assert_eq!(
+                doc_type(&TypeRef::Primitive(prim.clone()), Language::Gleam, TEST_PREFIX),
+                *expected,
+                "Gleam primitive {prim:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_doc_type_all_zig_primitives() {
+        // ZigMapper deliberately maps Usize/Isize to fixed-width u64/i64 for
+        // FFI stability — pin that choice so docs and the mapper don't drift.
+        let cases: &[(PrimitiveType, &str)] = &[
+            (PrimitiveType::Bool, "bool"),
+            (PrimitiveType::U8, "u8"),
+            (PrimitiveType::U16, "u16"),
+            (PrimitiveType::U32, "u32"),
+            (PrimitiveType::U64, "u64"),
+            (PrimitiveType::I8, "i8"),
+            (PrimitiveType::I16, "i16"),
+            (PrimitiveType::I32, "i32"),
+            (PrimitiveType::I64, "i64"),
+            (PrimitiveType::Usize, "u64"),
+            (PrimitiveType::Isize, "i64"),
+            (PrimitiveType::F32, "f32"),
+            (PrimitiveType::F64, "f64"),
+        ];
+        for (prim, expected) in cases {
+            assert_eq!(
+                doc_type(&TypeRef::Primitive(prim.clone()), Language::Zig, TEST_PREFIX),
+                *expected,
+                "Zig primitive {prim:?}"
             );
         }
     }
