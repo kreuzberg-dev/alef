@@ -70,6 +70,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "alef-backend-gleam"
+version = "0.7.8"
+dependencies = [
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
 name = "alef-backend-go"
 version = "0.7.10"
 dependencies = [
@@ -90,6 +98,14 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+]
+
+[[package]]
+name = "alef-backend-kotlin"
+version = "0.7.8"
+dependencies = [
+ "alef-core",
+ "anyhow",
 ]
 
 [[package]]
@@ -162,6 +178,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "alef-backend-zig"
+version = "0.7.8"
+dependencies = [
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
 name = "alef-cli"
 version = "0.7.10"
 dependencies = [
@@ -169,14 +193,17 @@ dependencies = [
  "alef-backend-csharp",
  "alef-backend-extendr",
  "alef-backend-ffi",
+ "alef-backend-gleam",
  "alef-backend-go",
  "alef-backend-java",
+ "alef-backend-kotlin",
  "alef-backend-magnus",
  "alef-backend-napi",
  "alef-backend-php",
  "alef-backend-pyo3",
  "alef-backend-rustler",
  "alef-backend-wasm",
+ "alef-backend-zig",
  "alef-core",
  "alef-docs",
  "alef-e2e",

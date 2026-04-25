@@ -16,10 +16,10 @@ pub fn get_backend(lang: Language) -> Box<dyn Backend> {
         Language::Csharp => Box::new(alef_backend_csharp::CsharpBackend),
         Language::R => Box::new(alef_backend_extendr::ExtendrBackend),
         Language::Rust => panic!("Rust is a docs-only language target; it does not have a binding backend"),
-        Language::Kotlin => panic!("Phase 1: Kotlin backend not yet implemented"),
-        Language::Swift => panic!("Phase 1: Swift backend not yet implemented"),
-        Language::Dart => panic!("Phase 1: Dart backend not yet implemented"),
-        Language::Gleam => panic!("Phase 1: Gleam backend not yet implemented"),
-        Language::Zig => panic!("Phase 1: Zig backend not yet implemented"),
+        Language::Kotlin => Box::new(alef_backend_kotlin::KotlinBackend),
+        Language::Swift => panic!("Phase 2: Swift backend not yet implemented"),
+        Language::Dart => panic!("Phase 2: Dart backend not yet implemented"),
+        Language::Gleam => Box::new(alef_backend_gleam::GleamBackend),
+        Language::Zig => Box::new(alef_backend_zig::ZigBackend),
     }
 }
