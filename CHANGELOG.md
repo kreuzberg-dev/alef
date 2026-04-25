@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.8] - Unreleased
+
+### Changed
+
+- **Codegen**: extract shared trait bridge helpers (`bridge_param_type`, `visitor_param_type`, `prim`, `find_bridge_param`, `to_camel_case`) into `alef-codegen::generators::trait_bridge`, removing ~600 lines of duplication across 7 backend crates.
+- **Codegen**: remove duplicate `format_type_ref` from extendr backend in favor of the shared implementation.
+
+### Fixed
+
+- **Codegen**: avoid redundant `.into()` on owned String/Bytes return values in generated bindings.
+- **Codegen**: use `to_string_lossy()` for Path return values in generated method wrappers.
+- **Codegen**: optimize generated `.map(|val| val.into())` to `.map(Into::into)` in function/method wrappers.
+
 ## [0.7.7] - 2026-04-25
 
 ### Added

@@ -163,6 +163,8 @@ pub fn gen_function(
                 let await_kw = if func.is_async { ".await" } else { "" };
                 if wrapped == "val" {
                     format!("{serde_bindings}{core_call}{await_kw}{serde_err_conv}")
+                } else if wrapped == "val.into()" {
+                    format!("{serde_bindings}{core_call}{await_kw}.map(Into::into){serde_err_conv}")
                 } else {
                     format!("{serde_bindings}{core_call}{await_kw}.map(|val| {wrapped}){serde_err_conv}")
                 }
@@ -257,8 +259,14 @@ pub fn gen_function(
                         format!("{expr}.into()")
                     }
                 }
-                // String/Bytes: .into() handles &str→String etc.
-                TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
+                // String/Bytes: .into() handles &str→String, skip for owned
+                TypeRef::String | TypeRef::Bytes => {
+                    if returns_ref {
+                        format!("{expr}.into()")
+                    } else {
+                        expr.to_string()
+                    }
+                }
                 // Path: PathBuf→String needs to_string_lossy
                 TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
                 // Json: serde_json::Value to string
@@ -279,8 +287,15 @@ pub fn gen_function(
                             format!("{expr}.map(Into::into)")
                         }
                     }
-                    TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
-                        format!("{expr}.map(Into::into)")
+                    TypeRef::Path => {
+                        format!("{expr}.map(|v| v.to_string_lossy().to_string())")
+                    }
+                    TypeRef::String | TypeRef::Bytes => {
+                        if returns_ref {
+                            format!("{expr}.map(Into::into)")
+                        } else {
+                            expr.to_string()
+                        }
                     }
                     TypeRef::Vec(vi) => match vi.as_ref() {
                         TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
@@ -309,8 +324,15 @@ pub fn gen_function(
                             format!("{expr}.into_iter().map(Into::into).collect()")
                         }
                     }
-                    TypeRef::String | TypeRef::Bytes | TypeRef::Path => {
-                        format!("{expr}.into_iter().map(Into::into).collect()")
+                    TypeRef::Path => {
+                        format!("{expr}.into_iter().map(|v| v.to_string_lossy().to_string()).collect()")
+                    }
+                    TypeRef::String | TypeRef::Bytes => {
+                        if returns_ref {
+                            format!("{expr}.into_iter().map(Into::into).collect()")
+                        } else {
+                            expr.to_string()
+                        }
                     }
                     _ => expr.to_string(),
                 },
@@ -333,6 +355,8 @@ pub fn gen_function(
             let wrapped = wrap_return("val");
             if wrapped == "val" {
                 format!("{core_call}{err_conv}")
+            } else if wrapped == "val.into()" {
+                format!("{core_call}.map(Into::into){err_conv}")
             } else {
                 format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }

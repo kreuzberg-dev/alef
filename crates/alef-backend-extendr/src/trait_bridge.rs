@@ -3,7 +3,11 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to R objects (named lists of functions) via extendr.
 
-use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+pub use alef_codegen::generators::trait_bridge::find_bridge_param;
+use alef_codegen::generators::trait_bridge::{
+    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, format_type_ref,
+    gen_bridge_all, visitor_param_type,
+};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -475,16 +479,13 @@ pub fn gen_trait_bridge(
 
     if is_visitor_bridge {
         let mut out = String::with_capacity(8192);
-        // Convert HashMap back to &str-keyed refs for visitor bridge
-        let ref_type_paths: std::collections::HashMap<&str, &str> =
-            type_paths.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         gen_visitor_bridge(
             &mut out,
             trait_type,
             &struct_name,
             &trait_path,
             core_import,
-            &ref_type_paths,
+            &type_paths,
         );
         BridgeOutput {
             imports: vec![],
@@ -520,7 +521,7 @@ fn gen_visitor_bridge(
     struct_name: &str,
     trait_path: &str,
     core_crate: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     // Helper: convert NodeContext to an R list (Robj)
     writeln!(out, "fn nodecontext_to_robj(").unwrap();
@@ -584,33 +585,12 @@ fn gen_visitor_bridge(
     writeln!(out).unwrap();
 }
 
-/// Map a visitor method parameter type to the correct Rust type string.
-fn visitor_param_type(
-    ty: &TypeRef,
-    is_ref: bool,
-    optional: bool,
-    tp: &std::collections::HashMap<&str, &str>,
-) -> String {
-    // `Option<&str>` case: IR collapses it to String + optional + is_ref
-    if optional && matches!(ty, TypeRef::String) && is_ref {
-        return "Option<&str>".to_string();
-    }
-    // `&[String]` case: IR collapses it to Vec<String> + is_ref
-    if is_ref {
-        if let TypeRef::Vec(inner) = ty {
-            let inner_str = param_type(inner, "", false, tp);
-            return format!("&[{inner_str}]");
-        }
-    }
-    param_type(ty, "", is_ref, tp)
-}
-
 /// Generate a single visitor method that checks if the R list has an element with this name
 /// and calls it as a function.
 fn gen_visitor_method_extendr(
     out: &mut String,
     method: &MethodDef,
-    type_paths: &std::collections::HashMap<&str, &str>,
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     let name = &method.name;
     // R conventions: snake_case method names (same as Rust)
@@ -776,119 +756,6 @@ fn build_extendr_arg(p: &alef_core::ir::ParamDef) -> String {
 
     // Fallback
     format!("extendr_api::Robj::from({})", p.name)
-}
-
-/// Format a TypeRef as a Rust type string, using an owned HashMap<String, String> for type paths.
-/// This is used by ExtendrBridgeGenerator to format types in bridge method bodies.
-fn format_type_ref(ty: &TypeRef, type_paths: &HashMap<String, String>) -> String {
-    match ty {
-        TypeRef::Primitive(p) => prim(p).to_string(),
-        TypeRef::String => "String".to_string(),
-        TypeRef::Char => "char".to_string(),
-        TypeRef::Bytes => "Vec<u8>".to_string(),
-        TypeRef::Optional(inner) => format!("Option<{}>", format_type_ref(inner, type_paths)),
-        TypeRef::Vec(inner) => format!("Vec<{}>", format_type_ref(inner, type_paths)),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            format_type_ref(k, type_paths),
-            format_type_ref(v, type_paths)
-        ),
-        TypeRef::Named(name) => type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone()),
-        TypeRef::Path => "std::path::PathBuf".to_string(),
-        TypeRef::Unit => "()".to_string(),
-        TypeRef::Json => "serde_json::Value".to_string(),
-        TypeRef::Duration => "std::time::Duration".to_string(),
-    }
-}
-
-/// Map TypeRef to a Rust type string for trait method signatures.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashMap<&str, &str>) -> String {
-    match ty {
-        TypeRef::Bytes if is_ref => "&[u8]".into(),
-        TypeRef::Bytes => "Vec<u8>".into(),
-        TypeRef::String if is_ref => "&str".into(),
-        TypeRef::String => "String".into(),
-        TypeRef::Path if is_ref => "&std::path::Path".into(),
-        TypeRef::Path => "std::path::PathBuf".into(),
-        TypeRef::Named(n) => {
-            let qualified = tp
-                .get(n.as_str())
-                .map(|p| p.replace('-', "_"))
-                .unwrap_or_else(|| format!("{ci}::{n}"));
-            if is_ref { format!("&{qualified}") } else { qualified }
-        }
-        TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Optional(inner) => format!("Option<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Primitive(p) => prim(p).into(),
-        TypeRef::Unit => "()".into(),
-        TypeRef::Char => "char".into(),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            param_type(k, ci, false, tp),
-            param_type(v, ci, false, tp)
-        ),
-        TypeRef::Json => "serde_json::Value".into(),
-        TypeRef::Duration => "std::time::Duration".into(),
-    }
-}
-
-fn prim(p: &alef_core::ir::PrimitiveType) -> &'static str {
-    use alef_core::ir::PrimitiveType::*;
-    match p {
-        Bool => "bool",
-        U8 => "u8",
-        U16 => "u16",
-        U32 => "u32",
-        U64 => "u64",
-        I8 => "i8",
-        I16 => "i16",
-        I32 => "i32",
-        I64 => "i64",
-        F32 => "f32",
-        F64 => "f64",
-        Usize => "usize",
-        Isize => "isize",
-    }
-}
-
-/// Find the first parameter index and bridge config where the parameter's named type
-/// matches a trait bridge's `type_alias`.
-///
-/// Returns `None` when no bridge applies.
-///
-/// This is pure IR logic — copied verbatim from the PyO3 backend.
-pub fn find_bridge_param<'a>(
-    func: &alef_core::ir::FunctionDef,
-    bridges: &'a [TraitBridgeConfig],
-) -> Option<(usize, &'a TraitBridgeConfig)> {
-    for (idx, param) in func.params.iter().enumerate() {
-        // Try matching by the IR type name (for non-sanitized params).
-        let named = match &param.ty {
-            TypeRef::Named(n) => Some(n.as_str()),
-            TypeRef::Optional(inner) => {
-                if let TypeRef::Named(n) = inner.as_ref() {
-                    Some(n.as_str())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        for bridge in bridges {
-            // Match by type alias (non-sanitized path).
-            if let Some(type_name) = named {
-                if bridge.type_alias.as_deref() == Some(type_name) {
-                    return Some((idx, bridge));
-                }
-            }
-            // Match by param name (sanitized path: the extractor collapsed the type to String
-            // because it couldn't represent e.g. `Rc<RefCell<dyn Trait>>`).
-            if bridge.param_name.as_deref() == Some(param.name.as_str()) {
-                return Some((idx, bridge));
-            }
-        }
-    }
-    None
 }
 
 /// Generate an extendr free function that has one parameter replaced by `Option<extendr_api::Robj>`

@@ -3,6 +3,8 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to Ruby objects via Magnus `respond_to` checks and `funcall`.
 
+pub use alef_codegen::generators::trait_bridge::find_bridge_param;
+use alef_codegen::generators::trait_bridge::{bridge_param_type as param_type, visitor_param_type};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::fmt::Write;
@@ -19,11 +21,15 @@ pub fn gen_trait_bridge(
     let trait_path = trait_type.rust_path.replace('-', "_");
 
     // Build type name → rust_path lookup
-    let type_paths: std::collections::HashMap<&str, &str> = api
+    let type_paths: std::collections::HashMap<String, String> = api
         .types
         .iter()
-        .map(|t| (t.name.as_str(), t.rust_path.as_str()))
-        .chain(api.enums.iter().map(|e| (e.name.as_str(), e.rust_path.as_str())))
+        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
         .collect();
 
     // Visitor-style bridge: all methods have defaults, no registry, no super-trait.
@@ -58,7 +64,7 @@ fn gen_visitor_bridge(
     struct_name: &str,
     trait_path: &str,
     core_crate: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     // Helper: convert NodeContext to a Ruby hash (magnus::RHash)
     writeln!(out, "fn nodecontext_to_rb_hash(").unwrap();
@@ -135,27 +141,12 @@ fn gen_visitor_bridge(
     writeln!(out).unwrap();
 }
 
-/// Map a visitor method parameter type to the correct Rust type string.
-fn visitor_param_type(
-    ty: &TypeRef,
-    is_ref: bool,
-    optional: bool,
-    tp: &std::collections::HashMap<&str, &str>,
-) -> String {
-    if optional && matches!(ty, TypeRef::String) && is_ref {
-        return "Option<&str>".to_string();
-    }
-    if is_ref {
-        if let TypeRef::Vec(inner) = ty {
-            let inner_str = param_type(inner, "", false, tp);
-            return format!("&[{inner_str}]");
-        }
-    }
-    param_type(ty, "", is_ref, tp)
-}
-
 /// Generate a single visitor method that checks Ruby respond_to and calls via funcall.
-fn gen_visitor_method_magnus(out: &mut String, method: &MethodDef, type_paths: &std::collections::HashMap<&str, &str>) {
+fn gen_visitor_method_magnus(
+    out: &mut String,
+    method: &MethodDef,
+    type_paths: &std::collections::HashMap<String, String>,
+) {
     let name = &method.name;
     // Ruby uses snake_case method names (same as Rust)
 
@@ -258,90 +249,6 @@ fn build_magnus_arg(p: &alef_core::ir::ParamDef) -> String {
     }
     // For primitive types, pass directly — Magnus funcall handles i32, i64, u32, bool natively.
     p.name.to_string()
-}
-
-/// Map TypeRef to a Rust type string.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashMap<&str, &str>) -> String {
-    match ty {
-        TypeRef::Bytes if is_ref => "&[u8]".into(),
-        TypeRef::Bytes => "Vec<u8>".into(),
-        TypeRef::String if is_ref => "&str".into(),
-        TypeRef::String => "String".into(),
-        TypeRef::Path if is_ref => "&std::path::Path".into(),
-        TypeRef::Path => "std::path::PathBuf".into(),
-        TypeRef::Named(n) => {
-            let qualified = tp
-                .get(n.as_str())
-                .map(|p| p.replace('-', "_"))
-                .unwrap_or_else(|| format!("{ci}::{n}"));
-            if is_ref { format!("&{qualified}") } else { qualified }
-        }
-        TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Optional(inner) => format!("Option<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Primitive(p) => prim(p).into(),
-        TypeRef::Unit => "()".into(),
-        TypeRef::Char => "char".into(),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            param_type(k, ci, false, tp),
-            param_type(v, ci, false, tp)
-        ),
-        TypeRef::Json => "serde_json::Value".into(),
-        TypeRef::Duration => "std::time::Duration".into(),
-    }
-}
-
-fn prim(p: &alef_core::ir::PrimitiveType) -> &'static str {
-    use alef_core::ir::PrimitiveType::*;
-    match p {
-        Bool => "bool",
-        U8 => "u8",
-        U16 => "u16",
-        U32 => "u32",
-        U64 => "u64",
-        I8 => "i8",
-        I16 => "i16",
-        I32 => "i32",
-        I64 => "i64",
-        F32 => "f32",
-        F64 => "f64",
-        Usize => "usize",
-        Isize => "isize",
-    }
-}
-
-/// Find the first parameter index and bridge config where the parameter's named type
-/// matches a trait bridge's `type_alias`.
-///
-/// Returns `None` when no bridge applies.
-pub fn find_bridge_param<'a>(
-    func: &alef_core::ir::FunctionDef,
-    bridges: &'a [TraitBridgeConfig],
-) -> Option<(usize, &'a TraitBridgeConfig)> {
-    for (idx, param) in func.params.iter().enumerate() {
-        let named = match &param.ty {
-            TypeRef::Named(n) => Some(n.as_str()),
-            TypeRef::Optional(inner) => {
-                if let TypeRef::Named(n) = inner.as_ref() {
-                    Some(n.as_str())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        for bridge in bridges {
-            if let Some(type_name) = named {
-                if bridge.type_alias.as_deref() == Some(type_name) {
-                    return Some((idx, bridge));
-                }
-            }
-            if bridge.param_name.as_deref() == Some(param.name.as_str()) {
-                return Some((idx, bridge));
-            }
-        }
-    }
-    None
 }
 
 /// Generate a Magnus free function that has one parameter replaced by `magnus::Value` (a trait

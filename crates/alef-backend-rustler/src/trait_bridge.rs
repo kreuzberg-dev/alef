@@ -14,7 +14,11 @@
 //!    to extend term lifetime beyond the NIF call. Supports both sync and async dispatch
 //!    to Elixir callbacks via `tokio::runtime::Runtime` blocking.
 
-use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+pub use alef_codegen::generators::trait_bridge::find_bridge_param;
+use alef_codegen::generators::trait_bridge::{
+    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
+    visitor_param_type,
+};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -349,10 +353,6 @@ pub fn gen_trait_bridge(
         let struct_name = format!("Elixir{}Bridge", bridge_cfg.trait_name);
         let trait_path = trait_type.rust_path.replace('-', "_");
 
-        // Convert borrowed HashMap to borrowed version for visitor bridge
-        let borrowed_type_paths: HashMap<&str, &str> =
-            type_paths.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-
         gen_visitor_bridge(
             &mut out,
             trait_type,
@@ -360,7 +360,7 @@ pub fn gen_trait_bridge(
             &struct_name,
             &trait_path,
             core_import,
-            &borrowed_type_paths,
+            &type_paths,
         );
         BridgeOutput {
             imports: vec![],
@@ -453,7 +453,7 @@ fn gen_visitor_bridge(
     struct_name: &str,
     trait_path: &str,
     core_crate: &str,
-    type_paths: &std::collections::HashMap<&str, &str>,
+    type_paths: &std::collections::HashMap<String, String>,
 ) {
     // Helper: convert NodeContext to a Rustler NifMap term inside an OwnedEnv
     writeln!(out, "fn nodecontext_to_elixir_map<'a>(").unwrap();
@@ -670,7 +670,7 @@ fn gen_visitor_bridge(
 fn gen_visitor_method_async(
     out: &mut String,
     method: &MethodDef,
-    type_paths: &std::collections::HashMap<&str, &str>,
+    type_paths: &std::collections::HashMap<String, String>,
     _struct_name: &str,
 ) {
     let name = &method.name;
@@ -797,109 +797,6 @@ fn build_json_arg(p: &alef_core::ir::ParamDef) -> String {
     }
     // Fallback: debug-print as string
     format!("serde_json::Value::String(format!(\"{{:?}}\", {}))", p.name)
-}
-
-/// Map a visitor method parameter type to the correct Rust type string.
-fn visitor_param_type(
-    ty: &TypeRef,
-    is_ref: bool,
-    optional: bool,
-    tp: &std::collections::HashMap<&str, &str>,
-) -> String {
-    if optional && matches!(ty, TypeRef::String) && is_ref {
-        return "Option<&str>".to_string();
-    }
-    if is_ref {
-        if let TypeRef::Vec(inner) = ty {
-            let inner_str = param_type(inner, "", false, tp);
-            return format!("&[{inner_str}]");
-        }
-    }
-    param_type(ty, "", is_ref, tp)
-}
-
-/// Map TypeRef to a Rust type string.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &std::collections::HashMap<&str, &str>) -> String {
-    match ty {
-        TypeRef::Bytes if is_ref => "&[u8]".into(),
-        TypeRef::Bytes => "Vec<u8>".into(),
-        TypeRef::String if is_ref => "&str".into(),
-        TypeRef::String => "String".into(),
-        TypeRef::Path if is_ref => "&std::path::Path".into(),
-        TypeRef::Path => "std::path::PathBuf".into(),
-        TypeRef::Named(n) => {
-            let qualified = tp
-                .get(n.as_str())
-                .map(|p| p.replace('-', "_"))
-                .unwrap_or_else(|| format!("{ci}::{n}"));
-            if is_ref { format!("&{qualified}") } else { qualified }
-        }
-        TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Optional(inner) => format!("Option<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Primitive(p) => prim(p).into(),
-        TypeRef::Unit => "()".into(),
-        TypeRef::Char => "char".into(),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            param_type(k, ci, false, tp),
-            param_type(v, ci, false, tp)
-        ),
-        TypeRef::Json => "serde_json::Value".into(),
-        TypeRef::Duration => "std::time::Duration".into(),
-    }
-}
-
-fn prim(p: &alef_core::ir::PrimitiveType) -> &'static str {
-    use alef_core::ir::PrimitiveType::*;
-    match p {
-        Bool => "bool",
-        U8 => "u8",
-        U16 => "u16",
-        U32 => "u32",
-        U64 => "u64",
-        I8 => "i8",
-        I16 => "i16",
-        I32 => "i32",
-        I64 => "i64",
-        F32 => "f32",
-        F64 => "f64",
-        Usize => "usize",
-        Isize => "isize",
-    }
-}
-
-/// Find the first parameter index and bridge config where the parameter's named type
-/// matches a trait bridge's `type_alias`.
-///
-/// Returns `None` when no bridge applies.
-pub fn find_bridge_param<'a>(
-    func: &alef_core::ir::FunctionDef,
-    bridges: &'a [TraitBridgeConfig],
-) -> Option<(usize, &'a TraitBridgeConfig)> {
-    for (idx, param) in func.params.iter().enumerate() {
-        let named = match &param.ty {
-            TypeRef::Named(n) => Some(n.as_str()),
-            TypeRef::Optional(inner) => {
-                if let TypeRef::Named(n) = inner.as_ref() {
-                    Some(n.as_str())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        for bridge in bridges {
-            if let Some(type_name) = named {
-                if bridge.type_alias.as_deref() == Some(type_name) {
-                    return Some((idx, bridge));
-                }
-            }
-            if bridge.param_name.as_deref() == Some(param.name.as_str()) {
-                return Some((idx, bridge));
-            }
-        }
-    }
-    None
 }
 
 /// Generate a Rustler NIF function that has one parameter replaced by

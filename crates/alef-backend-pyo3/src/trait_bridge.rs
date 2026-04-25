@@ -3,7 +3,11 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to Python objects via PyO3.
 
-use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+pub use alef_codegen::generators::trait_bridge::find_bridge_param;
+use alef_codegen::generators::trait_bridge::{
+    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
+    visitor_param_type,
+};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
@@ -599,72 +603,6 @@ fn gen_visitor_bridge(
     out
 }
 
-/// Map TypeRef to correct Rust type for trait signatures.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>) -> String {
-    match ty {
-        TypeRef::Bytes if is_ref => "&[u8]".into(),
-        TypeRef::Bytes => "Vec<u8>".into(),
-        TypeRef::String if is_ref => "&str".into(),
-        TypeRef::String => "String".into(),
-        TypeRef::Path if is_ref => "&std::path::Path".into(),
-        TypeRef::Path => "std::path::PathBuf".into(),
-        TypeRef::Named(n) => {
-            let qualified = tp.get(n).cloned().unwrap_or_else(|| format!("{ci}::{n}"));
-            if is_ref { format!("&{qualified}") } else { qualified }
-        }
-        TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Optional(inner) => format!("Option<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Primitive(p) => prim(p).into(),
-        TypeRef::Unit => "()".into(),
-        TypeRef::Char => "char".into(),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            param_type(k, ci, false, tp),
-            param_type(v, ci, false, tp)
-        ),
-        TypeRef::Json => "serde_json::Value".into(),
-        TypeRef::Duration => "std::time::Duration".into(),
-    }
-}
-
-fn prim(p: &alef_core::ir::PrimitiveType) -> &'static str {
-    use alef_core::ir::PrimitiveType::*;
-    match p {
-        Bool => "bool",
-        U8 => "u8",
-        U16 => "u16",
-        U32 => "u32",
-        U64 => "u64",
-        I8 => "i8",
-        I16 => "i16",
-        I32 => "i32",
-        I64 => "i64",
-        F32 => "f32",
-        F64 => "f64",
-        Usize => "usize",
-        Isize => "isize",
-    }
-}
-
-/// Map a visitor method parameter type to the correct Rust type string, handling IR quirks:
-/// - `ty=String, optional=true, is_ref=true` → `Option<&str>` (the IR collapses `Option<&str>`)
-/// - `ty=Vec<T>, is_ref=true` → `&[T]` (the IR collapses `&[T]`)
-/// - Everything else uses the standard `param_type` helper.
-fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashMap<String, String>) -> String {
-    // `Option<&str>` case: IR collapses it to String + optional + is_ref
-    if optional && matches!(ty, TypeRef::String) && is_ref {
-        return "Option<&str>".to_string();
-    }
-    // `&[String]` case: IR collapses it to Vec<String> + is_ref
-    if is_ref {
-        if let TypeRef::Vec(inner) = ty {
-            let inner_str = param_type(inner, "", false, tp);
-            return format!("&[{inner_str}]");
-        }
-    }
-    param_type(ty, "", is_ref, tp)
-}
-
 /// Generate a single visitor-style trait method that tries Python dispatch, falls back to default.
 ///
 /// For each method the generated code:
@@ -857,44 +795,6 @@ pub fn trait_bridge_imports(configs: &[TraitBridgeConfig]) -> Vec<&'static str> 
         "use pyo3::prelude::*;",
         "use std::sync::Arc;",
     ]
-}
-
-/// Find the first parameter index and bridge config where the parameter's named type
-/// matches a trait bridge's `type_alias`.
-///
-/// Returns `None` when no bridge applies.
-pub fn find_bridge_param<'a>(
-    func: &alef_core::ir::FunctionDef,
-    bridges: &'a [TraitBridgeConfig],
-) -> Option<(usize, &'a TraitBridgeConfig)> {
-    for (idx, param) in func.params.iter().enumerate() {
-        // Try matching by the IR type name (for non-sanitized params).
-        let named = match &param.ty {
-            TypeRef::Named(n) => Some(n.as_str()),
-            TypeRef::Optional(inner) => {
-                if let TypeRef::Named(n) = inner.as_ref() {
-                    Some(n.as_str())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        for bridge in bridges {
-            // Match by type alias (non-sanitized path).
-            if let Some(type_name) = named {
-                if bridge.type_alias.as_deref() == Some(type_name) {
-                    return Some((idx, bridge));
-                }
-            }
-            // Match by param name (sanitized path: the extractor collapsed the type to String
-            // because it couldn't represent e.g. `Rc<RefCell<dyn Trait>>`).
-            if bridge.param_name.as_deref() == Some(param.name.as_str()) {
-                return Some((idx, bridge));
-            }
-        }
-    }
-    None
 }
 
 /// Generate a PyO3 free function that has one parameter replaced by `Py<PyAny>` (a trait bridge).

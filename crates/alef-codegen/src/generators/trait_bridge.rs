@@ -6,7 +6,7 @@
 //! handle the structural boilerplate.
 
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{MethodDef, ParamDef, TypeDef};
+use alef_core::ir::{FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -511,6 +511,127 @@ pub fn format_param_type(param: &ParamDef, type_paths: &HashMap<String, String>)
     } else {
         base
     }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers — used by all backend trait_bridge modules.
+// ---------------------------------------------------------------------------
+
+/// Map a Rust primitive to its type string.
+pub fn prim(p: &PrimitiveType) -> &'static str {
+    use PrimitiveType::*;
+    match p {
+        Bool => "bool",
+        U8 => "u8",
+        U16 => "u16",
+        U32 => "u32",
+        U64 => "u64",
+        I8 => "i8",
+        I16 => "i16",
+        I32 => "i32",
+        I64 => "i64",
+        F32 => "f32",
+        F64 => "f64",
+        Usize => "usize",
+        Isize => "isize",
+    }
+}
+
+/// Map a `TypeRef` to its Rust source type string for use in trait bridge method
+/// signatures. `ci` is the core import path (e.g. `"kreuzberg"`), `tp` maps
+/// type names to fully-qualified paths.
+pub fn bridge_param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>) -> String {
+    match ty {
+        TypeRef::Bytes if is_ref => "&[u8]".into(),
+        TypeRef::Bytes => "Vec<u8>".into(),
+        TypeRef::String if is_ref => "&str".into(),
+        TypeRef::String => "String".into(),
+        TypeRef::Path if is_ref => "&std::path::Path".into(),
+        TypeRef::Path => "std::path::PathBuf".into(),
+        TypeRef::Named(n) => {
+            let qualified = tp.get(n).cloned().unwrap_or_else(|| format!("{ci}::{n}"));
+            if is_ref { format!("&{qualified}") } else { qualified }
+        }
+        TypeRef::Vec(inner) => format!("Vec<{}>", bridge_param_type(inner, ci, false, tp)),
+        TypeRef::Optional(inner) => format!("Option<{}>", bridge_param_type(inner, ci, false, tp)),
+        TypeRef::Primitive(p) => prim(p).into(),
+        TypeRef::Unit => "()".into(),
+        TypeRef::Char => "char".into(),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            bridge_param_type(k, ci, false, tp),
+            bridge_param_type(v, ci, false, tp)
+        ),
+        TypeRef::Json => "serde_json::Value".into(),
+        TypeRef::Duration => "std::time::Duration".into(),
+    }
+}
+
+/// Map a visitor method parameter type to the correct Rust type string, handling
+/// IR quirks:
+/// - `ty=String, optional=true, is_ref=true` → `Option<&str>` (IR collapses `Option<&str>`)
+/// - `ty=Vec<T>, is_ref=true` → `&[T]` (IR collapses `&[T]`)
+/// - Everything else delegates to [`bridge_param_type`].
+pub fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashMap<String, String>) -> String {
+    if optional && matches!(ty, TypeRef::String) && is_ref {
+        return "Option<&str>".to_string();
+    }
+    if is_ref {
+        if let TypeRef::Vec(inner) = ty {
+            let inner_str = bridge_param_type(inner, "", false, tp);
+            return format!("&[{inner_str}]");
+        }
+    }
+    bridge_param_type(ty, "", is_ref, tp)
+}
+
+/// Find the first function parameter that matches a trait bridge configuration
+/// (by type alias or parameter name).
+pub fn find_bridge_param<'a>(
+    func: &FunctionDef,
+    bridges: &'a [TraitBridgeConfig],
+) -> Option<(usize, &'a TraitBridgeConfig)> {
+    for (idx, param) in func.params.iter().enumerate() {
+        let named = match &param.ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    Some(n.as_str())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        for bridge in bridges {
+            if let Some(type_name) = named {
+                if bridge.type_alias.as_deref() == Some(type_name) {
+                    return Some((idx, bridge));
+                }
+            }
+            if bridge.param_name.as_deref() == Some(param.name.as_str()) {
+                return Some((idx, bridge));
+            }
+        }
+    }
+    None
+}
+
+/// Convert a snake_case string to camelCase.
+pub fn to_camel_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = false;
+    for ch in s.chars() {
+        if ch == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(ch.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 #[cfg(test)]

@@ -323,11 +323,18 @@ pub fn gen_method(
                 TypeRef::Named(_) if method.returns_cow || method.returns_ref => ".into_owned().into()".to_string(),
                 TypeRef::Named(n) if n == type_name => ".into()".to_string(),
                 TypeRef::Named(_) => ".into()".to_string(),
-                TypeRef::String | TypeRef::Path => {
+                TypeRef::String => {
                     if method.returns_ref {
                         ".to_owned()".to_string()
                     } else {
-                        ".into()".to_string()
+                        String::new()
+                    }
+                }
+                TypeRef::Path => {
+                    if method.returns_ref {
+                        ".to_owned()".to_string()
+                    } else {
+                        ".to_string_lossy().to_string()".to_string()
                     }
                 }
                 // Bytes: binding uses Vec<u8>. Always use .to_vec() which works for both
@@ -716,6 +723,8 @@ pub fn gen_static_method(
             );
             if wrapped == val_expr {
                 format!("{core_call}{err_conv}")
+            } else if wrapped == format!("{val_expr}.into()") {
+                format!("{core_call}.map(Into::into){err_conv}")
             } else {
                 format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }

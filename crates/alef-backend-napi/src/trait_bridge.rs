@@ -3,11 +3,20 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to JavaScript objects via NAPI-RS.
 
-use alef_codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+use alef_codegen::generators::trait_bridge::{
+    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
+    to_camel_case, visitor_param_type,
+};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 use std::fmt::Write;
+
+/// Find the first parameter index and bridge config where the parameter's named type
+/// matches a trait bridge's `type_alias`.
+///
+/// Returns `None` when no bridge applies.
+pub use alef_codegen::generators::trait_bridge::find_bridge_param;
 
 /// NAPI-specific trait bridge generator.
 /// Implements code generation for bridging JavaScript objects to Rust traits.
@@ -586,20 +595,6 @@ fn gen_visitor_bridge(
     out
 }
 
-/// Map a visitor method parameter type to the correct Rust type string.
-fn visitor_param_type(ty: &TypeRef, is_ref: bool, optional: bool, tp: &HashMap<String, String>) -> String {
-    if optional && matches!(ty, TypeRef::String) && is_ref {
-        return "Option<&str>".to_string();
-    }
-    if is_ref {
-        if let TypeRef::Vec(inner) = ty {
-            let inner_str = param_type(inner, "", false, tp);
-            return format!("&[{inner_str}]");
-        }
-    }
-    param_type(ty, "", is_ref, tp)
-}
-
 /// Build the Function args tuple type string for a given number of Unknown args.
 fn unknown_tuple_type(count: usize) -> String {
     if count == 0 {
@@ -816,106 +811,6 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
             )
         })
         .collect()
-}
-
-/// Convert snake_case to camelCase.
-fn to_camel_case(name: &str) -> String {
-    let mut result = String::with_capacity(name.len());
-    let mut capitalize_next = false;
-    for (i, c) in name.chars().enumerate() {
-        if c == '_' {
-            capitalize_next = true;
-        } else if capitalize_next {
-            result.extend(c.to_uppercase());
-            capitalize_next = false;
-        } else if i == 0 {
-            result.extend(c.to_lowercase());
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
-/// Map TypeRef to a Rust type string.
-fn param_type(ty: &TypeRef, ci: &str, is_ref: bool, tp: &HashMap<String, String>) -> String {
-    match ty {
-        TypeRef::Bytes if is_ref => "&[u8]".into(),
-        TypeRef::Bytes => "Vec<u8>".into(),
-        TypeRef::String if is_ref => "&str".into(),
-        TypeRef::String => "String".into(),
-        TypeRef::Path if is_ref => "&std::path::Path".into(),
-        TypeRef::Path => "std::path::PathBuf".into(),
-        TypeRef::Named(n) => {
-            let qualified = tp.get(n).cloned().unwrap_or_else(|| format!("{ci}::{n}"));
-            if is_ref { format!("&{qualified}") } else { qualified }
-        }
-        TypeRef::Vec(inner) => format!("Vec<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Optional(inner) => format!("Option<{}>", param_type(inner, ci, false, tp)),
-        TypeRef::Primitive(p) => prim(p).into(),
-        TypeRef::Unit => "()".into(),
-        TypeRef::Char => "char".into(),
-        TypeRef::Map(k, v) => format!(
-            "std::collections::HashMap<{}, {}>",
-            param_type(k, ci, false, tp),
-            param_type(v, ci, false, tp)
-        ),
-        TypeRef::Json => "serde_json::Value".into(),
-        TypeRef::Duration => "std::time::Duration".into(),
-    }
-}
-
-fn prim(p: &alef_core::ir::PrimitiveType) -> &'static str {
-    use alef_core::ir::PrimitiveType::*;
-    match p {
-        Bool => "bool",
-        U8 => "u8",
-        U16 => "u16",
-        U32 => "u32",
-        U64 => "u64",
-        I8 => "i8",
-        I16 => "i16",
-        I32 => "i32",
-        I64 => "i64",
-        F32 => "f32",
-        F64 => "f64",
-        Usize => "usize",
-        Isize => "isize",
-    }
-}
-
-/// Find the first parameter index and bridge config where the parameter's named type
-/// matches a trait bridge's `type_alias`.
-///
-/// Returns `None` when no bridge applies.
-pub fn find_bridge_param<'a>(
-    func: &alef_core::ir::FunctionDef,
-    bridges: &'a [TraitBridgeConfig],
-) -> Option<(usize, &'a TraitBridgeConfig)> {
-    for (idx, param) in func.params.iter().enumerate() {
-        let named = match &param.ty {
-            TypeRef::Named(n) => Some(n.as_str()),
-            TypeRef::Optional(inner) => {
-                if let TypeRef::Named(n) = inner.as_ref() {
-                    Some(n.as_str())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        for bridge in bridges {
-            if let Some(type_name) = named {
-                if bridge.type_alias.as_deref() == Some(type_name) {
-                    return Some((idx, bridge));
-                }
-            }
-            if bridge.param_name.as_deref() == Some(param.name.as_str()) {
-                return Some((idx, bridge));
-            }
-        }
-    }
-    None
 }
 
 /// Generate a NAPI free function that has one parameter replaced by
