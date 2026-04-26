@@ -207,13 +207,9 @@ pub fn render_cargo_toml(
         }
     };
     let serde_line = if needs_serde_json { "\nserde_json = \"1\"" } else { "" };
-    // In local mode, the parent Cargo.toml excludes e2e/rust from its workspace,
-    // making it a standalone crate. Adding [workspace] would create a conflicting
-    // second workspace root. In registry mode, e2e crates are downloaded from a
-    // registry and truly independent; they also don't need [workspace] because
-    // any parent project using the dependency will manage workspace configuration.
-    // Both modes should omit [workspace] to avoid cargo "multiple workspace roots" errors.
-    let workspace_section = "";
+    // [workspace] is intentionally omitted: the parent Cargo.toml is expected to
+    // exclude e2e/rust (consumers must add it to their workspace `exclude` array),
+    // and adding [workspace] here would create a conflicting second workspace root.
     // Mock server requires axum (HTTP router) and tokio-stream (SSE streaming).
     // The standalone binary additionally needs serde (derive) and walkdir.
     let mock_lines = if needs_mock_server {
@@ -256,7 +252,7 @@ pub fn render_cargo_toml(
     };
     let header = hash::header(CommentStyle::Hash);
     format!(
-        r#"{header}{workspace_section}
+        r#"{header}
 [package]
 name = "{e2e_name}"
 version = "0.1.0"
