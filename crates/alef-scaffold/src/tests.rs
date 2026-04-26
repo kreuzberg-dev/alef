@@ -842,10 +842,15 @@ fn test_scaffold_swift() {
         "got: {}",
         package_swift.content
     );
-    // Must declare RustBridge target
+    // Must declare RustBridge and RustBridgeC targets
     assert!(
         package_swift.content.contains("\"RustBridge\""),
         "Package.swift must declare RustBridge target; got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("\"RustBridgeC\""),
+        "Package.swift must declare RustBridgeC target; got: {}",
         package_swift.content
     );
     // RustBridge must link the static library
@@ -860,26 +865,20 @@ fn test_scaffold_swift() {
     assert!(gitignore.content.contains(".build/"), "got: {}", gitignore.content);
     assert!(gitignore.content.contains(".swiftpm/"), "got: {}", gitignore.content);
 
-    // RustBridge placeholder header
-    let header = files.iter().find(|f| f.path.ends_with("RustBridge.h")).unwrap();
+    // RustBridgeC placeholder header (pure C target)
+    let header = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/Sources/RustBridgeC/RustBridgeC.h"))
+        .unwrap();
     assert!(
-        header.content.contains("#ifndef RUST_BRIDGE_H"),
+        header.content.contains("#ifndef RUST_BRIDGE_C_H"),
         "got: {}",
         header.content
     );
 
-    // module.modulemap exposes C header
+    // module.modulemap in RustBridge (kept as documentation comment)
     let modulemap = files.iter().find(|f| f.path.ends_with("module.modulemap")).unwrap();
-    assert!(
-        modulemap.content.contains("module RustBridge"),
-        "got: {}",
-        modulemap.content
-    );
-    assert!(
-        modulemap.content.contains("header \"RustBridge.h\""),
-        "got: {}",
-        modulemap.content
-    );
+    assert!(!modulemap.content.is_empty(), "module.modulemap must not be empty");
 
     // RustBridge placeholder Swift source
     let rust_bridge_swift = files
@@ -902,8 +901,8 @@ fn test_scaffold_swift() {
         building.content
     );
     assert!(
-        building.content.contains("Sources/RustBridge"),
-        "BUILDING.md must mention copy destination; got: {}",
+        building.content.contains("Sources/RustBridgeC"),
+        "BUILDING.md must mention RustBridgeC copy destination; got: {}",
         building.content
     );
 }
