@@ -898,10 +898,16 @@ fn field_type_for_serde_inner(ty: &TypeRef) -> String {
         TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
         TypeRef::Duration => "u64".to_string(),
         TypeRef::Named(n) => n.clone(),
-        // Vec<T> and Map<K,V> containing complex types get JSON-marshalled as strings.
-        // The conversion config (vec_named_to_string) handles Vec<Named> and other
-        // complex container types by serializing them to JSON strings for the binding layer.
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => "String".to_string(),
+        // Containers must round-trip as their actual JSON shape (array / object), not
+        // collapsed to "String". Mapping Vec to String previously caused serde to fail
+        // on tagged-union variants like StopSequence::Multiple(Vec<String>) — the FFI
+        // sends a JSON array, not a JSON-encoded string.
+        TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_serde_inner(inner)),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            field_type_for_serde_inner(k),
+            field_type_for_serde_inner(v),
+        ),
         TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_serde_inner(inner)),
         _ => "String".to_string(),
     }
@@ -1176,7 +1182,11 @@ fn gen_function(
         gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
     // Add #[allow(unused_variables)] to functions with unimplemented bodies to suppress warnings for unused params
-    let allow_attr = if !can_delegate { "#[allow(unused_variables)]\n" } else { "" };
+    let allow_attr = if !can_delegate {
+        "#[allow(unused_variables)]\n"
+    } else {
+        ""
+    };
     format!(
         "{allow_attr}fn {}({params}) -> {return_annotation} {{\n    \
          {deser_preamble}{body}\n}}",
@@ -1274,7 +1284,11 @@ fn gen_async_function(
         )
     };
     // Add #[allow(unused_variables)] to functions with unimplemented bodies to suppress warnings for unused params
-    let allow_attr = if !can_delegate { "#[allow(unused_variables)]\n" } else { "" };
+    let allow_attr = if !can_delegate {
+        "#[allow(unused_variables)]\n"
+    } else {
+        ""
+    };
     format!(
         "{allow_attr}fn {}_async({params}) -> {return_annotation} {{\n    \
          {deser_preamble}{body}\n\
