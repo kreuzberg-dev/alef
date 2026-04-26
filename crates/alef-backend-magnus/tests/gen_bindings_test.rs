@@ -1093,3 +1093,98 @@ mod trait_bridge {
         );
     }
 }
+
+#[test]
+fn test_tagged_union_enum_vec_field_type() {
+    let backend = MagnusBackend;
+
+    // Create API with a tagged-union enum that has a Vec<String> field on one variant
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Result".to_string(),
+            rust_path: "test_lib::Result".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Success".to_string(),
+                    fields: vec![FieldDef {
+                        name: "values".to_string(),
+                        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                    }],
+                    doc: "Success with values".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Error".to_string(),
+                    fields: vec![FieldDef {
+                        name: "message".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                    }],
+                    doc: "Error with message".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Tagged union result type".to_string(),
+            cfg: None,
+            serde_tag: Some("type".to_string()),
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+
+    let files = result.unwrap();
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_file.content;
+
+    // The critical check: the enum should be generated with Vec<String> for the values field,
+    // NOT as String. Before the fix, field_type_for_serde's catch-all arm would map
+    // Vec<T> to "String", causing serde deserialization to fail when receiving an array.
+    assert!(
+        content.contains("Vec<String>"),
+        "Tagged-union enum variant with Vec<String> field must map to Vec<String>, not String"
+    );
+
+    // Verify the enum definition includes proper variant structure
+    assert!(content.contains("enum Result"), "Should generate Result enum");
+    assert!(content.contains("Success"), "Should contain Success variant");
+    assert!(content.contains("Error"), "Should contain Error variant");
+
+    // Verify that the serde tag attribute is present
+    assert!(content.contains("tag = \"type\""), "Should have serde tag attribute");
+}

@@ -182,7 +182,10 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
     ] {
         if let Ok(entries) = glob::glob(pattern) {
             for entry in entries.flatten() {
-                if let Some(found) = extract_version(&entry.to_string_lossy(), r"VERSION\s*=\s*['\x22]([^'\x22]*)['\x22]") {
+                if let Some(found) = extract_version(
+                    &entry.to_string_lossy(),
+                    r#"VERSION\s*=\s*(?:"([^"]*)"|'([^']*)')"#,
+                ) {
                     if found != expected {
                         mismatches.push(format!("{}: found {found}, expected {expected}", entry.display()));
                     }

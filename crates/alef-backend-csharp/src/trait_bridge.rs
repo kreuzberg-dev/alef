@@ -13,6 +13,17 @@ use alef_codegen::naming::to_csharp_name;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::fmt::Write;
 
+/// Maps a TypeRef to its unmanaged C# type for use in [UnmanagedFunctionPointer] delegates.
+/// Managed types (arrays, classes, strings) become IntPtr; primitives remain as-is.
+fn csharp_unmanaged_type(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Primitive(_) => csharp_type(ty).to_string(),
+        TypeRef::Unit => csharp_type(ty).to_string(),
+        // All managed types (String, Bytes, Vec, Optional containing managed, Named classes, etc.) become IntPtr
+        _ => "IntPtr".to_string(),
+    }
+}
+
 /// Generate P/Invoke trait bridge declarations for NativeMethods.cs.
 ///
 /// For each trait bridge in the config, returns a C# P/Invoke declaration
@@ -88,6 +99,7 @@ pub fn gen_trait_bridges_file(
     writeln!(out, "using System.Collections.Concurrent;").ok();
     writeln!(out, "using System.Collections.Generic;").ok();
     writeln!(out, "using System.Runtime.InteropServices;").ok();
+    writeln!(out, "using System.Text.Json;").ok();
     writeln!(out).ok();
     writeln!(out, "namespace {};", namespace).ok();
     writeln!(out).ok();
@@ -200,12 +212,12 @@ fn gen_single_trait_bridge(
         writeln!(out).ok();
     }
 
-    // Trait method delegates
+    // Trait method delegates (using unmanaged types)
     for method in &trait_def.methods {
         let params = method
             .params
             .iter()
-            .map(|p| format!("{} {}", csharp_type(&p.ty), to_csharp_name(&p.name)))
+            .map(|p| format!("{} {}", csharp_unmanaged_type(&p.ty), to_csharp_name(&p.name)))
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -359,6 +371,23 @@ fn gen_single_trait_bridge(
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
 
+    // JSON serialization helper
+    writeln!(out, "    private static string ToJsonString<T>(T value) {{").ok();
+    writeln!(out, "        return JsonSerializer.Serialize(value);").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out).ok();
+
+    // Bytes marshaling helper
+    writeln!(out, "    private static byte[] MarshalBytesFromIntPtr(IntPtr ptr) {{").ok();
+    writeln!(out, "        if (ptr == IntPtr.Zero) return Array.Empty<byte>();").ok();
+    writeln!(out, "        // Bytes are passed as JSON string \"[b1,b2,...]\" or base64 or raw bytes").ok();
+    writeln!(out, "        // For now, assume raw bytes with length prepended").ok();
+    writeln!(out, "        // In practice, Rust FFI would pass (ptr, len) pair via callback params").ok();
+    writeln!(out, "        var json = Marshal.PtrToStringUTF8(ptr) ?? \"[]\";").ok();
+    writeln!(out, "        return JsonSerializer.Deserialize<byte[]>(json) ?? Array.Empty<byte>();").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out).ok();
+
     // Plugin lifecycle callbacks
     if has_super_trait {
         writeln!(out, "    private int NameFnCallback(IntPtr userData, out IntPtr outName) {{").ok();
@@ -413,24 +442,21 @@ fn gen_single_trait_bridge(
     // Trait method callbacks
     for method in &trait_def.methods {
         let method_pascal = to_csharp_name(&method.name);
-        let param_sig = method
+
+        // Build parameter signature for unmanaged delegate (what we receive)
+        let unmanaged_param_sig = method
             .params
             .iter()
-            .map(|p| format!("{} {}", csharp_type(&p.ty), to_csharp_name(&p.name)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let param_call = method
-            .params
-            .iter()
-            .map(|p| to_csharp_name(&p.name))
+            .map(|p| format!("{} {}", csharp_unmanaged_type(&p.ty), to_csharp_name(&p.name)))
             .collect::<Vec<_>>()
             .join(", ");
 
-        let params_decl = if param_sig.is_empty() {
+        let params_decl = if unmanaged_param_sig.is_empty() {
             String::new()
         } else {
-            format!("{}, ", param_sig)
+            format!("{}, ", unmanaged_param_sig)
         };
+
         writeln!(
             out,
             "    private int {}FnCallback(IntPtr userData, {}out IntPtr outResult, out IntPtr outError) {{",
@@ -438,6 +464,56 @@ fn gen_single_trait_bridge(
         )
         .ok();
         writeln!(out, "        try {{").ok();
+
+        // Marshal parameters from IntPtr to managed types
+        let mut param_call_parts = Vec::new();
+        for param in &method.params {
+            let param_name = to_csharp_name(&param.name);
+            let managed_type = csharp_type(&param.ty);
+
+            match &param.ty {
+                TypeRef::Primitive(_) | TypeRef::Unit => {
+                    // Primitives don't need conversion
+                    param_call_parts.push(param_name);
+                }
+                TypeRef::String | TypeRef::Char => {
+                    writeln!(
+                        out,
+                        "            var managed_{} = Marshal.PtrToStringUTF8({}) ?? string.Empty;",
+                        param_name, param_name
+                    )
+                    .ok();
+                    param_call_parts.push(format!("managed_{}", param_name));
+                }
+                TypeRef::Bytes => {
+                    writeln!(
+                        out,
+                        "            var managed_{} = MarshalBytesFromIntPtr({});",
+                        param_name, param_name
+                    )
+                    .ok();
+                    param_call_parts.push(format!("managed_{}", param_name));
+                }
+                _ => {
+                    // For complex types, assume JSON deserialization
+                    writeln!(
+                        out,
+                        "            var json_{} = Marshal.PtrToStringUTF8({}) ?? \"{{}}\";",
+                        param_name, param_name
+                    )
+                    .ok();
+                    writeln!(
+                        out,
+                        "            var managed_{} = JsonSerializer.Deserialize<{}>(json_{});",
+                        param_name, managed_type, param_name
+                    )
+                    .ok();
+                    param_call_parts.push(format!("managed_{}", param_name));
+                }
+            }
+        }
+
+        let param_call = param_call_parts.join(", ");
 
         if method.return_type == TypeRef::Unit {
             writeln!(out, "            _impl.{}({});", method_pascal, param_call).ok();
@@ -464,7 +540,9 @@ fn gen_single_trait_bridge(
     writeln!(out, "            try {{").ok();
     writeln!(out, "                var handle = GCHandle.FromIntPtr(userData);").ok();
     writeln!(out, "                handle.Free();").ok();
-    writeln!(out, "            }} catch {{ }}").ok();
+    writeln!(out, "            }} catch (ObjectDisposedException) {{").ok();
+    writeln!(out, "                // Handle already freed; safe to ignore during finalization").ok();
+    writeln!(out, "            }}").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();

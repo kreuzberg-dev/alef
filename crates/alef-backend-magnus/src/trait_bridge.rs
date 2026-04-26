@@ -274,15 +274,15 @@ fn build_magnus_arg(p: &alef_core::ir::ParamDef) -> String {
     }
     if p.optional && matches!(&p.ty, TypeRef::String) {
         return format!(
-            "match {} {{ Some(s) => magnus::RString::new(s).as_value(), None => magnus::value::qnil().as_value() }}",
+            "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; match {} {{ Some(s) => ruby.str_new(s).as_value(), None => ruby.qnil().as_value() }} }}",
             p.name
         );
     }
     if matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!("magnus::RString::new({})", p.name);
+        return format!("{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new({}) }}", p.name);
     }
     if matches!(&p.ty, TypeRef::String) {
-        return format!("magnus::RString::new({}.as_str())", p.name);
+        return format!("{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new({}.as_str()) }}", p.name);
     }
     // Vec/slice types: convert to Ruby array
     if matches!(&p.ty, TypeRef::Vec(_)) {
@@ -520,9 +520,14 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         writeln!(out, "match join {{").ok();
         writeln!(out, "    Ok(v) => v,").ok();
         if has_error {
-            let err_expr = self.make_error(&format!(
+            // Need to escape braces in the format string: in the generated code, we want
+            // format!("...", ...) which means we need to pass the literal string with single braces.
+            // To include single braces in the final generated code, we use double braces here,
+            // which will be processed by writeln! to become single braces.
+            let msg_expr = format!(
                 "format!(\"spawn_blocking failed for '{{}}': {{}}\", cached_name, e)"
-            ));
+            );
+            let err_expr = self.make_error(&msg_expr);
             writeln!(out, "    Err(e) => Err({err_expr}),").ok();
         } else {
             writeln!(out, "    Err(_) => Default::default(),").ok();
@@ -666,46 +671,6 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
 }
 
 impl MagnusBridgeGenerator {
-    /// Convert a Rust TypeRef to its Magnus type representation for extraction.
-    fn extract_magnus_type(&self, ty: &TypeRef) -> String {
-        match ty {
-            TypeRef::Primitive(p) => {
-                use alef_core::ir::PrimitiveType::*;
-                match p {
-                    Bool => "bool",
-                    U8 | U16 | U32 => "u32",
-                    U64 => "u64",
-                    I8 | I16 | I32 => "i32",
-                    I64 => "i64",
-                    F32 => "f32",
-                    F64 => "f64",
-                    Usize => "usize",
-                    Isize => "isize",
-                }
-                .to_string()
-            }
-            TypeRef::String => "String".to_string(),
-            TypeRef::Bytes => "Vec<u8>".to_string(),
-            TypeRef::Vec(inner) => format!("Vec<{}>", self.extract_magnus_type(inner)),
-            TypeRef::Optional(inner) => format!("Option<{}>", self.extract_magnus_type(inner)),
-            TypeRef::Named(name) => self
-                .type_paths
-                .get(name.as_str())
-                .cloned()
-                .unwrap_or_else(|| format!("{}::{}", self.core_import, name)),
-            TypeRef::Unit => "()".to_string(),
-            TypeRef::Map(k, v) => format!(
-                "std::collections::HashMap<{}, {}>",
-                self.extract_magnus_type(k),
-                self.extract_magnus_type(v)
-            ),
-            TypeRef::Json => "serde_json::Value".to_string(),
-            TypeRef::Duration => "std::time::Duration".to_string(),
-            TypeRef::Char => "char".to_string(),
-            TypeRef::Path => "std::path::PathBuf".to_string(),
-        }
-    }
-
     /// The fully-qualified Rust return type as it appears in the trait method
     /// signature — uses `core_import::Foo` for Named types.
     fn return_rust_type(&self, ty: &TypeRef) -> String {
@@ -883,23 +848,23 @@ impl MagnusBridgeGenerator {
     /// regardless of whether `var` is owned (`String`, `Vec<u8>`, ...) or borrowed.
     fn ruby_arg_expr_custom(&self, ty: &TypeRef, var: &str) -> String {
         match ty {
-            // RString::new takes Into<&str>; AsRef<str> covers both String and &str.
-            TypeRef::String => format!("magnus::RString::new(AsRef::<str>::as_ref(&{var})).as_value()"),
+            // str_new takes Into<&str>; AsRef<str> covers both String and &str.
+            TypeRef::String => format!("{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(AsRef::<str>::as_ref(&{var})).as_value() }}"),
             // String::from_utf8_lossy needs &[u8]; AsRef<[u8]> covers both Vec<u8> and &[u8].
             TypeRef::Bytes => format!(
-                "magnus::RString::new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value()"
+                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value() }}"
             ),
             // serde_json::to_string takes &T; the macro `&{var}` is fine for both owned and ref.
             TypeRef::Named(_) | TypeRef::Json => format!(
-                "serde_json::to_string(&{var}).ok().map(|s| magnus::RString::new(s.as_str()).as_value()).unwrap_or_else(|| magnus::value::qnil().as_value())"
+                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value()) }}"
             ),
             TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Optional(_) => format!(
-                "serde_json::to_string(&{var}).ok().map(|s| magnus::RString::new(s.as_str()).as_value()).unwrap_or_else(|| magnus::value::qnil().as_value())"
+                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value()) }}"
             ),
             // Both PathBuf (owned) and &Path (borrowed) coerce via AsRef<Path>; pin
             // the AsRef target type explicitly so type inference doesn't fail.
             TypeRef::Path => format!(
-                "magnus::RString::new(<_ as AsRef<std::path::Path>>::as_ref(&{var}).to_string_lossy().as_ref()).as_value()"
+                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(<_ as AsRef<std::path::Path>>::as_ref(&{var}).to_string_lossy().as_ref()).as_value() }}"
             ),
             _ => var.to_string(),
         }

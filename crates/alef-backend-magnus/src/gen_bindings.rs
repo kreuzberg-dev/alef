@@ -854,9 +854,10 @@ fn pascal_to_snake(name: &str) -> String {
 /// Generate a Magnus enum definition with IntoValue and TryConvert impls.
 /// Unit-variant enums are represented as Ruby Symbols for ergonomic Ruby usage.
 /// Map a field type to a Rust type suitable for serde deserialization in data enums.
-fn field_type_for_serde(field: &FieldDef) -> String {
+/// Helper to recursively map inner TypeRef to serde type strings.
+fn field_type_for_serde_inner(ty: &TypeRef) -> String {
     use alef_core::ir::PrimitiveType;
-    let base = match &field.ty {
+    match ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path => "String".to_string(),
         TypeRef::Primitive(PrimitiveType::Bool) => "bool".to_string(),
         TypeRef::Primitive(PrimitiveType::U8) => "u8".to_string(),
@@ -873,8 +874,19 @@ fn field_type_for_serde(field: &FieldDef) -> String {
         TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
         TypeRef::Duration => "u64".to_string(),
         TypeRef::Named(n) => n.clone(),
+        TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_serde_inner(inner)),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            field_type_for_serde_inner(k),
+            field_type_for_serde_inner(v)
+        ),
+        TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_serde_inner(inner)),
         _ => "String".to_string(),
-    };
+    }
+}
+
+fn field_type_for_serde(field: &FieldDef) -> String {
+    let base = field_type_for_serde_inner(&field.ty);
     if field.optional {
         format!("Option<{base}>")
     } else {
