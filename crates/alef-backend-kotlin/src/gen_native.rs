@@ -210,6 +210,11 @@ fn emit_native_error(error: &ErrorDef, out: &mut String) {
     out.push_str("}\n");
 }
 
+/// Emit a Kotlin/Native function body — exposed for `gen_mpp` to reuse.
+pub(crate) fn emit_native_function_pub(f: &FunctionDef, prefix: &str, out: &mut String) {
+    emit_native_function(f, prefix, out)
+}
+
 fn emit_native_function(f: &FunctionDef, prefix: &str, out: &mut String) {
     if !f.doc.is_empty() {
         for line in f.doc.lines() {

@@ -6,6 +6,7 @@
 //! Kotlin/Native and Kotlin Multiplatform paths are deferred to Phase 3.
 
 mod gen_bindings;
+mod gen_mpp;
 pub(crate) mod gen_native;
 mod type_map;
 
