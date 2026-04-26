@@ -6,6 +6,7 @@ use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::path::PathBuf;
 
+use crate::trait_bridge::emit_trait_bridge;
 use crate::type_map::ZigMapper;
 
 pub struct ZigBackend;
@@ -101,6 +102,19 @@ impl Backend for ZigBackend {
             }
             emit_function(f, &prefix, &declared_errors, &top_level_names, &mut content);
             content.push('\n');
+        }
+
+        // Emit C-vtable structs and registration shims for every configured trait bridge.
+        // Zig has no inheritance; trait bridges use an `extern struct` of function pointers.
+        for bridge_cfg in &config.trait_bridges {
+            // Skip if "zig" is listed in exclude_languages for this bridge.
+            if bridge_cfg.exclude_languages.iter().any(|lang| lang == "zig") {
+                continue;
+            }
+            if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
+                emit_trait_bridge(&prefix, bridge_cfg, trait_def, &mut content);
+                content.push('\n');
+            }
         }
 
         let dir = resolve_output_dir(None, &config.crate_config.name, "packages/zig/src");
