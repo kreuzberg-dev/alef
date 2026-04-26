@@ -591,6 +591,38 @@ pub(crate) fn gen_native_lib(
         }
     }
 
+    // Trait bridge register/unregister FFI handles
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg.exclude_languages.contains(&alef_core::config::Language::Java.to_string()) {
+            continue;
+        }
+
+        let trait_snake = bridge_cfg.trait_name.to_snake_case();
+        let trait_upper = trait_snake.to_uppercase();
+
+        // Register handle
+        let register_handle_name = format!("{}_{}_REGISTER_{}", prefix.to_uppercase(), prefix.to_uppercase(), trait_upper);
+        let register_ffi_name = format!("{}_register_{}", prefix, trait_snake);
+        writeln!(body).ok();
+        writeln!(body, "    static final MethodHandle {} = LINKER.downcallHandle(", register_handle_name).ok();
+        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", register_ffi_name).ok();
+        writeln!(
+            body,
+            "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+        )
+        .ok();
+        writeln!(body, "    );").ok();
+
+        // Unregister handle
+        let unregister_handle_name = format!("{}_{}_UNREGISTER_{}", prefix.to_uppercase(), prefix.to_uppercase(), trait_upper);
+        let unregister_ffi_name = format!("{}_unregister_{}", prefix, trait_snake);
+        writeln!(body).ok();
+        writeln!(body, "    static final MethodHandle {} = LINKER.downcallHandle(", unregister_handle_name).ok();
+        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", unregister_ffi_name).ok();
+        writeln!(body, "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)").ok();
+        writeln!(body, "    );").ok();
+    }
+
     // Inject visitor FFI method handles when a trait bridge is configured.
     if has_visitor_bridge {
         body.push_str(&crate::gen_visitor::gen_native_lib_visitor_handles(prefix));

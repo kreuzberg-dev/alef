@@ -968,4 +968,128 @@ mod trait_bridge {
             "visitor bridge must implement the trait"
         );
     }
+
+    // ---- Plugin-pattern bridges: register_fn + super_trait ----
+
+    fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
+        let register_fn_name = trait_name
+            .chars()
+            .fold(String::new(), |mut acc, c| {
+                if c.is_uppercase() && !acc.is_empty() {
+                    acc.push('_');
+                    acc.push(c.to_lowercase().next().unwrap());
+                } else {
+                    acc.push(c.to_lowercase().next().unwrap());
+                }
+                acc
+            });
+        TraitBridgeConfig {
+            trait_name: trait_name.to_string(),
+            super_trait: Some("Plugin".to_string()),
+            registry_getter: Some("get_registry".to_string()),
+            register_fn: Some(format!("register_{}", register_fn_name)),
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_plugin_bridge_emits_struct_when_register_fn_configured() {
+        let trait_def = make_trait_def(
+            "OcrBackend",
+            vec![make_method("recognize", TypeRef::String, true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("OcrBackend");
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+
+        assert!(
+            !code.is_empty(),
+            "plugin bridge must emit non-empty code when register_fn is set"
+        );
+        assert!(
+            code.contains("pub struct RbOcrBackendBridge"),
+            "plugin bridge must define RbOcrBackendBridge struct"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_emits_registration_fn() {
+        let trait_def = make_trait_def(
+            "EmbeddingBackend",
+            vec![make_method("embed", TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F64))), true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("EmbeddingBackend");
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+
+        assert!(
+            code.contains("register_embedding_backend"),
+            "plugin bridge must emit register_embedding_backend function"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_emits_plugin_impl() {
+        let trait_def = make_trait_def(
+            "PostProcessor",
+            vec![make_method("process", TypeRef::String, true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("PostProcessor");
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+
+        assert!(
+            code.contains("impl kreuzberg::Plugin for RbPostProcessorBridge"),
+            "plugin bridge must implement Plugin super-trait"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_emits_trait_impl() {
+        let trait_def = make_trait_def(
+            "Validator",
+            vec![make_method("validate", TypeRef::Primitive(PrimitiveType::Bool), true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("Validator");
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+
+        assert!(
+            code.contains("impl my_lib::Validator for RbValidatorBridge"),
+            "plugin bridge must implement the target trait (uses trait_def.rust_path)"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_skip_when_excluded() {
+        let trait_def = make_trait_def(
+            "SomeBackend",
+            vec![make_method("execute", TypeRef::String, false, false)],
+        );
+        let mut cfg = make_plugin_bridge_cfg("SomeBackend");
+        cfg.exclude_languages = vec!["ruby".to_string()];
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+
+        assert!(
+            code.is_empty(),
+            "plugin bridge must emit empty code when 'ruby' is in exclude_languages"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_validates_required_methods_in_constructor() {
+        let trait_def = make_trait_def(
+            "OcrBackend",
+            vec![
+                make_method("recognize", TypeRef::String, true, false), // required
+                make_method("shutdown", TypeRef::Unit, false, true),     // optional
+            ],
+        );
+        let cfg = make_plugin_bridge_cfg("OcrBackend");
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+
+        assert!(
+            code.contains("respond_to"),
+            "constructor must check respond_to? for required methods"
+        );
+    }
 }

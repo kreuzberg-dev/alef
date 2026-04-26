@@ -7,41 +7,41 @@
 //!
 //! For each `[[trait_bridges]]` entry, this module generates:
 //!
-//! 1. A `public interface {TraitName} { ... }` with methods matching the trait's methods
+//! 1. A `public interface I{TraitName} { ... }` with methods matching the trait's methods
 //!    plus Plugin lifecycle methods (name, version, initialize, shutdown).
 //! 2. A `{TraitName}Bridge` class that:
 //!    - Allocates Panama FFM upcall stubs for each trait method
 //!    - Builds the C vtable as a MemorySegment
 //!    - Manages memory lifecycle with AutoCloseable
-//! 3. Registration helper: `public static void register{TraitName}({TraitName} impl)`
+//! 3. Registration helper: `public static void register{TraitName}(I{TraitName} impl)`
 //!    that builds the vtable and calls the C registration function.
 //! 4. Unregistration helper: `public static void unregister{TraitName}(String name)`.
 
+use alef_core::ir::{TypeDef, TypeRef};
 use heck::{ToPascalCase, ToSnakeCase};
 use std::fmt::Write;
 
-/// Generate all trait bridge code for a single `[[trait_bridges]]` entry.
+use crate::type_map::{java_type, java_ffi_type};
+
+/// Generate all trait bridge code for a single trait definition.
 /// Returns Java source code as a String.
 ///
-/// `has_super_trait`: when `true`, the C vtable includes Plugin lifecycle slots
-/// (name_fn, version_fn, initialize_fn, shutdown_fn) and the bridge emits matching
-/// upcall stubs. When `false`, only the trait-method slots are emitted, matching
-/// the Rust-side vtable layout exactly.
+/// Takes a full TypeDef so we have access to method parameters and full type information.
 pub fn gen_trait_bridge(
-    trait_name: &str,
+    trait_def: &TypeDef,
     prefix: &str,
-    trait_methods: &[(&str, &str)], // [(method_name, return_type), ...]
     has_super_trait: bool,
 ) -> String {
+    let trait_name = &trait_def.name;
     let trait_pascal = trait_name.to_pascal_case();
     let trait_snake = trait_name.to_snake_case();
     let prefix_upper = prefix.to_uppercase();
 
-    let mut out = String::with_capacity(4096);
+    let mut out = String::with_capacity(8192);
 
-    // --- Trait interface ---
+    // --- Public interface ---
     writeln!(out, "/**").ok();
-    writeln!(out, " * Bridge trait for {} plugin system.", trait_pascal).ok();
+    writeln!(out, " * Bridge interface for {} plugin system.", trait_pascal).ok();
     writeln!(out, " *").ok();
     writeln!(
         out,
@@ -50,7 +50,7 @@ pub fn gen_trait_bridge(
     .ok();
     writeln!(out, " * into the C vtable during registration.").ok();
     writeln!(out, " */").ok();
-    writeln!(out, "public interface {} {{", trait_pascal).ok();
+    writeln!(out, "public interface I{} {{", trait_pascal).ok();
     writeln!(out).ok();
 
     // Plugin lifecycle methods — only when a super_trait (Plugin) is configured
@@ -73,9 +73,22 @@ pub fn gen_trait_bridge(
     }
 
     // Trait methods
-    for (method_name, return_type) in trait_methods {
-        writeln!(out, "    /** Trait method: {}. */", method_name).ok();
-        writeln!(out, "    {} {}();", return_type, method_name).ok();
+    for method in &trait_def.methods {
+        let return_type_str = java_type(&method.return_type);
+        let params_str = method
+            .params
+            .iter()
+            .map(|p| format!("{} {}", java_type(&p.ty), p.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(out, "    /**").ok();
+        writeln!(out, "     * {}", method.name).ok();
+        writeln!(out, "     */").ok();
+        if method.error_type.is_some() {
+            writeln!(out, "    {} {}({}) throws Exception;", return_type_str, method.name, params_str).ok();
+        } else {
+            writeln!(out, "    {} {}({});", return_type_str, method.name, params_str).ok();
+        }
         writeln!(out).ok();
     }
 
@@ -105,7 +118,7 @@ pub fn gen_trait_bridge(
 
     // Number of vtable fields: optionally name_fn, version_fn, initialize_fn, shutdown_fn,
     // then trait methods, then free_user_data.
-    let num_methods = trait_methods.len();
+    let num_methods = trait_def.methods.len();
     let num_super_slots = if has_super_trait { 4usize } else { 0usize };
     let num_vtable_fields = num_super_slots + num_methods + 1; // (super-trait methods +) trait methods + free_user_data
     writeln!(
@@ -124,11 +137,11 @@ pub fn gen_trait_bridge(
 
     writeln!(out, "    private final Arena arena;").ok();
     writeln!(out, "    private final MemorySegment vtable;").ok();
-    writeln!(out, "    private final {} impl;", trait_pascal).ok();
+    writeln!(out, "    private final I{} impl;", trait_pascal).ok();
     writeln!(out).ok();
 
     // Constructor
-    writeln!(out, "    {}Bridge(final {} impl) {{", trait_pascal, trait_pascal).ok();
+    writeln!(out, "    {}Bridge(final I{} impl) {{", trait_pascal, trait_pascal).ok();
     writeln!(out, "        this.impl = impl;").ok();
     writeln!(out, "        this.arena = Arena.ofConfined();").ok();
     writeln!(out, "        this.vtable = arena.allocate(VTABLE_SIZE);").ok();
@@ -216,26 +229,59 @@ pub fn gen_trait_bridge(
     }
 
     // Register trait methods
-    for (method_name, _) in trait_methods {
-        let handle_name = format!("handle{}", method_name.to_pascal_case());
+    for method in &trait_def.methods {
+        let handle_name = format!("handle{}", method.name.to_pascal_case());
+
+        // Build MethodType with all parameters + return type
+        // Method signature: (user_data: void*, [params...], [out_result: char**, when non-void], out_error: char**) -> int32_t
+        let mut method_type_params = vec!["MemorySegment.class".to_string()]; // user_data
+
+        // Add C FFI types for parameters (all passed as MemorySegment across the FFI boundary)
+        for _param in &method.params {
+            method_type_params.push("MemorySegment.class".to_string());
+        }
+
+        // Add output parameter slots
+        if !matches!(method.return_type, TypeRef::Unit) {
+            method_type_params.push("MemorySegment.class".to_string()); // out_result
+        }
+        method_type_params.push("MemorySegment.class".to_string()); // out_error
+
         writeln!(
             out,
             "            var stub{} = LINKER.upcallStub(LOOKUP.bind(this, \"{}\",",
-            method_name.to_pascal_case(),
+            method.name.to_pascal_case(),
             handle_name
         )
         .ok();
-        writeln!(out, "                MethodType.methodType(MemorySegment.class)),").ok();
+        writeln!(out, "                MethodType.methodType(int.class, {})),", method_type_params.join(", ")).ok();
+
+        // Build FunctionDescriptor
+        let mut func_desc_params = vec!["ValueLayout.ADDRESS".to_string()]; // user_data: void*
+        for param in &method.params {
+            // Map parameter type to FFI layout
+            let ffi_layout = match &param.ty {
+                TypeRef::Primitive(p) => java_ffi_type(p).to_string(),
+                _ => "ValueLayout.ADDRESS".to_string(), // All complex types passed as char*
+            };
+            func_desc_params.push(ffi_layout);
+        }
+        if !matches!(method.return_type, TypeRef::Unit) {
+            func_desc_params.push("ValueLayout.ADDRESS".to_string()); // out_result: char**
+        }
+        func_desc_params.push("ValueLayout.ADDRESS".to_string()); // out_error: char**
+
         writeln!(
             out,
-            "                FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS),"
+            "                FunctionDescriptor.of(ValueLayout.JAVA_INT, {}),"
+,            func_desc_params.join(", ")
         )
         .ok();
         writeln!(out, "                arena);").ok();
         writeln!(
             out,
             "            vtable.set(ValueLayout.ADDRESS, offset, stub{});",
-            method_name.to_pascal_case()
+            method.name.to_pascal_case()
         )
         .ok();
         writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
@@ -318,24 +364,49 @@ pub fn gen_trait_bridge(
     }
 
     // Trait method handlers
-    for (method_name, return_type) in trait_methods {
+    for method in &trait_def.methods {
+        // Method signature matches C vtable: (void* user_data, [params...], [char** out_result], char** out_error) -> int32_t
+        let mut sig_params = vec!["MemorySegment userData".to_string()];
+        for param in &method.params {
+            sig_params.push(format!("MemorySegment {}", param.name));
+        }
+        if !matches!(method.return_type, TypeRef::Unit) {
+            sig_params.push("MemorySegment outResult".to_string());
+        }
+        sig_params.push("MemorySegment outError".to_string());
+
         writeln!(
             out,
-            "    private MemorySegment handle{}() {{",
-            method_name.to_pascal_case()
+            "    private int handle{}({}) {{",
+            method.name.to_pascal_case(),
+            sig_params.join(", ")
         )
         .ok();
         writeln!(out, "        try {{").ok();
-        if *return_type == "void" || *return_type == "Void" {
-            writeln!(out, "            impl.{}();", method_name).ok();
-            writeln!(out, "            return MemorySegment.NULL;").ok();
-        } else {
-            writeln!(out, "            {} result = impl.{}();", return_type, method_name).ok();
-            writeln!(out, "            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result);").ok();
-            writeln!(out, "            return arena.allocateFrom(json);").ok();
+
+        // Unmarshal parameters from MemorySegment to Java types
+        for param in &method.params {
+            gen_param_unmarshal(&mut out, &param.name, &param.ty);
         }
+
+        // Call the method
+        let java_params: Vec<String> = method.params.iter().map(|p| p.name.clone()).collect();
+        if matches!(method.return_type, TypeRef::Unit) {
+            writeln!(out, "            impl.{}({});", method.name, java_params.join(", ")).ok();
+        } else {
+            let return_type_str = java_type(&method.return_type);
+            writeln!(out, "            {} result = impl.{}({});", return_type_str, method.name, java_params.join(", ")).ok();
+            // Marshal result to JSON and store in outResult
+            writeln!(out, "            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result);").ok();
+            writeln!(out, "            MemorySegment jsonCs = arena.allocateFrom(json);").ok();
+            writeln!(out, "            outResult.set(ValueLayout.ADDRESS, 0, jsonCs);").ok();
+        }
+        writeln!(out, "            return 0; // success").ok();
         writeln!(out, "        }} catch (Throwable e) {{").ok();
-        writeln!(out, "            return MemorySegment.NULL;").ok();
+        writeln!(out, "            String errMsg = e.getClass().getSimpleName() + \": \" + e.getMessage();").ok();
+        writeln!(out, "            MemorySegment errCs = arena.allocateFrom(errMsg);").ok();
+        writeln!(out, "            outError.set(ValueLayout.ADDRESS, 0, errCs);").ok();
+        writeln!(out, "            return 1; // error").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
@@ -374,7 +445,7 @@ pub fn gen_trait_bridge(
     .ok();
     writeln!(
         out,
-        "public static void register{}(final {} impl) throws Exception {{",
+        "public static void register{}(final I{} impl) throws Exception {{",
         trait_pascal, trait_pascal
     )
     .ok();
@@ -484,16 +555,109 @@ pub fn gen_trait_bridge(
     out
 }
 
+/// Generate code to unmarshal a parameter from MemorySegment to Java type.
+fn gen_param_unmarshal(out: &mut String, param_name: &str, param_type: &TypeRef) {
+    use std::fmt::Write;
+    match param_type {
+        TypeRef::Primitive(_) => {
+            // For primitives, assume the parameter is already the right type
+            // (this is handled by the MethodType/FunctionDescriptor)
+        }
+        TypeRef::String | TypeRef::Path => {
+            writeln!(out, "            String {} = {}.reinterpret(Long.MAX_VALUE).getString(0);", param_name, param_name).ok();
+        }
+        TypeRef::Bytes => {
+            writeln!(out, "            byte[] {} = {}.reinterpret(Long.MAX_VALUE).toArray(ValueLayout.JAVA_BYTE);", param_name, param_name).ok();
+        }
+        TypeRef::Named(_) => {
+            // For Named types, deserialize from JSON
+            writeln!(out, "            String {}_json = {}.reinterpret(Long.MAX_VALUE).getString(0);", param_name, param_name).ok();
+            writeln!(out, "            var {}_obj = new com.fasterxml.jackson.databind.ObjectMapper().readValue({}_json, Object.class);", param_name, param_name).ok();
+            writeln!(out, "            Object {} = {}_obj;", param_name, param_name).ok();
+        }
+        _ => {
+            // For Optional, Vec, Map, etc., deserialize from JSON
+            writeln!(out, "            String {}_json = {}.reinterpret(Long.MAX_VALUE).getString(0);", param_name, param_name).ok();
+            writeln!(out, "            var {}_obj = new com.fasterxml.jackson.databind.ObjectMapper().readValue({}_json, Object.class);", param_name, param_name).ok();
+            writeln!(out, "            Object {} = {}_obj;", param_name, param_name).ok();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alef_core::ir::{MethodDef, ParamDef, TypeDef};
+
+    fn make_test_trait(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("test::{}", name),
+            original_rust_path: format!("test::{}", name),
+            fields: vec![],
+            methods,
+            is_opaque: false,
+            is_clone: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+        }
+    }
+
+    fn make_test_method(name: &str, return_type: TypeRef, params: Vec<ParamDef>) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params,
+            return_type,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        }
+    }
+
+    fn make_test_param(name: &str, ty: TypeRef) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
 
     #[test]
     fn test_gen_trait_bridge_basic() {
-        let code = gen_trait_bridge("MyPlugin", "mylib", &[("doWork", "String"), ("getStatus", "int")], true);
+        let trait_def = make_test_trait(
+            "MyPlugin",
+            vec![
+                make_test_method("doWork", TypeRef::String, vec![]),
+                make_test_method("getStatus", TypeRef::Primitive(alef_core::ir::PrimitiveType::I32), vec![]),
+            ],
+        );
+
+        let code = gen_trait_bridge(&trait_def, "mylib", true);
 
         // Basic sanity checks
-        assert!(code.contains("public interface MyPlugin"));
+        assert!(code.contains("public interface IMyPlugin"));
         assert!(code.contains("String name()"));
         assert!(code.contains("String version()"));
         assert!(code.contains("void initialize()"));
@@ -507,7 +671,9 @@ mod tests {
 
     #[test]
     fn test_gen_trait_bridge_vtable_stubs() {
-        let code = gen_trait_bridge("Handler", "lib", &[], true);
+        let trait_def = make_test_trait("Handler", vec![]);
+
+        let code = gen_trait_bridge(&trait_def, "lib", true);
 
         // Verify Panama FFM upcall stubs are generated
         assert!(code.contains("LINKER.upcallStub"));
@@ -518,19 +684,39 @@ mod tests {
     }
 
     #[test]
-    fn test_gen_trait_bridge_lifecycle_methods() {
-        let code = gen_trait_bridge("Processor", "pfx", &[("process", "Object")], true);
+    fn test_gen_trait_bridge_method_with_params() {
+        let trait_def = make_test_trait(
+            "Processor",
+            vec![make_test_method(
+                "process",
+                TypeRef::String,
+                vec![
+                    make_test_param("input", TypeRef::String),
+                    make_test_param("count", TypeRef::Primitive(alef_core::ir::PrimitiveType::I32)),
+                ],
+            )],
+        );
 
-        // Verify Plugin lifecycle methods are present in Java interface
-        assert!(code.contains("String name()"));
-        assert!(code.contains("String version()"));
-        assert!(code.contains("void initialize()"));
-        assert!(code.contains("void shutdown()"));
+        let code = gen_trait_bridge(&trait_def, "pfx", true);
+
+        // Verify method parameters are emitted
+        assert!(code.contains("String input"));
+        assert!(code.contains("int count"));
+        assert!(code.contains("process"));
     }
 
     #[test]
     fn test_gen_trait_bridge_no_super_trait_omits_lifecycle() {
-        let code = gen_trait_bridge("Transformer", "lib", &[("transform", "String")], false);
+        let trait_def = make_test_trait(
+            "Transformer",
+            vec![make_test_method(
+                "transform",
+                TypeRef::String,
+                vec![],
+            )],
+        );
+
+        let code = gen_trait_bridge(&trait_def, "lib", false);
 
         // Without super_trait, no lifecycle slots should be emitted
         assert!(

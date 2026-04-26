@@ -152,6 +152,35 @@ impl Backend for CsharpBackend {
             }
         }
 
+        // 3c. Generate trait bridge classes when configured.
+        if !config.trait_bridges.is_empty() {
+            let trait_defs: Vec<_> = api.types.iter().filter(|t| t.is_trait).collect();
+            let bridges: Vec<_> = config
+                .trait_bridges
+                .iter()
+                .filter_map(|cfg| {
+                    let trait_name = cfg.trait_name.clone();
+                    trait_defs
+                        .iter()
+                        .find(|t| t.name == trait_name)
+                        .map(|trait_def| (trait_name, cfg, *trait_def))
+                })
+                .collect();
+
+            if !bridges.is_empty() {
+                let (filename, content) = crate::trait_bridge::gen_trait_bridges_file(
+                    &namespace,
+                    &prefix,
+                    &bridges,
+                );
+                files.push(GeneratedFile {
+                    path: base_path.join(filename),
+                    content: strip_trailing_whitespace(&content),
+                    generated_header: true,
+                });
+            }
+        }
+
         // 4. Generate opaque handle classes
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {

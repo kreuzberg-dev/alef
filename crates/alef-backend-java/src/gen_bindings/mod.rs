@@ -11,12 +11,14 @@ mod ffi_class;
 mod helpers;
 mod marshal;
 mod native_lib;
+mod trait_bridge;
 mod types;
 
 use facade::gen_facade_class;
 use ffi_class::gen_main_class;
 use helpers::gen_exception_class;
 use native_lib::gen_native_lib;
+use trait_bridge::gen_trait_bridge;
 use types::{gen_builder_class, gen_enum_class, gen_opaque_handle_class, gen_record_type};
 
 pub struct JavaBackend;
@@ -220,6 +222,25 @@ impl Backend for JavaBackend {
                     path: base_path.join(filename),
                     content,
                     generated_header: false, // already has header comment
+                });
+            }
+        }
+
+        // 8. Trait bridge plugin registration files
+        for bridge_cfg in &config.trait_bridges {
+            if bridge_cfg.exclude_languages.contains(&Language::Java.to_string()) {
+                continue;
+            }
+
+            // Find the trait definition in the API
+            if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
+                let has_super_trait = bridge_cfg.super_trait.is_some();
+                let bridge_code = gen_trait_bridge(trait_def, &prefix, has_super_trait);
+
+                files.push(GeneratedFile {
+                    path: base_path.join(format!("{}Bridge.java", trait_def.name)),
+                    content: bridge_code,
+                    generated_header: true,
                 });
             }
         }
