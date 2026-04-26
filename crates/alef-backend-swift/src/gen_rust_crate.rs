@@ -321,6 +321,9 @@ fn emit_type_wrapper(ty: &TypeDef, source_crate: &str) -> String {
             })
             .collect();
         // Field initializers: JSON-deserialize, unwrap newtype wrappers, etc.
+        // String-like fields are JSON-deserialized at runtime so the codegen
+        // works for both real String fields and source fields that map to
+        // alef String fallbacks (enums, serde_json::Value, etc.).
         let field_inits: Vec<String> = ty
             .fields
             .iter()
@@ -333,12 +336,20 @@ fn emit_type_wrapper(ty: &TypeDef, source_crate: &str) -> String {
                         "            {name}: serde_json::from_str::<{opt_ty}>(&{name}).expect(\"valid JSON for {name}\")"
                     )
                 } else if matches!(f.ty, TypeRef::Named(_)) {
-                    // Named field: wrapper newtype → unwrap with `.0` to get
-                    // the source-crate type the inner struct expects.
                     if f.optional {
                         format!("            {name}: {name}.map(|w| w.0)")
                     } else {
                         format!("            {name}: {name}.0")
+                    }
+                } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json | TypeRef::Bytes) {
+                    if f.optional {
+                        format!(
+                            "            {name}: {name}.and_then(|s| serde_json::from_str(&s).ok().or_else(|| serde_json::from_value(::serde_json::Value::String(s)).ok()))"
+                        )
+                    } else {
+                        format!(
+                            "            {name}: serde_json::from_str(&{name}).ok().or_else(|| serde_json::from_value::<_>(::serde_json::Value::String({name}.clone())).ok()).unwrap_or_else(|| panic!(\"failed to deserialize {name}\"))"
+                        )
                     }
                 } else {
                     format!("            {name}")
