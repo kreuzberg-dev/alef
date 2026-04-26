@@ -38,7 +38,7 @@ pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> an
 
 [lib]
 name = "{nif_name}"
-path = "../../../../crates/{core_crate_dir}-elixir/src/lib.rs"
+path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
