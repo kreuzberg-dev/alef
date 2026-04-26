@@ -27,8 +27,8 @@ pub use e2e::E2eConfig;
 pub use extras::{AdapterConfig, AdapterParam, AdapterPattern, Language};
 pub use languages::{
     CSharpConfig, CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig, DartConfig, ElixirConfig,
-    FfiConfig, GleamConfig, GoConfig, JavaConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig,
-    RubyConfig, StubsConfig, SwiftConfig, WasmConfig, ZigConfig,
+    FfiConfig, GleamConfig, GoConfig, JavaConfig, KotlinConfig, KotlinTarget, NodeConfig, PhpConfig, PythonConfig,
+    RConfig, RubyConfig, StubsConfig, SwiftConfig, WasmConfig, ZigConfig,
 };
 pub use output::{
     BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
@@ -816,6 +816,14 @@ impl AlefConfig {
             .and_then(|k| k.package.as_ref())
             .cloned()
             .unwrap_or_else(|| "dev.kreuzberg".to_string())
+    }
+
+    /// Get the Kotlin target platform.
+    ///
+    /// Returns `KotlinTarget::Jvm` (the default) when the `[kotlin]` section is absent or
+    /// `target` is not set.
+    pub fn kotlin_target(&self) -> KotlinTarget {
+        self.kotlin.as_ref().map(|k| k.target).unwrap_or_default()
     }
 
     /// Get the Dart pubspec package name.
