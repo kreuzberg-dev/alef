@@ -973,6 +973,14 @@ fn native_call_arg(ty: &TypeRef, param_name: &str, optional: bool, true_opaque_t
         TypeRef::Bytes => {
             format!("{param_name}Handle.AddrOfPinnedObject()")
         }
+        TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool) => {
+            // FFI convention: bool marshalled as int (0 = false, non-zero = true)
+            if optional {
+                format!("({param_name}?.Value ? 1 : 0)")
+            } else {
+                format!("({param_name} ? 1 : 0)")
+            }
+        }
         ty => {
             if optional {
                 // For optional primitive types (e.g. ulong?, uint?), the `!` null-forgiving
