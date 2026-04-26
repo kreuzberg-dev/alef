@@ -53,13 +53,37 @@ impl Backend for GleamBackend {
             body.push('\n');
         }
 
+        // Gleam requires constructor names to be unique module-wide. Build a set of
+        // all variant names that appear more than once across enums + error types,
+        // and prefix those (and only those) with their parent type name.
+        let mut variant_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for en in &api.enums {
+            for v in &en.variants {
+                *variant_counts.entry(v.name.clone()).or_insert(0) += 1;
+            }
+        }
+        for err in &api.errors {
+            for v in &err.variants {
+                *variant_counts.entry(v.name.clone()).or_insert(0) += 1;
+            }
+        }
+        // Also flag variants whose name collides with an existing top-level type.
+        for ty in &api.types {
+            *variant_counts.entry(ty.name.clone()).or_insert(0) += 1;
+        }
+        let collisions: std::collections::HashSet<String> = variant_counts
+            .into_iter()
+            .filter_map(|(n, c)| if c > 1 { Some(n) } else { None })
+            .collect();
+
         for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-            emit_enum(en, &mut body, &mut imports);
+            emit_enum(en, &collisions, &mut body, &mut imports);
             body.push('\n');
         }
 
         for err in &api.errors {
-            emit_error_type(err, &mut body, &mut imports);
+            emit_error_type(err, &collisions, &mut body, &mut imports);
             body.push('\n');
         }
 
@@ -146,7 +170,22 @@ fn emit_variant_fields(
     }
 }
 
-fn emit_enum(en: &EnumDef, out: &mut String, imports: &mut BTreeSet<&'static str>) {
+/// Resolve a variant name within its parent type. If the variant name is also
+/// used by another type's variant in the same module (Gleam requires unique
+/// constructor names module-wide), prefix it with the parent type name.
+fn variant_constructor_name(
+    parent_type: &str,
+    variant_name: &str,
+    collisions: &std::collections::HashSet<String>,
+) -> String {
+    if collisions.contains(variant_name) {
+        format!("{parent_type}{variant_name}")
+    } else {
+        variant_name.to_string()
+    }
+}
+
+fn emit_enum(en: &EnumDef, collisions: &std::collections::HashSet<String>, out: &mut String, imports: &mut BTreeSet<&'static str>) {
     if !en.doc.is_empty() {
         for line in en.doc.lines() {
             out.push_str("/// ");
@@ -156,10 +195,11 @@ fn emit_enum(en: &EnumDef, out: &mut String, imports: &mut BTreeSet<&'static str
     }
     out.push_str(&format!("pub type {} {{\n", en.name));
     for variant in &en.variants {
+        let ctor = variant_constructor_name(&en.name, &variant.name, collisions);
         if variant.fields.is_empty() {
-            out.push_str(&format!("  {}\n", variant.name));
+            out.push_str(&format!("  {ctor}\n"));
         } else {
-            out.push_str(&format!("  {}(\n", variant.name));
+            out.push_str(&format!("  {ctor}(\n"));
             emit_variant_fields(&variant.fields, out, imports);
             out.push_str("  )\n");
         }
@@ -167,7 +207,7 @@ fn emit_enum(en: &EnumDef, out: &mut String, imports: &mut BTreeSet<&'static str
     out.push_str("}\n");
 }
 
-fn emit_error_type(err: &ErrorDef, out: &mut String, imports: &mut BTreeSet<&'static str>) {
+fn emit_error_type(err: &ErrorDef, collisions: &std::collections::HashSet<String>, out: &mut String, imports: &mut BTreeSet<&'static str>) {
     if !err.doc.is_empty() {
         for line in err.doc.lines() {
             out.push_str("/// ");
@@ -177,10 +217,11 @@ fn emit_error_type(err: &ErrorDef, out: &mut String, imports: &mut BTreeSet<&'st
     }
     out.push_str(&format!("pub type {} {{\n", err.name));
     for variant in &err.variants {
+        let ctor = variant_constructor_name(&err.name, &variant.name, collisions);
         if variant.fields.is_empty() {
-            out.push_str(&format!("  {}\n", variant.name));
+            out.push_str(&format!("  {ctor}\n"));
         } else {
-            out.push_str(&format!("  {}(\n", variant.name));
+            out.push_str(&format!("  {ctor}(\n"));
             emit_variant_fields(&variant.fields, out, imports);
             out.push_str("  )\n");
         }
