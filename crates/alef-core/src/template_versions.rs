@@ -303,7 +303,7 @@ pub mod pub_dev {
 /// Platform / toolchain pins. None of these auto-bump; track manually.
 pub mod toolchain {
     // minimum supported Zig; manual bump required
-    pub const MIN_ZIG_VERSION: &str = "0.14.0";
+    pub const MIN_ZIG_VERSION: &str = "0.16.0";
 
     // version range; manual bump required
     pub const DART_SDK_CONSTRAINT: &str = ">=3.0.0 <4.0.0";
