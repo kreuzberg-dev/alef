@@ -1,9 +1,9 @@
 use alef_backend_gleam::GleamBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, GleamConfig};
+use alef_core::config::{AlefConfig, CrateConfig, GleamConfig, TraitBridgeConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
-    PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef,
+    ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -445,5 +445,227 @@ fn nif_module_override_uses_custom_name() {
     assert!(
         content.contains("@external(erlang, \"custom_nif_atom\", \"greet\")"),
         "should use custom nif_module: {content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trait bridge helpers
+// ---------------------------------------------------------------------------
+
+fn make_method(name: &str) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("demo::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: false,
+        is_clone: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    }
+}
+
+fn make_bridge_cfg(trait_name: &str, register_fn: &str) -> TraitBridgeConfig {
+    TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: Some(format!("demo::get_{}_registry", trait_name.to_lowercase())),
+        register_fn: Some(register_fn.to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+    }
+}
+
+fn make_config_with_bridges(bridges: Vec<TraitBridgeConfig>) -> AlefConfig {
+    AlefConfig {
+        version: None,
+        crate_config: CrateConfig {
+            name: "demo".to_string(),
+            sources: vec![],
+            version_from: "Cargo.toml".to_string(),
+            core_import: None,
+            workspace_root: None,
+            skip_core_import: false,
+            features: vec![],
+            path_mappings: std::collections::HashMap::new(),
+            auto_path_mappings: Default::default(),
+            extra_dependencies: Default::default(),
+            source_crates: vec![],
+            error_type: None,
+            error_constructor: None,
+        },
+        languages: vec![],
+        exclude: Default::default(),
+        include: Default::default(),
+        output: Default::default(),
+        python: None,
+        node: None,
+        ruby: None,
+        php: None,
+        elixir: None,
+        wasm: None,
+        ffi: None,
+        gleam: None,
+        go: None,
+        java: None,
+        kotlin: None,
+        dart: None,
+        swift: None,
+        csharp: None,
+        r: None,
+        zig: None,
+        scaffold: None,
+        readme: None,
+        lint: None,
+        update: None,
+        test: None,
+        setup: None,
+        clean: None,
+        build_commands: None,
+        publish: None,
+        custom_files: None,
+        adapters: vec![],
+        custom_modules: alef_core::config::CustomModulesConfig::default(),
+        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
+        opaque_types: std::collections::HashMap::new(),
+        generate: alef_core::config::GenerateConfig::default(),
+        generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
+        sync: None,
+        e2e: None,
+        trait_bridges: bridges,
+        tools: alef_core::config::ToolsConfig::default(),
+        format: ::alef_core::config::FormatConfig::default(),
+        format_overrides: ::std::collections::HashMap::new(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Trait bridge: single-method trait emits registration shim + support NIFs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn trait_bridge_single_method_emits_register_and_support_nifs() {
+    let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
+    let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    assert_eq!(files.len(), 1);
+    let content = &files[0].content;
+
+    // Registration shim must reference the correct Rustler NIF name
+    assert!(
+        content.contains("@external(erlang, \"Elixir.Demo.Native\", \"register_ocr_backend\")"),
+        "missing register shim: {content}"
+    );
+    assert!(
+        content.contains("pub fn register_ocr_backend(pid: Dynamic, plugin_name: String) -> Nil"),
+        "missing register fn signature: {content}"
+    );
+
+    // Support NIFs must be emitted once
+    assert!(
+        content.contains("@external(erlang, \"Elixir.Demo.Native\", \"complete_trait_call\")"),
+        "missing complete_trait_call shim: {content}"
+    );
+    assert!(
+        content.contains("pub fn complete_trait_call(reply_id: Int, result_json: String) -> Nil"),
+        "missing complete_trait_call signature: {content}"
+    );
+    assert!(
+        content.contains("@external(erlang, \"Elixir.Demo.Native\", \"fail_trait_call\")"),
+        "missing fail_trait_call shim: {content}"
+    );
+
+    // Dynamic import must be present
+    assert!(
+        content.contains("import gleam/dynamic.{type Dynamic}"),
+        "missing Dynamic import: {content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trait bridge: multi-method trait emits only one set of support NIFs
+// ---------------------------------------------------------------------------
+
+#[test]
+fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
+    let ocr_type = make_trait_type("OcrBackend", vec![make_method("process"), make_method("name")]);
+    let embedding_type = make_trait_type("EmbeddingBackend", vec![make_method("embed")]);
+    let ocr_bridge = make_bridge_cfg("OcrBackend", "register_ocr_backend");
+    let embedding_bridge = make_bridge_cfg("EmbeddingBackend", "register_embedding_backend");
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![ocr_type, embedding_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_bridges(vec![ocr_bridge, embedding_bridge]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // Both registration shims must be present
+    assert!(
+        content.contains("pub fn register_ocr_backend("),
+        "missing ocr register fn: {content}"
+    );
+    assert!(
+        content.contains("pub fn register_embedding_backend("),
+        "missing embedding register fn: {content}"
+    );
+
+    // Support NIFs emitted exactly once (count occurrences)
+    let complete_count = content.matches("pub fn complete_trait_call(").count();
+    assert_eq!(
+        complete_count, 1,
+        "complete_trait_call must be emitted exactly once, found {complete_count}: {content}"
+    );
+    let fail_count = content.matches("pub fn fail_trait_call(").count();
+    assert_eq!(
+        fail_count, 1,
+        "fail_trait_call must be emitted exactly once, found {fail_count}: {content}"
     );
 }
