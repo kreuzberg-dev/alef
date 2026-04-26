@@ -105,31 +105,22 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
         writeln!(out, "match rx.blocking_recv() {{").ok();
         if has_error {
+            let err_deser = spec.error_constructor.replace("{msg}", "format!(\"Failed to deserialize response: {{}}\", _e)");
             writeln!(
                 out,
-                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}Error {{",
-                spec.error_type
+                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),",
+                err_deser
             )
             .ok();
+            let err_msg = spec.error_constructor.replace("{msg}", "msg");
             writeln!(
                 out,
-                "        message: format!(\"Failed to deserialize response: {{}}\", e),"
+                "    Ok(Err(msg)) => Err({}),",
+                err_msg
             )
             .ok();
-            writeln!(out, "    }}),").ok();
-            writeln!(
-                out,
-                "    Ok(Err(msg)) => Err({}Error {{ message: msg }}),",
-                spec.error_type
-            )
-            .ok();
-            writeln!(out, "    Err(_) => Err({}Error {{", spec.error_type).ok();
-            writeln!(
-                out,
-                "        message: \"Channel closed before reply received\".to_string(),"
-            )
-            .ok();
-            writeln!(out, "    }})").ok();
+            let err_closed = spec.error_constructor.replace("{msg}", "\"Channel closed before reply received\".to_string()");
+            writeln!(out, "    Err(_) => Err({})", err_closed).ok();
         } else {
             writeln!(
                 out,
@@ -200,31 +191,22 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
         writeln!(out, "match rx.await {{").ok();
         if has_error {
+            let err_deser = spec.error_constructor.replace("{msg}", "format!(\"Failed to deserialize response: {{}}\", _e)");
             writeln!(
                 out,
-                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}Error {{",
-                spec.error_type
+                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|_e| {}),",
+                err_deser
             )
             .ok();
+            let err_msg = spec.error_constructor.replace("{msg}", "msg");
             writeln!(
                 out,
-                "        message: format!(\"Failed to deserialize response: {{}}\", e),"
+                "    Ok(Err(msg)) => Err({}),",
+                err_msg
             )
             .ok();
-            writeln!(out, "    }}),").ok();
-            writeln!(
-                out,
-                "    Ok(Err(msg)) => Err({}Error {{ message: msg }}),",
-                spec.error_type
-            )
-            .ok();
-            writeln!(out, "    Err(_) => Err({}Error {{", spec.error_type).ok();
-            writeln!(
-                out,
-                "        message: \"Channel closed before reply received\".to_string(),"
-            )
-            .ok();
-            writeln!(out, "    }})").ok();
+            let err_closed = spec.error_constructor.replace("{msg}", "\"Channel closed before reply received\".to_string()");
+            writeln!(out, "    Err(_) => Err({})", err_closed).ok();
         } else {
             writeln!(
                 out,
@@ -334,7 +316,7 @@ impl RustlerBridgeGenerator {
         writeln!(out, "#[rustler::nif]").ok();
         writeln!(
             out,
-            "pub fn complete_trait_call(reply_id: u64, result_json: String) -> rustler::Atom {{"
+            "pub fn complete_trait_call(env: rustler::Env, reply_id: u64, result_json: String) -> rustler::Atom {{"
         )
         .ok();
         writeln!(
@@ -346,7 +328,7 @@ impl RustlerBridgeGenerator {
         writeln!(out, "    }}").ok();
         writeln!(
             out,
-            "    rustler::types::atom::Atom::from_str(rustler::Env::new(), \"ok\").unwrap()"
+            "    rustler::types::atom::ok()"
         )
         .ok();
         writeln!(out, "}}").ok();
@@ -357,7 +339,7 @@ impl RustlerBridgeGenerator {
         writeln!(out, "#[rustler::nif]").ok();
         writeln!(
             out,
-            "pub fn fail_trait_call(reply_id: u64, error_message: String) -> rustler::Atom {{"
+            "pub fn fail_trait_call(env: rustler::Env, reply_id: u64, error_message: String) -> rustler::Atom {{"
         )
         .ok();
         writeln!(
@@ -369,7 +351,7 @@ impl RustlerBridgeGenerator {
         writeln!(out, "    }}").ok();
         writeln!(
             out,
-            "    rustler::types::atom::Atom::from_str(rustler::Env::new(), \"ok\").unwrap()"
+            "    rustler::types::atom::ok()"
         )
         .ok();
         writeln!(out, "}}").ok();
@@ -419,6 +401,8 @@ pub fn gen_trait_bridge(
             &trait_path,
             core_import,
             &type_paths,
+            error_type,
+            error_constructor,
         );
         BridgeOutput {
             imports: vec![],
@@ -466,6 +450,8 @@ fn gen_visitor_bridge(
     trait_path: &str,
     core_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    _error_type: &str,
+    _error_constructor: &str,
 ) {
     // Helper: convert NodeContext to a Rustler NifMap term inside an OwnedEnv
     writeln!(out, "fn nodecontext_to_elixir_map<'a>(").unwrap();
