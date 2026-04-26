@@ -103,7 +103,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
-extendr-api = {{ version = "{extendr_api}", features = ["use-precompiled-bindings"] }}
+extendr-api = "{extendr_api}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 "#,

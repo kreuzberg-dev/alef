@@ -317,6 +317,14 @@ fn main() -> Result<()> {
             let mut any_written = false;
             for (lang, lang_files) in &files {
                 let lang_str = lang.to_string();
+
+                // Track all generated paths for cleanup BEFORE any skip-on-up-to-date check.
+                // The cleanup pass uses this set to know which files the current run *would*
+                // produce — including unchanged files that we skip writing.
+                for file in lang_files {
+                    current_gen_paths.insert(base_dir.join(&file.path));
+                }
+
                 let hashes: Vec<(String, String)> = lang_files
                     .iter()
                     .map(|f| {
@@ -348,11 +356,6 @@ fn main() -> Result<()> {
                 total_written += written;
                 any_written = true;
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
-
-                // Track all generated paths for cleanup
-                for file in lang_files {
-                    current_gen_paths.insert(base_dir.join(&file.path));
-                }
             }
 
             // Generate public API wrappers
@@ -408,7 +411,7 @@ fn main() -> Result<()> {
             }
 
             // Clean up orphaned alef-generated files
-            if let Ok(removed) = pipeline::cleanup_orphaned_files(&config, &current_gen_paths, &base_dir) {
+            if let Ok(removed) = pipeline::cleanup_orphaned_files(&current_gen_paths) {
                 if removed > 0 {
                     eprintln!("Removed {removed} stale alef-generated file(s)");
                 }
@@ -737,6 +740,13 @@ fn main() -> Result<()> {
             let mut binding_count: usize = 0;
             for (lang, lang_files) in &bindings {
                 let lang_str = lang.to_string();
+
+                // Track all generated paths for cleanup BEFORE the skip-if-up-to-date check,
+                // so unchanged but legitimate files are not deleted as orphans.
+                for file in lang_files {
+                    current_gen_paths.insert(base_dir.join(&file.path));
+                }
+
                 let hashes: Vec<(String, String)> = lang_files
                     .iter()
                     .map(|f| {
@@ -758,11 +768,6 @@ fn main() -> Result<()> {
                 let single = vec![(*lang, lang_files.clone())];
                 binding_count += pipeline::write_files(&single, &base_dir)?;
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
-
-                // Track all generated paths for cleanup
-                for file in lang_files {
-                    current_gen_paths.insert(base_dir.join(&file.path));
-                }
             }
 
             eprintln!("Generating type stubs...");
@@ -792,12 +797,11 @@ fn main() -> Result<()> {
                 0
             };
 
-            // Track stub files for cleanup
-            if stub_count > 0 {
-                for (_, files) in &stubs {
-                    for file in files {
-                        current_gen_paths.insert(base_dir.join(&file.path));
-                    }
+            // Track stub paths for cleanup regardless of whether they were just rewritten;
+            // up-to-date stubs are still legitimate output of this run.
+            for (_, files) in &stubs {
+                for file in files {
+                    current_gen_paths.insert(base_dir.join(&file.path));
                 }
             }
 
@@ -820,10 +824,16 @@ fn main() -> Result<()> {
             eprintln!("Generating scaffolding...");
             let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
             let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
+            for file in &scaffold_files {
+                current_gen_paths.insert(base_dir.join(&file.path));
+            }
 
             eprintln!("Generating READMEs...");
             let readme_files = pipeline::readme(&api, &config, &languages)?;
             let readme_count = pipeline::write_scaffold_files_with_overwrite(&readme_files, &base_dir, clean)?;
+            for file in &readme_files {
+                current_gen_paths.insert(base_dir.join(&file.path));
+            }
 
             // Generate e2e tests if [e2e] section is present in config
             let mut e2e_count = 0;
@@ -832,6 +842,9 @@ fn main() -> Result<()> {
                 let files = alef_e2e::generate_e2e(&config, e2e_config, None)?;
                 e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean)?;
                 alef_e2e::format::run_formatters(&files, e2e_config);
+                for file in &files {
+                    current_gen_paths.insert(base_dir.join(&file.path));
+                }
             }
 
             // Generate API docs using filtered IR so docs match the public API surface.
@@ -840,9 +853,12 @@ fn main() -> Result<()> {
             let doc_languages = resolve_doc_languages(&config, None)?;
             let doc_files = alef_docs::generate_docs(&docs_api, &config, &doc_languages, "docs/reference")?;
             let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
+            for file in &doc_files {
+                current_gen_paths.insert(base_dir.join(&file.path));
+            }
 
             // Clean up orphaned alef-generated files
-            if let Ok(removed) = pipeline::cleanup_orphaned_files(&config, &current_gen_paths, &base_dir) {
+            if let Ok(removed) = pipeline::cleanup_orphaned_files(&current_gen_paths) {
                 if removed > 0 {
                     eprintln!("Removed {removed} stale alef-generated file(s)");
                 }
