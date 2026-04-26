@@ -644,11 +644,24 @@ fn gen_single_trait_bridge(
         trait_pascal
     )
     .ok();
-    writeln!(out, "    public static void Register(I{} impl) {{", trait_pascal).ok();
+    // Plugin traits (has_super_trait) expose Name on the interface; non-plugin traits
+    // require the caller to supply a registry key explicitly.
+    if has_super_trait {
+        writeln!(out, "    public static void Register(I{} impl) {{", trait_pascal).ok();
+    } else {
+        writeln!(
+            out,
+            "    public static void Register(I{} impl, string name) {{",
+            trait_pascal
+        )
+        .ok();
+    }
     writeln!(out, "        if (impl == null)").ok();
     writeln!(out, "            throw new ArgumentNullException(nameof(impl));").ok();
     writeln!(out).ok();
-    writeln!(out, "        var name = impl.Name;").ok();
+    if has_super_trait {
+        writeln!(out, "        var name = impl.Name;").ok();
+    }
     writeln!(out, "        var bridge = new {}Bridge(impl);", trait_pascal).ok();
     writeln!(out).ok();
     writeln!(out, "        try {{").ok();
@@ -810,15 +823,33 @@ mod tests {
     }
 
     #[test]
-    fn test_registry_class_exists() {
+    fn test_registry_no_super_trait_requires_explicit_name_param() {
+        // Without super_trait, the interface has no Name property, so Register must
+        // accept an explicit string name from the caller.
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", None);
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
         let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
 
         assert!(content.contains("public static class OcrBackendRegistry"));
-        assert!(content.contains("public static void Register(IOcrBackend impl)"));
+        assert!(content.contains("public static void Register(IOcrBackend impl, string name)"));
         assert!(content.contains("public static void Unregister(string name)"));
+        // No impl.Name reference when interface lacks it
+        assert!(!content.contains("impl.Name"));
+    }
+
+    #[test]
+    fn test_registry_with_super_trait_reads_name_from_impl() {
+        // With super_trait, interface declares Name property; Register reads it from impl.
+        let trait_def = make_trait_def("OcrBackend");
+        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges);
+
+        assert!(content.contains("public static class OcrBackendRegistry"));
+        assert!(content.contains("public static void Register(IOcrBackend impl)"));
+        assert!(!content.contains("Register(IOcrBackend impl, string name)"));
+        assert!(content.contains("impl.Name"));
     }
 
     #[test]

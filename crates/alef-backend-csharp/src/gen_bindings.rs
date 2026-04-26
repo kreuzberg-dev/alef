@@ -1770,9 +1770,7 @@ fn gen_record_type(
             };
 
             // Second pass: determine field type based on the default value
-            let field_type = if default_val == "null" && !base_type.ends_with('?') {
-                format!("{}?", base_type)
-            } else if is_complex {
+            let field_type = if (default_val == "null" && !base_type.ends_with('?')) || is_complex {
                 format!("{}?", base_type)
             } else {
                 base_type
