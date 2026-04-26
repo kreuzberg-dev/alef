@@ -151,6 +151,9 @@ fn render_package_swift(
         }
     };
 
+    // SwiftPM platform enums use the major version only (.v13, .v14, ...);
+    // strip patch components to match the scaffold's `Package.swift`.
+    let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);
     format!(
         r#"// swift-tools-version: 5.9
 import PackageDescription
@@ -158,7 +161,7 @@ import PackageDescription
 let package = Package(
     name: "E2eSwift",
     platforms: [
-        .macOS(.v{min_macos_flat}),
+        .macOS(.v{min_macos_major}),
     ],
     dependencies: [
 {dep_block},
@@ -170,8 +173,7 @@ let package = Package(
         ),
     ]
 )
-"#,
-        min_macos_flat = min_macos.replace('.', "_")
+"#
     )
 }
 
@@ -259,10 +261,19 @@ fn render_test_method(
 
     if expects_error {
         if is_async {
+            // XCTAssertThrowsError is a synchronous macro; for async-throwing
+            // functions use a do/catch with explicit XCTFail to enforce that
+            // the throw actually happens. `await XCTAssertThrowsError(...)` is
+            // not valid Swift — it evaluates `await` against a non-async expr.
+            let _ = writeln!(out, "        do {{");
             let _ = writeln!(
                 out,
-                "        await XCTAssertThrowsError(try {function_name}({args_str}))"
+                "            _ = try await {function_name}({args_str})"
             );
+            let _ = writeln!(out, "            XCTFail(\"expected to throw\")");
+            let _ = writeln!(out, "        }} catch {{");
+            let _ = writeln!(out, "            // success");
+            let _ = writeln!(out, "        }}");
         } else {
             let _ = writeln!(
                 out,

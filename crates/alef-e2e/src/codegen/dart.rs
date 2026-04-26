@@ -47,11 +47,14 @@ impl E2eCodegen for DartE2eCodegen {
 
         // Resolve package config.
         let dart_pkg = e2e_config.resolve_package("dart");
+        // Match the canonical pubspec name used by `dart_pubspec_name()` so the
+        // import `package:<pkg>/<module>.dart` resolves consistently across
+        // scaffold, publish, and e2e.
         let pkg_name = dart_pkg
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| alef_config.crate_config.name.to_snake_case());
+            .unwrap_or_else(|| alef_config.dart_pubspec_name());
         let pkg_path = dart_pkg
             .as_ref()
             .and_then(|p| p.path.as_ref())
@@ -175,7 +178,12 @@ fn render_test_file(
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     let module_name = pkg_name.to_snake_case();
+    // mock_url args reference Platform.environment which lives in dart:io.
+    let needs_dart_io = args.iter().any(|a| a.arg_type == "mock_url");
     let _ = writeln!(out, "import 'package:test/test.dart';");
+    if needs_dart_io {
+        let _ = writeln!(out, "import 'dart:io';");
+    }
     let _ = writeln!(out, "import 'package:{module_name}/{module_name}.dart';");
     let _ = writeln!(out);
 
@@ -229,7 +237,10 @@ fn render_test_case(
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id);
 
-    if is_async && !expects_error {
+    // Async tests must always use `async` callbacks — `expect(throwsA(...))` on a
+    // synchronous lambda wrapping an async call drops the rejection. Use
+    // `expectLater` + `throwsA` for async-error fixtures.
+    if is_async {
         let _ = writeln!(out, "  test('{description}', () async {{");
     } else {
         let _ = writeln!(out, "  test('{description}', () {{");
@@ -240,11 +251,17 @@ fn render_test_case(
     }
 
     if expects_error {
-        // Dart: expect(() => fn(), throwsA(isA<Exception>()))
-        let _ = writeln!(
-            out,
-            "    expect(() => {function_name}({args_str}), throwsA(isA<Exception>()));"
-        );
+        if is_async {
+            let _ = writeln!(
+                out,
+                "    await expectLater({function_name}({args_str}), throwsA(isA<Exception>()));"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    expect(() => {function_name}({args_str}), throwsA(isA<Exception>()));"
+            );
+        }
         let _ = writeln!(out, "  }});");
         let _ = writeln!(out);
         return;

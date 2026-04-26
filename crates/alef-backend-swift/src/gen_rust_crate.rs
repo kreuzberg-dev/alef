@@ -193,6 +193,20 @@ fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
     block.push_str("    extern \"Rust\" {\n");
 
     for f in functions {
+        // swift-bridge v0.1.59 has no `async` attribute or `async fn` support
+        // inside extern blocks. Async functions emit a sync placeholder + a
+        // `// TODO(swift-bridge async)` marker for users to fill in via the
+        // callback-based pattern. See https://chinedufn.github.io/swift-bridge/
+        if f.is_async {
+            block.push_str(&format!(
+                "        // TODO(swift-bridge async): function `{}` is async; swift-bridge\n",
+                f.name
+            ));
+            block.push_str(
+                "        // 0.1.x has no async-extern support — wire via callback bridging.\n",
+            );
+        }
+
         let fn_name = f.name.to_snake_case();
         let params: Vec<String> = f
             .params
@@ -204,10 +218,6 @@ fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
             })
             .collect();
         let params_str = params.join(", ");
-
-        if f.is_async {
-            block.push_str("        #[swift_bridge(async)]\n");
-        }
 
         let return_ty = if f.error_type.is_some() {
             // Result<ReturnType, String> for error-throwing functions
@@ -221,15 +231,9 @@ fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
             swift_bridge_rust_type(&f.return_type)
         };
 
-        if f.is_async {
-            block.push_str(&format!(
-                "        async fn {fn_name}({params_str}) -> {return_ty};\n"
-            ));
-        } else {
-            block.push_str(&format!(
-                "        fn {fn_name}({params_str}) -> {return_ty};\n"
-            ));
-        }
+        block.push_str(&format!(
+            "        fn {fn_name}({params_str}) -> {return_ty};\n"
+        ));
     }
 
     block.push_str("    }\n\n");
@@ -363,7 +367,15 @@ fn emit_function_shim(f: &FunctionDef, source_crate: &str) -> String {
         .collect();
     let call_args_str = call_args.join(", ");
 
-    let source_call = format!("{source_crate}::{fn_name}({call_args_str})");
+    // Resolve the source call via the IR's full rust_path so module-prefixed
+    // functions (e.g. `my_lib::utils::helper`) generate correct shim calls.
+    // Falls back to the bare fn name if rust_path is empty.
+    let resolved_path = if f.rust_path.is_empty() {
+        format!("{source_crate}::{fn_name}")
+    } else {
+        f.rust_path.replace('-', "_")
+    };
+    let source_call = format!("{resolved_path}({call_args_str})");
 
     let body = if f.error_type.is_some() {
         format!("{source_call}.map_err(|e| e.to_string())")
@@ -372,6 +384,9 @@ fn emit_function_shim(f: &FunctionDef, source_crate: &str) -> String {
     };
 
     if f.is_async {
+        // swift-bridge v0.1.59 cannot expose `async fn` directly in extern blocks.
+        // The wrapper compiles for non-bridge use; the extern block above carries
+        // a TODO marker pointing to swift-bridge callback-based async wiring.
         format!(
             "pub async fn {fn_name}({params_str}) -> {return_ty} {{\n    {body}.await\n}}\n"
         )

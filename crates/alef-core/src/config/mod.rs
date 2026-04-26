@@ -293,8 +293,9 @@ impl AlefConfig {
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::R => self.r.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::Zig => self.zig.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Dart => self.dart.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            extras::Language::Swift => self.swift.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             extras::Language::Rust => None,
-            extras::Language::Swift | extras::Language::Dart => None,
         };
         if let Some(renamed) = explicit {
             if renamed != field_name {
@@ -332,8 +333,9 @@ impl AlefConfig {
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::R => self.r.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Zig => self.zig.as_ref().and_then(|c| c.features.as_deref()),
+            extras::Language::Dart => self.dart.as_ref().and_then(|c| c.features.as_deref()),
+            extras::Language::Swift => self.swift.as_ref().and_then(|c| c.features.as_deref()),
             extras::Language::Rust => None, // Rust doesn't have binding-specific features
-            extras::Language::Swift | extras::Language::Dart => None,
         };
         override_features.unwrap_or(&self.crate_config.features)
     }
@@ -1016,8 +1018,9 @@ impl AlefConfig {
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::R => self.r.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Zig => self.zig.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Dart => self.dart.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            extras::Language::Swift => self.swift.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             extras::Language::Rust => None, // Rust uses native naming (snake_case)
-            extras::Language::Swift | extras::Language::Dart => None,
         };
 
         if let Some(val) = override_val {

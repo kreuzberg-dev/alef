@@ -89,8 +89,11 @@ fn emit_build_rs(rust_dir: &str) -> GeneratedFile {
 }
 
 fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
+    // FRB v2 schema: `rust_root` points at the Rust crate dir (not a single file)
+    // and `dart_output` is the directory where Dart bindings are written. The v1
+    // `rust_input` / `rust_output` keys were removed in v2.
     let content = format!(
-        "rust_input: src/lib.rs\ndart_output: ../lib/src/{module_name}_bridge_generated.dart\nrust_output: src/bridge_generated.rs\n"
+        "rust_root: .\ndart_output: ../lib/src/{module_name}_bridge_generated\n"
     );
     GeneratedFile {
         path: PathBuf::from(rust_dir).join("flutter_rust_bridge.yaml"),
@@ -100,8 +103,11 @@ fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile {
 }
 
 fn emit_mirror_struct(out: &mut String, ty: &TypeDef) {
+    // FRB v2 mirror convention: the mirror struct keeps the same name as the
+    // original; the `mirror` attribute argument tells FRB which type this
+    // declaration shadows for codegen purposes.
     out.push_str(&format!("#[frb(mirror({name}))]\n", name = ty.name));
-    out.push_str(&format!("pub struct _Mirror{} {{\n", ty.name));
+    out.push_str(&format!("pub struct {} {{\n", ty.name));
     for field in &ty.fields {
         let rust_ty = frb_rust_type(&field.ty, field.optional);
         out.push_str(&format!("    pub {}: {rust_ty},\n", field.name));
@@ -113,13 +119,13 @@ fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
     out.push_str(&format!("#[frb(mirror({name}))]\n", name = en.name));
     if all_unit {
-        out.push_str(&format!("pub enum _Mirror{} {{\n", en.name));
+        out.push_str(&format!("pub enum {} {{\n", en.name));
         for variant in &en.variants {
             out.push_str(&format!("    {},\n", variant.name));
         }
         out.push_str("}\n");
     } else {
-        out.push_str(&format!("pub enum _Mirror{} {{\n", en.name));
+        out.push_str(&format!("pub enum {} {{\n", en.name));
         for variant in &en.variants {
             if variant.fields.is_empty() {
                 out.push_str(&format!("    {},\n", variant.name));
@@ -142,7 +148,8 @@ fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
 }
 
 fn emit_bridge_fn(out: &mut String, f: &FunctionDef, source_crate_name: &str) {
-    out.push_str("#[frb]\n");
+    // FRB v2: ordinary public functions need no annotation. A bare `#[frb]`
+    // with no arguments is rejected by the macro. Don't emit it.
     let fn_name = &f.name;
     let async_kw = if f.is_async { "async " } else { "" };
 
@@ -169,10 +176,16 @@ fn emit_bridge_fn(out: &mut String, f: &FunctionDef, source_crate_name: &str) {
         params.join(", ")
     ));
 
-    let call = format!(
-        "{source_crate_name}::{fn_name}({})",
-        call_args.join(", ")
-    );
+    // Resolve the call target via the IR's full rust_path, falling back to the
+    // backend's bare fn name if rust_path is empty. This matches alef-backend-ffi
+    // and ensures functions defined in submodules (e.g. `my_lib::utils::helper`)
+    // generate correct shim calls.
+    let resolved_path = if f.rust_path.is_empty() {
+        format!("{source_crate_name}::{fn_name}")
+    } else {
+        f.rust_path.replace('-', "_")
+    };
+    let call = format!("{resolved_path}({})", call_args.join(", "));
 
     let body = if has_error {
         if f.is_async {
@@ -192,6 +205,10 @@ fn emit_bridge_fn(out: &mut String, f: &FunctionDef, source_crate_name: &str) {
 
 /// Maps an IR `TypeRef` to the FRB-friendly Rust type string.
 /// FRB's primitive ABI: all integers → `i64`, floats → `f64`, strings → `String`.
+///
+/// NOTE: u64 values above i64::MAX silently wrap to negative on the Dart side
+/// because Dart's native `int` is 64-bit signed. Producers of u64-bearing APIs
+/// who need the full range should pre-truncate or document the contract.
 fn frb_rust_type(ty: &TypeRef, optional: bool) -> String {
     let inner = frb_rust_type_inner(ty);
     if optional { format!("Option<{inner}>") } else { inner }

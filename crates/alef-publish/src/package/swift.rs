@@ -51,10 +51,14 @@ jobs:\n\
       - uses: dtolnay/rust-toolchain@stable\n\
       - run: cd rust && cargo build --release\n\
       - run: swift test\n\
+        env:\n\
+          LD_LIBRARY_PATH: ${{ github.workspace }}/rust/target/release\n\
 ```\n\
 \n\
 Linux Swift consumers (e.g., Vapor servers) link the resulting `.so` directly\n\
-through SwiftPM — no XCFramework involvement.\n\
+through SwiftPM — no XCFramework involvement. The `LD_LIBRARY_PATH` export is\n\
+required because SwiftPM does not auto-discover Cargo's `target/release/` output\n\
+at runtime; without it, `swift test` fails with a dynamic linker error.\n\
 ";
 
 /// XCFramework build instructions emitted as a placeholder.

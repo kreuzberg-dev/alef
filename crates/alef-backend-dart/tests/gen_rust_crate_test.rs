@@ -182,11 +182,11 @@ fn lib_rs_emits_mirror_struct_per_ir_type() {
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     assert!(lib.contains("#[frb(mirror(Point))]"), "missing mirror for Point: {lib}");
-    assert!(lib.contains("pub struct _MirrorPoint"), "missing _MirrorPoint struct: {lib}");
+    assert!(lib.contains("pub struct Point {"), "missing Point mirror struct: {lib}");
     assert!(lib.contains("pub x_coord: i64"), "x_coord should be i64: {lib}");
     assert!(lib.contains("pub y_coord: i64"), "y_coord should be i64: {lib}");
     assert!(lib.contains("#[frb(mirror(Empty))]"), "missing mirror for Empty: {lib}");
-    assert!(lib.contains("pub struct _MirrorEmpty"), "missing _MirrorEmpty struct: {lib}");
+    assert!(lib.contains("pub struct Empty {"), "missing Empty mirror struct: {lib}");
 }
 
 #[test]
@@ -217,9 +217,12 @@ fn lib_rs_emits_bridge_fn_per_ir_function() {
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
-    assert!(lib.contains("#[frb]"), "missing #[frb] attribute: {lib}");
+    // FRB v2: ordinary public functions need no annotation; bare `#[frb]` is rejected.
+    assert!(!lib.contains("#[frb]\npub fn"), "bare #[frb] on fn is invalid in v2: {lib}");
     assert!(lib.contains("pub fn greet_user"), "missing greet_user fn: {lib}");
     assert!(lib.contains("user_name: String"), "missing user_name param: {lib}");
+    // rust_path resolution: call site uses the full module path, not the bare fn name.
+    assert!(lib.contains("demo::greet_user("), "should call demo::greet_user via rust_path: {lib}");
 }
 
 #[test]
@@ -330,7 +333,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     assert!(lib.contains("#[frb(mirror(Status))]"), "missing mirror for Status: {lib}");
-    assert!(lib.contains("pub enum _MirrorStatus"), "missing _MirrorStatus enum: {lib}");
+    assert!(lib.contains("pub enum Status {"), "missing Status mirror enum: {lib}");
     assert!(lib.contains("Active,"), "missing Active variant: {lib}");
     assert!(lib.contains("Inactive,"), "missing Inactive variant: {lib}");
 }
@@ -367,12 +370,15 @@ fn frb_yaml_is_emitted_with_module_name() {
     let yaml =
         find_file(&files, "packages/dart/rust/flutter_rust_bridge.yaml").expect("flutter_rust_bridge.yaml not found");
 
-    assert!(yaml.contains("rust_input: src/lib.rs"), "missing rust_input: {yaml}");
+    // FRB v2 schema: `rust_root` (crate dir) + `dart_output` (output dir).
+    // The v1 keys `rust_input` / `rust_output` were removed.
+    assert!(yaml.contains("rust_root: ."), "missing rust_root: {yaml}");
     assert!(
-        yaml.contains("demo_crate_bridge_generated.dart"),
+        yaml.contains("demo_crate_bridge_generated"),
         "missing dart output path with module name: {yaml}"
     );
-    assert!(yaml.contains("rust_output: src/bridge_generated.rs"), "missing rust_output: {yaml}");
+    assert!(!yaml.contains("rust_input:"), "v1 rust_input key should not be emitted: {yaml}");
+    assert!(!yaml.contains("rust_output:"), "v1 rust_output key should not be emitted: {yaml}");
 }
 
 #[test]

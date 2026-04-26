@@ -129,24 +129,40 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 .map(|part| {
                     let trimmed = part.trim();
                     match trimmed {
-                        "usize" | "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8" | "isize" => match lang {
-                            Language::Python => "int".to_string(),
-                            Language::Node | Language::Wasm => "number".to_string(),
-                            Language::Go => "int".to_string(),
-                            Language::Java => "long".to_string(),
-                            Language::Csharp => "long".to_string(),
-                            Language::Ruby => "Integer".to_string(),
-                            Language::Php => "int".to_string(),
-                            Language::Elixir => "integer()".to_string(),
-                            Language::R => "integer".to_string(),
-                            Language::Rust => trimmed.to_string(),
-                            Language::Ffi => "uint64_t".to_string(),
-                            Language::Kotlin => "Long".to_string(),
-                            Language::Swift => "Int64".to_string(),
-                            Language::Dart => "int".to_string(),
-                            Language::Gleam => "Int".to_string(),
-                            Language::Zig => "i64".to_string(),
-                        },
+                        "usize" | "u64" | "u32" | "u16" | "u8" | "i64" | "i32" | "i16" | "i8" | "isize" => {
+                            // Swift preserves the signed/unsigned distinction; other
+                            // languages collapse to a single integer type per their
+                            // primitive convention.
+                            let swift_name = match trimmed {
+                                "u64" | "usize" => "UInt64",
+                                "u32" => "UInt32",
+                                "u16" => "UInt16",
+                                "u8" => "UInt8",
+                                "i64" | "isize" => "Int64",
+                                "i32" => "Int32",
+                                "i16" => "Int16",
+                                "i8" => "Int8",
+                                _ => "Int64",
+                            };
+                            match lang {
+                                Language::Python => "int".to_string(),
+                                Language::Node | Language::Wasm => "number".to_string(),
+                                Language::Go => "int".to_string(),
+                                Language::Java => "long".to_string(),
+                                Language::Csharp => "long".to_string(),
+                                Language::Ruby => "Integer".to_string(),
+                                Language::Php => "int".to_string(),
+                                Language::Elixir => "integer()".to_string(),
+                                Language::R => "integer".to_string(),
+                                Language::Rust => trimmed.to_string(),
+                                Language::Ffi => "uint64_t".to_string(),
+                                Language::Kotlin => "Long".to_string(),
+                                Language::Swift => swift_name.to_string(),
+                                Language::Dart => "int".to_string(),
+                                Language::Gleam => "Int".to_string(),
+                                Language::Zig => "i64".to_string(),
+                            }
+                        }
                         s @ ("str" | "&str" | "String" | "&'static str" | "&'staticstr") => match lang {
                             Language::Python => "str".to_string(),
                             Language::Node | Language::Wasm => "string".to_string(),

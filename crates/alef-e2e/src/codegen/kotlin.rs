@@ -161,7 +161,9 @@ fn render_build_gradle(pkg_name: &str, pkg_version: &str, dep_mode: crate::confi
     let jackson = maven::JACKSON_E2E;
     let jvm_target = toolchain::JVM_TARGET;
     format!(
-        r#"plugins {{
+        r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {{
     kotlin("jvm") version "{kotlin_plugin}"
 }}
 
@@ -173,9 +175,9 @@ java {{
     targetCompatibility = JavaVersion.VERSION_{jvm_target}
 }}
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {{
-    kotlinOptions {{
-        jvmTarget = "{jvm_target}"
+kotlin {{
+    compilerOptions {{
+        jvmTarget.set(JvmTarget.JVM_{jvm_target})
     }}
 }}
 

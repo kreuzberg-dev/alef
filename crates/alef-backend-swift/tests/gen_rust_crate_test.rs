@@ -381,7 +381,9 @@ fn lib_rs_has_free_function_shim() {
 }
 
 #[test]
-fn lib_rs_async_function_has_bridge_async_attr() {
+fn lib_rs_async_function_emits_todo_marker_not_swift_bridge_async() {
+    // swift-bridge v0.1.x has no `async` attribute or async-fn extern support;
+    // async functions emit a TODO marker pointing the user at callback bridging.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -409,13 +411,20 @@ fn lib_rs_async_function_has_bridge_async_attr() {
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
     assert!(
-        lib.content.contains("#[swift_bridge(async)]"),
-        "lib.rs missing swift_bridge(async) attribute: {}",
+        !lib.content.contains("#[swift_bridge(async)]"),
+        "swift_bridge(async) is not a real attribute in v0.1.x: {}",
         lib.content
     );
     assert!(
-        lib.content.contains("async fn load_async("),
-        "lib.rs missing async fn: {}",
+        lib.content.contains("TODO(swift-bridge async)"),
+        "lib.rs should carry a TODO marker for async functions: {}",
+        lib.content
+    );
+    // The outer wrapper fn (outside the extern block) keeps `async fn` so the
+    // user's source-call site stays type-correct.
+    assert!(
+        lib.content.contains("pub async fn load_async("),
+        "outer wrapper should remain async fn: {}",
         lib.content
     );
 }
