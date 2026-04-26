@@ -377,7 +377,11 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     writeln!(out, "            }}").ok();
     writeln!(out, "        }} catch (Throwable t) {{").ok();
     writeln!(out, "            bridge.close();").ok();
-    writeln!(out, "            throw t;").ok();
+    writeln!(out, "            if (t instanceof Exception e) {{").ok();
+    writeln!(out, "                throw e;").ok();
+    writeln!(out, "            }} else {{").ok();
+    writeln!(out, "                throw new RuntimeException(\"Unexpected error during registration\", t);").ok();
+    writeln!(out, "            }}").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "        {registry_field}.put(impl.name(), bridge);").ok();
     writeln!(out, "    }}").ok();
@@ -389,35 +393,43 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         "    public static void unregister{trait_pascal}(String name) throws Exception {{"
     )
     .ok();
-    writeln!(out, "        try (var nameArena = Arena.ofConfined()) {{").ok();
-    writeln!(out, "            var nameCs = nameArena.allocateFrom(name);").ok();
+    writeln!(out, "        try {{").ok();
+    writeln!(out, "            try (var nameArena = Arena.ofConfined()) {{").ok();
+    writeln!(out, "                var nameCs = nameArena.allocateFrom(name);").ok();
     writeln!(
         out,
-        "            MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);"
+        "                MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);"
     )
     .ok();
     writeln!(
         out,
-        "            int rc = (int) NativeLib.{prefix_upper}_UNREGISTER_{}.invoke(nameCs, outErr);",
+        "                int rc = (int) NativeLib.{prefix_upper}_UNREGISTER_{}.invoke(nameCs, outErr);",
         trait_snake.to_uppercase()
     )
     .ok();
-    writeln!(out, "            if (rc != 0) {{").ok();
+    writeln!(out, "                if (rc != 0) {{").ok();
     writeln!(
         out,
-        "                MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);"
+        "                    MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);"
     )
     .ok();
     writeln!(
         out,
-        "                String msg = errPtr.equals(MemorySegment.NULL) ? \"unregistration failed (rc=\" + rc + \")\" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        "                    String msg = errPtr.equals(MemorySegment.NULL) ? \"unregistration failed (rc=\" + rc + \")\" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);"
     )
     .ok();
     writeln!(
         out,
-        "                throw new RuntimeException(\"unregister{trait_pascal}: \" + msg);"
+        "                    throw new RuntimeException(\"unregister{trait_pascal}: \" + msg);"
     )
     .ok();
+    writeln!(out, "                }}").ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out, "        }} catch (Throwable t) {{").ok();
+    writeln!(out, "            if (t instanceof Exception e) {{").ok();
+    writeln!(out, "                throw e;").ok();
+    writeln!(out, "            }} else {{").ok();
+    writeln!(out, "                throw new RuntimeException(\"Unexpected error during unregistration\", t);").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "        {bridge_class} old = {registry_field}.remove(name);").ok();

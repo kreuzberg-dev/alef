@@ -252,11 +252,11 @@ pub(crate) fn gen_sync_function_method(
         writeln!(out, "            }}").ok();
         writeln!(
             out,
-            "            String result = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+            "            String str = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
         )
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        writeln!(out, "            return result;").ok();
+        writeln!(out, "            return str;").ok();
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
@@ -368,6 +368,41 @@ pub(crate) fn gen_sync_function_method(
             element_type
         )
         .ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(
+            out,
+            "            throw new {}Exception(\"FFI call failed\", e);",
+            class_name
+        )
+        .ok();
+        writeln!(out, "        }}").ok();
+    } else if matches!(func.return_type, TypeRef::Bytes) {
+        // Bytes return types: FFI returns an opaque pointer to allocated bytes; deserialize as byte array.
+        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
+        writeln!(
+            out,
+            "            var resultPtr = (MemorySegment) {}.invoke({});",
+            ffi_handle,
+            call_args.join(", ")
+        )
+        .ok();
+        emit_ffi_ptr_cleanup(out);
+        writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
+        writeln!(out, "                checkLastError();").ok();
+        writeln!(out, "                return null;").ok();
+        writeln!(out, "            }}").ok();
+        writeln!(
+            out,
+            "            long byteLen = resultPtr.byteSize();"
+        )
+        .ok();
+        writeln!(
+            out,
+            "            byte[] result = resultPtr.reinterpret(byteLen).toArray(ValueLayout.JAVA_BYTE);"
+        )
+        .ok();
+        writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
+        writeln!(out, "            return result;").ok();
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
