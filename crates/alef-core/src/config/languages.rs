@@ -489,6 +489,10 @@ pub struct SwiftConfig {
     /// Types to exclude from Swift binding generation.
     #[serde(default)]
     pub exclude_types: Vec<String>,
+    /// Fields to exclude from Swift binding generation.
+    /// Format: `"TypeName.field_name"`.
+    #[serde(default)]
+    pub exclude_fields: Vec<String>,
     /// Prefix wrapper for default tool invocations.
     #[serde(default)]
     pub run_wrapper: Option<String>,
