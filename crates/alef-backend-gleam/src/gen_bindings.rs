@@ -1,7 +1,7 @@
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -121,6 +121,30 @@ fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<&'static str
     out.push_str("  )\n}\n");
 }
 
+/// Returns true if a field name represents a positional (tuple) field such as `_0`, `_1`, etc.
+/// Gleam constructor arguments do not support labels starting with `_` or numeric labels,
+/// so tuple fields must be emitted without a label.
+fn is_positional_field(name: &str) -> bool {
+    name.starts_with('_') && name[1..].parse::<usize>().is_ok()
+}
+
+fn emit_variant_fields(
+    fields: &[FieldDef],
+    out: &mut String,
+    imports: &mut BTreeSet<&'static str>,
+) {
+    for (idx, field) in fields.iter().enumerate() {
+        let ty_str = gleam_type(&field.ty, field.optional, imports);
+        let comma = if idx + 1 == fields.len() { "" } else { "," };
+        if is_positional_field(&field.name) || field.name.is_empty() {
+            // Tuple/positional field: emit as unlabeled argument (e.g. `String`)
+            out.push_str(&format!("    {ty_str}{comma}\n"));
+        } else {
+            out.push_str(&format!("    {}: {ty_str}{comma}\n", field.name));
+        }
+    }
+}
+
 fn emit_enum(en: &EnumDef, out: &mut String, imports: &mut BTreeSet<&'static str>) {
     if !en.doc.is_empty() {
         for line in en.doc.lines() {
@@ -135,16 +159,7 @@ fn emit_enum(en: &EnumDef, out: &mut String, imports: &mut BTreeSet<&'static str
             out.push_str(&format!("  {}\n", variant.name));
         } else {
             out.push_str(&format!("  {}(\n", variant.name));
-            for (idx, field) in variant.fields.iter().enumerate() {
-                let ty_str = gleam_type(&field.ty, field.optional, imports);
-                let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                let name = if field.name.is_empty() {
-                    format!("field_{idx}")
-                } else {
-                    field.name.clone()
-                };
-                out.push_str(&format!("    {name}: {ty_str}{comma}\n"));
-            }
+            emit_variant_fields(&variant.fields, out, imports);
             out.push_str("  )\n");
         }
     }
@@ -165,16 +180,7 @@ fn emit_error_type(err: &ErrorDef, out: &mut String, imports: &mut BTreeSet<&'st
             out.push_str(&format!("  {}\n", variant.name));
         } else {
             out.push_str(&format!("  {}(\n", variant.name));
-            for (idx, field) in variant.fields.iter().enumerate() {
-                let ty_str = gleam_type(&field.ty, field.optional, imports);
-                let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                let name = if field.name.is_empty() {
-                    format!("field_{idx}")
-                } else {
-                    field.name.clone()
-                };
-                out.push_str(&format!("    {name}: {ty_str}{comma}\n"));
-            }
+            emit_variant_fields(&variant.fields, out, imports);
             out.push_str("  )\n");
         }
     }
