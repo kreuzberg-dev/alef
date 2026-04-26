@@ -526,10 +526,8 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             // format!("...", ...) which means we need to pass the literal string with single braces.
             // To include single braces in the final generated code, we use double braces here,
             // which will be processed by writeln! to become single braces.
-            let msg_expr = format!(
-                "format!(\"spawn_blocking failed for '{{}}': {{}}\", cached_name, e)"
-            );
-            let err_expr = self.make_error(&msg_expr);
+            let msg_expr = "format!(\"spawn_blocking failed for '{{}}': {{}}\", cached_name, e)";
+            let err_expr = self.make_error(msg_expr);
             writeln!(out, "    Err(e) => Err({err_expr}),").ok();
         } else {
             writeln!(out, "    Err(_) => Default::default(),").ok();
