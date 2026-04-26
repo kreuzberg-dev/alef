@@ -78,25 +78,102 @@ fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
 
-    for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
-        emit_type_with_imports(ty, &mut body, &mut imports);
+    // Kotlin types reuse the Java facade's records / sealed interfaces / exception
+    // classes via `typealias` so the wrapper functions can pass values straight
+    // through to the JNA-loaded native bridge without conversion. Redeclaring the
+    // types in Kotlin would create distinct nominal types that the bridge can't
+    // accept. Trait types are skipped because the Java backend doesn't emit them.
+    let visible_types: Vec<&TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| !exclude_types.contains(t.name.as_str()) && !t.is_trait)
+        .collect();
+    for ty in &visible_types {
+        body.push_str(&format!("typealias {} = {java_package}.{}\n", ty.name, ty.name));
+    }
+    if !visible_types.is_empty() {
         body.push('\n');
     }
 
-    for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-        emit_enum(en, &mut body);
+    let visible_enums: Vec<&EnumDef> = api
+        .enums
+        .iter()
+        .filter(|e| !exclude_types.contains(e.name.as_str()))
+        .collect();
+    for en in &visible_enums {
+        body.push_str(&format!("typealias {} = {java_package}.{}\n", en.name, en.name));
+    }
+    if !visible_enums.is_empty() {
         body.push('\n');
     }
 
     for error in &api.errors {
-        emit_error_type_with_imports(error, &mut body, &mut imports);
+        body.push_str(&format!("typealias {} = {java_package}.{}Exception\n", error.name, error.name));
+    }
+    if !api.errors.is_empty() {
         body.push('\n');
     }
+    let _ = (&imports,); // imports filled by emit_function only
+    let _ = emit_type_with_imports;
+    let _ = emit_enum;
+    let _ = emit_error_type_with_imports;
+
+    // Functions whose signature involves a trait type are excluded — the Java
+    // facade handles trait registration via a separate trait-bridge interface
+    // that we don't expose through the Kotlin wrapper. Trait registry helpers
+    // (register_*, unregister_*, list_*, clear_*) follow the same pattern.
+    let trait_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_trait)
+        .map(|t| t.name.as_str())
+        .collect();
+    let function_uses_trait = |f: &FunctionDef| -> bool {
+        if f.params.iter().any(|p| type_ref_uses_named(&p.ty, &trait_type_names)) {
+            return true;
+        }
+        if type_ref_uses_named(&f.return_type, &trait_type_names) {
+            return true;
+        }
+        // Trait-registry helpers — Java emits these via trait_bridge under
+        // different names; bypass them in the Kotlin wrapper.
+        let trait_registry_prefixes = [
+            "register_",
+            "unregister_",
+            "list_",
+            "clear_",
+        ];
+        let lname = f.name.as_str();
+        for prefix in trait_registry_prefixes {
+            if let Some(rest) = lname.strip_prefix(prefix) {
+                if trait_type_names.iter().any(|t| {
+                    let ts = pascal_to_snake(t);
+                    rest == ts || rest == format!("{ts}s") || rest == format!("{ts}_type")
+                }) {
+                    return true;
+                }
+                // Also catch generic helpers like "list_extractors" that don't include the trait name
+                if rest == "extractors"
+                    || rest == "extractor"
+                    || rest == "ocr_backends"
+                    || rest == "embedding_backends"
+                    || rest == "post_processors"
+                    || rest == "validators"
+                    || rest == "plugins"
+                    || rest == "renderers"
+                    || rest == "renderer"
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    };
 
     let visible_functions: Vec<&FunctionDef> = api
         .functions
         .iter()
-        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        .filter(|f| !exclude_functions.contains(f.name.as_str()) && !function_uses_trait(f))
         .collect();
 
     if !visible_functions.is_empty() {
@@ -105,7 +182,6 @@ fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
         imports.insert(format!("import {java_package}.{module_name} as {BRIDGE_ALIAS}"));
         if visible_functions.iter().any(|f| f.is_async) {
             imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
-            imports.insert("import kotlinx.coroutines.future.await".to_string());
             imports.insert("import kotlinx.coroutines.withContext".to_string());
         }
 
@@ -300,12 +376,17 @@ fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<Strin
     ));
 
     if f.is_async {
+        // The Java facade lowers async Rust functions to blocking calls (it
+        // awaits the future internally and returns the resolved value, not a
+        // CompletionStage). Wrap the call in `withContext(Dispatchers.IO)` so
+        // the suspend function yields the calling thread while the JNI call
+        // blocks under it.
         out.push_str("        return withContext(Dispatchers.IO) {\n");
         if matches!(f.return_type, TypeRef::Unit) {
             out.push_str(&format!("            Bridge.{}({})\n", func_name_camel, call_args));
         } else {
             out.push_str(&format!(
-                "            Bridge.{}({}).await()\n",
+                "            Bridge.{}({})\n",
                 func_name_camel, call_args
             ));
         }
@@ -413,6 +494,33 @@ pub(crate) fn to_pascal_case(name: &str) -> String {
         }
     }
     out
+}
+
+fn pascal_to_snake(name: &str) -> String {
+    let mut out = String::new();
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.extend(ch.to_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Returns true if the type reference, recursively, includes any name in the
+/// supplied set. Used by the Kotlin/Java wrappers to skip functions whose
+/// signature touches trait types (the Java facade doesn't expose those).
+fn type_ref_uses_named(ty: &TypeRef, names: &std::collections::HashSet<&str>) -> bool {
+    match ty {
+        TypeRef::Named(n) => names.contains(n.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_ref_uses_named(inner, names),
+        TypeRef::Map(k, v) => type_ref_uses_named(k, names) || type_ref_uses_named(v, names),
+        _ => false,
+    }
 }
 
 pub(crate) fn to_lower_camel(name: &str) -> String {

@@ -2,6 +2,8 @@ use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions::{maven, toolchain};
+
+const JACKSON_VERSION: &str = "2.18.2";
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -35,6 +37,11 @@ repositories {{
 
 dependencies {{
     api("net.java.dev.jna:jna:{jna}")
+    // Jackson is on the public surface because the alef-emitted Java records
+    // include `@JsonProperty` annotations for serialization round-tripping.
+    api("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
+    api("com.fasterxml.jackson.core:jackson-databind:{jackson}")
+    api("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{kotlinx_coroutines}")
     testImplementation("org.jetbrains.kotlin:kotlin-test:{kotlin_plugin}")
     testImplementation("junit:junit:{junit_legacy}")
@@ -82,6 +89,7 @@ publishing {{
 "#,
         package = kotlin_package,
         version = version,
+        jackson = JACKSON_VERSION,
     );
 
     let settings_gradle = format!("rootProject.name = \"{project_name}\"\n");
