@@ -367,10 +367,14 @@ fn sync_function_emits_public_static_func() {
         "missing function signature: {content}"
     );
     assert!(content.contains("-> Int32"), "missing return type: {content}");
-    // Placeholder body
+    // Bridge body delegates to RustBridge generated module
     assert!(
-        content.contains("fatalError(\"Stage 2C: bridge to swift-bridge\")"),
-        "missing fatalError placeholder: {content}"
+        content.contains("return RustBridge.greetUser("),
+        "missing RustBridge delegation: {content}"
+    );
+    assert!(
+        content.contains("import RustBridge"),
+        "missing RustBridge import: {content}"
     );
 }
 
