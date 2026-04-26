@@ -1587,15 +1587,28 @@ fn gen_param_to_c(
             // to C functions that expect C types (e.g., uintptr_t, uint32_t).
             let cgo_ty = cgo_type_for_primitive(prim);
             let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
-            writeln!(
-                out,
-                "\t{c_name} := {cgo_ty}({go_ty}({param}))",
-                c_name = c_name,
-                cgo_ty = cgo_ty,
-                go_ty = go_ty,
-                param = go_param,
-            )
-            .ok();
+            // Special case for bool: Go bool cannot be directly cast to C.uchar.
+            // Convert via conditional: if true, 1; else 0.
+            if matches!(prim, alef_core::ir::PrimitiveType::Bool) {
+                writeln!(
+                    out,
+                    "\tvar {c_name} {cgo_ty}\n\tif {param} {{\n\t\t{c_name} = 1\n\t}} else {{\n\t\t{c_name} = 0\n\t}}",
+                    c_name = c_name,
+                    cgo_ty = cgo_ty,
+                    param = go_param,
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "\t{c_name} := {cgo_ty}({go_ty}({param}))",
+                    c_name = c_name,
+                    cgo_ty = cgo_ty,
+                    go_ty = go_ty,
+                    param = go_param,
+                )
+                .ok();
+            }
         }
         TypeRef::Primitive(prim) if param.optional => {
             // Optional primitive: the Go param is a pointer (*T). Dereference it if non-nil,
@@ -1610,17 +1623,31 @@ fn gen_param_to_c(
             let cgo_ty = cgo_type_for_primitive(prim);
             let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
             let sentinel = primitive_max_sentinel(prim);
-            writeln!(
-                out,
-                "\tvar {c_name} {cgo_ty} = {cgo_ty}({sentinel})\n\tif {param} != nil {{\n\t\t\
-                 {c_name} = {cgo_ty}({go_ty}(*{param}))\n\t}}",
-                c_name = c_name,
-                cgo_ty = cgo_ty,
-                go_ty = go_ty,
-                sentinel = sentinel,
-                param = go_param,
-            )
-            .ok();
+
+            // Special case for bool: Go bool cannot be directly cast to C.uchar.
+            if matches!(prim, alef_core::ir::PrimitiveType::Bool) {
+                writeln!(
+                    out,
+                    "\tvar {c_name} {cgo_ty} = 255\n\tif {param} != nil {{\n\t\t\
+                     if *{param} {{\n\t\t\t{c_name} = 1\n\t\t}} else {{\n\t\t\t{c_name} = 0\n\t\t}}\n\t}}",
+                    c_name = c_name,
+                    cgo_ty = cgo_ty,
+                    param = go_param,
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "\tvar {c_name} {cgo_ty} = {cgo_ty}({sentinel})\n\tif {param} != nil {{\n\t\t\
+                     {c_name} = {cgo_ty}({go_ty}(*{param}))\n\t}}",
+                    c_name = c_name,
+                    cgo_ty = cgo_ty,
+                    go_ty = go_ty,
+                    sentinel = sentinel,
+                    param = go_param,
+                )
+                .ok();
+            }
         }
         _ => {
             // Primitives and other types pass through directly
