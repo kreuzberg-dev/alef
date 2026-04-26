@@ -46,6 +46,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "alef-backend-dart"
+version = "0.7.11"
+dependencies = [
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+ "heck",
+]
+
+[[package]]
 name = "alef-backend-extendr"
 version = "0.7.11"
 dependencies = [
@@ -70,6 +80,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "alef-backend-gleam"
+version = "0.7.11"
+dependencies = [
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+ "heck",
+]
+
+[[package]]
 name = "alef-backend-go"
 version = "0.7.11"
 dependencies = [
@@ -90,6 +110,15 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+]
+
+[[package]]
+name = "alef-backend-kotlin"
+version = "0.7.11"
+dependencies = [
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
 ]
 
 [[package]]
@@ -151,6 +180,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "alef-backend-swift"
+version = "0.7.11"
+dependencies = [
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+ "heck",
+]
+
+[[package]]
 name = "alef-backend-wasm"
 version = "0.7.11"
 dependencies = [
@@ -162,21 +201,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "alef-backend-zig"
+version = "0.7.11"
+dependencies = [
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
 name = "alef-cli"
 version = "0.7.11"
 dependencies = [
  "ahash",
  "alef-backend-csharp",
+ "alef-backend-dart",
  "alef-backend-extendr",
  "alef-backend-ffi",
+ "alef-backend-gleam",
  "alef-backend-go",
  "alef-backend-java",
+ "alef-backend-kotlin",
  "alef-backend-magnus",
  "alef-backend-napi",
  "alef-backend-php",
  "alef-backend-pyo3",
  "alef-backend-rustler",
+ "alef-backend-swift",
  "alef-backend-wasm",
+ "alef-backend-zig",
  "alef-core",
  "alef-docs",
  "alef-e2e",
@@ -274,6 +327,7 @@ version = "0.7.11"
 dependencies = [
  "alef-core",
  "anyhow",
+ "heck",
  "minijinja",
  "serde_json",
  "serde_yaml",

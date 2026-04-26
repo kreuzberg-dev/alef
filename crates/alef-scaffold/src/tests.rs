@@ -32,10 +32,18 @@ fn test_config() -> AlefConfig {
         elixir: None,
         wasm: None,
         ffi: None,
+        gleam: None,
+
         go: None,
         java: None,
+
+        kotlin: None,
+        dart: None,
+        swift: None,
         csharp: None,
         r: None,
+
+        zig: None,
         scaffold: Some(ScaffoldConfig {
             description: Some("Test library".to_string()),
             license: Some("MIT".to_string()),
@@ -716,4 +724,89 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
         !rendered.contains("1.0"),
         "crate-level version should be overridden, got: {rendered}"
     );
+}
+
+#[test]
+fn test_scaffold_dart() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
+    let files = language_files(&all_files);
+    // pubspec.yaml + analysis_options.yaml + .gitignore
+    assert_eq!(files.len(), 3);
+
+    let pubspec = &files[0];
+    assert_eq!(pubspec.path, PathBuf::from("packages/dart/pubspec.yaml"));
+    assert!(pubspec.content.contains("name: my_lib"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("version: 0.1.0"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("flutter_rust_bridge:"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("sdk: '"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("test:"), "got: {}", pubspec.content);
+    assert!(pubspec.content.contains("lints:"), "got: {}", pubspec.content);
+
+    let analysis_options = &files[1];
+    assert_eq!(
+        analysis_options.path,
+        PathBuf::from("packages/dart/analysis_options.yaml")
+    );
+    assert!(
+        analysis_options.content.contains("package:lints/recommended.yaml"),
+        "got: {}",
+        analysis_options.content
+    );
+
+    let gitignore = &files[2];
+    assert_eq!(gitignore.path, PathBuf::from("packages/dart/.gitignore"));
+    assert!(gitignore.content.contains(".dart_tool/"), "got: {}", gitignore.content);
+    assert!(gitignore.content.contains("build/"), "got: {}", gitignore.content);
+    assert!(gitignore.content.contains("pubspec.lock"), "got: {}", gitignore.content);
+}
+
+#[test]
+fn test_scaffold_swift() {
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
+    let files = language_files(&all_files);
+    // Package.swift + .gitignore
+    assert_eq!(files.len(), 2);
+
+    let package_swift = &files[0];
+    assert_eq!(package_swift.path, PathBuf::from("packages/swift/Package.swift"));
+    // Module name derives to PascalCase of "my-lib" → "MyLib"
+    assert!(
+        package_swift.content.contains("name: \"MyLib\""),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains(".macOS(.v13)"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains(".iOS(.v16)"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("swift-tools-version: 5.9"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("Sources/MyLib"),
+        "got: {}",
+        package_swift.content
+    );
+    assert!(
+        package_swift.content.contains("Tests/MyLibTests"),
+        "got: {}",
+        package_swift.content
+    );
+
+    let gitignore = &files[1];
+    assert_eq!(gitignore.path, PathBuf::from("packages/swift/.gitignore"));
+    assert!(gitignore.content.contains(".build/"), "got: {}", gitignore.content);
+    assert!(gitignore.content.contains(".swiftpm/"), "got: {}", gitignore.content);
 }

@@ -1,0 +1,551 @@
+use alef_codegen::type_mapper::TypeMapper;
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
+use alef_core::config::{AlefConfig, KotlinTarget, Language, resolve_output_dir};
+use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
+use crate::type_map::KotlinMapper;
+
+pub struct KotlinBackend;
+
+const BRIDGE_ALIAS: &str = "Bridge";
+
+impl Backend for KotlinBackend {
+    fn name(&self) -> &str {
+        "kotlin"
+    }
+
+    fn language(&self) -> Language {
+        Language::Kotlin
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities {
+            supports_async: true,
+            supports_classes: true,
+            supports_enums: true,
+            supports_option: true,
+            supports_result: true,
+            supports_callbacks: false,
+            supports_streaming: false,
+        }
+    }
+
+    fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        match config.kotlin_target() {
+            KotlinTarget::Jvm => generate_jvm(api, config),
+            KotlinTarget::Native => crate::gen_native::emit(api, config),
+            KotlinTarget::Multiplatform => crate::gen_mpp::emit(api, config),
+        }
+    }
+
+    fn build_config(&self) -> Option<BuildConfig> {
+        Some(BuildConfig {
+            tool: "gradle",
+            crate_suffix: "",
+            build_dep: BuildDependency::Ffi,
+            post_build: vec![],
+        })
+    }
+}
+
+fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let java_package = java_package(config);
+    let module_name = kotlin_module_name(&config.crate_config.name);
+    // If the user's Kotlin and Java packages collide on the same FQN as the
+    // generated module, the Kotlin object would shadow the Java facade class
+    // (both compile to `<package>/<module>.class`). Push the Kotlin code into
+    // a `.kt` sub-package in that case so the Java class remains importable.
+    let configured_kotlin_package = kotlin_package(config);
+    let package = if configured_kotlin_package == java_package {
+        format!("{configured_kotlin_package}.kt")
+    } else {
+        configured_kotlin_package
+    };
+
+    let exclude_functions: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let exclude_types: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    let mut imports: BTreeSet<String> = BTreeSet::new();
+    let mut body = String::new();
+
+    // Kotlin types reuse the Java facade's records / sealed interfaces / exception
+    // classes via `typealias` so the wrapper functions can pass values straight
+    // through to the JNA-loaded native bridge without conversion. Redeclaring the
+    // types in Kotlin would create distinct nominal types that the bridge can't
+    // accept. Trait types map to the Java backend's `I{Trait}` interface when
+    // a `[[trait_bridges]]` entry exists for them; otherwise, plain types
+    // alias to the Java record `<group>.<TypeName>`.
+    let configured_trait_bridges: std::collections::HashSet<&str> = config
+        .trait_bridges
+        .iter()
+        .filter(|b| !b.exclude_languages.contains(&"kotlin".to_string()))
+        .map(|b| b.trait_name.as_str())
+        .collect();
+    let visible_types: Vec<&TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| {
+            if exclude_types.contains(t.name.as_str()) {
+                return false;
+            }
+            // Skip trait types that don't have a configured bridge — Java
+            // doesn't emit them, so a typealias would fail to resolve.
+            if t.is_trait && !configured_trait_bridges.contains(t.name.as_str()) {
+                return false;
+            }
+            true
+        })
+        .collect();
+    for ty in &visible_types {
+        if ty.is_trait {
+            body.push_str(&format!(
+                "typealias {} = {java_package}.I{}\n",
+                ty.name, ty.name
+            ));
+        } else {
+            body.push_str(&format!("typealias {} = {java_package}.{}\n", ty.name, ty.name));
+        }
+    }
+    if !visible_types.is_empty() {
+        body.push('\n');
+    }
+
+    let visible_enums: Vec<&EnumDef> = api
+        .enums
+        .iter()
+        .filter(|e| !exclude_types.contains(e.name.as_str()))
+        .collect();
+    for en in &visible_enums {
+        body.push_str(&format!("typealias {} = {java_package}.{}\n", en.name, en.name));
+    }
+    if !visible_enums.is_empty() {
+        body.push('\n');
+    }
+
+    for error in &api.errors {
+        body.push_str(&format!("typealias {} = {java_package}.{}Exception\n", error.name, error.name));
+    }
+    if !api.errors.is_empty() {
+        body.push('\n');
+    }
+    let _ = (&imports,); // imports filled by emit_function only
+    let _ = emit_type_with_imports;
+    let _ = emit_enum;
+    let _ = emit_error_type_with_imports;
+
+    // Functions whose signature involves a trait type are excluded — the Java
+    // facade handles trait registration via a separate trait-bridge interface
+    // that we don't expose through the Kotlin wrapper. Trait registry helpers
+    // (register_*, unregister_*, list_*, clear_*) follow the same pattern.
+    let trait_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_trait)
+        .map(|t| t.name.as_str())
+        .collect();
+    let function_uses_trait = |f: &FunctionDef| -> bool {
+        // Only skip functions that take a trait type as a parameter (those
+        // need the Java facade's trait-bridge wrapper, which can't be reached
+        // via a typealias-only Kotlin shim). Functions returning trait types
+        // or trait registry helpers (register_*, list_*, clear_*) flow through
+        // the Java facade unchanged.
+        f.params.iter().any(|p| type_ref_uses_named(&p.ty, &trait_type_names))
+    };
+
+    let visible_functions: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(f.name.as_str()) && !function_uses_trait(f))
+        .collect();
+
+    if !visible_functions.is_empty() {
+        // Import the Java facade class with an alias so it does not collide with the
+        // Kotlin object that wraps it (both share the PascalCase crate name).
+        imports.insert(format!("import {java_package}.{module_name} as {BRIDGE_ALIAS}"));
+        if visible_functions.iter().any(|f| f.is_async) {
+            imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
+            imports.insert("import kotlinx.coroutines.withContext".to_string());
+        }
+
+        body.push_str(&format!("object {module_name} {{\n"));
+        for f in &visible_functions {
+            emit_function(f, &mut body, &mut imports, &java_package);
+            body.push('\n');
+        }
+        body.push_str("}\n");
+    }
+
+    let mut content = String::new();
+    content.push_str("// Generated by alef. Do not edit by hand.\n\n");
+    content.push_str(&format!("package {package}\n\n"));
+    for import in &imports {
+        content.push_str(import);
+        content.push('\n');
+    }
+    if !imports.is_empty() {
+        content.push('\n');
+    }
+    content.push_str(&body);
+
+    let package_path = package.replace('.', "/");
+    let dir = resolve_output_dir(
+        None,
+        &config.crate_config.name,
+        &format!("packages/kotlin/src/main/kotlin/{package_path}"),
+    );
+    let path = PathBuf::from(dir).join(format!("{module_name}.kt"));
+
+    Ok(vec![GeneratedFile {
+        path,
+        content,
+        generated_header: false,
+    }])
+}
+
+pub(crate) fn emit_type_pub(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
+    emit_type_with_imports(ty, out, imports)
+}
+
+pub(crate) fn emit_enum_pub(en: &EnumDef, out: &mut String) {
+    emit_enum(en, out)
+}
+
+pub(crate) fn emit_error_type_pub(error: &alef_core::ir::ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
+    emit_error_type_with_imports(error, out, imports)
+}
+
+/// Format a function parameter with its Kotlin type, collecting any needed imports.
+pub(crate) fn format_param_pub(p: &ParamDef, imports: &mut BTreeSet<String>) -> String {
+    format_param_with_imports(p, imports)
+}
+
+/// Render a Kotlin type reference, collecting any needed imports.
+pub(crate) fn kotlin_type_str_pub(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<String>) -> String {
+    kotlin_type_with_string_imports(ty, optional, imports)
+}
+
+/// Emit a JVM function body (delegates to Bridge) inside an `object` block.
+pub(crate) fn emit_function_jvm(
+    f: &FunctionDef,
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+    java_package: &str,
+) {
+    emit_function(f, out, imports, java_package)
+}
+
+fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
+    if !ty.doc.is_empty() {
+        for line in ty.doc.lines() {
+            out.push_str("/// ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if ty.fields.is_empty() {
+        out.push_str(&format!("class {} {{}}\n", ty.name));
+        return;
+    }
+    out.push_str(&format!("data class {}(\n", ty.name));
+    for (idx, field) in ty.fields.iter().enumerate() {
+        let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
+        let name = kotlin_field_name(&field.name, idx);
+        let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
+        out.push_str(&format!("    val {name}: {ty_str}{comma}\n"));
+    }
+    out.push_str(")\n");
+}
+
+fn emit_enum(en: &EnumDef, out: &mut String) {
+    if !en.doc.is_empty() {
+        for line in en.doc.lines() {
+            out.push_str("/// ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
+    if all_unit {
+        out.push_str(&format!("enum class {} {{\n", en.name));
+        let names: Vec<String> = en.variants.iter().map(|v| to_screaming_snake(&v.name)).collect();
+        for (idx, name) in names.iter().enumerate() {
+            let comma = if idx + 1 == names.len() { ";" } else { "," };
+            out.push_str(&format!("    {name}{comma}\n"));
+        }
+        out.push_str("}\n");
+    } else {
+        out.push_str(&format!("sealed class {} {{\n", en.name));
+        for variant in &en.variants {
+            if variant.fields.is_empty() {
+                out.push_str(&format!("    object {} : {}()\n", variant.name, en.name));
+            } else {
+                out.push_str(&format!("    data class {}(\n", variant.name));
+                for (idx, f) in variant.fields.iter().enumerate() {
+                    let ty_str = kotlin_type(&f.ty, f.optional, &mut BTreeSet::new());
+                    let name = kotlin_field_name(&f.name, idx);
+                    let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
+                    out.push_str(&format!("        val {name}: {ty_str}{comma}\n"));
+                }
+                out.push_str(&format!("    ) : {}()\n", en.name));
+            }
+        }
+        out.push_str("}\n");
+    }
+}
+
+fn emit_error_type_with_imports(error: &alef_core::ir::ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
+    if !error.doc.is_empty() {
+        for line in error.doc.lines() {
+            out.push_str("/// ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.push_str(&format!(
+        "sealed class {}(message: String) : Exception(message) {{\n",
+        error.name
+    ));
+    for variant in &error.variants {
+        if variant.is_unit {
+            out.push_str(&format!(
+                "    object {} : {}(\"{}\")\n",
+                variant.name,
+                error.name,
+                variant.message_template.as_deref().unwrap_or(&variant.name)
+            ));
+        } else {
+            out.push_str(&format!("    data class {}(\n", variant.name));
+            for (idx, f) in variant.fields.iter().enumerate() {
+                let ty_str = kotlin_type_with_string_imports(&f.ty, f.optional, imports);
+                let name = kotlin_field_name(&f.name, idx);
+                // `message` on Throwable subclasses must be `override` because
+                // `kotlin.Throwable` declares `open val message: String?`.
+                let modifier = if name == "message" { "override " } else { "" };
+                let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
+                out.push_str(&format!("        {modifier}val {name}: {ty_str}{comma}\n"));
+            }
+            let message_template = variant.message_template.as_deref().unwrap_or(&variant.name);
+            out.push_str(&format!("    ) : {}(\"{message_template}\")\n", error.name));
+        }
+    }
+    out.push_str("}\n");
+}
+
+fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>, _java_package: &str) {
+    if !f.doc.is_empty() {
+        for line in f.doc.lines() {
+            out.push_str("    /// ");
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    let params: Vec<String> = f.params.iter().map(|p| format_param_with_imports(p, imports)).collect();
+    let return_ty = kotlin_type_with_string_imports(&f.return_type, false, imports);
+    let async_kw = if f.is_async { "suspend " } else { "" };
+    let func_name_camel = to_lower_camel(&f.name);
+    let call_args = f
+        .params
+        .iter()
+        .map(|p| to_lower_camel(&p.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    out.push_str(&format!(
+        "    {async_kw}fun {}({}): {} {{\n",
+        func_name_camel,
+        params.join(", "),
+        return_ty
+    ));
+
+    if f.is_async {
+        // The Java facade lowers async Rust functions to blocking calls (it
+        // awaits the future internally and returns the resolved value, not a
+        // CompletionStage). Wrap the call in `withContext(Dispatchers.IO)` so
+        // the suspend function yields the calling thread while the JNI call
+        // blocks under it.
+        out.push_str("        return withContext(Dispatchers.IO) {\n");
+        if matches!(f.return_type, TypeRef::Unit) {
+            out.push_str(&format!("            Bridge.{}({})\n", func_name_camel, call_args));
+        } else {
+            out.push_str(&format!(
+                "            Bridge.{}({})\n",
+                func_name_camel, call_args
+            ));
+        }
+        out.push_str("        }\n");
+    } else {
+        if matches!(f.return_type, TypeRef::Unit) {
+            out.push_str(&format!("        Bridge.{}({})\n", func_name_camel, call_args));
+        } else {
+            out.push_str(&format!("        return Bridge.{}({})\n", func_name_camel, call_args));
+        }
+    }
+    out.push_str("    }\n");
+}
+
+fn format_param_with_imports(p: &ParamDef, imports: &mut BTreeSet<String>) -> String {
+    let ty_str = kotlin_type_with_string_imports(&p.ty, p.optional, imports);
+    format!("{}: {}", to_lower_camel(&p.name), ty_str)
+}
+
+fn kotlin_type(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<&'static str>) -> String {
+    let inner = render_type_ref_with_imports(ty, imports);
+    if optional { format!("{inner}?") } else { inner }
+}
+
+fn render_type_ref_with_imports(ty: &TypeRef, imports: &mut BTreeSet<&'static str>) -> String {
+    let mapper = KotlinMapper;
+    match ty {
+        TypeRef::Path => {
+            imports.insert("import java.nio.file.Path");
+            mapper.map_type(ty)
+        }
+        TypeRef::Duration => {
+            imports.insert("import kotlin.time.Duration");
+            mapper.map_type(ty)
+        }
+        TypeRef::Optional(inner) => format!("{}?", render_type_ref_with_imports(inner, imports)),
+        TypeRef::Vec(inner) => {
+            format!("List<{}>", render_type_ref_with_imports(inner, imports))
+        }
+        TypeRef::Map(k, v) => {
+            format!(
+                "Map<{}, {}>",
+                render_type_ref_with_imports(k, imports),
+                render_type_ref_with_imports(v, imports)
+            )
+        }
+        _ => mapper.map_type(ty),
+    }
+}
+
+fn render_type_ref_with_string_imports(ty: &TypeRef, imports: &mut BTreeSet<String>) -> String {
+    let mapper = KotlinMapper;
+    match ty {
+        TypeRef::Path => {
+            imports.insert("import java.nio.file.Path".to_string());
+            mapper.map_type(ty)
+        }
+        TypeRef::Duration => {
+            imports.insert("import kotlin.time.Duration".to_string());
+            mapper.map_type(ty)
+        }
+        TypeRef::Optional(inner) => format!("{}?", render_type_ref_with_string_imports(inner, imports)),
+        TypeRef::Vec(inner) => {
+            format!("List<{}>", render_type_ref_with_string_imports(inner, imports))
+        }
+        TypeRef::Map(k, v) => {
+            format!(
+                "Map<{}, {}>",
+                render_type_ref_with_string_imports(k, imports),
+                render_type_ref_with_string_imports(v, imports)
+            )
+        }
+        _ => mapper.map_type(ty),
+    }
+}
+
+fn kotlin_type_with_string_imports(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<String>) -> String {
+    let inner = render_type_ref_with_string_imports(ty, imports);
+    if optional { format!("{inner}?") } else { inner }
+}
+
+fn kotlin_package(config: &AlefConfig) -> String {
+    config.kotlin_package()
+}
+
+fn java_package(config: &AlefConfig) -> String {
+    config.java_package()
+}
+
+fn kotlin_module_name(crate_name: &str) -> String {
+    to_pascal_case(crate_name)
+}
+
+pub(crate) fn to_pascal_case(name: &str) -> String {
+    let mut out = String::new();
+    let mut upper_next = true;
+    for ch in name.chars() {
+        if ch == '-' || ch == '_' {
+            upper_next = true;
+        } else if upper_next {
+            out.extend(ch.to_uppercase());
+            upper_next = false;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn pascal_to_snake(name: &str) -> String {
+    let mut out = String::new();
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.extend(ch.to_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Returns true if the type reference, recursively, includes any name in the
+/// supplied set. Used by the Kotlin/Java wrappers to skip functions whose
+/// signature touches trait types (the Java facade doesn't expose those).
+fn type_ref_uses_named(ty: &TypeRef, names: &std::collections::HashSet<&str>) -> bool {
+    match ty {
+        TypeRef::Named(n) => names.contains(n.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_ref_uses_named(inner, names),
+        TypeRef::Map(k, v) => type_ref_uses_named(k, names) || type_ref_uses_named(v, names),
+        _ => false,
+    }
+}
+
+pub(crate) fn to_lower_camel(name: &str) -> String {
+    let pascal = to_pascal_case(name);
+    let mut chars = pascal.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// Field-name resolution for Kotlin record-style data class params. IR
+/// positional fields use names like `_0`, `_1` which lowerCamelCase to `0`/`1`
+/// — invalid Kotlin identifiers. Map them to `field0`, `field1`, ...
+pub(crate) fn kotlin_field_name(raw: &str, idx: usize) -> String {
+    let stripped = raw.trim_start_matches('_');
+    if stripped.is_empty() || stripped.chars().all(|c| c.is_ascii_digit()) {
+        return format!("field{idx}");
+    }
+    to_lower_camel(raw)
+}
+
+pub(crate) fn to_screaming_snake(name: &str) -> String {
+    let mut out = String::new();
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.extend(ch.to_uppercase());
+        } else {
+            out.extend(ch.to_uppercase());
+        }
+    }
+    out
+}
