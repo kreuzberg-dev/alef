@@ -242,7 +242,7 @@ pub mod maven {
     pub const KOTLIN_JVM_PLUGIN: &str = "2.1.10";
 
     // renovate: datasource=maven depName=org.jetbrains.kotlinx:kotlinx-coroutines-core
-    pub const KOTLINX_COROUTINES_CORE: &str = "1.9.1";
+    pub const KOTLINX_COROUTINES_CORE: &str = "1.9.0";
 
     // renovate: datasource=maven depName=net.java.dev.jna:jna
     pub const JNA: &str = "5.14.0";

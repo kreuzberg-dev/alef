@@ -150,10 +150,17 @@ fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::config:
     };
 
     let min_zig = toolchain::MIN_ZIG_VERSION;
+    // Zig 0.16+ requires a deterministic fingerprint per package; FNV-1a over the package name.
+    let mut fingerprint: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in b"e2e_zig" {
+        fingerprint ^= *byte as u64;
+        fingerprint = fingerprint.wrapping_mul(0x0000_0100_0000_01b3);
+    }
     format!(
         r#".{{
     .name = .e2e_zig,
     .version = "0.1.0",
+    .fingerprint = 0x{fingerprint:016x},
     .minimum_zig_version = "{min_zig}",
     .dependencies = .{{
         .{pkg_name} = {dep_block},

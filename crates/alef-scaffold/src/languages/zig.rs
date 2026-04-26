@@ -39,11 +39,15 @@ pub fn build(b: *std.Build) void {{
         ffi_lib = ffi_lib_name,
     );
 
-    // build.zig.zon — Zig 0.13+ requires `.paths` and `.minimum_zig_version`.
+    // build.zig.zon — Zig 0.14+ requires `.name` to be an enum literal; Zig 0.16+ requires
+    // a `.fingerprint` field. We derive a stable 64-bit value from the module name so that
+    // regeneration is deterministic.
+    let fingerprint = zig_fingerprint(&module_name);
     let build_zig_zon = format!(
         r#".{{
     .name = .{module_name},
     .version = "{version}",
+    .fingerprint = 0x{fingerprint:016x},
     .minimum_zig_version = "{min_zig}",
     .dependencies = .{{}},
     .paths = .{{
@@ -55,6 +59,7 @@ pub fn build(b: *std.Build) void {{
 "#,
         module_name = module_name,
         version = version,
+        fingerprint = fingerprint,
         min_zig = toolchain::MIN_ZIG_VERSION,
     );
 
@@ -77,4 +82,19 @@ pub fn build(b: *std.Build) void {{
             generated_header: false,
         },
     ])
+}
+
+/// Derive a deterministic 64-bit fingerprint from the package name.
+/// Zig 0.16+ requires a `.fingerprint` field in `build.zig.zon`. Upstream
+/// generates a random value with `zig init`; alef regenerates the scaffold
+/// idempotently, so we use FNV-1a over the package name to get a stable
+/// value. The fingerprint is local to the on-disk `.zon` file and does not
+/// need to match upstream package indexes.
+fn zig_fingerprint(name: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in name.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
