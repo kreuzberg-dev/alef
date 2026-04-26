@@ -798,6 +798,7 @@ fn test_scaffold_elixir_cargo_tokio_when_async_method() {
         }],
         is_opaque: false,
         is_clone: true,
+        is_copy: false,
         doc: String::new(),
         cfg: None,
         is_trait: false,

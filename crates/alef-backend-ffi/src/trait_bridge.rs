@@ -1403,6 +1403,7 @@ mod tests {
             methods,
             is_opaque: false,
             is_clone: false,
+            is_copy: false,
             is_trait: true,
             has_default: false,
             has_stripped_cfg_fields: false,

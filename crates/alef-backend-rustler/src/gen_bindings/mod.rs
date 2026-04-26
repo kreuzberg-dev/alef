@@ -864,3 +864,130 @@ fn gen_nif_init(
         format!("rustler::init!(\"{module}\");")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::*;
+    use alef_core::ir::ApiSurface;
+
+    fn test_config() -> AlefConfig {
+        AlefConfig {
+            version: None,
+            crate_config: CrateConfig {
+                name: "my-lib".to_string(),
+                sources: vec![],
+                version_from: "Cargo.toml".to_string(),
+                core_import: None,
+                workspace_root: None,
+                skip_core_import: false,
+                features: vec![],
+                path_mappings: std::collections::HashMap::new(),
+                auto_path_mappings: Default::default(),
+                extra_dependencies: Default::default(),
+                source_crates: vec![],
+                error_type: None,
+                error_constructor: None,
+            },
+            languages: vec![Language::Elixir],
+            exclude: ExcludeConfig::default(),
+            include: IncludeConfig::default(),
+            output: OutputConfig::default(),
+            python: None,
+            node: None,
+            ruby: None,
+            php: None,
+            elixir: Some(ElixirConfig {
+                app_name: Some("my_lib".to_string()),
+                features: None,
+                serde_rename_all: None,
+                exclude_functions: vec![],
+                exclude_types: vec![],
+                extra_dependencies: Default::default(),
+                scaffold_output: None,
+                rename_fields: Default::default(),
+                run_wrapper: None,
+                extra_lint_paths: vec![],
+            }),
+            wasm: None,
+            ffi: None,
+            go: None,
+            java: None,
+            csharp: None,
+            r: None,
+            scaffold: None,
+            readme: None,
+            lint: None,
+            update: None,
+            test: None,
+            setup: None,
+            clean: None,
+            build_commands: None,
+            publish: None,
+            custom_files: None,
+            adapters: vec![],
+            custom_modules: CustomModulesConfig::default(),
+            custom_registrations: CustomRegistrationsConfig::default(),
+            opaque_types: std::collections::HashMap::new(),
+            generate: GenerateConfig::default(),
+            generate_overrides: std::collections::HashMap::new(),
+            dto: Default::default(),
+            sync: None,
+            e2e: None,
+            trait_bridges: vec![],
+            tools: ToolsConfig::default(),
+            format: FormatConfig::default(),
+            format_overrides: std::collections::HashMap::new(),
+        }
+    }
+
+    fn test_api() -> ApiSurface {
+        ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        }
+    }
+
+    /// The generated lib.rs must be placed in `{name}_nif/src/lib.rs` by default —
+    /// matching the scaffold's Cargo.toml at `{name}_nif/Cargo.toml`.
+    ///
+    /// Previously the backend used `{name}_rustler/src/` which caused a 3-way mismatch:
+    /// scaffold Cargo.toml in `_nif/`, generated lib.rs in `_rustler/`, native.ex `crate:` = `_nif`.
+    #[test]
+    fn test_generate_bindings_output_path_is_nif_not_rustler() {
+        let config = test_config();
+        let api = test_api();
+        let backend = RustlerBackend;
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        assert_eq!(files.len(), 1, "expected exactly one generated file");
+        let lib_rs_path = files[0].path.to_string_lossy();
+        assert!(
+            lib_rs_path.contains("_nif/src/lib.rs"),
+            "generated lib.rs must be inside the _nif/ crate directory (not _rustler/); got: {lib_rs_path}"
+        );
+        assert!(
+            !lib_rs_path.contains("_rustler"),
+            "generated lib.rs must not be inside a _rustler/ directory; got: {lib_rs_path}"
+        );
+    }
+
+    /// The `crate:` field in native.ex must match the `[package] name` in the scaffold's Cargo.toml.
+    /// Both must be `{app_name}_nif` so rustler_precompiled can locate the shared library.
+    #[test]
+    fn test_native_ex_crate_field_matches_nif_crate_name() {
+        let config = test_config();
+        let api = test_api();
+        let backend = RustlerBackend;
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let native_ex = files.iter().find(|f| f.path.ends_with("native.ex")).unwrap();
+        assert!(
+            native_ex.content.contains("crate: \"my_lib_nif\""),
+            "native.ex crate: field must match the _nif Cargo.toml package name; content: {}",
+            native_ex.content
+        );
+    }
+}

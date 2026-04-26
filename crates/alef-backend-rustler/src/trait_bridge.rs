@@ -393,14 +393,13 @@ pub fn gen_trait_bridge(
 
         gen_visitor_bridge(
             &mut out,
-            trait_type,
-            bridge_cfg,
-            &struct_name,
-            &trait_path,
-            core_import,
-            &type_paths,
-            error_type,
-            error_constructor,
+            &VisitorBridgeCtx {
+                trait_type,
+                struct_name: &struct_name,
+                trait_path: &trait_path,
+                core_crate: core_import,
+                type_paths: &type_paths,
+            },
         );
         BridgeOutput {
             imports: vec![],
@@ -432,6 +431,15 @@ pub fn gen_trait_bridge(
     }
 }
 
+/// Parameters for [`gen_visitor_bridge`], grouped to keep argument count under the lint limit.
+struct VisitorBridgeCtx<'a> {
+    trait_type: &'a TypeDef,
+    struct_name: &'a str,
+    trait_path: &'a str,
+    core_crate: &'a str,
+    type_paths: &'a std::collections::HashMap<String, String>,
+}
+
 /// Generate a visitor-style bridge wrapping a `rustler::OwnedEnv` + `rustler::Term`.
 ///
 /// This generates an async message-passing bridge. When `convert_with_visitor` is called,
@@ -440,17 +448,14 @@ pub fn gen_trait_bridge(
 /// process and blocks on a channel waiting for the reply from `visitor_reply/2`.
 /// When conversion finishes, the thread sends `{:ok, result_json}` or `{:error, reason}`
 /// to the caller.
-fn gen_visitor_bridge(
-    out: &mut String,
-    trait_type: &TypeDef,
-    _bridge_cfg: &TraitBridgeConfig,
-    struct_name: &str,
-    trait_path: &str,
-    core_crate: &str,
-    type_paths: &std::collections::HashMap<String, String>,
-    _error_type: &str,
-    _error_constructor: &str,
-) {
+fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
+    let VisitorBridgeCtx {
+        trait_type,
+        struct_name,
+        trait_path,
+        core_crate,
+        type_paths,
+    } = ctx;
     // Helper: convert NodeContext to a Rustler NifMap term inside an OwnedEnv
     writeln!(out, "fn nodecontext_to_elixir_map<'a>(").unwrap();
     writeln!(out, "    env: rustler::Env<'a>,").unwrap();

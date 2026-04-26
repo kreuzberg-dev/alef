@@ -757,7 +757,12 @@ pub(super) fn gen_free_function(
     } else if can_inline_fn {
         // Passthrough primitive: call was already emitted as tail expression
     } else {
-        write!(out, "{}", gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names)).ok();
+        write!(
+            out,
+            "{}",
+            gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names)
+        )
+        .ok();
     }
 
     write!(out, "}}").ok();

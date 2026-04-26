@@ -89,7 +89,7 @@ impl Backend for Pyo3Backend {
         builder.add_inner_attribute("allow(missing_docs)");
         builder.add_inner_attribute("allow(deprecated, dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute(
-            "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::let_unit_value, clippy::needless_borrow, clippy::too_many_arguments, clippy::map_identity, clippy::unnecessary_cast, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)",
+            "allow(clippy::default_trait_access, clippy::cast_possible_wrap, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::let_unit_value, clippy::needless_borrow, clippy::too_many_arguments, clippy::map_identity, clippy::unnecessary_cast, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::useless_conversion)",
         );
         builder.add_import("pyo3::prelude::*");
         // Note: core_import and path_mapping crates are referenced via fully-qualified paths

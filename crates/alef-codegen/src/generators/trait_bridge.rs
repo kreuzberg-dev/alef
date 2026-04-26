@@ -675,6 +675,7 @@ mod tests {
             methods,
             is_opaque: true,
             is_clone: false,
+            is_copy: false,
             doc: String::new(),
             cfg: None,
             is_trait: true,

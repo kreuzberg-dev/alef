@@ -95,7 +95,11 @@ impl Backend for FfiBackend {
 fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
     let mut builder = RustFileBuilder::new().with_generated_header();
     builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables, unused_mut)");
-    builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::redundant_locals, dropping_references, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)");
+    // useless_conversion is suppressed because `From<X> for Y` impls (where X != Y) get
+    // extracted as static methods on Y, then the FFI wrapper signature normalizes the param
+    // to Self. The generated `Y::from(arg: Y)` resolves to the blanket `From<T> for T`
+    // (identity) at runtime; the wrapper is preserved for ABI stability.
+    builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::redundant_locals, dropping_references, clippy::unnecessary_cast, clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::useless_conversion)");
 
     // Imports
     builder.add_import("std::ffi::{c_char, CStr, CString}");
@@ -123,7 +127,12 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         .iter()
         .filter(|e| e.is_copy)
         .map(|e| e.name.clone())
-        .chain(api.types.iter().filter(|t| !t.is_trait && t.is_copy).map(|t| t.name.clone()))
+        .chain(
+            api.types
+                .iter()
+                .filter(|t| !t.is_trait && t.is_copy)
+                .map(|t| t.name.clone()),
+        )
         .collect();
     // Clone-but-not-Copy named types (structs + data-bearing enums). Callers emit `.clone()`.
     let clone_names: ahash::AHashSet<String> = api
@@ -291,13 +300,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         if visitor_callbacks_enabled && func.sanitized && func.name == "convert" {
             continue;
         }
-        builder.add_item(&gen_free_function(
-            func,
-            prefix,
-            &core_import,
-            &path_map,
-            &enum_names,
-        ));
+        builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map, &enum_names));
     }
 
     // Visitor/callback FFI support — generated when `[ffi] visitor_callbacks = true`.
@@ -412,6 +415,7 @@ mod tests {
                 methods: vec![],
                 is_opaque: false,
                 is_clone: true,
+                is_copy: false,
                 is_trait: false,
                 has_default: false,
                 has_stripped_cfg_fields: false,
@@ -472,6 +476,7 @@ mod tests {
                 ],
                 doc: "Output format.".to_string(),
                 cfg: None,
+                is_copy: false,
                 serde_tag: None,
                 serde_rename_all: None,
             }],
@@ -992,6 +997,7 @@ mod tests {
                 methods: vec![],
                 is_opaque: false,
                 is_clone: true,
+                is_copy: false,
                 is_trait: false,
                 has_default: false,
                 has_stripped_cfg_fields: false,
@@ -1062,6 +1068,7 @@ mod tests {
             methods: vec![],
             is_opaque: false,
             is_clone: false,
+            is_copy: false,
             is_trait: false,
             has_default: false,
             has_stripped_cfg_fields: false,
@@ -1090,6 +1097,7 @@ mod tests {
             super_traits: vec![],
             doc: String::new(),
             cfg: None,
+            is_copy: false,
         };
         ApiSurface {
             crate_name: "my-lib".to_string(),

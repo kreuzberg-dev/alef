@@ -174,6 +174,7 @@ mod tests {
             methods: vec![],
             is_opaque: false,
             is_clone: true,
+            is_copy: false,
             is_trait: false,
             has_default: false,
             has_stripped_cfg_fields: false,
@@ -211,6 +212,7 @@ mod tests {
             ],
             doc: String::new(),
             cfg: None,
+            is_copy: false,
             serde_tag: None,
             serde_rename_all: None,
         }
