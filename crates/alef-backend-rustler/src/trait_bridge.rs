@@ -61,103 +61,57 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         }
 
         writeln!(out).ok();
-        writeln!(out, "// Sync dispatch via tokio::runtime::Handle::block_on.").ok();
-        writeln!(out, "// Create a oneshot channel to receive the result from Elixir.").ok();
+        writeln!(out, "let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);").ok();
         writeln!(
             out,
-            "let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();"
+            "let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();"
         )
         .ok();
-        writeln!(out, "let pid = self.inner;").ok();
+        writeln!(out, "TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);").ok();
         writeln!(out).ok();
 
-        writeln!(out, "// Send request message to Elixir GenServer via OwnedEnv.").ok();
-        writeln!(out, "let mut env = rustler::OwnedEnv::new();").ok();
-        writeln!(out, "let _ = env.send_and_clear(&pid, |env| {{").ok();
-        writeln!(
-            out,
-            "    // Build message: {{:trait_call, method_name, args_json, reply_channel_resource}}"
-        )
-        .ok();
+        writeln!(out, "let pid = self.inner;").ok();
 
-        // Build args as JSON
+        // Build args JSON from parameters
+        writeln!(out, "let args_json = {{").ok();
         writeln!(out, "    let mut args = serde_json::Map::new();").ok();
         for p in &method.params {
             let json_expr = build_json_arg(p);
             writeln!(out, "    args.insert(\"{0}\".to_string(), {1});", p.name, json_expr).ok();
         }
+        writeln!(out, "    serde_json::Value::Object(args).to_string()").ok();
+        writeln!(out, "}};").ok();
+        writeln!(out).ok();
 
-        writeln!(out, "    let args_json = serde_json::Value::Object(args).to_string();").ok();
+        writeln!(out, "let method = \"{}\";", name).ok();
+        writeln!(out).ok();
+
+        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
+        writeln!(out, "    let mut env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "    let _ = env.send_and_clear(&pid, |env| {{").ok();
         writeln!(
             out,
-            "    let method_atom = rustler::types::atom::Atom::from_str(env, \"{}\").unwrap().to_term(env);",
-            name
+            "        (rustler::types::atom::Atom::from_str(env, \"trait_call\").unwrap(),\
+             method, args_json.as_str(), reply_id).encode(env)"
         )
         .ok();
-        writeln!(out, "    let args_term = args_json.encode(env);").ok();
-        writeln!(
-            out,
-            "    let tag = rustler::types::atom::Atom::from_str(env, \"trait_call\").unwrap().to_term(env);"
-        )
-        .ok();
-        writeln!(
-            out,
-            "    rustler::types::tuple::make_tuple(env, &[tag, method_atom, args_term])"
-        )
-        .ok();
+        writeln!(out, "    }});").ok();
         writeln!(out, "}});").ok();
         writeln!(out).ok();
 
-        writeln!(out, "// Block on the oneshot receiver using the current tokio runtime.").ok();
-        writeln!(out, "match tokio::runtime::Handle::try_current() {{").ok();
-        writeln!(out, "    Ok(handle) => {{").ok();
-        writeln!(out, "        handle.block_on(async {{").ok();
-
+        writeln!(out, "match rx.blocking_recv() {{").ok();
         if has_error {
-            writeln!(out, "            match rx.await {{").ok();
-            writeln!(
-                out,
-                "                Ok(result) => Ok(serde_json::from_value(result).unwrap_or_default()),"
-            )
-            .ok();
-            writeln!(
-                out,
-                "                Err(_) => Err({}::KreuzbergError::Plugin {{",
-                spec.core_import
-            )
-            .ok();
-            writeln!(
-                out,
-                "                    message: \"Elixir callback timed out or disconnected\".to_string(),"
-            )
-            .ok();
-            writeln!(out, "                    plugin_name: self.cached_name.clone(),").ok();
-            writeln!(out, "                }})").ok();
-            writeln!(out, "            }}").ok();
+            writeln!(out, "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|e| {}Error {{", spec.error_type).ok();
+            writeln!(out, "        message: format!(\"Failed to deserialize response: {{}}\", e),").ok();
+            writeln!(out, "    }}),").ok();
+            writeln!(out, "    Ok(Err(msg)) => Err({}Error {{ message: msg }}),", spec.error_type).ok();
+            writeln!(out, "    Err(_) => Err({}Error {{", spec.error_type).ok();
+            writeln!(out, "        message: \"Channel closed before reply received\".to_string(),").ok();
+            writeln!(out, "    }})").ok();
         } else {
-            writeln!(
-                out,
-                "            rx.await.map(|_| Default::default()).unwrap_or_else(|_| Default::default())"
-            )
-            .ok();
+            writeln!(out, "    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),").ok();
+            writeln!(out, "    _ => Default::default()").ok();
         }
-
-        writeln!(out, "        }})").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    Err(_) => {{").ok();
-        if has_error {
-            writeln!(out, "        Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-            writeln!(
-                out,
-                "            message: \"No active tokio runtime for sync dispatch\".to_string(),"
-            )
-            .ok();
-            writeln!(out, "            plugin_name: self.cached_name.clone(),").ok();
-            writeln!(out, "        }})").ok();
-        } else {
-            writeln!(out, "        Default::default()").ok();
-        }
-        writeln!(out, "    }}").ok();
         writeln!(out, "}}").ok();
 
         out
@@ -168,9 +122,6 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         let has_error = method.error_type.is_some();
         let mut out = String::with_capacity(512);
 
-        // Clone the cached name for the async block
-        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
-
         // Clone params so they can be moved into the blocking task
         for p in &method.params {
             if p.is_ref || matches!(&p.ty, TypeRef::String) {
@@ -179,69 +130,58 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         }
 
         writeln!(out).ok();
-        writeln!(out, "// Create a oneshot channel to receive the result from Elixir.").ok();
+        writeln!(out, "let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);").ok();
         writeln!(
             out,
-            "let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();"
+            "let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();"
         )
         .ok();
-        writeln!(out, "let pid = self.inner;").ok();
+        writeln!(out, "TRAIT_REPLY_CHANNELS.lock().unwrap().insert(reply_id, tx);").ok();
         writeln!(out).ok();
 
-        writeln!(
-            out,
-            "// Async dispatch: spawn_blocking sends message to Elixir and waits."
-        )
-        .ok();
+        writeln!(out, "let pid = self.inner;").ok();
+
+        // Build args JSON from parameters
+        writeln!(out, "let args_json = {{").ok();
+        writeln!(out, "    let mut args = serde_json::Map::new();").ok();
+        for p in &method.params {
+            let json_expr = build_json_arg(p);
+            writeln!(out, "    args.insert(\"{0}\".to_string(), {1});", p.name, json_expr).ok();
+        }
+        writeln!(out, "    serde_json::Value::Object(args).to_string()").ok();
+        writeln!(out, "}};").ok();
+        writeln!(out).ok();
+
+        writeln!(out, "let method = \"{}\";", name).ok();
+        writeln!(out).ok();
+
         writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
         writeln!(out, "    let mut env = rustler::OwnedEnv::new();").ok();
         writeln!(out, "    let _ = env.send_and_clear(&pid, |env| {{").ok();
         writeln!(
             out,
-            "        // Build message: {{:trait_call, method_name, args_json, reply_channel_resource}}"
-        )
-        .ok();
-
-        writeln!(out, "        let mut args = serde_json::Map::new();").ok();
-        for p in &method.params {
-            let json_expr = build_json_arg(p);
-            writeln!(out, "        args.insert(\"{0}\".to_string(), {1});", p.name, json_expr).ok();
-        }
-
-        writeln!(
-            out,
-            "        let args_json = serde_json::Value::Object(args).to_string();"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let method_atom = rustler::types::atom::Atom::from_str(env, \"{}\").unwrap().to_term(env);",
-            name
-        )
-        .ok();
-        writeln!(out, "        let args_term = args_json.encode(env);").ok();
-        writeln!(
-            out,
-            "        let tag = rustler::types::atom::Atom::from_str(env, \"trait_call\").unwrap().to_term(env);"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        rustler::types::tuple::make_tuple(env, &[tag, method_atom, args_term])"
+            "        (rustler::types::atom::Atom::from_str(env, \"trait_call\").unwrap(),\
+             method, args_json.as_str(), reply_id).encode(env)"
         )
         .ok();
         writeln!(out, "    }});").ok();
-        writeln!(out, "}})").ok();
-        writeln!(out, ".await").ok();
+        writeln!(out, "}}).await;").ok();
+        writeln!(out).ok();
 
+        writeln!(out, "match rx.await {{").ok();
         if has_error {
-            writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-            writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
-            writeln!(out, "    plugin_name: cached_name.clone(),").ok();
-            writeln!(out, "}})").ok();
+            writeln!(out, "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|e| {}Error {{", spec.error_type).ok();
+            writeln!(out, "        message: format!(\"Failed to deserialize response: {{}}\", e),").ok();
+            writeln!(out, "    }}),").ok();
+            writeln!(out, "    Ok(Err(msg)) => Err({}Error {{ message: msg }}),", spec.error_type).ok();
+            writeln!(out, "    Err(_) => Err({}Error {{", spec.error_type).ok();
+            writeln!(out, "        message: \"Channel closed before reply received\".to_string(),").ok();
+            writeln!(out, "    }})").ok();
         } else {
-            writeln!(out, ".map_err(|e| {{}})").ok();
+            writeln!(out, "    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),").ok();
+            writeln!(out, "    _ => Default::default()").ok();
         }
+        writeln!(out, "}}").ok();
 
         out
     }
