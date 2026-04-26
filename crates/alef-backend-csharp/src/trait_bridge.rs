@@ -146,7 +146,7 @@ fn gen_single_trait_bridge(
 
     // Trait methods
     for method in &trait_def.methods {
-        let _return_type = csharp_type(&method.return_type);
+        let return_type = csharp_type(&method.return_type);
         let params = method
             .params
             .iter()
@@ -155,11 +155,7 @@ fn gen_single_trait_bridge(
             .join(", ");
 
         writeln!(out, "    /// <summary>{}</summary>", method.name).ok();
-        if method.error_type.is_some() {
-            writeln!(out, "    {} {}({});", return_type, to_csharp_name(&method.name), params).ok();
-        } else {
-            writeln!(out, "    {} {}({});", return_type, to_csharp_name(&method.name), params).ok();
-        }
+        writeln!(out, "    {} {}({});", return_type, to_csharp_name(&method.name), params).ok();
         writeln!(out).ok();
     }
 
@@ -207,7 +203,6 @@ fn gen_single_trait_bridge(
 
     // Trait method delegates
     for method in &trait_def.methods {
-        let return_type = csharp_type(&method.return_type);
         let params = method
             .params
             .iter()
@@ -419,7 +414,6 @@ fn gen_single_trait_bridge(
     // Trait method callbacks
     for method in &trait_def.methods {
         let method_pascal = to_csharp_name(&method.name);
-        let method_camel = method.name.to_lower_camel_case();
         let param_sig = method
             .params
             .iter()
@@ -433,11 +427,17 @@ fn gen_single_trait_bridge(
             .collect::<Vec<_>>()
             .join(", ");
 
-        writeln!(out, "    private int {}FnCallback(IntPtr userData, {}{}, out IntPtr outResult, out IntPtr outError) {{",
-            method_pascal,
-            if param_sig.is_empty() { String::new() } else { format!("{}, ", param_sig) },
-            ""
-        ).ok();
+        let params_decl = if param_sig.is_empty() {
+            String::new()
+        } else {
+            format!("{}, ", param_sig)
+        };
+        writeln!(
+            out,
+            "    private int {}FnCallback(IntPtr userData, {}out IntPtr outResult, out IntPtr outError) {{",
+            method_pascal, params_decl
+        )
+        .ok();
         writeln!(out, "        try {{").ok();
 
         if method.return_type == TypeRef::Unit {

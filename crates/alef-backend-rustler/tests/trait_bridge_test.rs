@@ -252,8 +252,8 @@ fn test_plugin_bridge_constructor_caches_name() {
         "constructor must populate cached_name"
     );
     assert!(
-        code.code.contains("OwnedEnv") || code.code.contains("owned"),
-        "constructor must create an OwnedEnv to extend term lifetime"
+        code.code.contains("SavedTerm") || code.code.contains("saved"),
+        "constructor must save the term for safe lifetime extension"
     );
 }
 
@@ -359,5 +359,45 @@ fn test_visitor_bridge_holds_owned_env_and_saved_term() {
     assert!(
         code.code.contains("rustler::env::SavedTerm"),
         "visitor bridge struct must hold a rustler::env::SavedTerm"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Plugin bridge: Send + Sync compliance
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_plugin_bridge_struct_does_not_hold_owned_env() {
+    let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
+    let cfg = make_plugin_bridge_cfg("OcrBackend");
+    let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+
+    // The struct definition should NOT contain an 'env:' field that holds OwnedEnv.
+    // Only 'inner: SavedTerm' and 'cached_name: String', both of which are Send + Sync.
+    let struct_section = output.code.split("pub struct RustlerOcrBackendBridge").nth(1)
+        .and_then(|s| s.split("}").next())
+        .unwrap_or("");
+
+    assert!(
+        !struct_section.contains("env:"),
+        "plugin bridge struct must not hold an OwnedEnv field to ensure Send + Sync"
+    );
+}
+
+#[test]
+fn test_plugin_bridge_sync_method_creates_owned_env_locally() {
+    let trait_def = make_trait_def("Analyzer", vec![make_method("analyze", TypeRef::String, true, false)]);
+    let cfg = make_plugin_bridge_cfg("Analyzer");
+    let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+
+    // Sync method body should create a fresh OwnedEnv locally, not access self.env.
+    let method_impl = output.code.split("fn analyze(").nth(1).unwrap_or("");
+    assert!(
+        method_impl.contains("let mut env = rustler::OwnedEnv::new()"),
+        "sync method must create OwnedEnv locally for thread-safe dispatch"
+    );
+    assert!(
+        !method_impl.contains("self.env.run"),
+        "sync method must not use self.env (which doesn't exist)"
     );
 }

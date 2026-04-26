@@ -52,14 +52,18 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         let name = &method.name;
         let mut out = String::with_capacity(512);
 
-        // For sync dispatch, use the OwnedEnv within the bridge
-        writeln!(out, "self.env.run(|env| {{").ok();
-        writeln!(out, "    let elixir_term = self.inner.load(env);").ok();
+        // For sync dispatch, create a fresh OwnedEnv locally and load the saved term.
+        // This keeps the struct Send + Sync (no OwnedEnv field) while still supporting
+        // sync method calls.
+        // SAFETY: OwnedEnv::new() is always safe; we own it locally and drop it at scope end.
+        writeln!(out, "let mut env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "env.run(|env_ref| {{").ok();
+        writeln!(out, "    let elixir_term = self.inner.load(env_ref);").ok();
 
         // Atom key for method lookup in the map
         writeln!(
             out,
-            "    let key = rustler::types::atom::Atom::from_str(env, \"{name}\").ok()?;"
+            "    let key = rustler::types::atom::Atom::from_str(env_ref, \"{name}\").ok()?;"
         )
         .ok();
         writeln!(
@@ -88,7 +92,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         // Call the Elixir function directly with apply/2
         writeln!(
             out,
-            "    let result: rustler::Term = env.call(method_term, &args).ok()?;"
+            "    let result: rustler::Term = env_ref.call(method_term, &args).ok()?;"
         )
         .ok();
 
@@ -210,12 +214,16 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         writeln!(out, "impl {wrapper} {{").ok();
         writeln!(out, "    /// Create a new bridge wrapping an Elixir term.").ok();
         writeln!(out, "    ///").ok();
-        writeln!(out, "    /// Validates that the term provides all required methods.").ok();
+        writeln!(out, "    /// Saves the term in a rustler::SavedTerm for safe use across").ok();
+        writeln!(out, "    /// async boundaries and thread spawns. Caches the module name for").ok();
+        writeln!(out, "    /// fast Plugin::name() lookups.").ok();
         writeln!(
             out,
             "    pub fn new(env: rustler::Env<'_>, elixir_term: rustler::Term<'_>) -> Self {{"
         )
         .ok();
+        writeln!(out, "        // Create OwnedEnv locally to extract and cache the name.").ok();
+        writeln!(out, "        // SAFETY: OwnedEnv is scoped to this function; we only keep SavedTerm.").ok();
         writeln!(out, "        let owned = rustler::OwnedEnv::new();").ok();
         writeln!(out, "        let saved = owned.save(elixir_term);").ok();
 
@@ -234,7 +242,6 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
         writeln!(out).ok();
         writeln!(out, "        Self {{").ok();
-        writeln!(out, "            env: owned,").ok();
         writeln!(out, "            inner: saved,").ok();
         writeln!(out, "            cached_name,").ok();
         writeln!(out, "        }}").ok();

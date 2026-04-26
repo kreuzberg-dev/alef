@@ -556,15 +556,22 @@ pub fn gen_trait_bridge(
 }
 
 /// Generate code to unmarshal a parameter from MemorySegment to Java type.
+/// Note: This function unmarshals the parameter from the MemorySegment FFI type into
+/// the Java type. The parameter name in the method signature refers to the MemorySegment,
+/// so we create a local variable with the Java value using that name (shadowing the param).
 fn gen_param_unmarshal(out: &mut String, param_name: &str, param_type: &TypeRef) {
     use std::fmt::Write;
+    let java_type_str = java_type(param_type);
     match param_type {
         TypeRef::Primitive(_) => {
-            // For primitives, assume the parameter is already the right type
-            // (this is handled by the MethodType/FunctionDescriptor)
+            // For primitives, the parameter is already in the correct type
+            // (MethodType includes the primitive type directly)
         }
-        TypeRef::String | TypeRef::Path => {
+        TypeRef::String => {
             writeln!(out, "            String {} = {}.reinterpret(Long.MAX_VALUE).getString(0);", param_name, param_name).ok();
+        }
+        TypeRef::Path => {
+            writeln!(out, "            java.nio.file.Path {} = java.nio.file.Paths.get({}.reinterpret(Long.MAX_VALUE).getString(0));", param_name, param_name).ok();
         }
         TypeRef::Bytes => {
             writeln!(out, "            byte[] {} = {}.reinterpret(Long.MAX_VALUE).toArray(ValueLayout.JAVA_BYTE);", param_name, param_name).ok();
@@ -573,13 +580,13 @@ fn gen_param_unmarshal(out: &mut String, param_name: &str, param_type: &TypeRef)
             // For Named types, deserialize from JSON
             writeln!(out, "            String {}_json = {}.reinterpret(Long.MAX_VALUE).getString(0);", param_name, param_name).ok();
             writeln!(out, "            var {}_obj = new com.fasterxml.jackson.databind.ObjectMapper().readValue({}_json, Object.class);", param_name, param_name).ok();
-            writeln!(out, "            Object {} = {}_obj;", param_name, param_name).ok();
+            writeln!(out, "            {} {} = ({}) {}_obj;", java_type_str, param_name, java_type_str, param_name).ok();
         }
         _ => {
             // For Optional, Vec, Map, etc., deserialize from JSON
             writeln!(out, "            String {}_json = {}.reinterpret(Long.MAX_VALUE).getString(0);", param_name, param_name).ok();
             writeln!(out, "            var {}_obj = new com.fasterxml.jackson.databind.ObjectMapper().readValue({}_json, Object.class);", param_name, param_name).ok();
-            writeln!(out, "            Object {} = {}_obj;", param_name, param_name).ok();
+            writeln!(out, "            {} {} = ({}) {}_obj;", java_type_str, param_name, java_type_str, param_name).ok();
         }
     }
 }
