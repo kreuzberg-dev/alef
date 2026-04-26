@@ -660,22 +660,22 @@ fn test_scaffold_elixir_cargo_extra_deps() {
 }
 
 #[test]
-fn test_scaffold_elixir_cargo_lib_path() {
+fn test_scaffold_elixir_cargo_lib_name_no_path() {
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Elixir]).unwrap();
     let files = language_files(&all_files);
     let cargo_toml = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+    // [lib] must NOT have a path pointing to a non-existent -elixir crate.
+    // Cargo defaults to src/lib.rs, which is where the generated lib.rs lives.
     assert!(
-        cargo_toml
-            .content
-            .contains("path = \"../../../../crates/my-lib-elixir/src/lib.rs\""),
-        "Elixir Cargo.toml [lib] must set path to the binding source crate; content: {}",
+        !cargo_toml.content.contains("-elixir/src/lib.rs"),
+        "Elixir Cargo.toml [lib] must NOT point to a non-existent -elixir crate; content: {}",
         cargo_toml.content
     );
     assert!(
         cargo_toml.content.contains("name = \"my_lib_nif\""),
-        "Elixir Cargo.toml [lib] must set name; content: {}",
+        "Elixir Cargo.toml [lib] must set name to {{app_name}}_nif; content: {}",
         cargo_toml.content
     );
 }

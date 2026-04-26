@@ -372,7 +372,30 @@ impl FfiBridgeGenerator {
             "// user_data validity is the caller's responsibility (documented in the vtable API)."
         )
         .ok();
-        writeln!(out, "let _rc = unsafe {{ fp({args_str}) }};").ok();
+        // For infallible primitive/Duration returns the body would tail with `_rc`,
+        // tripping clippy::let_and_return. Skip the binding in that case and emit the
+        // unsafe call inline as the tail expression below.
+        let tail_returns_rc_only = !has_error
+            && matches!(
+                method.return_type,
+                TypeRef::Primitive(
+                    PrimitiveType::U8
+                        | PrimitiveType::U16
+                        | PrimitiveType::U32
+                        | PrimitiveType::U64
+                        | PrimitiveType::I8
+                        | PrimitiveType::I16
+                        | PrimitiveType::I32
+                        | PrimitiveType::I64
+                        | PrimitiveType::F32
+                        | PrimitiveType::F64
+                        | PrimitiveType::Usize
+                        | PrimitiveType::Isize,
+                ) | TypeRef::Duration
+            );
+        if !tail_returns_rc_only {
+            writeln!(out, "let _rc = unsafe {{ fp({args_str}) }};").ok();
+        }
 
         // Handle the return
         if has_error {
@@ -476,7 +499,9 @@ impl FfiBridgeGenerator {
                     writeln!(out, "_rc != 0").ok();
                 }
                 TypeRef::Primitive(_) | TypeRef::Duration => {
-                    writeln!(out, "_rc").ok();
+                    // tail_returns_rc_only path: emit the unsafe call as the tail expression
+                    // (no preceding `let _rc = ...;`) to avoid clippy::let_and_return.
+                    writeln!(out, "unsafe {{ fp({args_str}) }}").ok();
                 }
                 _ => {}
             }

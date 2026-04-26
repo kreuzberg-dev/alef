@@ -1434,3 +1434,189 @@ fn test_vec_string_is_ref_serde_path_emits_refs_binding() {
         "generated lib.rs must pass &names_refs to core function"
     );
 }
+
+/// Regression test: a non-opaque struct with `has_default: true` and a static `default()`
+/// method returning `TypeRef::Named` with the same struct name must emit `.into()` so the
+/// binding wrapper type (e.g. `WasmConversionOptions`) is returned, not the bare core type.
+///
+/// Before the fix, `wrap_return_with_mutex` skipped `.into()` when `n == type_name`, which
+/// caused `fn default() -> WasmConversionOptions { core::ConversionOptions::default() }` —
+/// a type mismatch compile error.
+#[test]
+fn test_static_default_returns_binding_wrapper_not_core_type() {
+    let backend = WasmBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "test_lib::options::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false)],
+            methods: vec![MethodDef {
+                name: "default".to_string(),
+                params: vec![],
+                return_type: TypeRef::Named("ConversionOptions".to_string()),
+                is_async: false,
+                is_static: true,
+                error_type: None,
+                doc: String::new(),
+                receiver: None,
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+            }],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("generate_bindings must include lib.rs");
+
+    let content = &lib_file.content;
+
+    // The body must call the core default() and convert with .into() so the
+    // Wasm-prefixed binding wrapper is returned, not the bare inner core type.
+    // The wasm backend builds the core call as `{core_import}::{type_name}::method()`.
+    assert!(
+        content.contains("::ConversionOptions::default().into()"),
+        "static default() must wrap core call with .into() to return binding wrapper;\n\
+         actual content around fn default:\n{}",
+        extract_fn_snippet(content, "fn default")
+    );
+}
+
+/// Regression test: a static `from_update()` method on a non-opaque struct that takes a
+/// `Named` param and returns `TypeRef::Named` with the same struct name must produce
+/// a body ending in `.into()`, converting the core result to the binding wrapper.
+#[test]
+fn test_static_from_update_returns_binding_wrapper_not_core_type() {
+    let backend = WasmBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "ConversionOptions".to_string(),
+                rust_path: "test_lib::options::ConversionOptions".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("enabled", TypeRef::Primitive(PrimitiveType::Bool), false)],
+                methods: vec![MethodDef {
+                    name: "from_update".to_string(),
+                    params: vec![ParamDef {
+                        name: "update".to_string(),
+                        ty: TypeRef::Named("ConversionOptionsUpdate".to_string()),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    }],
+                    return_type: TypeRef::Named("ConversionOptions".to_string()),
+                    is_async: false,
+                    is_static: true,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: None,
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    trait_source: None,
+                }],
+                is_opaque: false,
+                is_clone: true,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+            TypeDef {
+                name: "ConversionOptionsUpdate".to_string(),
+                rust_path: "test_lib::ConversionOptionsUpdate".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field(
+                    "enabled",
+                    TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Bool))),
+                    true,
+                )],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings should succeed");
+
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("generate_bindings must include lib.rs");
+
+    let content = &lib_file.content;
+
+    // The body must convert the core result with .into() so the binding wrapper is returned.
+    assert!(
+        content.contains("ConversionOptions::from_update(update_core).into()"),
+        "static from_update() must wrap core call with .into() to return binding wrapper;\n\
+         actual content around fn from_update:\n{}",
+        extract_fn_snippet(content, "fn from_update")
+    );
+}
+
+/// Extract a ~200-char snippet around the first occurrence of `marker` for assertion messages.
+fn extract_fn_snippet<'a>(content: &'a str, marker: &str) -> &'a str {
+    let start = content.find(marker).unwrap_or(0);
+    let end = (start + 200).min(content.len());
+    &content[start..end]
+}

@@ -35,7 +35,13 @@ pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> an
     };
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
-    let tokio_dep = if has_async {
+    // Trait bridges generate a tokio::sync::oneshot-based reply channel, so tokio is required
+    // whenever there are active Elixir trait bridges even if no API functions are async.
+    let has_trait_bridges = config
+        .trait_bridges
+        .iter()
+        .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
+    let tokio_dep = if has_async || has_trait_bridges {
         "\ntokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }"
     } else {
         ""
@@ -45,7 +51,6 @@ pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> an
 
 [lib]
 name = "{nif_name}"
-path = "../../../../crates/{core_crate_dir}-elixir/src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
@@ -118,7 +123,7 @@ end
 "#,
         module = capitalize_first(&app_name),
         app_name = app_name,
-        nif_atom = format_args!("{app_name}_rustler"),
+        nif_atom = format_args!("{app_name}_nif"),
         version = version,
         description = meta.description,
         license = meta.license,
