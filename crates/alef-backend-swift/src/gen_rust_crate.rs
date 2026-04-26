@@ -13,15 +13,22 @@ use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
 /// Top-level entry point: emit all three files for the swift-bridge crate.
-pub fn emit(api: &ApiSurface, _config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let base = PathBuf::from("packages/swift/rust");
     let crate_name = &api.crate_name;
     let version = &api.version;
 
     let swift_bridge_ver = template_versions::cargo::SWIFT_BRIDGE;
     let swift_bridge_build_ver = template_versions::cargo::SWIFT_BRIDGE_BUILD;
+    let core_crate_dir = config.core_crate_dir();
+    let same_as_workspace = core_crate_dir == *crate_name && config.crate_config.workspace_root.is_none();
+    let core_path = if same_as_workspace {
+        "../../..".to_string()
+    } else {
+        format!("../../../crates/{core_crate_dir}")
+    };
 
-    let cargo_toml = emit_cargo_toml(crate_name, version, swift_bridge_ver, swift_bridge_build_ver);
+    let cargo_toml = emit_cargo_toml(crate_name, version, swift_bridge_ver, swift_bridge_build_ver, &core_path);
     let lib_rs = emit_lib_rs(api, crate_name);
     let build_rs = emit_build_rs();
 
@@ -51,6 +58,7 @@ fn emit_cargo_toml(
     version: &str,
     swift_bridge_ver: &str,
     swift_bridge_build_ver: &str,
+    core_path: &str,
 ) -> String {
     let source_crate_name = crate_name.replace('-', "_");
     format!(
@@ -64,7 +72,7 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{source_crate_name} = {{ path = "../../.." }}
+{source_crate_name} = {{ path = "{core_path}" }}
 swift-bridge = "{swift_bridge_ver}"
 
 [build-dependencies]
@@ -81,8 +89,9 @@ use std::path::PathBuf;
 
 fn main() {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR unset"));
+    let crate_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME unset");
     let bridges = vec!["src/lib.rs"];
-    swift_bridge_build::parse_bridges(bridges).write_all_concurrently(out_dir);
+    swift_bridge_build::parse_bridges(bridges).write_all_concatenated(out_dir, &crate_name);
     println!("cargo:rerun-if-changed=src/lib.rs");
 }
 "#

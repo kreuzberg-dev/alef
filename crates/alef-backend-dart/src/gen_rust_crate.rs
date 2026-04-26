@@ -29,6 +29,13 @@ fn emit_cargo_toml(rust_dir: &str, config: &AlefConfig, source_crate_name: &str)
     let crate_name = config.crate_config.name.as_str();
     let version = &api_version(config);
     let frb_version = tv::FLUTTER_RUST_BRIDGE;
+    let core_crate_dir = config.core_crate_dir();
+    let same_as_workspace = core_crate_dir == *crate_name && config.crate_config.workspace_root.is_none();
+    let core_path = if same_as_workspace {
+        "../../..".to_string()
+    } else {
+        format!("../../../crates/{core_crate_dir}")
+    };
 
     let content = format!(
         r#"[package]
@@ -40,7 +47,7 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{source_crate_name} = {{ path = "../../.." }}
+{source_crate_name} = {{ path = "{core_path}" }}
 flutter_rust_bridge = "{frb_version}"
 "#
     );
