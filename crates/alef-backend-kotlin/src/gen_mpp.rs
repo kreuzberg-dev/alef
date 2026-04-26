@@ -94,16 +94,27 @@ fn emit_common(api: &ApiSurface, config: &AlefConfig) -> String {
     let package = config.kotlin_package();
     let module_name = to_pascal_case(&config.crate_config.name);
 
+    let exclude_functions: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let exclude_types: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
 
     // DTOs (data classes), enums, and error hierarchies are pure Kotlin — shared in commonMain.
-    for ty in &api.types {
+    for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
         emit_type_pub(ty, &mut body, &mut imports);
         body.push('\n');
     }
 
-    for en in &api.enums {
+    for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
         emit_enum_pub(en, &mut body);
         body.push('\n');
     }
@@ -113,10 +124,16 @@ fn emit_common(api: &ApiSurface, config: &AlefConfig) -> String {
         body.push('\n');
     }
 
+    let visible_functions: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        .collect();
+
     // Functions: emit `expect object` with only signatures (no bodies).
-    if !api.functions.is_empty() {
+    if !visible_functions.is_empty() {
         body.push_str(&format!("expect object {module_name} {{\n"));
-        for f in &api.functions {
+        for f in &visible_functions {
             emit_expect_function(f, &mut body, &mut imports);
             body.push('\n');
         }
@@ -158,19 +175,31 @@ fn emit_jvm_actual(api: &ApiSurface, config: &AlefConfig) -> String {
     let module_name = to_pascal_case(&config.crate_config.name);
     let java_package = config.java_package();
 
+    let exclude_functions: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    let visible_functions: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        .collect();
+
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
 
-    if !api.functions.is_empty() {
+    if !visible_functions.is_empty() {
         imports.insert(format!("import {java_package}.{module_name} as {BRIDGE_ALIAS}"));
-        if api.functions.iter().any(|f| f.is_async) {
+        if visible_functions.iter().any(|f| f.is_async) {
             imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
             imports.insert("import kotlinx.coroutines.future.await".to_string());
             imports.insert("import kotlinx.coroutines.withContext".to_string());
         }
 
         body.push_str(&format!("actual object {module_name} {{\n"));
-        for f in &api.functions {
+        for f in &visible_functions {
             emit_function_jvm(f, &mut body, &mut imports, &java_package);
             body.push('\n');
         }
@@ -190,15 +219,27 @@ fn emit_native_actual(api: &ApiSurface, config: &AlefConfig) -> String {
     let prefix = config.ffi_prefix();
     let crate_name = &config.crate_config.name;
 
+    let exclude_functions: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    let visible_functions: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        .collect();
+
     let mut imports: BTreeSet<String> = BTreeSet::new();
     imports.insert("import kotlinx.cinterop.*".to_string());
     imports.insert(format!("import {crate_name}.*"));
 
     let mut body = String::new();
 
-    if !api.functions.is_empty() {
+    if !visible_functions.is_empty() {
         body.push_str(&format!("actual object {module_name} {{\n"));
-        for f in &api.functions {
+        for f in &visible_functions {
             emit_native_function_pub(f, &prefix, &mut body);
             body.push('\n');
         }

@@ -46,17 +46,28 @@ pub(crate) fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
     // Error helpers using the standard last-error pattern.
     emit_error_helpers(&prefix, &free_symbol, &error_code_symbol, &error_context_symbol, &mut content);
 
-    for ty in &api.types {
+    let exclude_functions: std::collections::HashSet<&str> = config
+        .dart
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let exclude_types: std::collections::HashSet<&str> = config
+        .dart
+        .as_ref()
+        .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
         emit_type(ty, &mut content);
         content.push('\n');
     }
 
-    for en in &api.enums {
+    for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
         emit_enum(en, &mut content);
         content.push('\n');
     }
 
-    for f in &api.functions {
+    for f in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
         emit_function(f, &prefix, &free_symbol, &error_code_symbol, &mut content);
         content.push('\n');
     }

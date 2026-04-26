@@ -40,15 +40,32 @@ impl Backend for DartBackend {
 
         let module_name = dart_module_name(&config.crate_config.name);
 
+        let exclude_functions: std::collections::HashSet<&str> = config
+            .dart
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        let exclude_types: std::collections::HashSet<&str> = config
+            .dart
+            .as_ref()
+            .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+
+        let visible_functions: Vec<&FunctionDef> = api
+            .functions
+            .iter()
+            .filter(|f| !exclude_functions.contains(f.name.as_str()))
+            .collect();
+
         let mut imports: BTreeSet<String> = BTreeSet::new();
         let mut body = String::new();
 
-        for ty in &api.types {
+        for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
             emit_type(ty, &mut body, &mut imports);
             body.push('\n');
         }
 
-        for en in &api.enums {
+        for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
             emit_enum(en, &mut body);
             body.push('\n');
         }
@@ -58,8 +75,8 @@ impl Backend for DartBackend {
             body.push('\n');
         }
 
-        if !api.functions.is_empty() {
-            let has_async = api.functions.iter().any(|f| f.is_async);
+        if !visible_functions.is_empty() {
+            let has_async = visible_functions.iter().any(|f| f.is_async);
             if has_async {
                 imports.insert("import 'dart:async';".to_string());
             }
@@ -68,7 +85,7 @@ impl Backend for DartBackend {
 
             let bridge_class = dart_bridge_class_name(&config.crate_config.name);
             body.push_str(&format!("class {bridge_class} {{\n"));
-            for f in &api.functions {
+            for f in &visible_functions {
                 emit_function(f, &mut body, &mut imports);
                 body.push('\n');
             }
