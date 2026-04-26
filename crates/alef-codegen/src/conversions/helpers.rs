@@ -635,7 +635,13 @@ pub fn binding_to_core_match_arm_ext_cfg(
                 let name = &f.name;
                 // Sanitized fields: binding uses String, use serde_json to deserialize back.
                 if f.sanitized {
-                    let expr = format!("serde_json::from_str(&{name}).unwrap_or_default()");
+                    let expr = if let TypeRef::Vec(_) = &f.ty {
+                        // Vec<String> sanitized: each element is a debug-formatted value,
+                        // parse each one individually.
+                        format!("{name}.iter().filter_map(|s| serde_json::from_str(s).ok()).collect()")
+                    } else {
+                        format!("serde_json::from_str(&{name}).unwrap_or_default()")
+                    };
                     return if f.is_boxed { format!("Box::new({expr})") } else { expr };
                 }
                 // Fields referencing excluded types: they appear as String in the binding.
@@ -671,6 +677,12 @@ pub fn binding_to_core_match_arm_ext_cfg(
                 // Sanitized fields: the binding stores a simplified type (String for any complex type
                 // like Vec<(String,String)>, Vec<Named>, etc.). Use serde_json to deserialize back.
                 if f.sanitized {
+                    // For Vec<String> sanitized (representing Vec<Tuple> like Vec<(String, String)>),
+                    // each element is a debug-formatted string. Cannot safely use serde_json::from_str
+                    // on Vec<String>. Default to empty collection.
+                    if let TypeRef::Vec(_) = &f.ty {
+                        return format!("{}: {}.iter().filter_map(|s| serde_json::from_str(s).ok()).collect()", f.name, f.name);
+                    }
                     return format!("{}: serde_json::from_str(&{}).unwrap_or_default()", f.name, f.name);
                 }
                 // Use the conversion logic from field_conversion_to_core_cfg.
