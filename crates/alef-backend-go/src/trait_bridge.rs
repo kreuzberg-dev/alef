@@ -118,10 +118,6 @@ fn gen_trait_bridge(
     let crate_upper = crate_normalized.to_uppercase();
     let crate_pascal = crate_normalized.to_pascal_case();
     let c_vtable_struct = format!("{}{}{}{}", crate_upper, crate_pascal, trait_pascal, "VTable");
-    eprintln!(
-        "DEBUG trait_bridge: trait={}, crate_upper={}, crate_pascal={}, trait_pascal={}, c_vtable_struct={}",
-        trait_name, crate_upper, crate_pascal, trait_pascal, c_vtable_struct
-    );
 
     // =========================================================================
     // Go interface
@@ -180,7 +176,7 @@ fn gen_trait_bridge(
     writeln!(out, "\thandle := cgo.NewHandle(impl)").ok();
     writeln!(out).ok();
 
-    writeln!(out, "\t// Build the C vtable").ok();
+    writeln!(out, "\t// Build the C vtable  DEBUG:c_vtable_struct={}",  c_vtable_struct).ok();
     writeln!(out, "\tvtable := C.{}{{", c_vtable_struct).ok();
 
     // Set up vtable function pointers (via //export trampolines)
