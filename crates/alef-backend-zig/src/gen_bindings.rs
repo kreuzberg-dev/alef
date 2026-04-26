@@ -1,4 +1,5 @@
 use alef_codegen::c_consumer;
+use alef_codegen::keywords::zig_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
@@ -65,12 +66,13 @@ impl Backend for ZigBackend {
             content.push('\n');
         }
 
+        let declared_errors: Vec<String> = api.errors.iter().map(|e| e.name.clone()).collect();
         for f in &api.functions {
             // Async functions are not supported — skip silently.
             if f.is_async {
                 continue;
             }
-            emit_function(f, &prefix, &mut content);
+            emit_function(f, &prefix, &declared_errors, &mut content);
             content.push('\n');
         }
 
@@ -146,7 +148,7 @@ fn emit_type(ty: &TypeDef, out: &mut String) {
     out.push_str(&format!("pub const {} = struct {{\n", ty.name));
     for field in &ty.fields {
         let ty_str = zig_field_type(&field.ty, field.optional);
-        out.push_str(&format!("    {}: {},\n", field.name, ty_str));
+        out.push_str(&format!("    {}: {},\n", zig_ident(&field.name), ty_str));
     }
     out.push_str("};\n");
 }
@@ -163,13 +165,13 @@ fn emit_enum(en: &EnumDef, out: &mut String) {
     if all_unit {
         out.push_str(&format!("pub const {} = enum {{\n", en.name));
         for variant in &en.variants {
-            out.push_str(&format!("    {},\n", to_snake_case(&variant.name)));
+            out.push_str(&format!("    {},\n", zig_ident(&to_snake_case(&variant.name))));
         }
         out.push_str("};\n");
     } else {
         out.push_str(&format!("pub const {} = union(enum) {{\n", en.name));
         for variant in &en.variants {
-            let tag = to_snake_case(&variant.name);
+            let tag = zig_ident(&to_snake_case(&variant.name));
             if variant.fields.is_empty() {
                 out.push_str(&format!("    {tag}: void,\n"));
             } else if variant.fields.len() == 1 {
@@ -181,7 +183,7 @@ fn emit_enum(en: &EnumDef, out: &mut String) {
                     let name = if f.name.is_empty() {
                         "value".into()
                     } else {
-                        f.name.clone()
+                        zig_ident(&f.name)
                     };
                     let ty_str = zig_field_type(&f.ty, f.optional);
                     out.push_str(&format!("        {name}: {ty_str},\n"));
@@ -208,7 +210,19 @@ fn emit_error_set(error: &ErrorDef, out: &mut String) {
     out.push_str("};\n");
 }
 
-fn emit_function(f: &FunctionDef, prefix: &str, out: &mut String) {
+/// Map a Rust error_type (e.g. `"anyhow::Error"`, `"KreuzbergError"`) to a
+/// Zig error-set identifier. If the path's last segment matches a declared
+/// error set, use it; otherwise fall back to the first declared error set
+/// (the project's main error type).
+fn resolve_zig_error_type(error_type: &str, declared: &[String]) -> String {
+    let last = error_type.rsplit("::").next().unwrap_or(error_type);
+    if declared.iter().any(|d| d == last) {
+        return last.to_string();
+    }
+    declared.first().cloned().unwrap_or_else(|| "anyerror".to_string())
+}
+
+fn emit_function(f: &FunctionDef, prefix: &str, declared_errors: &[String], out: &mut String) {
     if !f.doc.is_empty() {
         for line in f.doc.lines() {
             out.push_str("/// ");
@@ -220,12 +234,13 @@ fn emit_function(f: &FunctionDef, prefix: &str, out: &mut String) {
     // Build the wrapper-level parameter list (Zig-idiomatic types, not raw C types).
     let params: Vec<String> = f.params.iter().map(format_param_wrapper).collect();
 
-    let return_ty = if let Some(error_type) = &f.error_type {
-        format!(
-            "({}||error{{OutOfMemory}})!{}",
-            error_type,
-            zig_return_type(&f.return_type)
-        )
+    let zig_error_type = f
+        .error_type
+        .as_ref()
+        .map(|e| resolve_zig_error_type(e, declared_errors));
+
+    let return_ty = if let Some(error_type) = &zig_error_type {
+        format!("({}||error{{OutOfMemory}})!{}", error_type, zig_return_type(&f.return_type))
     } else {
         zig_return_type(&f.return_type)
     };
@@ -241,7 +256,7 @@ fn emit_function(f: &FunctionDef, prefix: &str, out: &mut String) {
     let c_args: Vec<String> = f.params.iter().flat_map(c_arg_names).collect();
     let c_call = format!("c.{prefix}_{}({})", f.name, c_args.join(", "));
 
-    if let Some(error_type) = &f.error_type {
+    if let Some(error_type) = &zig_error_type {
         // Fallible function: call C, then check last_error_code().
         out.push_str(&format!("    const _result = {c_call};\n"));
         out.push_str(&format!("    if (c.{prefix}_last_error_code() != 0) {{\n"));

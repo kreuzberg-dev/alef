@@ -1,3 +1,4 @@
+use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
@@ -132,7 +133,7 @@ fn emit_struct(ty: &TypeDef, out: &mut String, mapper: &SwiftMapper) {
     for field in &ty.fields {
         emit_field_doc_comment(&field.doc, out);
         let ty_str = resolve_field_type(field, mapper);
-        let name = field.name.to_lower_camel_case();
+        let name = swift_ident(&field.name.to_lower_camel_case());
         out.push_str(&format!("    public let {name}: {ty_str}\n"));
     }
 
@@ -143,13 +144,13 @@ fn emit_struct(ty: &TypeDef, out: &mut String, mapper: &SwiftMapper) {
         .iter()
         .map(|f| {
             let ty_str = resolve_field_type(f, mapper);
-            let name = f.name.to_lower_camel_case();
+            let name = swift_ident(&f.name.to_lower_camel_case());
             format!("{name}: {ty_str}")
         })
         .collect();
     out.push_str(&format!("    public init({}) {{\n", init_params.join(", ")));
     for field in &ty.fields {
-        let name = field.name.to_lower_camel_case();
+        let name = swift_ident(&field.name.to_lower_camel_case());
         out.push_str(&format!("        self.{name} = {name}\n"));
     }
     out.push_str("    }\n");
@@ -176,7 +177,7 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
         out.push_str(&format!("public enum {} {{\n", en.name));
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
-            let case_name = variant.name.to_lower_camel_case();
+            let case_name = swift_ident(&variant.name.to_lower_camel_case());
             out.push_str(&format!("    case {case_name}\n"));
         }
         out.push_str("}\n");
@@ -192,7 +193,7 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
 /// Emits a single enum case, with or without associated values.
 fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, mapper: &SwiftMapper) {
     emit_doc_comment(&variant.doc, "    ", out);
-    let case_name = variant.name.to_lower_camel_case();
+    let case_name = swift_ident(&variant.name.to_lower_camel_case());
     if variant.fields.is_empty() {
         out.push_str(&format!("    case {case_name}\n"));
     } else {
@@ -202,16 +203,25 @@ fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, mapper: &Swif
             .enumerate()
             .map(|(idx, f)| {
                 let ty_str = mapper.map_type(&f.ty);
-                let label = if f.name.is_empty() {
-                    format!("field{idx}")
-                } else {
-                    f.name.to_lower_camel_case()
-                };
+                let label = swift_associated_label(&f.name, idx);
                 format!("{label}: {ty_str}")
             })
             .collect();
         out.push_str(&format!("    case {case_name}({})\n", assoc.join(", ")));
     }
+}
+
+/// Resolves a Swift associated-value label for an enum case field.
+///
+/// - Empty, all-digit, or `_<digits>` names (positional tuple variants) become
+///   `field0`, `field1`, …
+/// - Otherwise lowerCamelCase + Swift keyword escaping.
+fn swift_associated_label(name: &str, idx: usize) -> String {
+    let stripped = name.trim_start_matches('_');
+    if stripped.is_empty() || stripped.chars().all(|c| c.is_ascii_digit()) {
+        return format!("field{idx}");
+    }
+    swift_ident(&name.to_lower_camel_case())
 }
 
 /// Emits a Swift `Error`-conforming `public enum` for the given `ErrorDef`.
@@ -220,19 +230,28 @@ fn emit_error(error: &ErrorDef, out: &mut String, mapper: &SwiftMapper) {
     out.push_str(&format!("public enum {}: Error {{\n", error.name));
     for variant in &error.variants {
         emit_doc_comment(&variant.doc, "    ", out);
-        let case_name = variant.name.to_lower_camel_case();
+        let case_name = swift_ident(&variant.name.to_lower_camel_case());
         if variant.is_unit || variant.fields.is_empty() {
             out.push_str(&format!("    case {case_name}(message: String)\n"));
         } else {
-            let mut assoc: Vec<String> = vec!["message: String".to_string()];
+            let mut assoc: Vec<String> = Vec::with_capacity(variant.fields.len() + 1);
+            let mut seen_message = false;
+            let mut labels: BTreeSet<String> = BTreeSet::new();
             for (idx, f) in variant.fields.iter().enumerate() {
                 let ty_str = mapper.map_type(&f.ty);
-                let label = if f.name.is_empty() {
-                    format!("field{idx}")
-                } else {
-                    f.name.to_lower_camel_case()
-                };
+                let mut label = swift_associated_label(&f.name, idx);
+                // Disambiguate duplicate labels by suffixing the index.
+                while labels.contains(&label) {
+                    label = format!("{label}{idx}");
+                }
+                labels.insert(label.clone());
+                if label == "message" {
+                    seen_message = true;
+                }
                 assoc.push(format!("{label}: {ty_str}"));
+            }
+            if !seen_message {
+                assoc.insert(0, "message: String".to_string());
             }
             out.push_str(&format!("    case {case_name}({})\n", assoc.join(", ")));
         }
@@ -247,7 +266,7 @@ fn emit_function(f: &FunctionDef, out: &mut String, mapper: &SwiftMapper) {
     let params: Vec<String> = f.params.iter().map(|p| format_param(p, mapper)).collect();
     let return_ty = mapper.map_type(&f.return_type);
 
-    let func_name = f.name.to_lower_camel_case();
+    let func_name = swift_ident(&f.name.to_lower_camel_case());
 
     // Build the qualifier string: [async] [throws] [-> ReturnType]
     let mut qualifiers = String::new();
@@ -272,7 +291,7 @@ fn emit_function(f: &FunctionDef, out: &mut String, mapper: &SwiftMapper) {
     let call_args: Vec<String> = f
         .params
         .iter()
-        .map(|p| p.name.to_lower_camel_case())
+        .map(|p| swift_ident(&p.name.to_lower_camel_case()))
         .collect();
     let call_expr = format!("{bridge_func}({})", call_args.join(", "));
 
@@ -299,7 +318,7 @@ fn emit_function(f: &FunctionDef, out: &mut String, mapper: &SwiftMapper) {
 /// Formats a single parameter as `label: Type`.
 fn format_param(p: &ParamDef, mapper: &SwiftMapper) -> String {
     let ty_str = mapper.map_type(&p.ty);
-    let name = p.name.to_lower_camel_case();
+    let name = swift_ident(&p.name.to_lower_camel_case());
     format!("{name}: {ty_str}")
 }
 
