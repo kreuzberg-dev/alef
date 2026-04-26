@@ -24,6 +24,7 @@ path = "src/main.rs"
 [dependencies]
 ahash = { workspace = true }
 alef-backend-csharp = { workspace = true }
+alef-backend-dart = { workspace = true }
 alef-backend-extendr = { workspace = true }
 alef-backend-ffi = { workspace = true }
 alef-backend-gleam = { workspace = true }

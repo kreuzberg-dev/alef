@@ -8,6 +8,7 @@ members = [
     "crates/alef-backend-gleam",
     "crates/alef-backend-go",
     "crates/alef-backend-java",
+    "crates/alef-backend-dart",
     "crates/alef-backend-kotlin",
     "crates/alef-backend-magnus",
     "crates/alef-backend-napi",
@@ -41,6 +42,7 @@ categories = ["development-tools::ffi", "development-tools::build-utils"]
 ahash = "0.8"
 alef-adapters = { version = "0.7.2", path = "crates/alef-adapters" }
 alef-backend-csharp = { version = "0.7.2", path = "crates/alef-backend-csharp" }
+alef-backend-dart = { version = "0.7.2", path = "crates/alef-backend-dart" }
 alef-backend-extendr = { version = "0.7.2", path = "crates/alef-backend-extendr" }
 alef-backend-ffi = { version = "0.7.2", path = "crates/alef-backend-ffi" }
 alef-backend-gleam = { version = "0.7.2", path = "crates/alef-backend-gleam" }
