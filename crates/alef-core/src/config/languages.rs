@@ -378,7 +378,7 @@ pub struct DartConfig {
     #[serde(default)]
     pub package_name: Option<String>,
     /// flutter_rust_bridge version to pin in generated pubspec.yaml.
-    /// Defaults to `DEFAULT_FRB_VERSION` when unset.
+    /// Defaults to `template_versions::cargo::FLUTTER_RUST_BRIDGE` when unset.
     #[serde(default)]
     pub frb_version: Option<String>,
     /// Cargo features to enable on the binding crate.
@@ -393,9 +393,6 @@ pub struct DartConfig {
     pub rename_fields: HashMap<String, String>,
 }
 
-/// Default flutter_rust_bridge version, pinned to the latest stable as of 2026-04-26.
-pub const DEFAULT_FRB_VERSION: &str = "2.12.0";
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SwiftConfig {
     /// Swift module name (e.g. `"MyLibrary"`). Defaults to PascalCase of the crate name.
@@ -404,13 +401,13 @@ pub struct SwiftConfig {
     /// Swift package name. Defaults to the module name.
     #[serde(default)]
     pub package_name: Option<String>,
-    /// swift-bridge version. Defaults to `DEFAULT_SWIFT_BRIDGE_VERSION` when unset.
+    /// swift-bridge version. Defaults to `template_versions::cargo::SWIFT_BRIDGE` when unset.
     #[serde(default)]
     pub swift_bridge_version: Option<String>,
-    /// Minimum macOS deployment target. Defaults to `DEFAULT_SWIFT_MIN_MACOS` when unset.
+    /// Minimum macOS deployment target. Defaults to `template_versions::toolchain::SWIFT_MIN_MACOS` when unset.
     #[serde(default)]
     pub min_macos_version: Option<String>,
-    /// Minimum iOS deployment target. Defaults to `DEFAULT_SWIFT_MIN_IOS` when unset.
+    /// Minimum iOS deployment target. Defaults to `template_versions::toolchain::SWIFT_MIN_IOS` when unset.
     #[serde(default)]
     pub min_ios_version: Option<String>,
     /// Cargo features to enable on the binding crate.
@@ -424,13 +421,6 @@ pub struct SwiftConfig {
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
 }
-
-/// Default swift-bridge version, pinned to the latest release as of 2026-04-26.
-pub const DEFAULT_SWIFT_BRIDGE_VERSION: &str = "0.1.59";
-/// Default minimum macOS deployment target.
-pub const DEFAULT_SWIFT_MIN_MACOS: &str = "13.0";
-/// Default minimum iOS deployment target.
-pub const DEFAULT_SWIFT_MIN_IOS: &str = "16.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GleamConfig {

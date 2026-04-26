@@ -1,12 +1,19 @@
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions::{maven, toolchain};
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let version = &api.version;
     let kotlin_package = config.kotlin_package();
     let project_name = config.crate_config.name.replace('-', "_");
+
+    let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
+    let kotlinx_coroutines = maven::KOTLINX_COROUTINES_CORE;
+    let jna = maven::JNA;
+    let junit_legacy = maven::JUNIT_LEGACY;
+    let jvm_target = toolchain::JVM_TARGET;
 
     // build.gradle.kts: Kotlin 2.x DSL — `compilerOptions` block replaces the
     // deprecated `kotlinOptions { jvmTarget }` form removed in Kotlin 2.1.
@@ -15,7 +22,7 @@ pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &AlefConfig) -> anyhow::
 
 plugins {{
     `java-library`
-    kotlin("jvm") version "2.1.10"
+    kotlin("jvm") version "{kotlin_plugin}"
     `maven-publish`
 }}
 
@@ -27,20 +34,20 @@ repositories {{
 }}
 
 dependencies {{
-    api("net.java.dev.jna:jna:5.14.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.1")
-    testImplementation("org.jetbrains.kotlin:kotlin-test:2.1.10")
-    testImplementation("junit:junit:4.13.2")
+    api("net.java.dev.jna:jna:{jna}")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:{kotlinx_coroutines}")
+    testImplementation("org.jetbrains.kotlin:kotlin-test:{kotlin_plugin}")
+    testImplementation("junit:junit:{junit_legacy}")
 }}
 
 java {{
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_{jvm_target}
+    targetCompatibility = JavaVersion.VERSION_{jvm_target}
 }}
 
 kotlin {{
     compilerOptions {{
-        jvmTarget.set(JvmTarget.JVM_21)
+        jvmTarget.set(JvmTarget.JVM_{jvm_target})
     }}
 }}
 

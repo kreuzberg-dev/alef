@@ -1,6 +1,7 @@
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions::toolchain;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_zig(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -43,7 +44,7 @@ pub fn build(b: *std.Build) void {{
         r#".{{
     .name = "{module_name}",
     .version = "{version}",
-    .minimum_zig_version = "0.13.0",
+    .minimum_zig_version = "{min_zig}",
     .dependencies = .{{}},
     .paths = .{{
         "build.zig",
@@ -54,6 +55,7 @@ pub fn build(b: *std.Build) void {{
 "#,
         module_name = module_name,
         version = version,
+        min_zig = toolchain::MIN_ZIG_VERSION,
     );
 
     let gitignore = "zig-cache/\nzig-out/\n.zig-cache/\n";

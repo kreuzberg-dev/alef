@@ -814,13 +814,14 @@ impl AlefConfig {
             .unwrap_or_else(|| self.crate_config.name.replace('-', "_"))
     }
 
-    /// Get the resolved flutter_rust_bridge version, falling back to `DEFAULT_FRB_VERSION`.
+    /// Get the resolved flutter_rust_bridge version, falling back to
+    /// `template_versions::cargo::FLUTTER_RUST_BRIDGE`.
     pub fn dart_frb_version(&self) -> String {
         self.dart
             .as_ref()
             .and_then(|d| d.frb_version.as_ref())
             .cloned()
-            .unwrap_or_else(|| crate::config::languages::DEFAULT_FRB_VERSION.to_string())
+            .unwrap_or_else(|| crate::template_versions::cargo::FLUTTER_RUST_BRIDGE.to_string())
     }
 
     /// Get the Swift module name.
@@ -838,13 +839,14 @@ impl AlefConfig {
             })
     }
 
-    /// Get the resolved swift-bridge version, falling back to `DEFAULT_SWIFT_BRIDGE_VERSION`.
+    /// Get the resolved swift-bridge version, falling back to
+    /// `template_versions::cargo::SWIFT_BRIDGE`.
     pub fn swift_bridge_version(&self) -> String {
         self.swift
             .as_ref()
             .and_then(|s| s.swift_bridge_version.as_ref())
             .cloned()
-            .unwrap_or_else(|| crate::config::languages::DEFAULT_SWIFT_BRIDGE_VERSION.to_string())
+            .unwrap_or_else(|| crate::template_versions::cargo::SWIFT_BRIDGE.to_string())
     }
 
     /// Get the resolved minimum macOS deployment target.
@@ -853,7 +855,7 @@ impl AlefConfig {
             .as_ref()
             .and_then(|s| s.min_macos_version.as_ref())
             .cloned()
-            .unwrap_or_else(|| crate::config::languages::DEFAULT_SWIFT_MIN_MACOS.to_string())
+            .unwrap_or_else(|| crate::template_versions::toolchain::SWIFT_MIN_MACOS.to_string())
     }
 
     /// Get the resolved minimum iOS deployment target.
@@ -862,7 +864,7 @@ impl AlefConfig {
             .as_ref()
             .and_then(|s| s.min_ios_version.as_ref())
             .cloned()
-            .unwrap_or_else(|| crate::config::languages::DEFAULT_SWIFT_MIN_IOS.to_string())
+            .unwrap_or_else(|| crate::template_versions::toolchain::SWIFT_MIN_IOS.to_string())
     }
 
     /// Get the Gleam app name.

@@ -10,6 +10,7 @@ use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions::toolchain;
 use anyhow::Result;
 use heck::ToSnakeCase;
 use std::collections::HashSet;
@@ -148,11 +149,12 @@ fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::config:
         }
     };
 
+    let min_zig = toolchain::MIN_ZIG_VERSION;
     format!(
         r#".{{
     .name = "e2e_zig",
     .version = "0.1.0",
-    .minimum_zig_version = "0.14.0",
+    .minimum_zig_version = "{min_zig}",
     .dependencies = .{{
         .{pkg_name} = {dep_block},
     }},

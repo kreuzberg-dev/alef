@@ -10,6 +10,7 @@ use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions::{maven, toolchain};
 use anyhow::Result;
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::collections::HashSet;
@@ -155,22 +156,26 @@ fn render_build_gradle(pkg_name: &str, pkg_version: &str, dep_mode: crate::confi
         }
     };
 
+    let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
+    let junit = maven::JUNIT;
+    let jackson = maven::JACKSON_E2E;
+    let jvm_target = toolchain::JVM_TARGET;
     format!(
         r#"plugins {{
-    kotlin("jvm") version "1.9.23"
+    kotlin("jvm") version "{kotlin_plugin}"
 }}
 
 group = "dev.kreuzberg"
 version = "0.1.0"
 
 java {{
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+    sourceCompatibility = JavaVersion.VERSION_{jvm_target}
+    targetCompatibility = JavaVersion.VERSION_{jvm_target}
 }}
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {{
     kotlinOptions {{
-        jvmTarget = "25"
+        jvmTarget = "{jvm_target}"
     }}
 }}
 
@@ -180,10 +185,10 @@ repositories {{
 
 dependencies {{
 {dep_block}
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.11.4")
-    testImplementation("org.junit.jupiter:junit-jupiter-engine:5.11.4")
-    testImplementation("com.fasterxml.jackson.core:jackson-databind:2.18.2")
-    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.18.2")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:{junit}")
+    testImplementation("org.junit.jupiter:junit-jupiter-engine:{junit}")
+    testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
+    testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
 }}
 
 tasks.test {{

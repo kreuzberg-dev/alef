@@ -116,19 +116,22 @@ impl E2eCodegen for GleamE2eCodegen {
 // ---------------------------------------------------------------------------
 
 fn render_gleam_toml(pkg_path: &str, pkg_name: &str, dep_mode: crate::config::DependencyMode) -> String {
+    use alef_core::template_versions::hex;
+    let stdlib = hex::GLEAM_STDLIB_VERSION_RANGE;
+    let gleeunit = hex::GLEEUNIT_VERSION_RANGE;
     let deps = match dep_mode {
         crate::config::DependencyMode::Registry => {
             format!(
                 r#"{pkg_name} = ">= 0.1.0"
-gleam_stdlib = ">= 0.34.0 and < 2.0.0"
-gleeunit = ">= 1.0.0 and < 2.0.0""#
+gleam_stdlib = "{stdlib}"
+gleeunit = "{gleeunit}""#
             )
         }
         crate::config::DependencyMode::Local => {
             format!(
                 r#"{pkg_name} = {{ path = "{pkg_path}" }}
-gleam_stdlib = ">= 0.34.0 and < 2.0.0"
-gleeunit = ">= 1.0.0 and < 2.0.0""#
+gleam_stdlib = "{stdlib}"
+gleeunit = "{gleeunit}""#
             )
         }
     };
