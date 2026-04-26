@@ -147,10 +147,14 @@ fn struct_emits_data_class() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
+    // Kotlin emits a `typealias` aliased to the Java facade type so values
+    // pass straight through to the JNA bridge without conversion. The actual
+    // record fields (xCoord/yCoord) come from the Java side.
     assert!(content.contains("package dev.kreuzberg"), "missing package: {content}");
-    assert!(content.contains("data class Point("));
-    assert!(content.contains("val xCoord: Int"));
-    assert!(content.contains("val yCoord: Int"));
+    assert!(
+        content.contains("typealias Point = dev.kreuzberg.Point"),
+        "missing typealias for Point: {content}"
+    );
 }
 
 #[test]
@@ -230,9 +234,10 @@ fn unit_enum_emits_enum_class() {
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("enum class Status {"));
-    assert!(content.contains("ACTIVE"));
-    assert!(content.contains("INACTIVE"));
+    assert!(
+        content.contains("typealias Status = dev.kreuzberg.Status"),
+        "missing typealias for Status enum: {content}"
+    );
 }
 
 #[test]
@@ -251,7 +256,11 @@ fn optional_field_uses_kotlin_nullable() {
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(content.contains("val value: String?"), "missing nullable: {content}");
+    // Optional fields are owned by the Java record; Kotlin only emits a typealias.
+    assert!(
+        content.contains("typealias Maybe = dev.kreuzberg.Maybe"),
+        "missing typealias for Maybe: {content}"
+    );
 }
 
 #[test]
@@ -290,7 +299,6 @@ fn async_function_emits_suspend() {
         content.contains("Bridge.fetch()"),
         "missing Native bridge call: {content}"
     );
-    assert!(content.contains(".await()"), "missing await for async: {content}");
 }
 
 #[test]
@@ -331,17 +339,10 @@ fn unit_error_variant_emits_sealed_class() {
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
+    // Errors alias the Java exception type; Java owns the actual exception class.
     assert!(
-        content.contains("sealed class ApiError(message: String) : Exception(message)"),
-        "missing sealed class: {content}"
-    );
-    assert!(
-        content.contains("object NotFound : ApiError("),
-        "missing NotFound variant: {content}"
-    );
-    assert!(
-        content.contains("object Timeout : ApiError("),
-        "missing Timeout variant: {content}"
+        content.contains("typealias ApiError = dev.kreuzberg.ApiErrorException"),
+        "missing error typealias: {content}"
     );
 }
 
@@ -373,10 +374,9 @@ fn error_variant_with_fields_emits_data_class() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("data class InvalidFormat("),
-        "missing data class variant: {content}"
+        content.contains("typealias ParseError = dev.kreuzberg.ParseErrorException"),
+        "missing error typealias: {content}"
     );
-    assert!(content.contains("val lineNumber: Int"), "missing field: {content}");
 }
 
 #[test]
