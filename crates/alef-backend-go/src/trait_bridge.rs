@@ -191,17 +191,47 @@ fn gen_trait_bridge(
     // cgo declares function pointers as *[0]byte, so cast via unsafe.Pointer
     for method in &trait_def.methods {
         let export_name = format!("go{}{}", &trait_pascal, method.name.to_pascal_case());
-        writeln!(out, "\t\t{}: (*[0]byte)(unsafe.Pointer(C.{})),", &method.name, export_name).ok();
+        writeln!(
+            out,
+            "\t\t{}: (*[0]byte)(unsafe.Pointer(C.{})),",
+            &method.name, export_name
+        )
+        .ok();
     }
 
     // Plugin method pointers (cbindgen suffixes lifecycle hooks with `_fn`).
-    writeln!(out, "\t\tname_fn: (*[0]byte)(unsafe.Pointer(C.go{}Name)),", &trait_pascal).ok();
-    writeln!(out, "\t\tversion_fn: (*[0]byte)(unsafe.Pointer(C.go{}Version)),", &trait_pascal).ok();
-    writeln!(out, "\t\tinitialize_fn: (*[0]byte)(unsafe.Pointer(C.go{}Initialize)),", &trait_pascal).ok();
-    writeln!(out, "\t\tshutdown_fn: (*[0]byte)(unsafe.Pointer(C.go{}Shutdown)),", &trait_pascal).ok();
+    writeln!(
+        out,
+        "\t\tname_fn: (*[0]byte)(unsafe.Pointer(C.go{}Name)),",
+        &trait_pascal
+    )
+    .ok();
+    writeln!(
+        out,
+        "\t\tversion_fn: (*[0]byte)(unsafe.Pointer(C.go{}Version)),",
+        &trait_pascal
+    )
+    .ok();
+    writeln!(
+        out,
+        "\t\tinitialize_fn: (*[0]byte)(unsafe.Pointer(C.go{}Initialize)),",
+        &trait_pascal
+    )
+    .ok();
+    writeln!(
+        out,
+        "\t\tshutdown_fn: (*[0]byte)(unsafe.Pointer(C.go{}Shutdown)),",
+        &trait_pascal
+    )
+    .ok();
 
     // free_user_data deletes the cgo.Handle when the bridge is dropped by Rust
-    writeln!(out, "\t\tfree_user_data: (*[0]byte)(unsafe.Pointer(C.go{}FreeUserData)),", &trait_pascal).ok();
+    writeln!(
+        out,
+        "\t\tfree_user_data: (*[0]byte)(unsafe.Pointer(C.go{}FreeUserData)),",
+        &trait_pascal
+    )
+    .ok();
 
     writeln!(out, "\t}}").ok();
     writeln!(out).ok();
@@ -621,11 +651,7 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
             // Bytes are JSON-encoded (base64) like other complex types across FFI
             writeln!(out, "\tvar {} []byte", var_name).ok();
             writeln!(out, "\tif {} != nil {{", param.name).ok();
-            writeln!(
-                out,
-                "\t\tvar b64str string"
-            )
-            .ok();
+            writeln!(out, "\t\tvar b64str string").ok();
             writeln!(
                 out,
                 "\t\tjson.Unmarshal([]byte(C.GoString((*C.char)(unsafe.Pointer({})))), &b64str)",
@@ -661,22 +687,9 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
             let go_type = rust_to_go_type(&param.ty);
             writeln!(out, "\tvar {} {}", var_name, go_type).ok();
             writeln!(out, "\tif {} != nil {{", param.name).ok();
-            writeln!(
-                out,
-                "\t\tvar rawData interface{{}}"
-            )
-            .ok();
-            writeln!(
-                out,
-                "\t\tjson.Unmarshal([]byte(C.GoString({})), &rawData)",
-                param.name
-            )
-            .ok();
-            writeln!(
-                out,
-                "\t\tif m, ok := rawData.(map[string]interface{{}}); ok {{"
-            )
-            .ok();
+            writeln!(out, "\t\tvar rawData interface{{}}").ok();
+            writeln!(out, "\t\tjson.Unmarshal([]byte(C.GoString({})), &rawData)", param.name).ok();
+            writeln!(out, "\t\tif m, ok := rawData.(map[string]interface{{}}); ok {{").ok();
             writeln!(out, "\t\t\t{} = m", var_name).ok();
             writeln!(out, "\t\t}}").ok();
             writeln!(out, "\t}}").ok();
@@ -687,22 +700,9 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
             let go_type = rust_to_go_type(&param.ty);
             writeln!(out, "\tvar {} {}", var_name, go_type).ok();
             writeln!(out, "\tif {} != nil {{", param.name).ok();
-            writeln!(
-                out,
-                "\t\tvar rawData interface{{}}"
-            )
-            .ok();
-            writeln!(
-                out,
-                "\t\tjson.Unmarshal([]byte(C.GoString({})), &rawData)",
-                param.name
-            )
-            .ok();
-            writeln!(
-                out,
-                "\t\tif m, ok := rawData.(map[string]interface{{}}); ok {{"
-            )
-            .ok();
+            writeln!(out, "\t\tvar rawData interface{{}}").ok();
+            writeln!(out, "\t\tjson.Unmarshal([]byte(C.GoString({})), &rawData)", param.name).ok();
+            writeln!(out, "\t\tif m, ok := rawData.(map[string]interface{{}}); ok {{").ok();
             writeln!(out, "\t\t\t{} = m", var_name).ok();
             writeln!(out, "\t\t}}").ok();
             writeln!(out, "\t}}").ok();
