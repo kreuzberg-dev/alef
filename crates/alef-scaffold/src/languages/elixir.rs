@@ -46,6 +46,12 @@ pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> an
     } else {
         ""
     };
+    // Async/streaming NIF code uses futures_util::StreamExt to consume Stream returns.
+    let futures_util_dep = if has_async {
+        format!("\nfutures-util = \"{}\"", tv::cargo::FUTURES_UTIL)
+    } else {
+        String::new()
+    };
     let content = format!(
         r#"{pkg_header}
 
@@ -58,10 +64,9 @@ crate-type = ["cdylib"]
 rustler = "{rustler}"
 async-trait = "{async_trait}"
 serde = {{ version = "1", features = ["derive"] }}
-serde_json = "1"{tokio_dep}{extra_deps_section}
+serde_json = "1"{tokio_dep}{futures_util_dep}{extra_deps_section}
 
-[lints]
-workspace = true
+[workspace]
 "#,
         pkg_header = pkg_header,
         nif_name = nif_name,
@@ -71,6 +76,7 @@ workspace = true
         rustler = tv::cargo::RUSTLER,
         async_trait = tv::cargo::ASYNC_TRAIT,
         tokio_dep = tokio_dep,
+        futures_util_dep = futures_util_dep,
         extra_deps_section = extra_deps_section,
     );
 
