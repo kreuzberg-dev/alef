@@ -1,4 +1,4 @@
-use alef_core::config::{AlefConfig, FormatConfig, Language};
+use alef_core::config::{AlefConfig, Language};
 use std::path::Path;
 use std::process::Command;
 use tracing::{debug, warn};

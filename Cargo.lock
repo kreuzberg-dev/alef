@@ -43,6 +43,7 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+ "tracing",
 ]
 
 [[package]]
@@ -285,6 +286,7 @@ version = "0.7.11"
 dependencies = [
  "alef-core",
  "anyhow",
+ "heck",
  "toml",
 ]
 

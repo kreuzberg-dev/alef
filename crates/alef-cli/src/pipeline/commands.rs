@@ -1,3 +1,4 @@
+use alef_core::config::output::StringOrVec;
 use alef_core::config::{AlefConfig, Language};
 use anyhow::Context as _;
 use rayon::prelude::*;
@@ -311,6 +312,7 @@ pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool, coverage: bo
 ///
 /// If `timeout_override` is Some, all languages use that timeout; otherwise each
 /// language uses its configured `timeout_seconds` (defaulting to 600 seconds).
+#[allow(clippy::type_complexity)]
 pub fn setup(config: &AlefConfig, languages: &[Language], timeout_override: Option<u64>) -> anyhow::Result<()> {
     let results: Vec<(Language, anyhow::Result<Vec<(String, String, String)>>)> = languages
         .par_iter()
@@ -318,21 +320,26 @@ pub fn setup(config: &AlefConfig, languages: &[Language], timeout_override: Opti
             let setup_cfg = config.setup_config_for_language(*lang);
             let timeout_secs = timeout_override.unwrap_or(setup_cfg.timeout_seconds);
 
-            let result = if !check_precondition(*lang, setup_cfg.precondition.as_deref()) {
-                Ok(Vec::new())
-            } else {
-                run_before_with_timeout(*lang, setup_cfg.before.as_ref(), timeout_secs)?;
-                let mut outputs = Vec::new();
-                if let Some(cmd_list) = &setup_cfg.install {
-                    for cmd in cmd_list.commands() {
-                        let (stdout, stderr) =
-                            super::helpers::run_command_captured_with_timeout(cmd, Some(timeout_secs))
+            let result: anyhow::Result<Vec<(String, String, String)>> =
+                if !check_precondition(*lang, setup_cfg.precondition.as_deref()) {
+                    Ok(Vec::new())
+                } else {
+                    (|| {
+                        run_before_with_timeout(*lang, setup_cfg.before.as_ref(), timeout_secs)?;
+                        let mut outputs = Vec::new();
+                        if let Some(cmd_list) = &setup_cfg.install {
+                            for cmd in cmd_list.commands() {
+                                let (stdout, stderr) = super::helpers::run_command_captured_with_timeout(
+                                    cmd,
+                                    Some(timeout_secs),
+                                )
                                 .with_context(|| format!("setup for {lang} timed out after {timeout_secs}s"))?;
-                        outputs.push((cmd.to_string(), stdout, stderr));
-                    }
-                }
-                Ok(outputs)
-            };
+                                outputs.push((cmd.to_string(), stdout, stderr));
+                            }
+                        }
+                        Ok(outputs)
+                    })()
+                };
             (*lang, result)
         })
         .collect();

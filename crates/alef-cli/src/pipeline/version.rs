@@ -1,11 +1,10 @@
 use alef_core::config::{AlefConfig, Language};
 use anyhow::Context as _;
-use std::path::Path;
 use std::sync::LazyLock;
 use tracing::{debug, info, warn};
 
 use super::helpers::run_command;
-use super::{extract, readme, write_files};
+use super::{extract, readme};
 
 /// Regex for matching version field in Cargo.toml format files.
 static CARGO_VERSION_RE: LazyLock<regex::Regex> =
@@ -118,7 +117,7 @@ fn to_pep440(version: &str) -> String {
 fn to_rubygems_prerelease(version: &str) -> String {
     if let Some((base, pre)) = version.split_once('-') {
         // Replace dashes and underscores with dots in prerelease part, then prepend "pre."
-        let normalized_pre = pre.replace('-', ".").replace('_', ".");
+        let normalized_pre = pre.replace(['-', '_'], ".");
         format!("{base}.pre.{normalized_pre}")
     } else {
         version.to_string()
@@ -244,7 +243,7 @@ pub fn set_version(config: &AlefConfig, version: &str) -> anyhow::Result<()> {
 }
 
 /// Sync version from Cargo.toml to all package manifest files.
-pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<()> {
+pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: Option<&str>) -> anyhow::Result<()> {
     // If bump is requested, read current version, bump it, and write it back to Cargo.toml.
     if let Some(component) = bump {
         let current = read_version(&config.crate_config.version_from)?;
@@ -574,7 +573,7 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
 
     // Regenerate READMEs with the new version.
     info!("Regenerating READMEs with updated version");
-    match regenerate_readmes(config) {
+    match regenerate_readmes(config, config_path) {
         Ok(count) => {
             if count > 0 {
                 info!("  Regenerated {count} README(s)");
@@ -592,13 +591,12 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
 
 /// Internal helper to regenerate READMEs after a version sync.
 /// Extracts IR, computes README files, and writes them to disk.
-fn regenerate_readmes(config: &AlefConfig) -> anyhow::Result<usize> {
-    let api = extract(config, &config.crate_config.config_path, false)?;
+fn regenerate_readmes(config: &AlefConfig, config_path: &std::path::Path) -> anyhow::Result<usize> {
+    let api = extract(config, config_path, false)?;
     let languages = config.languages.clone();
     let readme_files = readme(&api, config, &languages)?;
     let base_dir = std::path::PathBuf::from(".");
-    let count = write_files(&readme_files, &base_dir)?;
-    Ok(count)
+    super::generate::write_scaffold_files_with_overwrite(&readme_files, &base_dir, true)
 }
 
 /// Replace version pattern in content. Returns Some(new_content) if replaced, None if pattern not found.

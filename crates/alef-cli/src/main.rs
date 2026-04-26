@@ -107,6 +107,9 @@ enum Commands {
         /// Comma-separated list of languages.
         #[arg(long, value_delimiter = ',')]
         lang: Option<Vec<String>>,
+        /// Override the per-language setup timeout in seconds (default: 600).
+        #[arg(long)]
+        timeout: Option<u64>,
     },
     /// Clean build artifacts for each language.
     Clean {
@@ -504,7 +507,7 @@ fn main() -> Result<()> {
                 pipeline::set_version(&config, version)?;
             }
             eprintln!("Syncing versions from Cargo.toml");
-            pipeline::sync_versions(&config, bump.as_deref())?;
+            pipeline::sync_versions(&config, config_path, bump.as_deref())?;
             println!("Version sync complete");
             Ok(())
         }
@@ -547,11 +550,11 @@ fn main() -> Result<()> {
             println!("Tests complete");
             Ok(())
         }
-        Commands::Setup { lang } => {
+        Commands::Setup { lang, timeout } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
             eprintln!("Setting up dependencies for: {}", format_languages(&languages));
-            pipeline::setup(&config, &languages)?;
+            pipeline::setup(&config, &languages, timeout)?;
             println!("Setup complete");
             Ok(())
         }

@@ -61,7 +61,11 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         }
 
         writeln!(out).ok();
-        writeln!(out, "let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);").ok();
+        writeln!(
+            out,
+            "let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);"
+        )
+        .ok();
         writeln!(
             out,
             "let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();"
@@ -101,15 +105,37 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
         writeln!(out, "match rx.blocking_recv() {{").ok();
         if has_error {
-            writeln!(out, "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|e| {}Error {{", spec.error_type).ok();
-            writeln!(out, "        message: format!(\"Failed to deserialize response: {{}}\", e),").ok();
+            writeln!(
+                out,
+                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|e| {}Error {{",
+                spec.error_type
+            )
+            .ok();
+            writeln!(
+                out,
+                "        message: format!(\"Failed to deserialize response: {{}}\", e),"
+            )
+            .ok();
             writeln!(out, "    }}),").ok();
-            writeln!(out, "    Ok(Err(msg)) => Err({}Error {{ message: msg }}),", spec.error_type).ok();
+            writeln!(
+                out,
+                "    Ok(Err(msg)) => Err({}Error {{ message: msg }}),",
+                spec.error_type
+            )
+            .ok();
             writeln!(out, "    Err(_) => Err({}Error {{", spec.error_type).ok();
-            writeln!(out, "        message: \"Channel closed before reply received\".to_string(),").ok();
+            writeln!(
+                out,
+                "        message: \"Channel closed before reply received\".to_string(),"
+            )
+            .ok();
             writeln!(out, "    }})").ok();
         } else {
-            writeln!(out, "    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),").ok();
+            writeln!(
+                out,
+                "    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),"
+            )
+            .ok();
             writeln!(out, "    _ => Default::default()").ok();
         }
         writeln!(out, "}}").ok();
@@ -130,7 +156,11 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         }
 
         writeln!(out).ok();
-        writeln!(out, "let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);").ok();
+        writeln!(
+            out,
+            "let reply_id = TRAIT_REPLY_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);"
+        )
+        .ok();
         writeln!(
             out,
             "let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();"
@@ -170,15 +200,37 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
 
         writeln!(out, "match rx.await {{").ok();
         if has_error {
-            writeln!(out, "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|e| {}Error {{", spec.error_type).ok();
-            writeln!(out, "        message: format!(\"Failed to deserialize response: {{}}\", e),").ok();
+            writeln!(
+                out,
+                "    Ok(Ok(json)) => serde_json::from_str(&json).map_err(|e| {}Error {{",
+                spec.error_type
+            )
+            .ok();
+            writeln!(
+                out,
+                "        message: format!(\"Failed to deserialize response: {{}}\", e),"
+            )
+            .ok();
             writeln!(out, "    }}),").ok();
-            writeln!(out, "    Ok(Err(msg)) => Err({}Error {{ message: msg }}),", spec.error_type).ok();
+            writeln!(
+                out,
+                "    Ok(Err(msg)) => Err({}Error {{ message: msg }}),",
+                spec.error_type
+            )
+            .ok();
             writeln!(out, "    Err(_) => Err({}Error {{", spec.error_type).ok();
-            writeln!(out, "        message: \"Channel closed before reply received\".to_string(),").ok();
+            writeln!(
+                out,
+                "        message: \"Channel closed before reply received\".to_string(),"
+            )
+            .ok();
             writeln!(out, "    }})").ok();
         } else {
-            writeln!(out, "    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),").ok();
+            writeln!(
+                out,
+                "    Ok(Ok(json)) => serde_json::from_str(&json).unwrap_or_default(),"
+            )
+            .ok();
             writeln!(out, "    _ => Default::default()").ok();
         }
         writeln!(out, "}}").ok();

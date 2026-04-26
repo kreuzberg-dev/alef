@@ -216,7 +216,7 @@ end
 
   @impl GenServer
   def init(impl_module) do
-    {{{:ok, impl_module}}}
+    {{:ok, impl_module}}
   end
 
   @doc """
@@ -240,14 +240,14 @@ end
         {native_mod}.fail_trait_call(reply_id, Exception.message(e))
     end
 
-    {{{:noreply, impl_module}}}
+    {{:noreply, impl_module}}
   end
 
   @doc """
   Register an implementation module, starting a GenServer to handle trait calls.
   """
   def register(impl_module) do
-    {{{:ok, _pid}}} = start_link(impl_module)
+    {{:ok, _pid}} = start_link(impl_module)
     {native_mod}.register_{trait_name_snake}(self(), Atom.to_string(impl_module))
   end
 end
