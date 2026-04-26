@@ -5,9 +5,19 @@ use heck::ToSnakeCase;
 use std::fmt::Write;
 
 /// Check if the return type is a string-like type that requires pointer-based
-/// FFI return handling (allocate + free pattern).
+/// FFI return handling (allocate + free pattern). `Optional<String>` and
+/// `Optional<Path>` reduce to a nullable pointer with the same handling — the
+/// boxed Java type is also `String`/`Path`, so the wrapper signature is
+/// unchanged from the non-optional case.
 pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
-    matches!(ty, TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json)
+    match ty {
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => true,
+        TypeRef::Optional(inner) => matches!(
+            inner.as_ref(),
+            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
+        ),
+        _ => false,
+    }
 }
 
 /// Return the Java cast expression for a primitive FFI return type.
@@ -49,9 +59,14 @@ pub(crate) fn marshal_param_to_ffi(
     prefix: &str,
 ) {
     match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
+        TypeRef::String | TypeRef::Char | TypeRef::Json => {
             let cname = "c".to_string() + name;
             writeln!(out, "            var {} = arena.allocateFrom({});", cname, name).ok();
+        }
+        TypeRef::Path => {
+            // Arena.allocateFrom takes a CharSequence; java.nio.file.Path is not one.
+            let cname = "c".to_string() + name;
+            writeln!(out, "            var {} = arena.allocateFrom({}.toString());", cname, name).ok();
         }
         TypeRef::Named(type_name) => {
             let cname = "c".to_string() + name;
@@ -93,11 +108,20 @@ pub(crate) fn marshal_param_to_ffi(
         TypeRef::Optional(inner) => {
             // For optional types, marshal the inner type if not null
             match inner.as_ref() {
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
+                TypeRef::String | TypeRef::Char | TypeRef::Json => {
                     let cname = "c".to_string() + name;
                     writeln!(
                         out,
                         "            var {} = {} != null ? arena.allocateFrom({}) : MemorySegment.NULL;",
+                        cname, name, name
+                    )
+                    .ok();
+                }
+                TypeRef::Path => {
+                    let cname = "c".to_string() + name;
+                    writeln!(
+                        out,
+                        "            var {} = {} != null ? arena.allocateFrom({}.toString()) : MemorySegment.NULL;",
                         cname, name, name
                     )
                     .ok();

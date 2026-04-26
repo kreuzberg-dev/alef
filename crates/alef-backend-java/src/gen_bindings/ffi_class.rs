@@ -231,6 +231,12 @@ pub(crate) fn gen_sync_function_method(
         }
     };
 
+    // Strip a top-level Optional wrapper for return-type dispatch — the Java
+    // boxed types are already nullable, so Optional<T> reuses T's handling.
+    let return_kind: &TypeRef = match &func.return_type {
+        TypeRef::Optional(inner) => inner.as_ref(),
+        other => other,
+    };
     if matches!(func.return_type, TypeRef::Unit) {
         writeln!(out, "            {}.invoke({});", ffi_handle, call_args.join(", ")).ok();
         emit_ffi_ptr_cleanup(out);
@@ -256,13 +262,15 @@ pub(crate) fn gen_sync_function_method(
         writeln!(out, "                checkLastError();").ok();
         writeln!(out, "                return null;").ok();
         writeln!(out, "            }}").ok();
+        // Use `__resultStr` instead of `result` to avoid shadowing a `result`
+        // parameter that may exist in the surrounding signature.
         writeln!(
             out,
-            "            String result = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+            "            String __resultStr = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
         )
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        writeln!(out, "            return result;").ok();
+        writeln!(out, "            return __resultStr;").ok();
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
@@ -271,9 +279,9 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         writeln!(out, "        }}").ok();
-    } else if matches!(func.return_type, TypeRef::Named(_)) {
+    } else if matches!(return_kind, TypeRef::Named(_)) {
         // Named return types: FFI returns a struct pointer.
-        let return_type_name = match &func.return_type {
+        let return_type_name = match return_kind {
             TypeRef::Named(name) => name,
             _ => unreachable!(),
         };
@@ -343,7 +351,47 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         writeln!(out, "        }}").ok();
-    } else if matches!(func.return_type, TypeRef::Vec(_)) {
+    } else if matches!(return_kind, TypeRef::Bytes) {
+        // Bytes return: FFI returns a JSON-encoded array of bytes (so a String pointer).
+        // The C signature loses the length, so the FFI layer encodes Vec<u8> as a base64
+        // or JSON string. Currently the kreuzberg-ffi raw signature returns a uint8_t*
+        // dangling pointer (a separate FFI-layer bug); we mirror the Vec<T> path and
+        // deserialize a JSON byte array, which gives a working contract once the FFI
+        // returns proper JSON. For raw byte returns the caller must wrap with a JSON
+        // encoder on the Rust side.
+        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
+        writeln!(
+            out,
+            "            var resultPtr = (MemorySegment) {}.invoke({});",
+            ffi_handle,
+            call_args.join(", ")
+        )
+        .ok();
+        emit_ffi_ptr_cleanup(out);
+        writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
+        writeln!(out, "                checkLastError();").ok();
+        writeln!(out, "                return new byte[0];").ok();
+        writeln!(out, "            }}").ok();
+        writeln!(
+            out,
+            "            String __jsonBytes = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        )
+        .ok();
+        writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
+        writeln!(
+            out,
+            "            return createObjectMapper().readValue(__jsonBytes, byte[].class);"
+        )
+        .ok();
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
+        writeln!(
+            out,
+            "            throw new {}Exception(\"FFI call failed\", e);",
+            class_name
+        )
+        .ok();
+        writeln!(out, "        }}").ok();
+    } else if matches!(return_kind, TypeRef::Vec(_)) {
         // Vec return types: FFI returns a JSON string pointer; deserialize into List<T>.
         let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
         writeln!(
@@ -363,9 +411,10 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        // Determine the element type for deserialization
-        let element_type = match &func.return_type {
-            TypeRef::Vec(inner) => java_type(inner),
+        // Determine the element type for deserialization. Java generics can't hold
+        // primitives so use the boxed type (Float/Integer/Long/Boolean/...).
+        let element_type = match return_kind {
+            TypeRef::Vec(inner) => java_boxed_type(inner),
             _ => unreachable!(),
         };
         writeln!(
@@ -444,18 +493,37 @@ pub(crate) fn gen_async_wrapper_method(
         params.join(", ")
     )
     .ok();
-    writeln!(out, "        return CompletableFuture.supplyAsync(() -> {{").ok();
-    writeln!(out, "            try {{").ok();
-    writeln!(
-        out,
-        "                return {}({});",
-        sync_method_name,
-        param_names.join(", ")
-    )
-    .ok();
-    writeln!(out, "            }} catch (Throwable e) {{").ok();
-    writeln!(out, "                throw new CompletionException(e);").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }});").ok();
+    let returns_void = matches!(func.return_type, TypeRef::Unit);
+    if returns_void {
+        // Use `runAsync` and `thenApply(_ -> null)` for void-returning functions
+        // — `supplyAsync` requires a `Supplier<T>` whose lambda must return a value.
+        writeln!(out, "        return CompletableFuture.runAsync(() -> {{").ok();
+        writeln!(out, "            try {{").ok();
+        writeln!(
+            out,
+            "                {}({});",
+            sync_method_name,
+            param_names.join(", ")
+        )
+        .ok();
+        writeln!(out, "            }} catch (Throwable e) {{").ok();
+        writeln!(out, "                throw new CompletionException(e);").ok();
+        writeln!(out, "            }}").ok();
+        writeln!(out, "        }}).thenApply(unused -> (Void) null);").ok();
+    } else {
+        writeln!(out, "        return CompletableFuture.supplyAsync(() -> {{").ok();
+        writeln!(out, "            try {{").ok();
+        writeln!(
+            out,
+            "                return {}({});",
+            sync_method_name,
+            param_names.join(", ")
+        )
+        .ok();
+        writeln!(out, "            }} catch (Throwable e) {{").ok();
+        writeln!(out, "                throw new CompletionException(e);").ok();
+        writeln!(out, "            }}").ok();
+        writeln!(out, "        }});").ok();
+    }
     writeln!(out, "    }}").ok();
 }

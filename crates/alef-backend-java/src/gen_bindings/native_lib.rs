@@ -439,6 +439,9 @@ pub(crate) fn gen_native_lib(
     // Track emitted free handles to avoid duplicates (a type may appear both as
     // a function return type AND as an opaque type).
     let mut emitted_free_handles: AHashSet<String> = AHashSet::new();
+    // Same dedup for `_to_json` handles — when multiple functions return the
+    // same Named type we'd otherwise emit the constant twice.
+    let mut emitted_to_json_handles: AHashSet<String> = AHashSet::new();
 
     // Build the set of opaque type names so we can pick the right accessor below.
     let opaque_type_names: AHashSet<String> = api
@@ -464,20 +467,22 @@ pub(crate) fn gen_native_lib(
                 // NOTE: _content returns only the markdown string field, not the full JSON.
                 let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
                 let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
-                writeln!(body).ok();
-                writeln!(
-                    body,
-                    "    static final MethodHandle {} = LINKER.downcallHandle(",
-                    to_json_handle
-                )
-                .ok();
-                writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", to_json_ffi).ok();
-                writeln!(
-                    body,
-                    "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
-                )
-                .ok();
-                writeln!(body, "    );").ok();
+                if emitted_to_json_handles.insert(to_json_handle.clone()) {
+                    writeln!(body).ok();
+                    writeln!(
+                        body,
+                        "    static final MethodHandle {} = LINKER.downcallHandle(",
+                        to_json_handle
+                    )
+                    .ok();
+                    writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", to_json_ffi).ok();
+                    writeln!(
+                        body,
+                        "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+                    )
+                    .ok();
+                    writeln!(body, "    );").ok();
+                }
             }
 
             // _free: (struct_ptr) -> void

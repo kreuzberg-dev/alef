@@ -83,7 +83,10 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        let has_visitor_bridge = !config.trait_bridges.is_empty();
+        let has_visitor_bridge = config
+            .trait_bridges
+            .iter()
+            .any(|b| b.trait_name == "Visitor" || b.type_alias.as_deref() == Some("VisitorHandle"));
 
         let mut files = Vec::new();
 
@@ -255,7 +258,10 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        let has_visitor_bridge = !config.trait_bridges.is_empty();
+        let has_visitor_bridge = config
+            .trait_bridges
+            .iter()
+            .any(|b| b.trait_name == "Visitor" || b.type_alias.as_deref() == Some("VisitorHandle"));
 
         // Generate a high-level public API class that wraps the raw FFI class.
         // Class name = main_class without "Rs" suffix (e.g., HtmlToMarkdownRs -> HtmlToMarkdown)
