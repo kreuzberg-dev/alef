@@ -681,7 +681,10 @@ pub fn binding_to_core_match_arm_ext_cfg(
                     // each element is a debug-formatted string. Cannot safely use serde_json::from_str
                     // on Vec<String>. Default to empty collection.
                     if let TypeRef::Vec(_) = &f.ty {
-                        return format!("{}: {}.iter().filter_map(|s| serde_json::from_str(s).ok()).collect()", f.name, f.name);
+                        return format!(
+                            "{}: {}.iter().filter_map(|s| serde_json::from_str(s).ok()).collect()",
+                            f.name, f.name
+                        );
                     }
                     return format!("{}: serde_json::from_str(&{}).unwrap_or_default()", f.name, f.name);
                 }

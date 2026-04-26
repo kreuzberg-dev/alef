@@ -873,12 +873,15 @@ fn apply_module_cfg(surface: &mut ApiSurface, module_name: &str, cfg: &str) {
     let module_prefix_self = format!("::{module_name}");
 
     for typ in &mut surface.types {
-        if typ.cfg.is_none() && (typ.rust_path.contains(&module_prefix) || typ.rust_path.ends_with(&module_prefix_self)) {
+        if typ.cfg.is_none() && (typ.rust_path.contains(&module_prefix) || typ.rust_path.ends_with(&module_prefix_self))
+        {
             typ.cfg = Some(cfg.to_string());
         }
     }
     for func in &mut surface.functions {
-        if func.cfg.is_none() && (func.rust_path.contains(&module_prefix) || func.rust_path.ends_with(&module_prefix_self)) {
+        if func.cfg.is_none()
+            && (func.rust_path.contains(&module_prefix) || func.rust_path.ends_with(&module_prefix_self))
+        {
             func.cfg = Some(cfg.to_string());
         }
     }

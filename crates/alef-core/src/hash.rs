@@ -107,11 +107,7 @@ pub fn extract_hash(content: &str) -> Option<String> {
         if let Some(pos) = line.find(HASH_PREFIX) {
             let rest = &line[pos + HASH_PREFIX.len()..];
             // Trim trailing comment closers and whitespace.
-            let hex = rest
-                .trim()
-                .trim_end_matches("*/")
-                .trim_end_matches("-->")
-                .trim();
+            let hex = rest.trim().trim_end_matches("*/").trim_end_matches("-->").trim();
             if !hex.is_empty() {
                 return Some(hex.to_string());
             }
