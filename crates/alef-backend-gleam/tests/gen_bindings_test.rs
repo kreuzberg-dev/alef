@@ -479,6 +479,25 @@ fn make_method(name: &str) -> MethodDef {
     }
 }
 
+fn make_method_with_types(name: &str, return_type: TypeRef, error_type: Option<&str>) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params: vec![],
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: error_type.map(str::to_string),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
 fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
     TypeDef {
         name: name.to_string(),
@@ -677,5 +696,186 @@ fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
     assert_eq!(
         fail_count, 1,
         "fail_trait_call must be emitted exactly once, found {fail_count}: {content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trait bridge: per-method response shims
+// ---------------------------------------------------------------------------
+
+#[test]
+fn trait_bridge_emits_per_method_response_shim() {
+    // A trait with one method returning Unit and no error type should emit a shim
+    // with `Result(Nil, String)` (fallback error type).
+    let trait_type = make_trait_type("OcrBackend", vec![make_method("process_image")]);
+    let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The NIF shim name follows `{trait_snake}_{method_snake}_response`.
+    assert!(
+        content.contains(
+            "@external(erlang, \"Elixir.Demo.Native\", \"ocr_backend_process_image_response\")"
+        ),
+        "missing response shim @external: {content}"
+    );
+    assert!(
+        content.contains(
+            "pub fn ocr_backend_process_image_response(call_id: Dynamic, result: Result(Nil, String)) -> Nil"
+        ),
+        "missing response shim fn signature: {content}"
+    );
+}
+
+#[test]
+fn trait_bridge_response_shim_uses_typed_return_and_error() {
+    // A method returning String with a named error type should emit typed Result.
+    // The error type must appear in the declared errors list so resolve_gleam_error_type
+    // can match it; otherwise it falls back to String.
+    let method = make_method_with_types("process_image", TypeRef::String, Some("OcrError"));
+    let trait_type = make_trait_type("OcrBackend", vec![method]);
+    let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
+    let ocr_error = ErrorDef {
+        name: "OcrError".into(),
+        rust_path: "demo::OcrError".into(),
+        original_rust_path: String::new(),
+        variants: vec![],
+        doc: String::new(),
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ocr_error],
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains(
+            "pub fn ocr_backend_process_image_response(call_id: Dynamic, result: Result(String, OcrError)) -> Nil"
+        ),
+        "wrong typed response shim signature: {content}"
+    );
+}
+
+#[test]
+fn trait_bridge_response_shim_unit_return_emits_nil() {
+    // Explicit Unit return type must map to Nil in the ok branch.
+    let method = make_method_with_types("ping", TypeRef::Unit, Some("MyError"));
+    let trait_type = make_trait_type("MyTrait", vec![method]);
+    let bridge_cfg = make_bridge_cfg("MyTrait", "register_my_trait");
+    let my_error = ErrorDef {
+        name: "MyError".into(),
+        rust_path: "demo::MyError".into(),
+        original_rust_path: String::new(),
+        variants: vec![],
+        doc: String::new(),
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![my_error],
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("Result(Nil, MyError)"),
+        "Unit return must become Nil in result ok branch: {content}"
+    );
+}
+
+#[test]
+fn trait_bridge_multiple_methods_emit_one_shim_each() {
+    // Two methods on one trait → two distinct response shims.
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![
+            make_method_with_types("process_image", TypeRef::String, Some("OcrError")),
+            make_method_with_types("get_name", TypeRef::String, None),
+        ],
+    );
+    let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("pub fn ocr_backend_process_image_response("),
+        "missing process_image shim: {content}"
+    );
+    assert!(
+        content.contains("pub fn ocr_backend_get_name_response("),
+        "missing get_name shim: {content}"
+    );
+
+    // Each method gets exactly one pub fn shim declaration.
+    assert_eq!(
+        content.matches("pub fn ocr_backend_process_image_response(").count(),
+        1,
+        "process_image shim must appear exactly once: {content}"
+    );
+    assert_eq!(
+        content.matches("pub fn ocr_backend_get_name_response(").count(),
+        1,
+        "get_name shim must appear exactly once: {content}"
+    );
+}
+
+#[test]
+fn trait_bridge_response_shim_includes_doc_comment() {
+    // The per-method shim must include a doc comment with method name guidance.
+    let trait_type = make_trait_type("OcrBackend", vec![make_method("process_image")]);
+    let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config_with_bridges(vec![bridge_cfg]);
+    let files = GleamBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("/// Send the `process_image` response back to the Rustler reply-registry."),
+        "missing method doc comment: {content}"
     );
 }
