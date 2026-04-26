@@ -272,8 +272,13 @@ fn emit_function(f: &FunctionDef, prefix: &str, declared_errors: &[String], out:
     let c_call = format!("c.{prefix}_{}({})", f.name, c_args.join(", "));
 
     if let Some(error_type) = &zig_error_type {
-        // Fallible function: call C, then check last_error_code().
-        out.push_str(&format!("    const _result = {c_call};\n"));
+        // Fallible function: call C, then check last_error_code(). Zig requires `_`
+        // (single underscore) to discard a value; named locals must be used.
+        if matches!(f.return_type, TypeRef::Unit) {
+            out.push_str(&format!("    _ = {c_call};\n"));
+        } else {
+            out.push_str(&format!("    const _result = {c_call};\n"));
+        }
         out.push_str(&format!("    if (c.{prefix}_last_error_code() != 0) {{\n"));
         out.push_str(&format!("        return _first_error({error_type});\n"));
         out.push_str("    }\n");
