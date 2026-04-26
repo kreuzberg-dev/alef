@@ -132,9 +132,6 @@ pub struct SetupConfig {
     pub before: Option<StringOrVec>,
     /// Command(s) to install dependencies for this language.
     pub install: Option<StringOrVec>,
-    /// Timeout in seconds for the complete setup (precondition + before + install).
-    #[serde(default = "default_setup_timeout")]
-    pub timeout_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -157,10 +154,6 @@ pub struct BuildCommandConfig {
     pub build: Option<StringOrVec>,
     /// Command(s) to build in release mode.
     pub build_release: Option<StringOrVec>,
-}
-
-fn default_setup_timeout() -> u64 {
-    600
 }
 
 /// A single text replacement rule for version sync.

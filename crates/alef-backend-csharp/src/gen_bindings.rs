@@ -1654,7 +1654,7 @@ fn gen_record_type(
             // Field with an explicit default value or part of a type with defaults.
             // Use typed_default from IR to get Rust-compatible defaults.
             let field_type = if is_complex {
-                "JsonElement".to_string()
+                "JsonElement?".to_string()
             } else {
                 csharp_type(&field.ty).to_string()
             };
@@ -1699,7 +1699,10 @@ fn gen_record_type(
                     },
                     TypeRef::Named(name) => {
                         let pascal = name.to_pascal_case();
-                        if enum_names.contains(&pascal) {
+                        if complex_enums.contains(&pascal) {
+                            // Taggedunions (complex enums) should default to null
+                            "null".to_string()
+                        } else if enum_names.contains(&pascal) {
                             "default".to_string()
                         } else {
                             "default!".to_string()

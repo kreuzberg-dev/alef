@@ -162,6 +162,20 @@ impl Backend for RustlerBackend {
             .cloned()
             .collect();
 
+        // Add globals for trait call dispatch if there are active bridges
+        if !active_bridges.is_empty() {
+            builder.add_import("std::sync::atomic::{AtomicU64, Ordering}");
+            builder.add_import("std::sync::Mutex");
+            builder.add_import("std::collections::HashMap");
+            builder.add_item(
+                "static TRAIT_REPLY_COUNTER: AtomicU64 = AtomicU64::new(1);",
+            );
+            builder.add_item(
+                "static TRAIT_REPLY_CHANNELS: std::sync::LazyLock<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<std::result::Result<String, String>>>>> = \
+                 std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));",
+            );
+        }
+
         for func in api
             .functions
             .iter()
