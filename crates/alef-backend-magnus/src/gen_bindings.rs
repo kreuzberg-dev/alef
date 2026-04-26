@@ -216,6 +216,19 @@ impl Backend for MagnusBackend {
         // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects.
         // Pass the host crate's canonical error type/constructor so generated `impl Plugin`
         // and `impl {Trait}` blocks match the trait signatures (e.g. `Result<T, KreuzbergError>`).
+        // Check if any trait has async methods and add async_trait import if needed.
+        if !config.trait_bridges.is_empty() {
+            let needs_async_trait = config.trait_bridges.iter().any(|bridge_cfg| {
+                api.types
+                    .iter()
+                    .find(|t| t.is_trait && t.name == bridge_cfg.trait_name)
+                    .is_some_and(|trait_type| trait_type.methods.iter().any(|m| m.is_async))
+            });
+            if needs_async_trait {
+                builder.add_import("async_trait::async_trait");
+            }
+        }
+
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
                 let bridge_code = crate::trait_bridge::gen_trait_bridge(

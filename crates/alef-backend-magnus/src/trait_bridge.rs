@@ -85,18 +85,9 @@ pub fn gen_trait_bridge(
         // bridge block so multiple bridges can share trait imports without name
         // collisions on the same module-level identifier.
         let mut prefixed = String::with_capacity(output.imports.len() * 64 + output.code.len());
-        let mut imports_to_emit: Vec<_> = output.imports.iter()
+        let imports_to_emit: Vec<_> = output.imports.iter()
             .filter(|imp| *imp != "magnus::prelude::*")
-            .map(|s| s.to_string())
             .collect();
-
-        // Add async_trait if the trait has async methods (needed for #[async_trait::async_trait] attribute)
-        if trait_type.methods.iter().any(|m| m.is_async)
-            && !imports_to_emit.iter().any(|imp| imp.contains("async_trait"))
-        {
-            imports_to_emit.push("async_trait".to_string());
-        }
-
         // Emit allow attribute before each import group to suppress unused_imports warnings
         for imp in &imports_to_emit {
             prefixed.push_str("#[allow(unused_imports)]\n");
