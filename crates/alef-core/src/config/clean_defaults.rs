@@ -82,10 +82,35 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             before: None,
             clean: None,
         },
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => CleanConfig {
+        Language::Kotlin => CleanConfig {
+            precondition: Some(require_tool("gradle")),
+            before: None,
+            clean: Some(StringOrVec::Single("gradle clean".to_string())),
+        },
+        Language::Swift => CleanConfig {
+            // Pure swift toolchain command.
+            precondition: Some(require_tool("swift")),
+            before: None,
+            clean: Some(StringOrVec::Single("swift package clean".to_string())),
+        },
+        Language::Dart => CleanConfig {
+            precondition: Some(require_tool("dart")),
+            before: None,
+            clean: Some(StringOrVec::Single("dart clean".to_string())),
+        },
+        Language::Gleam => CleanConfig {
+            // Gleam has no `gleam clean`; it uses a `build/` directory.
             precondition: None,
             before: None,
-            clean: None,
+            clean: Some(StringOrVec::Single("rm -rf build".to_string())),
+        },
+        Language::Zig => CleanConfig {
+            // Pure shell `rm` — zig-out and cache dirs.
+            precondition: None,
+            before: None,
+            clean: Some(StringOrVec::Single(
+                "rm -rf zig-out zig-cache .zig-cache".to_string(),
+            )),
         },
     }
 }
@@ -132,11 +157,7 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_clean_command() {
         for lang in all_languages() {
-            // Skip FFI and Phase 1 backends not yet implemented
-            if matches!(
-                lang,
-                Language::Ffi | Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
-            ) {
+            if matches!(lang, Language::Ffi) {
                 continue;
             }
             let c = cfg(lang, "packages/test");

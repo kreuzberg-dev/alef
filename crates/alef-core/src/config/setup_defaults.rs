@@ -98,10 +98,32 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             before: None,
             install: None,
         },
-        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => SetupConfig {
-            precondition: None,
+        Language::Kotlin => SetupConfig {
+            precondition: Some(require_tool("gradle")),
             before: None,
-            install: None,
+            install: Some(StringOrVec::Single(
+                "gradle build --refresh-dependencies".to_string(),
+            )),
+        },
+        Language::Swift => SetupConfig {
+            precondition: Some(require_tool("swift")),
+            before: None,
+            install: Some(StringOrVec::Single("swift package resolve".to_string())),
+        },
+        Language::Dart => SetupConfig {
+            precondition: Some(require_tool("dart")),
+            before: None,
+            install: Some(StringOrVec::Single("dart pub get".to_string())),
+        },
+        Language::Gleam => SetupConfig {
+            precondition: Some(require_tool("gleam")),
+            before: None,
+            install: Some(StringOrVec::Single("gleam deps download".to_string())),
+        },
+        Language::Zig => SetupConfig {
+            precondition: Some(require_tool("zig")),
+            before: None,
+            install: Some(StringOrVec::Single("zig build --fetch".to_string())),
         },
     }
 }
@@ -148,11 +170,7 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_install_command() {
         for lang in all_languages() {
-            // Skip FFI and Phase 1 backends not yet implemented
-            if matches!(
-                lang,
-                Language::Ffi | Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
-            ) {
+            if matches!(lang, Language::Ffi) {
                 continue;
             }
             let c = cfg(lang, "packages/test");
@@ -163,11 +181,7 @@ mod tests {
     #[test]
     fn non_ffi_languages_have_default_precondition() {
         for lang in all_languages() {
-            // Skip FFI and Phase 1 backends not yet implemented
-            if matches!(
-                lang,
-                Language::Ffi | Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig
-            ) {
+            if matches!(lang, Language::Ffi) {
                 continue;
             }
             let c = cfg(lang, "packages/test");
