@@ -426,7 +426,7 @@ fn gen_single_trait_bridge(
         writeln!(out, "            var name = _impl.Name;").ok();
         writeln!(out, "            outName = Marshal.StringToCoTaskMemUTF8(name);").ok();
         writeln!(out, "            return 0;").ok();
-        writeln!(out, "        }} catch (Exception _) {{").ok();
+        writeln!(out, "        }} catch {{").ok();
         writeln!(out, "            outName = IntPtr.Zero;").ok();
         writeln!(out, "            return 1;").ok();
         writeln!(out, "        }}").ok();
@@ -442,7 +442,7 @@ fn gen_single_trait_bridge(
         writeln!(out, "            var version = _impl.Version;").ok();
         writeln!(out, "            outVersion = Marshal.StringToCoTaskMemUTF8(version);").ok();
         writeln!(out, "            return 0;").ok();
-        writeln!(out, "        }} catch (Exception _) {{").ok();
+        writeln!(out, "        }} catch {{").ok();
         writeln!(out, "            outVersion = IntPtr.Zero;").ok();
         writeln!(out, "            return 1;").ok();
         writeln!(out, "        }}").ok();
