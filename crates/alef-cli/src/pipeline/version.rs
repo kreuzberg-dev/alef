@@ -182,10 +182,7 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
     ] {
         if let Ok(entries) = glob::glob(pattern) {
             for entry in entries.flatten() {
-                if let Some(found) = extract_version(
-                    &entry.to_string_lossy(),
-                    r#"VERSION\s*=\s*["']([^"']*)["']"#,
-                ) {
+                if let Some(found) = extract_version(&entry.to_string_lossy(), r#"VERSION\s*=\s*["']([^"']*)["']"#) {
                     if found != expected {
                         mismatches.push(format!("{}: found {found}, expected {expected}", entry.display()));
                     }
@@ -320,13 +317,11 @@ pub fn sync_versions(config: &AlefConfig, bump: Option<&str>) -> anyhow::Result<
         "packages/ruby/ext/*/src/*/version.rb",
         "packages/ruby/ext/*/native/src/*/version.rb",
     ] {
-        for entry in glob::glob(pattern)
-            .into_iter()
-            .flatten()
-            .flatten()
-        {
+        for entry in glob::glob(pattern).into_iter().flatten().flatten() {
             if let Ok(content) = std::fs::read_to_string(&entry) {
-                if let Some(new_content) = replace_version_pattern(&content, r#"VERSION\s*=\s*['"][^'"]*['"]"#, &version) {
+                if let Some(new_content) =
+                    replace_version_pattern(&content, r#"VERSION\s*=\s*['"][^'"]*['"]"#, &version)
+                {
                     std::fs::write(&entry, &new_content)?;
                     updated.push(entry.to_string_lossy().to_string());
                 }

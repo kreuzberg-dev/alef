@@ -26,7 +26,11 @@ pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&Rust
             continue;
         }
 
-        let vendor_mode = lang_config.vendor_mode.as_ref().unwrap_or(&default_vendor_mode(lang)).clone();
+        let vendor_mode = lang_config
+            .vendor_mode
+            .as_ref()
+            .unwrap_or(&default_vendor_mode(lang))
+            .clone();
 
         match vendor_mode {
             VendorMode::CoreOnly => {

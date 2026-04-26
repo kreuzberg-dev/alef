@@ -55,7 +55,12 @@ pub(crate) fn marshal_param_to_ffi(
         }
         TypeRef::Path => {
             let cname = "c".to_string() + name;
-            writeln!(out, "            var {} = arena.allocateFrom({}.toString());", cname, name).ok();
+            writeln!(
+                out,
+                "            var {} = arena.allocateFrom({}.toString());",
+                cname, name
+            )
+            .ok();
         }
         TypeRef::Named(type_name) => {
             let cname = "c".to_string() + name;

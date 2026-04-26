@@ -753,6 +753,8 @@ pub fn gen_convert_with_visitor_method(exception_name: &str, prefix: &str) -> St
 fn gen_node_context(namespace: &str) -> String {
     let mut out = String::with_capacity(1024);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    writeln!(out, "#nullable enable").ok();
+    writeln!(out).ok();
     writeln!(out, "using System;").ok();
     writeln!(out).ok();
     writeln!(out, "namespace {namespace};").ok();
@@ -786,6 +788,8 @@ fn gen_node_context(namespace: &str) -> String {
 fn gen_visit_result(namespace: &str) -> String {
     let mut out = String::with_capacity(2048);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    writeln!(out, "#nullable enable").ok();
+    writeln!(out).ok();
     writeln!(out, "using System;").ok();
     writeln!(out).ok();
     writeln!(out, "namespace {namespace};").ok();
@@ -828,6 +832,8 @@ fn gen_visit_result(namespace: &str) -> String {
 fn gen_ivisitor(namespace: &str) -> String {
     let mut out = String::with_capacity(4096);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    writeln!(out, "#nullable enable").ok();
+    writeln!(out).ok();
     writeln!(out, "using System;").ok();
     writeln!(out).ok();
     writeln!(out, "namespace {namespace};").ok();
@@ -858,6 +864,8 @@ fn gen_ivisitor(namespace: &str) -> String {
 fn gen_visitor_callbacks(namespace: &str) -> String {
     let mut out = String::with_capacity(32_768);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    writeln!(out, "#nullable enable").ok();
+    writeln!(out).ok();
     writeln!(out, "using System;").ok();
     writeln!(out, "using System.Runtime.InteropServices;").ok();
     writeln!(out).ok();

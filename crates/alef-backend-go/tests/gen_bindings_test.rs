@@ -1442,7 +1442,16 @@ fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
     let api = make_api_with_type(trait_type);
 
     // With crate_name="kreuzberg", the VTable struct should be KREUZBERGKreuzbergOcrBackendVTable
-    let code = gen_trait_bridges_file(&api, &config, "testlib", "kreuzberg", "test.h", "crate/ffi", "../", "kreuzberg");
+    let code = gen_trait_bridges_file(
+        &api,
+        &config,
+        "testlib",
+        "kreuzberg",
+        "test.h",
+        "crate/ffi",
+        "../",
+        "kreuzberg",
+    );
 
     assert!(
         code.contains("vtable := C.KREUZBERGKreuzbergOcrBackendVTable{"),

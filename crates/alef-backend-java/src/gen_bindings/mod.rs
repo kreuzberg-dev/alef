@@ -91,11 +91,7 @@ impl Backend for JavaBackend {
             .filter_map(|b| b.type_alias.clone())
             .collect();
         // Only generate visitor support if visitor_callbacks is explicitly enabled in FFI config
-        let has_visitor_pattern = config
-            .ffi
-            .as_ref()
-            .map(|f| f.visitor_callbacks)
-            .unwrap_or(false);
+        let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
         let mut files = Vec::new();
 
