@@ -1,3 +1,4 @@
+use alef_core::hash;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -316,9 +317,16 @@ fn main() -> Result<()> {
                 let hashes: Vec<(String, String)> = lang_files
                     .iter()
                     .map(|f| {
+                        let normalized = pipeline::normalize_content(&f.path, &f.content);
+                        let final_content = if f.generated_header {
+                            let content_hash = hash::hash_content(&normalized);
+                            hash::inject_hash_line(&normalized, &content_hash)
+                        } else {
+                            normalized
+                        };
                         (
                             base_dir.join(&f.path).display().to_string(),
-                            cache::hash_content(&f.content),
+                            cache::hash_content(&final_content),
                         )
                     })
                     .collect();

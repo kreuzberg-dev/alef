@@ -72,7 +72,10 @@ pub fn inject_hash_line(content: &str, hash: &str) -> String {
 
         if !injected && i < 10 && line.contains(HEADER_MARKER) {
             let trimmed = line.trim();
-            let hash_line = if trimmed.starts_with("//") {
+            let hash_line = if trimmed.starts_with("<!--") {
+                // XML comment: inject hash line as XML comment
+                format!("<!-- {HASH_PREFIX}{hash} -->")
+            } else if trimmed.starts_with("//") {
                 format!("// {HASH_PREFIX}{hash}")
             } else if trimmed.starts_with('#') {
                 format!("# {HASH_PREFIX}{hash}")
@@ -104,7 +107,11 @@ pub fn extract_hash(content: &str) -> Option<String> {
         if let Some(pos) = line.find(HASH_PREFIX) {
             let rest = &line[pos + HASH_PREFIX.len()..];
             // Trim trailing comment closers and whitespace.
-            let hex = rest.trim().trim_end_matches("*/").trim();
+            let hex = rest
+                .trim()
+                .trim_end_matches("*/")
+                .trim_end_matches("-->")
+                .trim();
             if !hex.is_empty() {
                 return Some(hex.to_string());
             }

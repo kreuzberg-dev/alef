@@ -129,8 +129,12 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
     all_files.par_iter().try_for_each(|file| -> anyhow::Result<()> {
         let full_path = base_dir.join(&file.path);
         let normalized = normalize_content(&file.path, &file.content);
-        let content_hash = hash::hash_content(&normalized);
-        let final_content = hash::inject_hash_line(&normalized, &content_hash);
+        let final_content = if file.generated_header {
+            let content_hash = hash::hash_content(&normalized);
+            hash::inject_hash_line(&normalized, &content_hash)
+        } else {
+            normalized
+        };
         std::fs::write(&full_path, &final_content)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         debug!("  wrote: {}", full_path.display());
@@ -157,10 +161,12 @@ pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> 
             let full_path = base_dir.join(&file.path);
             let existing = std::fs::read_to_string(&full_path).unwrap_or_default();
             let is_rust = file.path.extension().is_some_and(|ext| ext == "rs");
-            let generated = if is_rust {
-                format_rust_content(&file.content)
+            let normalized = normalize_content(&file.path, &file.content);
+            let generated = if file.generated_header {
+                let content_hash = hash::hash_content(&normalized);
+                hash::inject_hash_line(&normalized, &content_hash)
             } else {
-                file.content.clone()
+                normalized
             };
             let on_disk = if is_rust {
                 format_rust_content(&existing)
