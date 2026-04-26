@@ -42,7 +42,7 @@ pub fn build(b: *std.Build) void {{
     // build.zig.zon — Zig 0.13+ requires `.paths` and `.minimum_zig_version`.
     let build_zig_zon = format!(
         r#".{{
-    .name = "{module_name}",
+    .name = .{module_name},
     .version = "{version}",
     .minimum_zig_version = "{min_zig}",
     .dependencies = .{{}},
