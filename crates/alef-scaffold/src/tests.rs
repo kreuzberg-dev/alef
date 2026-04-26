@@ -768,8 +768,8 @@ fn test_scaffold_swift() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
     let files = language_files(&all_files);
-    // Package.swift + .gitignore
-    assert_eq!(files.len(), 2);
+    // Package.swift + .gitignore + Tests/MyLibTests/MyLibTests.swift
+    assert_eq!(files.len(), 3);
 
     let package_swift = &files[0];
     assert_eq!(package_swift.path, PathBuf::from("packages/swift/Package.swift"));

@@ -46,6 +46,21 @@ let package = Package(
 
     let gitignore = ".build/\nPackages/\nxcuserdata/\nDerivedData/\n.swiftpm/\n*.xcodeproj\n";
 
+    let test_stub = format!(
+        r#"import XCTest
+@testable import {module}
+
+final class {module}Tests: XCTestCase {{
+    func testPlaceholder() throws {{
+        // Placeholder test so `swift test` has a target to run.
+        // Replace or extend with real tests against the {module} module.
+        XCTAssertTrue(true)
+    }}
+}}
+"#,
+        module = module,
+    );
+
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/swift/Package.swift"),
@@ -55,6 +70,11 @@ let package = Package(
         GeneratedFile {
             path: PathBuf::from("packages/swift/.gitignore"),
             content: gitignore.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("packages/swift/Tests/{module}Tests/{module}Tests.swift")),
+            content: test_stub,
             generated_header: false,
         },
     ])
