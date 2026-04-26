@@ -43,7 +43,8 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        // async_trait is needed because the trait impls may have async methods
+        // async_trait is needed because the trait impls may have async methods.
+        // We import the prelude to ensure the async_trait attribute is available.
         vec!["async_trait::async_trait".to_string()]
     }
 
@@ -63,7 +64,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         writeln!(out, "// Sync dispatch via tokio::runtime::Handle::block_on.").ok();
         writeln!(out, "// Create a oneshot channel to receive the result from Elixir.").ok();
         writeln!(out, "let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();").ok();
-        writeln!(out, "let pid = self.pid;").ok();
+        writeln!(out, "let pid = self.inner;").ok();
         writeln!(out).ok();
 
         writeln!(out, "// Send request message to Elixir GenServer via OwnedEnv.").ok();
@@ -138,7 +139,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         writeln!(out).ok();
         writeln!(out, "// Create a oneshot channel to receive the result from Elixir.").ok();
         writeln!(out, "let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();").ok();
-        writeln!(out, "let pid = self.pid;").ok();
+        writeln!(out, "let pid = self.inner;").ok();
         writeln!(out).ok();
 
         writeln!(out, "// Async dispatch: spawn_blocking sends message to Elixir and waits.").ok();
@@ -190,7 +191,7 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         )
         .ok();
         writeln!(out, "        Self {{").ok();
-        writeln!(out, "            pid,").ok();
+        writeln!(out, "            inner: pid,").ok();
         writeln!(out, "            cached_name: plugin_name,").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();
