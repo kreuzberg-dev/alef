@@ -628,7 +628,7 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
             .ok();
             writeln!(
                 out,
-                "\t\tjson.Unmarshal([]byte(C.GoString({})), &b64str)",
+                "\t\tjson.Unmarshal([]byte(C.GoString((*C.char)(unsafe.Pointer({})))), &b64str)",
                 param.name
             )
             .ok();
@@ -642,8 +642,48 @@ fn gen_param_conversion(out: &mut String, param: &alef_core::ir::ParamDef) {
             writeln!(out, "\t}}").ok();
             writeln!(out).ok();
         }
-        TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_) => {
-            // For map and complex types, unmarshal JSON and assert to expected type
+        TypeRef::Vec(_) => {
+            // Vec types unmarshal directly from JSON array
+            let go_type = rust_to_go_type(&param.ty);
+            writeln!(out, "\tvar {} {}", var_name, go_type).ok();
+            writeln!(out, "\tif {} != nil {{", param.name).ok();
+            writeln!(
+                out,
+                "\t\tjson.Unmarshal([]byte(C.GoString({})), &{})",
+                param.name, var_name
+            )
+            .ok();
+            writeln!(out, "\t}}").ok();
+            writeln!(out).ok();
+        }
+        TypeRef::Map(_, _) | TypeRef::Named(_) => {
+            // Map and named types unmarshal as map[string]interface{}
+            let go_type = rust_to_go_type(&param.ty);
+            writeln!(out, "\tvar {} {}", var_name, go_type).ok();
+            writeln!(out, "\tif {} != nil {{", param.name).ok();
+            writeln!(
+                out,
+                "\t\tvar rawData interface{{}}"
+            )
+            .ok();
+            writeln!(
+                out,
+                "\t\tjson.Unmarshal([]byte(C.GoString({})), &rawData)",
+                param.name
+            )
+            .ok();
+            writeln!(
+                out,
+                "\t\tif m, ok := rawData.(map[string]interface{{}}); ok {{"
+            )
+            .ok();
+            writeln!(out, "\t\t\t{} = m", var_name).ok();
+            writeln!(out, "\t\t}}").ok();
+            writeln!(out, "\t}}").ok();
+            writeln!(out).ok();
+        }
+        TypeRef::Optional(_) => {
+            // Optional types
             let go_type = rust_to_go_type(&param.ty);
             writeln!(out, "\tvar {} {}", var_name, go_type).ok();
             writeln!(out, "\tif {} != nil {{", param.name).ok();
