@@ -1,11 +1,12 @@
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use crate::gen_rust_crate;
 use crate::type_map::DartMapper;
 
 pub struct DartBackend;
@@ -58,6 +59,8 @@ impl Backend for DartBackend {
                 imports.insert("import 'dart:async';".to_string());
             }
 
+            imports.insert(format!("import '{module_name}_bridge_generated.dart' as rust_bridge;"));
+
             let bridge_class = dart_bridge_class_name(&config.crate_config.name);
             body.push_str(&format!("class {bridge_class} {{\n"));
             for f in &api.functions {
@@ -85,19 +88,27 @@ impl Backend for DartBackend {
         );
         let path = PathBuf::from(dir).join(format!("{module_name}.dart"));
 
-        Ok(vec![GeneratedFile {
+        let mut files = vec![GeneratedFile {
             path,
             content,
             generated_header: false,
-        }])
+        }];
+
+        let rust_crate_files = gen_rust_crate::emit(api, config)?;
+        files.extend(rust_crate_files);
+
+        Ok(files)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
         Some(BuildConfig {
-            tool: "flutter_rust_bridge_codegen",
+            tool: "cargo",
             crate_suffix: "-dart",
             build_dep: BuildDependency::None,
-            post_build: vec![],
+            post_build: vec![PostBuildStep::RunCommand {
+                cmd: "flutter_rust_bridge_codegen",
+                args: vec!["generate"],
+            }],
         })
     }
 }
@@ -332,6 +343,8 @@ fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<Strin
 
     let fn_name = f.name.to_lower_camel_case();
     let params: Vec<String> = f.params.iter().map(|p| format_param(p, imports)).collect();
+    let call_args: Vec<String> = f.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
+    let call_args_str = call_args.join(", ");
 
     if f.is_async {
         let return_ty = if matches!(f.return_type, TypeRef::Unit) {
@@ -343,8 +356,7 @@ fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<Strin
             "  static {return_ty} {fn_name}({}) async {{\n",
             params.join(", ")
         ));
-        out.push_str("    // TODO: bridge to flutter_rust_bridge generated API\n");
-        out.push_str("    throw UnimplementedError();\n");
+        out.push_str(&format!("    return await rust_bridge.{fn_name}({call_args_str});\n"));
         out.push_str("  }\n");
     } else {
         let return_ty = render_type(&f.return_type, imports);
@@ -352,8 +364,7 @@ fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<Strin
             "  static {return_ty} {fn_name}({}) {{\n",
             params.join(", ")
         ));
-        out.push_str("    // TODO: bridge to flutter_rust_bridge generated API\n");
-        out.push_str("    throw UnimplementedError();\n");
+        out.push_str(&format!("    return rust_bridge.{fn_name}({call_args_str});\n"));
         out.push_str("  }\n");
     }
 }

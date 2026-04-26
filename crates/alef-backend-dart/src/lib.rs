@@ -6,6 +6,7 @@
 //! Real codegen (type emission, function wrappers) lands in Phase 2B.
 
 mod gen_bindings;
+pub(crate) mod gen_rust_crate;
 mod type_map;
 
 pub use gen_bindings::DartBackend;
