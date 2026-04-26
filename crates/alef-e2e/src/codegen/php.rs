@@ -13,6 +13,7 @@ use crate::fixture::{
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashMap;
@@ -170,16 +171,21 @@ fn render_composer_json(
     "{pkg_name}": "{pkg_version}"
   }},
   "require-dev": {{
-    "phpunit/phpunit": "^13.1",
-    "guzzlehttp/guzzle": "^7.0"
-  }},"#
+    "phpunit/phpunit": "{phpunit}",
+    "guzzlehttp/guzzle": "{guzzle}"
+  }},"#,
+                phpunit = tv::packagist::PHPUNIT,
+                guzzle = tv::packagist::GUZZLE,
             )
         }
-        crate::config::DependencyMode::Local => r#"  "require-dev": {
-    "phpunit/phpunit": "^13.1",
-    "guzzlehttp/guzzle": "^7.0"
-  },"#
-        .to_string(),
+        crate::config::DependencyMode::Local => format!(
+            r#"  "require-dev": {{
+    "phpunit/phpunit": "{phpunit}",
+    "guzzlehttp/guzzle": "{guzzle}"
+  }},"#,
+            phpunit = tv::packagist::PHPUNIT,
+            guzzle = tv::packagist::GUZZLE,
+        ),
     };
 
     format!(

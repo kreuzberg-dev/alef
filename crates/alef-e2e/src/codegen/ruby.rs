@@ -12,6 +12,7 @@ use crate::fixture::{
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::ToSnakeCase;
 use std::collections::HashMap;
@@ -167,10 +168,14 @@ fn render_gemfile(
          source 'https://rubygems.org'\n\
          \n\
          {gem_line}\n\
-         gem 'rspec', '~> 3.13'\n\
-         gem 'rubocop', '~> 1.86'\n\
-         gem 'rubocop-rspec', '~> 3.9'\n\
-         gem 'faraday', '~> 2.0'\n"
+         gem 'rspec', '{rspec}'\n\
+         gem 'rubocop', '{rubocop}'\n\
+         gem 'rubocop-rspec', '{rubocop_rspec}'\n\
+         gem 'faraday', '{faraday}'\n",
+        rspec = tv::gem::RSPEC_E2E,
+        rubocop = tv::gem::RUBOCOP_E2E,
+        rubocop_rspec = tv::gem::RUBOCOP_RSPEC_E2E,
+        faraday = tv::gem::FARADAY,
     )
 }
 

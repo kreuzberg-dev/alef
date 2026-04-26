@@ -2,6 +2,7 @@ use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritanc
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -41,16 +42,18 @@ tokio = {{ version = "1", features = ["full"] }}
 default = []
 
 [build-dependencies]
-cbindgen = "0.29"
+cbindgen = "{cbindgen}"
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = "{tempfile}"
 "#,
         pkg_header = pkg_header,
         repository = meta.repository,
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ffi),
+        cbindgen = tv::cargo::CBINDGEN,
+        tempfile = tv::cargo::TEMPFILE,
     );
 
     let ffi_name = format!("{core_crate_dir}-ffi");

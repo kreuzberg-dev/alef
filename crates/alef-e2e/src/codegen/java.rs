@@ -10,6 +10,7 @@ use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::collections::HashSet;
@@ -182,7 +183,7 @@ fn render_pom_xml(
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <junit.version>5.11.4</junit.version>
+        <junit.version>{junit}</junit.version>
     </properties>
 
     <dependencies>
@@ -190,12 +191,12 @@ fn render_pom_xml(
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.18.2</version>
+            <version>{jackson}</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jdk8</artifactId>
-            <version>2.18.2</version>
+            <version>{jackson}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -210,7 +211,7 @@ fn render_pom_xml(
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.6.0</version>
+                <version>{build_helper}</version>
                 <executions>
                     <execution>
                         <id>add-test-source</id>
@@ -229,7 +230,7 @@ fn render_pom_xml(
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.5.2</version>
+                <version>{maven_surefire}</version>
                 <configuration>
                     <argLine>--enable-preview --enable-native-access=ALL-UNNAMED -Djava.library.path=../../target/release</argLine>
                 </configuration>
@@ -237,7 +238,11 @@ fn render_pom_xml(
         </plugins>
     </build>
 </project>
-"#
+"#,
+        junit = tv::maven::JUNIT,
+        jackson = tv::maven::JACKSON_E2E,
+        build_helper = tv::maven::BUILD_HELPER_MAVEN_PLUGIN,
+        maven_surefire = tv::maven::MAVEN_SUREFIRE_PLUGIN_E2E,
     )
 }
 

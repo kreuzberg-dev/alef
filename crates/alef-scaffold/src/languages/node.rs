@@ -2,6 +2,7 @@ use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritanc
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -33,13 +34,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-napi = {{ version = "3", features = ["async"] }}
-napi-derive = "3"
+napi = {{ version = "{napi}", features = ["async"] }}
+napi-derive = "{napi_derive}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"{extra_deps_section}
 
 [build-dependencies]
-napi-build = "2"
+napi-build = "{napi_build}"
 
 [lints]
 workspace = true
@@ -48,6 +49,9 @@ workspace = true
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Node),
+        napi = tv::cargo::NAPI,
+        napi_derive = tv::cargo::NAPI_DERIVE,
+        napi_build = tv::cargo::NAPI_BUILD,
         extra_deps_section = extra_deps_section,
     );
 
@@ -118,10 +122,10 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
     ]
   }},
   "devDependencies": {{
-    "@napi-rs/cli": "^3.0.0",
+    "@napi-rs/cli": "{napi_rs_cli_devdeps}",
     "oxfmt": "latest",
     "oxlint": "latest",
-    "typescript": "^6.0.3"
+    "typescript": "{typescript}"
   }}
 }}
 "#,
@@ -134,6 +138,8 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
         authors = authors_json,
         keywords = keywords_json,
         name = name,
+        napi_rs_cli_devdeps = tv::npm::NAPI_RS_CLI_DEVDEPS,
+        typescript = tv::npm::TYPESCRIPT,
     );
 
     // Crate-level package.json required by `napi build`
@@ -163,7 +169,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
     "prepublishOnly": "napi prepublish -t npm --skip-optional-publish"
   }},
   "engines": {{ "node": ">= 18" }},
-  "devDependencies": {{ "@napi-rs/cli": "^3.6.2" }}
+  "devDependencies": {{ "@napi-rs/cli": "{napi_rs_cli_crate}" }}
 }}
 "#,
         package_name = package_name,
@@ -171,6 +177,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
         description = meta.description,
         license = meta.license,
         crate_dir = crate_dir,
+        napi_rs_cli_crate = tv::npm::NAPI_RS_CLI_CRATE,
     );
 
     let dts_content = format!(

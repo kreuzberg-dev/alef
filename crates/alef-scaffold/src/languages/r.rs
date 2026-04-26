@@ -2,6 +2,7 @@ use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritanc
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_r(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -42,7 +43,7 @@ Suggests:
     lintr,
     styler
 SystemRequirements: Cargo (Rust's package manager), rustc (>= 1.91)
-Config/rextendr/version: 0.4.2
+Config/rextendr/version: {rextendr}
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
@@ -55,6 +56,7 @@ Config/testthat/edition: 3
         description = description,
         repository = meta.repository,
         license = meta.license,
+        rextendr = tv::cran::REXTENDR,
     );
 
     Ok(vec![
@@ -101,7 +103,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-extendr-api = {{ version = "0.7", features = ["use-precompiled-bindings"] }}
+extendr-api = {{ version = "{extendr_api}", features = ["use-precompiled-bindings"] }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 "#,
@@ -109,6 +111,7 @@ serde_json = "1"
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::R),
+        extendr_api = tv::cargo::EXTENDR_API,
     );
 
     Ok(vec![GeneratedFile {

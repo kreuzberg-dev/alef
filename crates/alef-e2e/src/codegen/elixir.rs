@@ -9,6 +9,7 @@ use crate::fixture::{
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::ToSnakeCase;
 use std::collections::HashMap;
@@ -195,8 +196,8 @@ fn render_mix_exs(
     };
     let _ = writeln!(out, "{dep_line}");
     if has_http_tests {
-        let _ = writeln!(out, "      {{:req, \"~> 0.5\"}}");
-        let _ = writeln!(out, "      {{:jason, \"~> 1.4\"}}");
+        let _ = writeln!(out, "      {{:req, \"{req}\"}}",req = tv::hex::REQ);
+        let _ = writeln!(out, "      {{:jason, \"{jason}\"}}",jason = tv::hex::JASON);
     }
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  end");

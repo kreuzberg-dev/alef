@@ -10,6 +10,7 @@ use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::collections::HashMap;
@@ -172,12 +173,15 @@ fn render_package_json(
   }},
   "devDependencies": {{
     "{pkg_name}": "{dep_value}",
-    "vite-plugin-top-level-await": "^1.4.0",
-    "vite-plugin-wasm": "^3.4.0",
-    "vitest": "^4.1.5"
+    "vite-plugin-top-level-await": "{vite_plugin_top_level_await}",
+    "vite-plugin-wasm": "{vite_plugin_wasm}",
+    "vitest": "{vitest}"
   }}
 }}
-"#
+"#,
+        vite_plugin_top_level_await = tv::npm::VITE_PLUGIN_TOP_LEVEL_AWAIT,
+        vite_plugin_wasm = tv::npm::VITE_PLUGIN_WASM,
+        vitest = tv::npm::VITEST,
     )
 }
 

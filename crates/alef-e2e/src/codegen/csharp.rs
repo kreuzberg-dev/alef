@@ -10,6 +10,7 @@ use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::ToUpperCamelCase;
 use std::collections::HashMap;
@@ -167,16 +168,19 @@ fn render_csproj(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: cr
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="{ms_test_sdk}" />
+    <PackageReference Include="xunit" Version="{xunit}" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="{xunit_runner}" />
   </ItemGroup>
 
   <ItemGroup>
 {pkg_ref}
   </ItemGroup>
 </Project>
-"#
+"#,
+        ms_test_sdk = tv::nuget::MICROSOFT_NET_TEST_SDK,
+        xunit = tv::nuget::XUNIT,
+        xunit_runner = tv::nuget::XUNIT_RUNNER_VISUALSTUDIO,
     )
 }
 

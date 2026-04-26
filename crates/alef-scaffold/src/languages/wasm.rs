@@ -2,6 +2,7 @@ use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritanc
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -35,10 +36,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-js-sys = "0.3"
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-serde-wasm-bindgen = "0.6"
+js-sys = "{js_sys}"
+wasm-bindgen = "{wasm_bindgen}"
+wasm-bindgen-futures = "{wasm_bindgen_futures}"
+serde-wasm-bindgen = "{serde_wasm_bindgen}"
 serde_json = "1"{extra_deps_section}
 
 [package.metadata.wasm-pack.profile.release]
@@ -52,6 +53,10 @@ ignored = ["wasm-bindgen-futures"]
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Wasm),
+        js_sys = tv::cargo::JS_SYS,
+        wasm_bindgen = tv::cargo::WASM_BINDGEN,
+        wasm_bindgen_futures = tv::cargo::WASM_BINDGEN_FUTURES,
+        serde_wasm_bindgen = tv::cargo::SERDE_WASM_BINDGEN,
         extra_deps_section = extra_deps_section,
     );
 

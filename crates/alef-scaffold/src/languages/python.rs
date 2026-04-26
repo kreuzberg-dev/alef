@@ -4,6 +4,7 @@ use crate::{
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_python_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -37,8 +38,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-pyo3 = {{ version = "0.28" }}
-pyo3-async-runtimes = {{ version = "0.28", features = ["tokio-runtime"] }}
+pyo3 = {{ version = "{pyo3}" }}
+pyo3-async-runtimes = {{ version = "{pyo3_async_runtimes}", features = ["tokio-runtime"] }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"{extra_deps_section}
 
@@ -53,6 +54,8 @@ workspace = true
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Python),
+        pyo3 = tv::cargo::PYO3,
+        pyo3_async_runtimes = tv::cargo::PYO3_ASYNC_RUNTIMES,
         extra_deps_section = extra_deps_section,
     );
 
@@ -98,7 +101,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &AlefConfig) -> anyhow::
 
     let content = format!(
         r#"[build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["{maturin_build_requires}"]
 build-backend = "maturin"
 
 [project]
@@ -125,7 +128,7 @@ features = ["pyo3/extension-module"]
 python-packages = ["{python_package}"]
 
 [dependency-groups]
-dev = ["ruff>=0.14.8", "mypy>=1.19.0"]
+dev = ["ruff{ruff}", "mypy{mypy}"]
 
 [tool.ruff]
 target-version = "py310"
@@ -176,6 +179,9 @@ namespace_packages = true
         python_package = python_package,
         module_name = module_name,
         crate_dir = core_crate_dir,
+        maturin_build_requires = tv::pypi::MATURIN_BUILD_REQUIRES,
+        ruff = tv::pypi::RUFF,
+        mypy = tv::pypi::MYPY,
     );
 
     Ok(vec![
