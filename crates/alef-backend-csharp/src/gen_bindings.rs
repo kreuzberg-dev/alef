@@ -481,12 +481,13 @@ fn gen_native_methods(
     let mut opaque_param_types: HashSet<String> = HashSet::new();
     let mut opaque_return_types: HashSet<String> = HashSet::new();
 
+    // Enums passed as parameters in any FFI function flow through *_from_json + *_free
+    // (the alef-backend-ffi side now emits these for param-passed enums). Treat them
+    // like opaque struct params so the DllImport entries get generated.
     for func in &api.functions {
         for param in &func.params {
             if let TypeRef::Named(name) = &param.ty {
-                if !enum_names.contains(name) {
-                    opaque_param_types.insert(name.clone());
-                }
+                opaque_param_types.insert(name.clone());
             }
         }
         if let TypeRef::Named(name) = &func.return_type {
@@ -502,9 +503,7 @@ fn gen_native_methods(
             }
             for param in &method.params {
                 if let TypeRef::Named(name) = &param.ty {
-                    if !enum_names.contains(name) {
-                        opaque_param_types.insert(name.clone());
-                    }
+                    opaque_param_types.insert(name.clone());
                 }
             }
             if let TypeRef::Named(name) = &method.return_type {
@@ -983,13 +982,12 @@ fn native_call_arg(ty: &TypeRef, param_name: &str, optional: bool, true_opaque_t
         }
         ty => {
             if optional {
-                // For optional primitive types (e.g. ulong?, uint?), the `!` null-forgiving
-                // operator does not coerce a nullable to non-nullable at the type level —
-                // only `.Value` does. String/Char/Path/Json are reference types so `!` is
-                // correct for those; all value-type primitives need `.Value`.
+                // For optional primitive types (e.g. ulong?, uint?), use GetValueOrDefault()
+                // to safely unwrap with a default of 0 if null. String/Char/Path/Json are
+                // reference types so `!` is correct for those.
                 let needs_value_unwrap = matches!(ty, TypeRef::Primitive(_) | TypeRef::Duration);
                 if needs_value_unwrap {
-                    format!("{param_name}.Value")
+                    format!("{param_name}.GetValueOrDefault()")
                 } else {
                     format!("{param_name}!")
                 }
@@ -1147,8 +1145,14 @@ fn gen_wrapper_function(
     let cs_native_name = to_csharp_name(&func.name);
 
     if func.is_async {
-        // Async: wrap in Task.Run for non-blocking execution
-        out.push_str("        return await Task.Run(() =>\n        {\n");
+        // Async: wrap in Task.Run for non-blocking execution. CS1997 disallows
+        // `return await Task.Run(...)` in an `async Task` (non-generic) method,
+        // so for unit returns we drop the `return`.
+        if func.return_type == TypeRef::Unit {
+            out.push_str("        await Task.Run(() =>\n        {\n");
+        } else {
+            out.push_str("        return await Task.Run(() =>\n        {\n");
+        }
 
         if func.return_type != TypeRef::Unit {
             out.push_str("            var nativeResult = ");
@@ -1328,8 +1332,13 @@ fn gen_wrapper_method(
     let cs_native_name = format!("{}{}", type_name.to_pascal_case(), to_csharp_name(&method.name));
 
     if method.is_async {
-        // Async: wrap in Task.Run for non-blocking execution
-        out.push_str("        return await Task.Run(() =>\n        {\n");
+        // Async: wrap in Task.Run. For unit returns drop the `return` so CS1997 (async Task
+        // method can't `return await` of non-generic Task) does not fire.
+        if method.return_type == TypeRef::Unit {
+            out.push_str("        await Task.Run(() =>\n        {\n");
+        } else {
+            out.push_str("        return await Task.Run(() =>\n        {\n");
+        }
 
         if method.return_type != TypeRef::Unit {
             out.push_str("            var nativeResult = ");
@@ -1674,20 +1683,26 @@ fn gen_record_type(
         } else if typ.has_default || field.default.is_some() {
             // Field with an explicit default value or part of a type with defaults.
             // Use typed_default from IR to get Rust-compatible defaults.
-            let field_type = if is_complex {
-                "JsonElement?".to_string()
+            use alef_core::ir::DefaultValue;
+
+            // First pass: determine what the default value will be
+            let base_type = if is_complex {
+                "JsonElement".to_string()
             } else {
                 csharp_type(&field.ty).to_string()
             };
-            out.push_str(&format!("    public {} {} {{ get; set; }}", field_type, cs_name));
-            use alef_core::ir::DefaultValue;
+
             // Duration fields are mapped to ulong? so that 0 is distinguishable from
             // "not set". Always default to null here; Rust has its own default.
             if matches!(&field.ty, TypeRef::Duration) {
-                out.push_str(" = null;\n");
+                out.push_str(&format!(
+                    "    public {}? {} {{ get; set; }} = null;\n",
+                    base_type, cs_name
+                ));
                 out.push('\n');
                 continue;
             }
+
             let default_val = match &field.typed_default {
                 Some(DefaultValue::BoolLiteral(b)) => b.to_string(),
                 Some(DefaultValue::IntLiteral(n)) => n.to_string(),
@@ -1708,7 +1723,7 @@ fn gen_record_type(
                         .replace('\t', "\\t");
                     format!("\"{}\"", escaped)
                 }
-                Some(DefaultValue::EnumVariant(v)) => format!("{}.{}", field_type, v.to_pascal_case()),
+                Some(DefaultValue::EnumVariant(v)) => format!("{}.{}", base_type, v.to_pascal_case()),
                 Some(DefaultValue::None) => "null".to_string(),
                 Some(DefaultValue::Empty) | None => match &field.ty {
                     TypeRef::Vec(_) => "[]".to_string(),
@@ -1728,7 +1743,9 @@ fn gen_record_type(
                             // Taggedunions (complex enums) should default to null
                             "null".to_string()
                         } else if enum_names.contains(&pascal) {
-                            "default".to_string()
+                            // Plain enums with serde(default) but no explicit variant default:
+                            // Default to null
+                            "null".to_string()
                         } else {
                             "default!".to_string()
                         }
@@ -1736,7 +1753,20 @@ fn gen_record_type(
                     _ => "default!".to_string(),
                 },
             };
-            out.push_str(&format!(" = {};\n", default_val));
+
+            // Second pass: determine field type based on the default value
+            let field_type = if default_val == "null" && !base_type.ends_with('?') {
+                format!("{}?", base_type)
+            } else if is_complex {
+                format!("{}?", base_type)
+            } else {
+                base_type
+            };
+
+            out.push_str(&format!(
+                "    public {} {} {{ get; set; }} = {};\n",
+                field_type, cs_name, default_val
+            ));
         } else {
             // Non-optional field without explicit default.
             // Use type-appropriate zero values instead of `required` to avoid

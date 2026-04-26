@@ -308,6 +308,9 @@ fn main() -> Result<()> {
             let files = pipeline::generate(&api, &config, &languages, clean)?;
             let base_dir = std::env::current_dir()?;
 
+            // Collect all files generated in this run for cleanup pass
+            let mut current_gen_paths = std::collections::HashSet::new();
+
             // For each language: compute content hashes, compare against stored
             // hashes, write only when something changed.
             let mut total_written: usize = 0;
@@ -345,6 +348,11 @@ fn main() -> Result<()> {
                 total_written += written;
                 any_written = true;
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
+
+                // Track all generated paths for cleanup
+                for file in lang_files {
+                    current_gen_paths.insert(base_dir.join(&file.path));
+                }
             }
 
             // Generate public API wrappers
@@ -353,6 +361,13 @@ fn main() -> Result<()> {
                 if !public_api_files.is_empty() {
                     let api_count = pipeline::write_files(&public_api_files, &base_dir)?;
                     eprintln!("Generated {api_count} public API files");
+
+                    // Track public API files for cleanup
+                    for (_, files) in &public_api_files {
+                        for file in files {
+                            current_gen_paths.insert(base_dir.join(&file.path));
+                        }
+                    }
                 }
             }
 
@@ -380,8 +395,22 @@ fn main() -> Result<()> {
                     eprintln!("Generated {stub_count} type stub files");
                     any_written = true;
                     let _ = cache::write_generation_hashes("stubs", &stub_hashes);
+
+                    // Track stub files for cleanup
+                    for (_, files) in &stub_files {
+                        for file in files {
+                            current_gen_paths.insert(base_dir.join(&file.path));
+                        }
+                    }
                 } else {
                     eprintln!("  [stubs] up to date (skipping)");
+                }
+            }
+
+            // Clean up orphaned alef-generated files
+            if let Ok(removed) = pipeline::cleanup_orphaned_files(&config, &current_gen_paths, &base_dir) {
+                if removed > 0 {
+                    eprintln!("Removed {removed} stale alef-generated file(s)");
                 }
             }
 
@@ -698,6 +727,9 @@ fn main() -> Result<()> {
             let api = pipeline::extract(&config, config_path, clean)?;
             let base_dir = std::env::current_dir()?;
 
+            // Collect all files generated in this run for cleanup pass
+            let mut current_gen_paths = std::collections::HashSet::new();
+
             eprintln!("Generating bindings...");
             let bindings = pipeline::generate(&api, &config, &languages, clean)?;
 
@@ -726,6 +758,11 @@ fn main() -> Result<()> {
                 let single = vec![(*lang, lang_files.clone())];
                 binding_count += pipeline::write_files(&single, &base_dir)?;
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
+
+                // Track all generated paths for cleanup
+                for file in lang_files {
+                    current_gen_paths.insert(base_dir.join(&file.path));
+                }
             }
 
             eprintln!("Generating type stubs...");
@@ -755,12 +792,28 @@ fn main() -> Result<()> {
                 0
             };
 
+            // Track stub files for cleanup
+            if stub_count > 0 {
+                for (_, files) in &stubs {
+                    for file in files {
+                        current_gen_paths.insert(base_dir.join(&file.path));
+                    }
+                }
+            }
+
             // Generate public API wrappers
             let mut api_count = 0;
             if config.generate.public_api {
                 let public_api_files = pipeline::generate_public_api(&api, &config, &languages)?;
                 if !public_api_files.is_empty() {
                     api_count = pipeline::write_files(&public_api_files, &base_dir)?;
+
+                    // Track public API files for cleanup
+                    for (_, files) in &public_api_files {
+                        for file in files {
+                            current_gen_paths.insert(base_dir.join(&file.path));
+                        }
+                    }
                 }
             }
 
@@ -787,6 +840,13 @@ fn main() -> Result<()> {
             let doc_languages = resolve_doc_languages(&config, None)?;
             let doc_files = alef_docs::generate_docs(&docs_api, &config, &doc_languages, "docs/reference")?;
             let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
+
+            // Clean up orphaned alef-generated files
+            if let Ok(removed) = pipeline::cleanup_orphaned_files(&config, &current_gen_paths, &base_dir) {
+                if removed > 0 {
+                    eprintln!("Removed {removed} stale alef-generated file(s)");
+                }
+            }
 
             // Format all generated files using configured formatters.
             // Best-effort: a missing formatter or non-zero exit must not

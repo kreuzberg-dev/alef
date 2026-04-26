@@ -1681,7 +1681,7 @@ fn cgo_type_for_primitive(prim: &alef_core::ir::PrimitiveType) -> &'static str {
         PrimitiveType::Isize => "C.ptrdiff_t",
         PrimitiveType::F32 => "C.float",
         PrimitiveType::F64 => "C.double",
-        PrimitiveType::Bool => "C.uchar",
+        PrimitiveType::Bool => "C.int32_t",
     }
 }
 
