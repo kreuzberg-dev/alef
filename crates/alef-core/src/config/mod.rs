@@ -570,7 +570,12 @@ impl AlefConfig {
             extras::Language::Java => self.java.as_ref().and_then(|c| c.run_wrapper.as_deref()),
             extras::Language::Csharp => self.csharp.as_ref().and_then(|c| c.run_wrapper.as_deref()),
             extras::Language::R => self.r.as_ref().and_then(|c| c.run_wrapper.as_deref()),
-            _ => None,
+            extras::Language::Kotlin => self.kotlin.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Dart => self.dart.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Swift => self.swift.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Gleam => self.gleam.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Zig => self.zig.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            extras::Language::Ffi | extras::Language::Rust => None,
         }
     }
 
@@ -600,7 +605,16 @@ impl AlefConfig {
                 .map(|c| c.extra_lint_paths.as_slice())
                 .unwrap_or(&[]),
             extras::Language::R => self.r.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
-            _ => &[],
+            extras::Language::Kotlin => self
+                .kotlin
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
+            extras::Language::Dart => self.dart.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Swift => self.swift.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Gleam => self.gleam.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Zig => self.zig.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
+            extras::Language::Ffi | extras::Language::Rust => &[],
         }
     }
 

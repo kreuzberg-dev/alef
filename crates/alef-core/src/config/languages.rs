@@ -363,6 +363,13 @@ pub struct KotlinConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations. When set, prepends this string to default
+    /// commands across all pipelines (lint, test, build, etc.).
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands (format, check, typecheck).
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -391,6 +398,12 @@ pub struct DartConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations.
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -420,6 +433,12 @@ pub struct SwiftConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations.
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -439,6 +458,12 @@ pub struct GleamConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations.
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -454,6 +479,12 @@ pub struct ZigConfig {
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]
     pub rename_fields: HashMap<String, String>,
+    /// Prefix wrapper for default tool invocations.
+    #[serde(default)]
+    pub run_wrapper: Option<String>,
+    /// Extra paths to append to default lint commands.
+    #[serde(default)]
+    pub extra_lint_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
