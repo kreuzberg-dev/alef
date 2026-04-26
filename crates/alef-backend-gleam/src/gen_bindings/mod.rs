@@ -92,7 +92,7 @@ impl Backend for GleamBackend {
         let mut support_nifs_emitted = false;
         for bridge_cfg in &active_bridges {
             let trait_type = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
-            emit_trait_bridge_shims(bridge_cfg, trait_type, &nif_module, &mut body, &mut imports);
+            emit_trait_bridge_shims(bridge_cfg, trait_type, &nif_module, &declared_errors, &mut body, &mut imports);
             body.push('\n');
 
             if !support_nifs_emitted {
