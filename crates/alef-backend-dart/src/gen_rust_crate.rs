@@ -72,6 +72,7 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 {source_crate_name} = {{ path = "{core_path}"{features_block} }}
 flutter_rust_bridge = "{frb_version}"
+serde_json = "1"
 "#
     );
 
@@ -269,6 +270,15 @@ fn emit_bridge_fn(
         // String/Path/Char returns may be `&str`/`&Path`/`&Path` from the source;
         // call .to_string() to ensure an owned String is returned.
         TypeRef::String | TypeRef::Path | TypeRef::Char => ".to_string()".to_string(),
+        // Optional<String> with returns_ref=true is alef's fallback for
+        // `Option<&'static T>` where T is a non-String type (like EmbeddingPreset).
+        // Use Debug format so the Dart side gets a printable representation —
+        // `serde_json::to_string` would require T: Serialize which isn't always true.
+        TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path | TypeRef::Char) && f.returns_ref =>
+        {
+            ".map(|v| format!(\"{:?}\", v))".to_string()
+        }
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Primitive(prim) => {
                 let target = primitive_name(prim);
@@ -377,6 +387,30 @@ fn dart_call_arg(p: &alef_core::ir::ParamDef) -> String {
         .trim_start_matches('&')
         .trim_start_matches("mut ")
         .trim();
+
+    // Tuple parameters: the IR flattens `Vec<(A, B, ...)>` to `Vec<String>`,
+    // losing the structural shape. Use `original_type` to spot these and emit
+    // adapter logic that reconstructs a sensible default tuple. The IR stores
+    // `original_type` as Rust Debug syntax (e.g.
+    // `Vec(Named("(PathBuf, Option<FileExtractionConfig>)"))`).
+    if !stripped_orig.is_empty() && stripped_orig.starts_with("Vec(") && stripped_orig.contains("Named(\"(") {
+        let tuple_inner = stripped_orig
+            .find("Named(\"(")
+            .and_then(|start| {
+                let rest = &stripped_orig[start + 8..]; // past `Named("(`
+                rest.find(")\")")
+                    .map(|end| rest[..end].trim_end_matches(')').to_string())
+            })
+            .unwrap_or_default();
+        if tuple_inner.starts_with("PathBuf,") || tuple_inner.starts_with("PathBuf ,") {
+            return format!(
+                "{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()"
+            );
+        }
+        if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
+            return format!("{{ let _ = {name}; ::std::unimplemented!(\"batch_extract_bytes from Dart not yet bridged\") }}");
+        }
+    }
 
     // Path: FRB sends String; the source likely wants &Path, PathBuf, or
     // Option<PathBuf>. Emit the conversion that matches `is_ref` and `optional`.

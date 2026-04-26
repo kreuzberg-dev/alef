@@ -96,6 +96,7 @@ crate-type = ["cdylib", "staticlib"]
 [dependencies]
 {source_crate_name} = {{ path = "{core_path}"{features_block} }}
 serde_json = "1"
+tokio = {{ version = "1", features = ["rt", "macros"] }}
 swift-bridge = "{swift_bridge_ver}"
 
 [build-dependencies]
@@ -237,20 +238,6 @@ fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
     block.push_str("    extern \"Rust\" {\n");
 
     for f in functions {
-        // swift-bridge v0.1.59 has no `async` attribute or `async fn` support
-        // inside extern blocks. Async functions emit a sync placeholder + a
-        // `// TODO(swift-bridge async)` marker for users to fill in via the
-        // callback-based pattern. See https://chinedufn.github.io/swift-bridge/
-        if f.is_async {
-            block.push_str(&format!(
-                "        // TODO(swift-bridge async): function `{}` is async; swift-bridge\n",
-                f.name
-            ));
-            block.push_str(
-                "        // 0.1.x has no async-extern support — wire via callback bridging.\n",
-            );
-        }
-
         let fn_name = f.name.to_snake_case();
         let params: Vec<String> = f
             .params
@@ -280,6 +267,10 @@ fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
             bridge_type(&f.return_type)
         };
 
+        // swift-bridge 0.1.59 does not support the `#[swift_bridge(async)]`
+        // attribute (the build script's parser rejects it). To bridge async
+        // functions, we declare them as plain `fn` in the extern block — the
+        // wrapper will block on the future at the bridge boundary.
         block.push_str(&format!(
             "        fn {fn_name}({params_str}) -> {return_ty};\n"
         ));
@@ -409,6 +400,33 @@ fn emit_enum_wrapper(en: &EnumDef, source_crate: &str) -> String {
 /// we emit `&name.0` for `is_ref=true` Named params.
 fn swift_call_arg(p: &alef_core::ir::ParamDef) -> String {
     let name = p.name.to_snake_case();
+    let original = p.original_type.as_deref().unwrap_or("");
+    let stripped_orig = original
+        .trim()
+        .trim_start_matches('&')
+        .trim_start_matches("mut ")
+        .trim();
+
+    // Tuple parameters: same shape as the Dart codegen — IR flattens
+    // `Vec<(A, B, ...)>` to `Vec<String>` and stores the original signature in
+    // `original_type`. Reconstruct sensible defaults for known tuple shapes.
+    if !stripped_orig.is_empty() && stripped_orig.starts_with("Vec(") && stripped_orig.contains("Named(\"(") {
+        let tuple_inner = stripped_orig
+            .find("Named(\"(")
+            .and_then(|start| {
+                let rest = &stripped_orig[start + 8..];
+                rest.find(")\")").map(|end| rest[..end].trim_end_matches(')').to_string())
+            })
+            .unwrap_or_default();
+        if tuple_inner.starts_with("PathBuf,") || tuple_inner.starts_with("PathBuf ,") {
+            return format!(
+                "{name}.into_iter().map(|p| (std::path::PathBuf::from(p), None)).collect::<Vec<_>>()"
+            );
+        }
+        if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
+            return format!("{{ let _ = {name}; ::std::unimplemented!(\"batch_extract_bytes from Swift not yet bridged\") }}");
+        }
+    }
 
     // JSON-bridged: deserialize from the bridged String.
     if needs_json_bridge(&p.ty) {
@@ -513,41 +531,82 @@ fn emit_function_shim(f: &FunctionDef, source_crate: &str) -> String {
     let source_call = format!("{resolved_path}({call_args_str})");
 
     // Wrap return value with JSON serialization when the return type is not natively
-    // supported by swift-bridge 0.1.59 (nested generics, HashMap). Async fns must
-    // `.await` before mapping; sync fns can chain directly.
+    // supported by swift-bridge 0.1.59 (nested generics, HashMap). Named return
+    // types must be wrapped in their swift-bridge newtype (`pub struct T(pub kreuzberg::T)`).
+    // Async fns must `.await` before mapping; sync fns can chain directly.
     let json_wrap_ok = needs_json_bridge(&f.return_type);
+    // Determine the wrapper to apply for Named return types — the swift-bridge
+    // wrappers are nominal newtypes, so we need to construct them from the source
+    // value. Three cases:
+    //   - Named(T) → wrap with `T(...)`
+    //   - Optional(Named(T)) → `.map(T)`
+    //   - Vec(Named(T)) → `.into_iter().map(T).collect::<Vec<_>>()`
+    enum WrapShape {
+        Direct(String),    // T(value)
+        OptMap(String),    // value.map(T)
+        VecMap(String),    // value.into_iter().map(T).collect()
+    }
+    let wrap_shape = match &f.return_type {
+        TypeRef::Named(n) => Some(WrapShape::Direct(n.clone())),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => Some(WrapShape::OptMap(n.clone())),
+            _ => None,
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => Some(WrapShape::VecMap(n.clone())),
+            _ => None,
+        },
+        _ => None,
+    };
+    let value_map_string: String = if json_wrap_ok {
+        ".map(|v| serde_json::to_string(&v).expect(\"serializable return\"))".to_string()
+    } else {
+        match &wrap_shape {
+            Some(WrapShape::Direct(t)) => format!(".map({t})"),
+            Some(WrapShape::OptMap(t)) => format!(".map(|v| v.map({t}))"),
+            Some(WrapShape::VecMap(t)) => format!(".map(|v| v.into_iter().map({t}).collect::<Vec<_>>())"),
+            None => String::new(),
+        }
+    };
+    let value_map = value_map_string.as_str();
+    // Direct (non-Result) wrap for the value.
+    let direct_wrap = |source: String| -> String {
+        if json_wrap_ok {
+            return format!("serde_json::to_string(&({source})).expect(\"serializable return\")");
+        }
+        match &wrap_shape {
+            Some(WrapShape::Direct(t)) => format!("{t}({source})"),
+            Some(WrapShape::OptMap(t)) => format!("({source}).map({t})"),
+            Some(WrapShape::VecMap(t)) => format!("({source}).into_iter().map({t}).collect::<Vec<_>>()"),
+            None => source,
+        }
+    };
     let body = if f.is_async {
-        // Resolve the future first, then apply error and JSON conversions.
         let mut chain = format!("{source_call}.await");
         if f.error_type.is_some() {
-            chain = format!("{chain}.map_err(|e| e.to_string())");
-            if json_wrap_ok {
-                chain = format!(
-                    "{chain}.map(|v| serde_json::to_string(&v).expect(\"serializable return\"))"
-                );
-            }
-        } else if json_wrap_ok {
-            chain = format!(
-                "serde_json::to_string(&({chain})).expect(\"serializable return\")"
-            );
+            chain = format!("{chain}.map_err(|e| e.to_string()){value_map}");
+        } else {
+            chain = direct_wrap(chain);
         }
         chain
     } else if f.error_type.is_some() {
-        let mut chain = format!("{source_call}.map_err(|e| e.to_string())");
-        if json_wrap_ok {
-            chain = format!(
-                "{chain}.map(|v| serde_json::to_string(&v).expect(\"serializable return\"))"
-            );
-        }
-        chain
-    } else if json_wrap_ok {
-        format!("serde_json::to_string(&{source_call}).expect(\"serializable return\")")
+        format!("{source_call}.map_err(|e| e.to_string()){value_map}")
     } else {
-        source_call
+        direct_wrap(source_call)
     };
 
+    // The wrapper is always sync — swift-bridge 0.1.59 doesn't support async
+    // functions in extern blocks, so async source calls are blocked-on inside
+    // a tokio runtime. The runtime is created lazily on first call.
     if f.is_async {
-        format!("pub async fn {fn_name}({params_str}) -> {return_ty} {{\n    {body}\n}}\n")
+        format!(
+            "pub fn {fn_name}({params_str}) -> {return_ty} {{\n    \
+            ::tokio::runtime::Builder::new_current_thread()\n        \
+                .enable_all()\n        \
+                .build()\n        \
+                .expect(\"build tokio runtime\")\n        \
+                .block_on(async {{ {body} }})\n}}\n"
+        )
     } else {
         format!("pub fn {fn_name}({params_str}) -> {return_ty} {{\n    {body}\n}}\n")
     }
