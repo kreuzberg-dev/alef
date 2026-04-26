@@ -5,15 +5,18 @@
 //! use `config.ffi_prefix()`, `config.ffi_header_name()`, and `config.ffi_lib_name()`
 //! as the single source of truth for symbol names and linking directives.
 
+mod cinterop_def;
+mod native_build_gradle;
+mod native_types;
+
 use alef_codegen::c_consumer;
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
-use alef_core::template_versions;
+use alef_core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use crate::gen_bindings::{kotlin_field_name, to_lower_camel, to_pascal_case, to_screaming_snake};
+use crate::gen_bindings::{to_lower_camel, to_pascal_case};
 
 /// Emit all Kotlin/Native files for the given API surface.
 ///
@@ -23,8 +26,8 @@ use crate::gen_bindings::{kotlin_field_name, to_lower_camel, to_pascal_case, to_
 /// 3. `packages/kotlin-native/build.gradle.kts`
 pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let kt = emit_kotlin_source(api, config);
-    let def = emit_def_file(config);
-    let gradle = emit_gradle_build(config);
+    let def = cinterop_def::emit_def_file(config);
+    let gradle = native_build_gradle::emit_gradle_build(config);
 
     let package = config.kotlin_package();
     let package_path = package.replace('.', "/");
@@ -88,17 +91,17 @@ fn emit_kotlin_source(api: &ApiSurface, config: &AlefConfig) -> String {
     let mut body = String::new();
 
     for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
-        emit_native_type(ty, &mut body);
+        native_types::emit_native_type(ty, &mut body);
         body.push('\n');
     }
 
     for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
-        emit_native_enum(en, &mut body);
+        native_types::emit_native_enum(en, &mut body);
         body.push('\n');
     }
 
     for error in &api.errors {
-        emit_native_error(error, &mut body);
+        native_types::emit_native_error(error, &mut body);
         body.push('\n');
     }
 
@@ -127,101 +130,6 @@ fn emit_kotlin_source(api: &ApiSurface, config: &AlefConfig) -> String {
     content.push('\n');
     content.push_str(&body);
     content
-}
-
-fn emit_native_type(ty: &TypeDef, out: &mut String) {
-    if !ty.doc.is_empty() {
-        for line in ty.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    if ty.fields.is_empty() {
-        out.push_str(&format!("class {} {{}}\n", ty.name));
-        return;
-    }
-    out.push_str(&format!("data class {}(\n", ty.name));
-    for (idx, field) in ty.fields.iter().enumerate() {
-        let ty_str = native_type_str(&field.ty, field.optional);
-        let name = kotlin_field_name(&field.name, idx);
-        let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
-        out.push_str(&format!("    val {name}: {ty_str}{comma}\n"));
-    }
-    out.push_str(")\n");
-}
-
-fn emit_native_enum(en: &EnumDef, out: &mut String) {
-    if !en.doc.is_empty() {
-        for line in en.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
-    if all_unit {
-        out.push_str(&format!("enum class {} {{\n", en.name));
-        let names: Vec<String> = en.variants.iter().map(|v| to_screaming_snake(&v.name)).collect();
-        for (idx, name) in names.iter().enumerate() {
-            let comma = if idx + 1 == names.len() { ";" } else { "," };
-            out.push_str(&format!("    {name}{comma}\n"));
-        }
-        out.push_str("}\n");
-    } else {
-        out.push_str(&format!("sealed class {} {{\n", en.name));
-        for variant in &en.variants {
-            if variant.fields.is_empty() {
-                out.push_str(&format!("    object {} : {}()\n", variant.name, en.name));
-            } else {
-                out.push_str(&format!("    data class {}(\n", variant.name));
-                for (idx, f) in variant.fields.iter().enumerate() {
-                    let ty_str = native_type_str(&f.ty, f.optional);
-                    let name = kotlin_field_name(&f.name, idx);
-                    let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                    out.push_str(&format!("        val {name}: {ty_str}{comma}\n"));
-                }
-                out.push_str(&format!("    ) : {}()\n", en.name));
-            }
-        }
-        out.push_str("}\n");
-    }
-}
-
-fn emit_native_error(error: &ErrorDef, out: &mut String) {
-    if !error.doc.is_empty() {
-        for line in error.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    out.push_str(&format!(
-        "sealed class {}(message: String) : Exception(message) {{\n",
-        error.name
-    ));
-    for variant in &error.variants {
-        if variant.is_unit {
-            out.push_str(&format!(
-                "    object {} : {}(\"{}\")\n",
-                variant.name,
-                error.name,
-                variant.message_template.as_deref().unwrap_or(&variant.name)
-            ));
-        } else {
-            out.push_str(&format!("    data class {}(\n", variant.name));
-            for (idx, f) in variant.fields.iter().enumerate() {
-                let ty_str = native_type_str(&f.ty, f.optional);
-                let name = kotlin_field_name(&f.name, idx);
-                let modifier = if name == "message" { "override " } else { "" };
-                let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                out.push_str(&format!("        {modifier}val {name}: {ty_str}{comma}\n"));
-            }
-            let message_template = variant.message_template.as_deref().unwrap_or(&variant.name);
-            out.push_str(&format!("    ) : {}(\"{message_template}\")\n", error.name));
-        }
-    }
-    out.push_str("}\n");
 }
 
 /// Emit a Kotlin/Native function body — exposed for `gen_mpp` to reuse.
@@ -393,7 +301,7 @@ fn native_return_type_str(ty: &TypeRef) -> String {
 
 /// Kotlin/Native type for struct fields (same as JVM type; cinterop types are
 /// used only inside function bodies, not in data class declarations).
-fn native_type_str(ty: &TypeRef, optional: bool) -> String {
+pub(crate) fn native_type_str(ty: &TypeRef, optional: bool) -> String {
     use alef_core::ir::PrimitiveType;
     let inner = match ty {
         TypeRef::Primitive(p) => match p {
@@ -421,51 +329,4 @@ fn native_type_str(ty: &TypeRef, optional: bool) -> String {
         TypeRef::Map(k, v) => format!("Map<{}, {}>", native_type_str(k, false), native_type_str(v, false)),
     };
     if optional { format!("{inner}?") } else { inner }
-}
-
-// ---------------------------------------------------------------------------
-// cinterop .def file
-// ---------------------------------------------------------------------------
-
-fn emit_def_file(config: &AlefConfig) -> String {
-    let header = config.ffi_header_name();
-    let lib_name = config.ffi_lib_name();
-    let prefix = config.ffi_prefix();
-
-    format!(
-        "headers = {header}\nheaderFilter = {prefix}_*\nlinkerOpts = -L../../../target/release -l{lib_name}\n"
-    )
-}
-
-// ---------------------------------------------------------------------------
-// build.gradle.kts
-// ---------------------------------------------------------------------------
-
-fn emit_gradle_build(config: &AlefConfig) -> String {
-    let crate_name = &config.crate_config.name;
-    let kotlin_version = template_versions::maven::KOTLIN_JVM_PLUGIN;
-
-    format!(
-        r#"// Generated by alef. Do not edit by hand.
-// To build for a different host triple, replace `linuxX64()` with
-// `macosX64()` or `macosArm64()` and update the linkerOpts path accordingly.
-
-plugins {{
-    kotlin("multiplatform") version "{kotlin_version}"
-}}
-
-kotlin {{
-    linuxX64 {{
-        compilations["main"].cinterops {{
-            val {crate_name} by creating {{
-                defFile = project.file("{crate_name}.def")
-            }}
-        }}
-        binaries {{
-            sharedLib()
-        }}
-    }}
-}}
-"#
-    )
 }
