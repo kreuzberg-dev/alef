@@ -292,12 +292,18 @@ pub mod hex {
 pub mod pub_dev {
     // renovate: datasource=pub depName=test
     pub const TEST_PACKAGE: &str = "^1.25.0";
+
+    // renovate: datasource=pub depName=lints
+    pub const LINTS: &str = "^5.0.0";
 }
 
 /// Platform / toolchain pins. None of these auto-bump; track manually.
 pub mod toolchain {
     // minimum supported Zig; manual bump required
     pub const MIN_ZIG_VERSION: &str = "0.13.0";
+
+    // version range; manual bump required
+    pub const DART_SDK_CONSTRAINT: &str = ">=3.0.0 <4.0.0";
 
     // JVM bytecode target for Kotlin/Java scaffolds and e2e; manual bump required
     pub const JVM_TARGET: &str = "21";
