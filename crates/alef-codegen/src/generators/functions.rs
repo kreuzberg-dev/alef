@@ -108,7 +108,9 @@ pub fn gen_function(
                             format!("{return_type}::from({expr})")
                         }
                     }
-                    TypeRef::String | TypeRef::Bytes => format!("{expr}.into()"),
+                    // String/Bytes are identity across all backends (String->String,
+                    // Vec<u8>->Vec<u8>) — no .into() needed for owned values.
+                    TypeRef::String | TypeRef::Bytes => expr.to_string(),
                     TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
                     TypeRef::Json => format!("{expr}.to_string()"),
                     _ => expr.to_string(),

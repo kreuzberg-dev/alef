@@ -269,12 +269,12 @@ pub(super) fn gen_method_wrapper(
                     if p.is_ref { format!("{rs}.as_deref()") } else { rs }
                 }
                 TypeRef::Path if p.optional => {
-                    // Optional Path: rs is Option<String> (from param conversion)
-                    // If is_ref=true, convert to Option<&Path>; else Option<PathBuf>
+                    // Optional Path: rs is Option<String> when is_ref=true, Option<PathBuf> when is_ref=false (from param conversion)
+                    // If is_ref=true, convert to Option<&Path>; else pass owned Option<PathBuf> directly
                     if p.is_ref {
                         format!("{rs}.as_ref().map(|s| std::path::Path::new(s.as_str()))")
                     } else {
-                        format!("{rs}.map(std::path::PathBuf::from)")
+                        rs
                     }
                 }
                 TypeRef::Named(_) if p.optional => {
@@ -616,12 +616,12 @@ pub(super) fn gen_free_function(
                     if p.is_ref { format!("{rs}.as_deref()") } else { rs }
                 }
                 TypeRef::Path if p.optional => {
-                    // Optional Path: rs is Option<String> (from param conversion)
-                    // If is_ref=true, convert to Option<&Path>; else Option<PathBuf>
+                    // Optional Path: rs is Option<String> when is_ref=true, Option<PathBuf> when is_ref=false (from param conversion)
+                    // If is_ref=true, convert to Option<&Path>; else pass owned Option<PathBuf> directly
                     if p.is_ref {
                         format!("{rs}.as_ref().map(|s| std::path::Path::new(s.as_str()))")
                     } else {
-                        format!("{rs}.map(std::path::PathBuf::from)")
+                        rs
                     }
                 }
                 TypeRef::Named(_) if p.optional => {
