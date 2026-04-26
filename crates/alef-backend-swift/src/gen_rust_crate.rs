@@ -9,6 +9,7 @@ use alef_codegen::generators::type_paths::{build_type_path_lookup, resolve_type_
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, TraitBridgeConfig};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::keywords::swift_ident;
 use alef_core::template_versions;
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
@@ -316,7 +317,9 @@ fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
     block.push_str("    extern \"Rust\" {\n");
 
     for f in functions {
-        let fn_name = f.name.to_snake_case();
+        // Escape Swift reserved keywords; swift-bridge emits the bridge fn name
+        // verbatim into Swift, so `fn subscript(...)` would become invalid Swift.
+        let fn_name = swift_ident(&f.name.to_snake_case());
         let params: Vec<String> = f
             .params
             .iter()
@@ -327,7 +330,7 @@ fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
                 } else {
                     bridge_ty
                 };
-                let name = p.name.to_snake_case();
+                let name = swift_ident(&p.name.to_snake_case());
                 format!("{name}: {bridge_ty}")
             })
             .collect();
@@ -1428,7 +1431,8 @@ fn emit_function_shim(
     enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
 ) -> String {
-    let fn_name = f.name.to_snake_case();
+    // Match the extern block's escaping so the wrapper fn matches the extern decl.
+    let fn_name = swift_ident(&f.name.to_snake_case());
     let params: Vec<String> = f
         .params
         .iter()
@@ -1439,7 +1443,7 @@ fn emit_function_shim(
             } else {
                 bridge_ty
             };
-            let name = p.name.to_snake_case();
+            let name = swift_ident(&p.name.to_snake_case());
             format!("{name}: {bridge_ty}")
         })
         .collect();
@@ -1511,7 +1515,7 @@ fn emit_function_shim(
             if !type_paths.contains_key(inner_name) || no_serde_names.contains(inner_name) {
                 // The inner Named type is not in the visible type table or lacks serde.
                 // We cannot serde-bridge it — emit an unimplemented shim.
-                let fn_name_snake = f.name.to_snake_case();
+                let fn_name_snake = swift_ident(&f.name.to_snake_case());
                 return format!(
                     "// alef: skipped — return type `{inner_name}` is excluded from codegen (no serde derive)\n\
                      pub fn {fn_name_snake}({params_str}) -> {return_ty} {{\n    \
