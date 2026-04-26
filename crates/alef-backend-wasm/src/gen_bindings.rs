@@ -43,6 +43,32 @@ fn field_references_excluded_type(ty: &TypeRef, exclude_types: &[String]) -> boo
     }
 }
 
+/// Check if an item is gated behind a disabled feature.
+///
+/// Parses cfg strings like `feature = "api"` and checks if the feature
+/// is in the enabled features list.
+fn is_gated_behind_disabled_feature(cfg: &Option<String>, enabled_features: &[String]) -> bool {
+    let Some(cfg_str) = cfg else {
+        return false;
+    };
+
+    // Parse simple feature gates like `feature = "api"`
+    if let Some(start) = cfg_str.find("feature") {
+        let rest = &cfg_str[start..];
+        if let Some(eq_pos) = rest.find('=') {
+            let after_eq = rest[eq_pos + 1..].trim();
+            if let Some(start_quote) = after_eq.find('"') {
+                let after_quote = &after_eq[start_quote + 1..];
+                if let Some(end_quote) = after_quote.find('"') {
+                    let feature_name = &after_quote[..end_quote];
+                    return !enabled_features.iter().any(|f| f == feature_name);
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Check if a TypeRef is a Copy type that shouldn't be cloned.
 /// `enum_names` contains the set of enum type names that derive Copy.
 fn is_copy_type(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
@@ -81,11 +107,29 @@ impl Backend for WasmBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let wasm_config = config.wasm.as_ref();
-        let exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
-        let exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
+        let mut exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
+        let mut exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
         let type_overrides = wasm_config.map(|c| c.type_overrides.clone()).unwrap_or_default();
         let env_shims = wasm_config.map(|c| c.env_shims.clone()).unwrap_or_default();
         let prefix = config.wasm_type_prefix();
+
+        // Auto-exclude types/functions/enums gated behind disabled features
+        let enabled_features = config.features_for_language(Language::Wasm).to_vec();
+        for typ in &api.types {
+            if is_gated_behind_disabled_feature(&typ.cfg, &enabled_features) {
+                exclude_types.push(typ.name.clone());
+            }
+        }
+        for enum_def in &api.enums {
+            if is_gated_behind_disabled_feature(&enum_def.cfg, &enabled_features) {
+                exclude_types.push(enum_def.name.clone());
+            }
+        }
+        for func in &api.functions {
+            if is_gated_behind_disabled_feature(&func.cfg, &enabled_features) {
+                exclude_functions.push(func.name.clone());
+            }
+        }
 
         let mapper = WasmMapper::new(type_overrides, prefix.clone());
         let core_import = config.core_import();
