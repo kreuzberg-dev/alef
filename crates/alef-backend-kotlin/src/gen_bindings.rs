@@ -36,9 +36,7 @@ impl Backend for KotlinBackend {
         match config.kotlin_target() {
             KotlinTarget::Jvm => generate_jvm(api, config),
             KotlinTarget::Native => crate::gen_native::emit(api, config),
-            KotlinTarget::Multiplatform => {
-                anyhow::bail!("Kotlin Multiplatform target is reserved for a follow-up phase")
-            }
+            KotlinTarget::Multiplatform => crate::gen_mpp::emit(api, config),
         }
     }
 
@@ -118,6 +116,38 @@ fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
         content,
         generated_header: false,
     }])
+}
+
+pub(crate) fn emit_type_pub(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
+    emit_type_with_imports(ty, out, imports)
+}
+
+pub(crate) fn emit_enum_pub(en: &EnumDef, out: &mut String) {
+    emit_enum(en, out)
+}
+
+pub(crate) fn emit_error_type_pub(error: &alef_core::ir::ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
+    emit_error_type_with_imports(error, out, imports)
+}
+
+/// Format a function parameter with its Kotlin type, collecting any needed imports.
+pub(crate) fn format_param_pub(p: &ParamDef, imports: &mut BTreeSet<String>) -> String {
+    format_param_with_imports(p, imports)
+}
+
+/// Render a Kotlin type reference, collecting any needed imports.
+pub(crate) fn kotlin_type_str_pub(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<String>) -> String {
+    kotlin_type_with_string_imports(ty, optional, imports)
+}
+
+/// Emit a JVM function body (delegates to Bridge) inside an `object` block.
+pub(crate) fn emit_function_jvm(
+    f: &FunctionDef,
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+    java_package: &str,
+) {
+    emit_function(f, out, imports, java_package)
 }
 
 fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
