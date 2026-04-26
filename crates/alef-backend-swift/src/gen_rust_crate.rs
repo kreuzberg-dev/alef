@@ -73,6 +73,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 {source_crate_name} = {{ path = "{core_path}" }}
+serde_json = "1"
 swift-bridge = "{swift_bridge_ver}"
 
 [build-dependencies]
@@ -159,15 +160,16 @@ fn emit_extern_block_for_type(ty: &TypeDef) -> String {
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&format!("        type {};\n", ty.name));
 
-    // Constructor
+    // Constructor — use bridge_type to avoid nested generics that swift-bridge 0.1.59
+    // cannot parse (Vec<Vec<T>>, HashMap<K,V>); those become String (JSON).
     if !ty.fields.is_empty() {
         let params: Vec<String> = ty
             .fields
             .iter()
             .map(|f| {
-                let rust_ty = swift_bridge_rust_type(&f.ty);
+                let bridge_ty = bridge_type(&f.ty);
                 let name = f.name.to_snake_case();
-                format!("{name}: {rust_ty}")
+                format!("{name}: {bridge_ty}")
             })
             .collect();
         block.push_str("        #[swift_bridge(init)]\n");
@@ -180,9 +182,9 @@ fn emit_extern_block_for_type(ty: &TypeDef) -> String {
 
     // Getters
     for field in &ty.fields {
-        let rust_ty = swift_bridge_rust_type(&field.ty);
+        let bridge_ty = bridge_type(&field.ty);
         let name = field.name.to_snake_case();
-        block.push_str(&format!("        fn {name}(&self) -> {rust_ty};\n"));
+        block.push_str(&format!("        fn {name}(&self) -> {bridge_ty};\n"));
     }
 
     block.push_str("    }\n\n");
@@ -221,23 +223,23 @@ fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
             .params
             .iter()
             .map(|p| {
-                let rust_ty = swift_bridge_rust_type(&p.ty);
+                let bridge_ty = bridge_type(&p.ty);
                 let name = p.name.to_snake_case();
-                format!("{name}: {rust_ty}")
+                format!("{name}: {bridge_ty}")
             })
             .collect();
         let params_str = params.join(", ");
 
         let return_ty = if f.error_type.is_some() {
             // Result<ReturnType, String> for error-throwing functions
-            let ok_ty = swift_bridge_rust_type(&f.return_type);
+            let ok_ty = bridge_type(&f.return_type);
             if matches!(f.return_type, TypeRef::Unit) {
                 "Result<(), String>".to_string()
             } else {
                 format!("Result<{ok_ty}, String>")
             }
         } else {
-            swift_bridge_rust_type(&f.return_type)
+            bridge_type(&f.return_type)
         };
 
         block.push_str(&format!(
@@ -261,22 +263,30 @@ fn emit_type_wrapper(ty: &TypeDef, source_crate: &str) -> String {
     if !ty.fields.is_empty() {
         out.push_str(&format!("impl {} {{\n", ty.name));
 
-        // Constructor
+        // Constructor — params use bridge types (String for JSON-bridged fields)
         let params: Vec<String> = ty
             .fields
             .iter()
             .map(|f| {
-                let rust_ty = swift_bridge_rust_type(&f.ty);
+                let bridge_ty = bridge_type(&f.ty);
                 let name = f.name.to_snake_case();
-                format!("{name}: {rust_ty}")
+                format!("{name}: {bridge_ty}")
             })
             .collect();
+        // Field initializers: JSON-deserialize where needed
         let field_inits: Vec<String> = ty
             .fields
             .iter()
             .map(|f| {
                 let name = f.name.to_snake_case();
-                format!("            {name}")
+                if needs_json_bridge(&f.ty) {
+                    let native_ty = swift_bridge_rust_type(&f.ty);
+                    format!(
+                        "            {name}: serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")"
+                    )
+                } else {
+                    format!("            {name}")
+                }
             })
             .collect();
         out.push_str(&format!(
@@ -295,13 +305,19 @@ fn emit_type_wrapper(ty: &TypeDef, source_crate: &str) -> String {
         out.push_str("        })\n");
         out.push_str("    }\n");
 
-        // Getters
+        // Getters — return bridge types (String for JSON-bridged fields)
         for field in &ty.fields {
-            let rust_ty = swift_bridge_rust_type(&field.ty);
+            let bridge_ty = bridge_type(&field.ty);
             let name = field.name.to_snake_case();
-            out.push_str(&format!(
-                "    pub fn {name}(&self) -> {rust_ty} {{ self.0.{name} }}\n"
-            ));
+            if needs_json_bridge(&field.ty) {
+                out.push_str(&format!(
+                    "    pub fn {name}(&self) -> {bridge_ty} {{ serde_json::to_string(&self.0.{name}).expect(\"serializable {name}\") }}\n"
+                ));
+            } else {
+                out.push_str(&format!(
+                    "    pub fn {name}(&self) -> {bridge_ty} {{ self.0.{name}.clone() }}\n"
+                ));
+            }
         }
 
         out.push_str("}\n");
@@ -351,28 +367,37 @@ fn emit_function_shim(f: &FunctionDef, source_crate: &str) -> String {
         .params
         .iter()
         .map(|p| {
-            let rust_ty = swift_bridge_rust_type(&p.ty);
+            let bridge_ty = bridge_type(&p.ty);
             let name = p.name.to_snake_case();
-            format!("{name}: {rust_ty}")
+            format!("{name}: {bridge_ty}")
         })
         .collect();
     let params_str = params.join(", ");
 
     let return_ty = if f.error_type.is_some() {
-        let ok_ty = swift_bridge_rust_type(&f.return_type);
+        let ok_ty = bridge_type(&f.return_type);
         if matches!(f.return_type, TypeRef::Unit) {
             "Result<(), String>".to_string()
         } else {
             format!("Result<{ok_ty}, String>")
         }
     } else {
-        swift_bridge_rust_type(&f.return_type)
+        bridge_type(&f.return_type)
     };
 
+    // Build call args, deserializing JSON-bridged params before passing to the real fn
     let call_args: Vec<String> = f
         .params
         .iter()
-        .map(|p| p.name.to_snake_case())
+        .map(|p| {
+            let name = p.name.to_snake_case();
+            if needs_json_bridge(&p.ty) {
+                let native_ty = swift_bridge_rust_type(&p.ty);
+                format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")")
+            } else {
+                name
+            }
+        })
         .collect();
     let call_args_str = call_args.join(", ");
 
@@ -386,8 +411,17 @@ fn emit_function_shim(f: &FunctionDef, source_crate: &str) -> String {
     };
     let source_call = format!("{resolved_path}({call_args_str})");
 
+    // Wrap return value with JSON serialization when the return type is not natively
+    // supported by swift-bridge 0.1.59 (nested generics, HashMap).
     let body = if f.error_type.is_some() {
-        format!("{source_call}.map_err(|e| e.to_string())")
+        let mapped = format!("{source_call}.map_err(|e| e.to_string())");
+        if needs_json_bridge(&f.return_type) {
+            format!("{mapped}.map(|v| serde_json::to_string(&v).expect(\"serializable return\"))")
+        } else {
+            mapped
+        }
+    } else if needs_json_bridge(&f.return_type) {
+        format!("serde_json::to_string(&{source_call}).expect(\"serializable return\")")
     } else {
         source_call
     };
@@ -406,11 +440,77 @@ fn emit_function_shim(f: &FunctionDef, source_crate: &str) -> String {
 
 // ── type mapping for swift-bridge Rust side ───────────────────────────────────
 
-/// Maps an IR `TypeRef` to the Rust type string used in swift-bridge extern blocks.
+/// Returns true for types that swift-bridge 0.1.59 cannot handle inside `extern "Rust"` blocks.
 ///
-/// swift-bridge's Rust side uses plain Rust types — NOT Swift types.
-/// All integer widths are preserved (swift-bridge supports i8..i64, u8..u64).
-/// Named types are left as-is (they are the wrapper newtypes defined below the bridge mod).
+/// Two distinct bugs in swift-bridge-ir-0.1.59 are covered:
+///
+/// 1. **Parser bug** (`bridged_type.rs:826`): `BridgedType::new_with_str` uses
+///    `trim_end_matches(" >")` which strips ALL trailing ` >` occurrences. This corrupts
+///    `Vec < Option < String > >` into `Vec < Option < String` causing `syn::parse2` to
+///    fail with `Error("expected ','")`.
+///
+/// 2. **Codegen todo** (`bridged_type.rs:1986`): `BuiltInResult::is_custom_result_type()`
+///    returns `true` when the ok type is a `StdLib` non-Vec type (e.g. `Option<T>`,
+///    primitives). When true, the codegen calls `to_alpha_numeric_underscore_name` on the
+///    ok type, but `StdLib::Option` and `StdLib::Vec` hit `_ => todo!()` there.
+///
+/// HashMap is completely unsupported by swift-bridge.
+///
+/// All affected types are serialized to JSON (`String`) at the bridge boundary.
+fn needs_json_bridge(ty: &TypeRef) -> bool {
+    match ty {
+        // HashMap is unsupported by swift-bridge regardless of nesting.
+        TypeRef::Map(_, _) => true,
+        // Vec<T> is only safe when T is a "leaf" type (no angle brackets in its token form).
+        // Primitives, String, char, Named opaques, and Vec<u8> (Bytes) are all safe.
+        // Anything else (Vec<Option<..>>, Vec<Vec<..>>, Vec<Map<..>>) triggers the parser bug.
+        TypeRef::Vec(inner) => !is_bridge_leaf(inner),
+        // Option<T> as a Result ok-type causes is_custom_result_type()=true + todo!() in
+        // to_alpha_numeric_underscore_name. JSON-bridge all Optional types to avoid this.
+        TypeRef::Optional(_) => true,
+        _ => false,
+    }
+}
+
+/// Returns true when `ty` produces a token-stream representation with no angle brackets,
+/// i.e. it is safe as the inner type of a `Vec<T>` in a swift-bridge extern block.
+fn is_bridge_leaf(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Primitive(_)
+        | TypeRef::String
+        | TypeRef::Char
+        | TypeRef::Path
+        | TypeRef::Json
+        | TypeRef::Unit
+        | TypeRef::Duration => true,
+        // Bytes = Vec<u8> — swift-bridge supports this directly.
+        TypeRef::Bytes => true,
+        // Named opaque types (wrapper newtypes) have no angle brackets.
+        TypeRef::Named(_) => true,
+        // Everything else (Vec, Optional, Map) produces angle brackets in the token stream.
+        _ => false,
+    }
+}
+
+/// Maps an IR `TypeRef` to the Rust type used in swift-bridge `extern "Rust"` block declarations.
+///
+/// Types that swift-bridge 0.1.59 cannot parse (nested generics, HashMap) are collapsed to
+/// `String` (JSON-serialized at the shim boundary). All other types use their native Rust form.
+fn bridge_type(ty: &TypeRef) -> String {
+    if needs_json_bridge(ty) {
+        return "String".to_string();
+    }
+    match ty {
+        TypeRef::Optional(inner) => format!("Option<{}>", bridge_type(inner)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", bridge_type(inner)),
+        _ => swift_bridge_rust_type(ty),
+    }
+}
+
+/// Maps an IR `TypeRef` to the native Rust type string (used in wrapper impls and shim bodies).
+///
+/// This is the full native type including nested generics and HashMap — used on the Rust side
+/// of the shim where swift-bridge is not involved.
 fn swift_bridge_rust_type(ty: &TypeRef) -> String {
     match ty {
         TypeRef::Primitive(p) => rust_primitive_str(p).to_string(),
@@ -424,9 +524,11 @@ fn swift_bridge_rust_type(ty: &TypeRef) -> String {
         TypeRef::Optional(inner) => format!("Option<{}>", swift_bridge_rust_type(inner)),
         TypeRef::Vec(inner) => format!("Vec<{}>", swift_bridge_rust_type(inner)),
         TypeRef::Map(k, v) => {
-            // swift-bridge does not natively support HashMap; use a String representation
-            // The caller should handle this — we emit a best-effort type.
-            format!("std::collections::HashMap<{}, {}>", swift_bridge_rust_type(k), swift_bridge_rust_type(v))
+            format!(
+                "std::collections::HashMap<{}, {}>",
+                swift_bridge_rust_type(k),
+                swift_bridge_rust_type(v)
+            )
         }
         TypeRef::Named(name) => name.clone(),
     }
