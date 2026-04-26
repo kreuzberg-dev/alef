@@ -1,4 +1,4 @@
-use crate::type_map::{java_boxed_type, java_type};
+use crate::type_map::{java_boxed_type, java_return_type, java_type};
 use ahash::AHashSet;
 use alef_codegen::naming::to_java_name;
 use alef_core::config::AlefConfig;
@@ -152,7 +152,7 @@ pub(crate) fn gen_sync_function_method(
         })
         .collect();
 
-    let return_type = java_type(&func.return_type);
+    let return_type = java_return_type(&func.return_type);
 
     writeln!(
         out,
@@ -231,13 +231,13 @@ pub(crate) fn gen_sync_function_method(
         }
     };
 
-    // Strip a top-level Optional wrapper for return-type dispatch — the Java
-    // boxed types are already nullable, so Optional<T> reuses T's handling.
-    let return_kind: &TypeRef = match &func.return_type {
-        TypeRef::Optional(inner) => inner.as_ref(),
-        other => other,
+    // Unwrap Optional<T> to determine the actual dispatch type and whether we're optional.
+    let (is_optional_return, dispatch_return_type) = match &func.return_type {
+        TypeRef::Optional(inner) => (true, (**inner).clone()),
+        other => (false, other.clone()),
     };
-    if matches!(func.return_type, TypeRef::Unit) {
+
+    if matches!(dispatch_return_type, TypeRef::Unit) {
         writeln!(out, "            {}.invoke({});", ffi_handle, call_args.join(", ")).ok();
         emit_ffi_ptr_cleanup(out);
         writeln!(out, "        }} catch (Throwable e) {{").ok();
@@ -248,7 +248,7 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         writeln!(out, "        }}").ok();
-    } else if is_ffi_string_return(&func.return_type) {
+    } else if is_ffi_string_return(&dispatch_return_type) {
         let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
         writeln!(
             out,
@@ -260,17 +260,23 @@ pub(crate) fn gen_sync_function_method(
         emit_ffi_ptr_cleanup(out);
         writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
         writeln!(out, "                checkLastError();").ok();
-        writeln!(out, "                return null;").ok();
+        if is_optional_return {
+            writeln!(out, "                return Optional.empty();").ok();
+        } else {
+            writeln!(out, "                return null;").ok();
+        }
         writeln!(out, "            }}").ok();
-        // Use `__resultStr` instead of `result` to avoid shadowing a `result`
-        // parameter that may exist in the surrounding signature.
         writeln!(
             out,
-            "            String __resultStr = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+            "            String str = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
         )
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        writeln!(out, "            return __resultStr;").ok();
+        if is_optional_return {
+            writeln!(out, "            return Optional.of(str);").ok();
+        } else {
+            writeln!(out, "            return str;").ok();
+        }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
@@ -279,9 +285,9 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         writeln!(out, "        }}").ok();
-    } else if matches!(return_kind, TypeRef::Named(_)) {
+    } else if matches!(dispatch_return_type, TypeRef::Named(_)) {
         // Named return types: FFI returns a struct pointer.
-        let return_type_name = match return_kind {
+        let return_type_name = match &dispatch_return_type {
             TypeRef::Named(name) => name,
             _ => unreachable!(),
         };
@@ -297,12 +303,25 @@ pub(crate) fn gen_sync_function_method(
         emit_ffi_ptr_cleanup(out);
         writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
         writeln!(out, "                checkLastError();").ok();
-        writeln!(out, "                return null;").ok();
+        if is_optional_return {
+            writeln!(out, "                return Optional.empty();").ok();
+        } else {
+            writeln!(out, "                return null;").ok();
+        }
         writeln!(out, "            }}").ok();
 
         if is_opaque {
             // Opaque handles: wrap the raw pointer directly, caller owns and will close()
-            writeln!(out, "            return new {}(resultPtr);", return_type_name).ok();
+            if is_optional_return {
+                writeln!(
+                    out,
+                    "            return Optional.of(new {}(resultPtr));",
+                    return_type_name
+                )
+                .ok();
+            } else {
+                writeln!(out, "            return new {}(resultPtr);", return_type_name).ok();
+            }
         } else {
             // Record types: use _to_json to serialize the full struct to JSON, then deserialize.
             // NOTE: _content only returns the markdown string field, not a full JSON object.
@@ -322,7 +341,11 @@ pub(crate) fn gen_sync_function_method(
             writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
             writeln!(out, "            if (jsonPtr.equals(MemorySegment.NULL)) {{").ok();
             writeln!(out, "                checkLastError();").ok();
-            writeln!(out, "                return null;").ok();
+            if is_optional_return {
+                writeln!(out, "                return Optional.empty();").ok();
+            } else {
+                writeln!(out, "                return null;").ok();
+            }
             writeln!(out, "            }}").ok();
             writeln!(
                 out,
@@ -335,12 +358,21 @@ pub(crate) fn gen_sync_function_method(
                 prefix.to_uppercase()
             )
             .ok();
-            writeln!(
-                out,
-                "            return createObjectMapper().readValue(json, {}.class);",
-                return_type_name
-            )
-            .ok();
+            if is_optional_return {
+                writeln!(
+                    out,
+                    "            return Optional.of(createObjectMapper().readValue(json, {}.class));",
+                    return_type_name
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "            return createObjectMapper().readValue(json, {}.class);",
+                    return_type_name
+                )
+                .ok();
+            }
         }
 
         writeln!(out, "        }} catch (Throwable e) {{").ok();
@@ -351,47 +383,7 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         writeln!(out, "        }}").ok();
-    } else if matches!(return_kind, TypeRef::Bytes) {
-        // Bytes return: FFI returns a JSON-encoded array of bytes (so a String pointer).
-        // The C signature loses the length, so the FFI layer encodes Vec<u8> as a base64
-        // or JSON string. Currently the kreuzberg-ffi raw signature returns a uint8_t*
-        // dangling pointer (a separate FFI-layer bug); we mirror the Vec<T> path and
-        // deserialize a JSON byte array, which gives a working contract once the FFI
-        // returns proper JSON. For raw byte returns the caller must wrap with a JSON
-        // encoder on the Rust side.
-        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
-        writeln!(
-            out,
-            "            var resultPtr = (MemorySegment) {}.invoke({});",
-            ffi_handle,
-            call_args.join(", ")
-        )
-        .ok();
-        emit_ffi_ptr_cleanup(out);
-        writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
-        writeln!(out, "                checkLastError();").ok();
-        writeln!(out, "                return new byte[0];").ok();
-        writeln!(out, "            }}").ok();
-        writeln!(
-            out,
-            "            String __jsonBytes = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
-        )
-        .ok();
-        writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        writeln!(
-            out,
-            "            return createObjectMapper().readValue(__jsonBytes, byte[].class);"
-        )
-        .ok();
-        writeln!(out, "        }} catch (Throwable e) {{").ok();
-        writeln!(
-            out,
-            "            throw new {}Exception(\"FFI call failed\", e);",
-            class_name
-        )
-        .ok();
-        writeln!(out, "        }}").ok();
-    } else if matches!(return_kind, TypeRef::Vec(_)) {
+    } else if matches!(dispatch_return_type, TypeRef::Vec(_)) {
         // Vec return types: FFI returns a JSON string pointer; deserialize into List<T>.
         let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
         writeln!(
@@ -403,7 +395,11 @@ pub(crate) fn gen_sync_function_method(
         .ok();
         emit_ffi_ptr_cleanup(out);
         writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
-        writeln!(out, "                return java.util.List.of();").ok();
+        if is_optional_return {
+            writeln!(out, "                return Optional.of(java.util.List.of());").ok();
+        } else {
+            writeln!(out, "                return java.util.List.of();").ok();
+        }
         writeln!(out, "            }}").ok();
         writeln!(
             out,
@@ -411,18 +407,65 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        // Determine the element type for deserialization. Java generics can't hold
-        // primitives so use the boxed type (Float/Integer/Long/Boolean/...).
-        let element_type = match return_kind {
+        // Determine the element type for deserialization (use boxed types for generics)
+        let element_type = match &dispatch_return_type {
             TypeRef::Vec(inner) => java_boxed_type(inner),
             _ => unreachable!(),
         };
+        if is_optional_return {
+            writeln!(
+                out,
+                "            return Optional.of(createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }}));",
+                element_type
+            )
+            .ok();
+        } else {
+            writeln!(
+                out,
+                "            return createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }});",
+                element_type
+            )
+            .ok();
+        }
+        writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
-            "            return createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<{}>>() {{ }});",
-            element_type
+            "            throw new {}Exception(\"FFI call failed\", e);",
+            class_name
         )
         .ok();
+        writeln!(out, "        }}").ok();
+    } else if matches!(dispatch_return_type, TypeRef::Bytes) {
+        // Bytes return types: FFI returns an opaque pointer to allocated bytes; deserialize as byte array.
+        let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
+        writeln!(
+            out,
+            "            var resultPtr = (MemorySegment) {}.invoke({});",
+            ffi_handle,
+            call_args.join(", ")
+        )
+        .ok();
+        emit_ffi_ptr_cleanup(out);
+        writeln!(out, "            if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
+        writeln!(out, "                checkLastError();").ok();
+        if is_optional_return {
+            writeln!(out, "                return Optional.empty();").ok();
+        } else {
+            writeln!(out, "                return null;").ok();
+        }
+        writeln!(out, "            }}").ok();
+        writeln!(out, "            long byteLen = resultPtr.byteSize();").ok();
+        writeln!(
+            out,
+            "            byte[] result = resultPtr.reinterpret(byteLen).toArray(ValueLayout.JAVA_BYTE);"
+        )
+        .ok();
+        writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
+        if is_optional_return {
+            writeln!(out, "            return Optional.of(result);").ok();
+        } else {
+            writeln!(out, "            return result;").ok();
+        }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
@@ -432,16 +475,21 @@ pub(crate) fn gen_sync_function_method(
         .ok();
         writeln!(out, "        }}").ok();
     } else {
+        // Primitive return types (including boxed types for Optional)
         writeln!(
             out,
             "            var primitiveResult = ({}) {}.invoke({});",
-            java_ffi_return_cast(&func.return_type),
+            java_ffi_return_cast(&dispatch_return_type),
             ffi_handle,
             call_args.join(", ")
         )
         .ok();
         emit_ffi_ptr_cleanup(out);
-        writeln!(out, "            return primitiveResult;").ok();
+        if is_optional_return {
+            writeln!(out, "            return Optional.of(primitiveResult);").ok();
+        } else {
+            writeln!(out, "            return primitiveResult;").ok();
+        }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,
@@ -493,26 +541,12 @@ pub(crate) fn gen_async_wrapper_method(
         params.join(", ")
     )
     .ok();
-    let returns_void = matches!(func.return_type, TypeRef::Unit);
-    if returns_void {
-        // Use `runAsync` and `thenApply(_ -> null)` for void-returning functions
-        // — `supplyAsync` requires a `Supplier<T>` whose lambda must return a value.
-        writeln!(out, "        return CompletableFuture.runAsync(() -> {{").ok();
-        writeln!(out, "            try {{").ok();
-        writeln!(
-            out,
-            "                {}({});",
-            sync_method_name,
-            param_names.join(", ")
-        )
-        .ok();
-        writeln!(out, "            }} catch (Throwable e) {{").ok();
-        writeln!(out, "                throw new CompletionException(e);").ok();
-        writeln!(out, "            }}").ok();
-        writeln!(out, "        }}).thenApply(unused -> (Void) null);").ok();
+    writeln!(out, "        return CompletableFuture.supplyAsync(() -> {{").ok();
+    writeln!(out, "            try {{").ok();
+    if matches!(func.return_type, TypeRef::Unit) {
+        writeln!(out, "                {}({});", sync_method_name, param_names.join(", ")).ok();
+        writeln!(out, "                return null;").ok();
     } else {
-        writeln!(out, "        return CompletableFuture.supplyAsync(() -> {{").ok();
-        writeln!(out, "            try {{").ok();
         writeln!(
             out,
             "                return {}({});",
@@ -520,10 +554,181 @@ pub(crate) fn gen_async_wrapper_method(
             param_names.join(", ")
         )
         .ok();
-        writeln!(out, "            }} catch (Throwable e) {{").ok();
-        writeln!(out, "                throw new CompletionException(e);").ok();
-        writeln!(out, "            }}").ok();
-        writeln!(out, "        }});").ok();
     }
+    writeln!(out, "            }} catch (Throwable e) {{").ok();
+    writeln!(out, "                throw new CompletionException(e);").ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out, "        }});").ok();
     writeln!(out, "    }}").ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_opaque_types() -> AHashSet<String> {
+        AHashSet::new()
+    }
+
+    fn create_test_bridge_sets() -> (HashSet<String>, HashSet<String>) {
+        (HashSet::new(), HashSet::new())
+    }
+
+    fn create_test_function(name: &str, return_type: TypeRef) -> FunctionDef {
+        FunctionDef {
+            name: name.to_string(),
+            rust_path: format!("test::{}", name),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }
+    }
+
+    #[test]
+    fn test_optional_string_return_emits_optional_empty() {
+        let func = create_test_function("get_name", TypeRef::Optional(Box::new(TypeRef::String)));
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+        );
+
+        assert!(out.contains("return Optional.empty();"));
+        assert!(out.contains("return Optional.of(str);"));
+    }
+
+    #[test]
+    fn test_optional_named_return_emits_optional_wrappers() {
+        let func = create_test_function(
+            "get_preset",
+            TypeRef::Optional(Box::new(TypeRef::Named("EmbeddingPreset".to_string()))),
+        );
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+        );
+
+        assert!(out.contains("return Optional.empty();"));
+        assert!(out.contains("return Optional.of(createObjectMapper().readValue(json, EmbeddingPreset.class));"));
+    }
+
+    #[test]
+    fn test_optional_vec_return_emits_optional_list() {
+        let func = create_test_function(
+            "list_items",
+            TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::String)))),
+        );
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+        );
+
+        assert!(out.contains("return Optional.of(java.util.List.of());"));
+        assert!(out.contains("return Optional.of(createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>()"));
+    }
+
+    #[test]
+    fn test_optional_bytes_return_emits_optional_array() {
+        let func = create_test_function("get_data", TypeRef::Optional(Box::new(TypeRef::Bytes)));
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+        );
+
+        assert!(out.contains("return Optional.empty();"));
+        assert!(out.contains("return Optional.of(result);"));
+    }
+
+    #[test]
+    fn test_non_optional_string_return_no_optional_wrapper() {
+        let func = create_test_function("get_name", TypeRef::String);
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+        );
+
+        assert!(out.contains("return null;"));
+        assert!(out.contains("return str;"));
+        assert!(!out.contains("Optional.empty()"));
+        assert!(!out.contains("Optional.of(str)"));
+    }
+
+    #[test]
+    fn test_non_optional_vec_return_no_optional_wrapper() {
+        let func = create_test_function("list_items", TypeRef::Vec(Box::new(TypeRef::String)));
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+        );
+
+        assert!(out.contains("return java.util.List.of();"));
+        assert!(!out.contains("Optional.of(java.util.List.of())"));
+    }
 }

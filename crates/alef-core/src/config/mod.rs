@@ -126,6 +126,12 @@ pub struct AlefConfig {
     /// Per-language overrides for generate flags (key = language name, e.g., "python").
     #[serde(default)]
     pub generate_overrides: HashMap<String, GenerateConfig>,
+    /// Post-generation formatting configuration (default: enabled for all languages).
+    #[serde(default)]
+    pub format: FormatConfig,
+    /// Per-language formatting overrides (key = language name, e.g., "elixir").
+    #[serde(default)]
+    pub format_overrides: HashMap<String, FormatConfig>,
     /// Per-language DTO/type generation style (dataclass vs TypedDict, zod vs interface, etc.).
     #[serde(default)]
     pub dto: DtoConfig,
@@ -255,6 +261,32 @@ impl Default for GenerateConfig {
             package_metadata: true,
             public_api: true,
             reverse_conversions: true,
+        }
+    }
+}
+
+/// Post-generation formatting configuration.
+/// After code generation, alef can automatically run language-native formatters
+/// on the emitted package directories to ensure CI formatter checks pass.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FormatConfig {
+    /// Enable post-generation formatting (default: true).
+    /// Set to false to skip formatting for all languages, or use per-language
+    /// overrides in `[format.<lang>]` to disable specific formatters.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Optional custom command override. If set, this command is run instead
+    /// of the language's default formatter. Must be a shell command string
+    /// (e.g., "prettier --write .").
+    #[serde(default)]
+    pub command: Option<String>,
+}
+
+impl Default for FormatConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            command: None,
         }
     }
 }

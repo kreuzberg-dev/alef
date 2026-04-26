@@ -1,3 +1,4 @@
+use alef_core::config::output::StringOrVec;
 use alef_core::config::{AlefConfig, Language};
 use anyhow::Context as _;
 use rayon::prelude::*;
@@ -308,28 +309,41 @@ pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool, coverage: bo
 }
 
 /// Install dependencies for each language.
-pub fn setup(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
-    let results: Vec<anyhow::Result<Vec<(String, String, String)>>> = languages
+///
+/// If `timeout_override` is Some, all languages use that timeout; otherwise each
+/// language uses its configured `timeout_seconds` (defaulting to 600 seconds).
+#[allow(clippy::type_complexity)]
+pub fn setup(config: &AlefConfig, languages: &[Language], timeout_override: Option<u64>) -> anyhow::Result<()> {
+    let results: Vec<(Language, anyhow::Result<Vec<(String, String, String)>>)> = languages
         .par_iter()
         .map(|lang| {
             let setup_cfg = config.setup_config_for_language(*lang);
-            if !check_precondition(*lang, setup_cfg.precondition.as_deref()) {
-                return Ok(Vec::new());
-            }
-            run_before(*lang, setup_cfg.before.as_ref())?;
-            let mut outputs = Vec::new();
-            if let Some(cmd_list) = &setup_cfg.install {
-                for cmd in cmd_list.commands() {
-                    let (stdout, stderr) = run_command_captured(cmd)?;
-                    outputs.push((cmd.to_string(), stdout, stderr));
-                }
-            }
-            Ok(outputs)
+            let timeout_secs = timeout_override.unwrap_or(setup_cfg.timeout_seconds);
+
+            let result: anyhow::Result<Vec<(String, String, String)>> =
+                if !check_precondition(*lang, setup_cfg.precondition.as_deref()) {
+                    Ok(Vec::new())
+                } else {
+                    (|| {
+                        run_before_with_timeout(*lang, setup_cfg.before.as_ref(), timeout_secs)?;
+                        let mut outputs = Vec::new();
+                        if let Some(cmd_list) = &setup_cfg.install {
+                            for cmd in cmd_list.commands() {
+                                let (stdout, stderr) =
+                                    super::helpers::run_command_captured_with_timeout(cmd, Some(timeout_secs))
+                                        .with_context(|| format!("setup for {lang} timed out after {timeout_secs}s"))?;
+                                outputs.push((cmd.to_string(), stdout, stderr));
+                            }
+                        }
+                        Ok(outputs)
+                    })()
+                };
+            (*lang, result)
         })
         .collect();
 
     let mut first_error: Option<anyhow::Error> = None;
-    for result in results {
+    for (lang, result) in results {
         match result {
             Ok(outputs) => {
                 for (cmd, stdout, stderr) in outputs {
@@ -342,6 +356,7 @@ pub fn setup(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> 
                 }
             }
             Err(e) => {
+                warn!("Setup failed for {lang}: {e}");
                 if first_error.is_none() {
                     first_error = Some(e);
                 }
@@ -352,6 +367,25 @@ pub fn setup(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> 
         return Err(e);
     }
 
+    Ok(())
+}
+
+/// Run before-hook commands with timeout consideration. Returns `Ok(())` on success.
+fn run_before_with_timeout(lang: Language, before: Option<&StringOrVec>, timeout_secs: u64) -> anyhow::Result<()> {
+    let Some(cmds) = before else {
+        return Ok(());
+    };
+    for cmd in cmds.commands() {
+        info!("Running before hook for {lang}: {cmd}");
+        let (stdout, stderr) = super::helpers::run_command_captured_with_timeout(cmd, Some(timeout_secs))
+            .with_context(|| format!("before hook timed out for {lang} after {timeout_secs}s: {cmd}"))?;
+        if !stdout.is_empty() {
+            info!("[{lang} before] {stdout}");
+        }
+        if !stderr.is_empty() {
+            info!("[{lang} before] {stderr}");
+        }
+    }
     Ok(())
 }
 
@@ -800,10 +834,7 @@ mod dedupe_tests {
             ),
         ];
         let result = dedupe_plans(plans);
-        assert_eq!(
-            result[0].1,
-            vec!["corepack use pnpm@latest", "pnpm up --latest -r -w"]
-        );
+        assert_eq!(result[0].1, vec!["corepack use pnpm@latest", "pnpm up --latest -r -w"]);
         assert!(result[1].1.is_empty(), "Wasm should have no commands after dedupe");
     }
 
@@ -812,10 +843,7 @@ mod dedupe_tests {
         let plans = vec![
             (
                 Language::Rust,
-                vec![
-                    "cargo upgrade --incompatible".to_string(),
-                    "cargo update".to_string(),
-                ],
+                vec!["cargo upgrade --incompatible".to_string(), "cargo update".to_string()],
             ),
             (
                 Language::Node,

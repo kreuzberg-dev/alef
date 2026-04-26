@@ -22,6 +22,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 precondition: Some(require_tool("cargo")),
                 before: None,
                 install: Some(StringOrVec::Multiple(commands)),
+                timeout_seconds: 600,
             }
         }
         Language::Python => {
@@ -35,6 +36,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 precondition: Some(require_tool(pm)),
                 before: None,
                 install: Some(StringOrVec::Single(install_cmd)),
+                timeout_seconds: 600,
             }
         }
         Language::Node | Language::Wasm => {
@@ -48,6 +50,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                 precondition: Some(require_tool(pm)),
                 before: None,
                 install: Some(StringOrVec::Single(install_cmd)),
+                timeout_seconds: 600,
             }
         }
         Language::Go => SetupConfig {
@@ -56,16 +59,19 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             install: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && GOWORK=off go mod download"
             ))),
+            timeout_seconds: 600,
         },
         Language::Ruby => SetupConfig {
             precondition: Some(require_tool("bundle")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && bundle install"))),
+            timeout_seconds: 600,
         },
         Language::Php => SetupConfig {
             precondition: Some(require_tool("composer")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && composer install"))),
+            timeout_seconds: 600,
         },
         Language::Java => SetupConfig {
             precondition: Some(require_tool("mvn")),
@@ -73,16 +79,19 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             install: Some(StringOrVec::Single(format!(
                 "mvn -f {output_dir}/pom.xml dependency:resolve -q"
             ))),
+            timeout_seconds: 600,
         },
         Language::Csharp => SetupConfig {
             precondition: Some(require_tool("dotnet")),
             before: None,
             install: Some(StringOrVec::Single(format!("dotnet restore {output_dir}"))),
+            timeout_seconds: 600,
         },
         Language::Elixir => SetupConfig {
             precondition: Some(require_tool("mix")),
             before: None,
             install: Some(StringOrVec::Single(format!("cd {output_dir} && mix deps.get"))),
+            timeout_seconds: 600,
         },
         Language::R => SetupConfig {
             precondition: Some(require_tool("Rscript")),
@@ -90,6 +99,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             install: Some(StringOrVec::Single(format!(
                 "cd {output_dir} && Rscript -e \"remotes::install_deps()\""
             ))),
+            timeout_seconds: 600,
         },
         Language::Ffi => SetupConfig {
             // FFI shares cargo with the parent Rust crate; there is no
@@ -97,6 +107,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             precondition: None,
             before: None,
             install: None,
+            timeout_seconds: 600,
         },
         Language::Kotlin => SetupConfig {
             precondition: Some(require_tool("gradle")),
@@ -104,26 +115,31 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             install: Some(StringOrVec::Single(
                 "gradle build --refresh-dependencies".to_string(),
             )),
+            timeout_seconds: 600,
         },
         Language::Swift => SetupConfig {
             precondition: Some(require_tool("swift")),
             before: None,
             install: Some(StringOrVec::Single("swift package resolve".to_string())),
+            timeout_seconds: 600,
         },
         Language::Dart => SetupConfig {
             precondition: Some(require_tool("dart")),
             before: None,
             install: Some(StringOrVec::Single("dart pub get".to_string())),
+            timeout_seconds: 600,
         },
         Language::Gleam => SetupConfig {
             precondition: Some(require_tool("gleam")),
             before: None,
             install: Some(StringOrVec::Single("gleam deps download".to_string())),
+            timeout_seconds: 600,
         },
         Language::Zig => SetupConfig {
             precondition: Some(require_tool("zig")),
             before: None,
             install: Some(StringOrVec::Single("zig build --fetch".to_string())),
+            timeout_seconds: 600,
         },
     }
 }

@@ -150,6 +150,8 @@ fn make_config_ffi() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+    format: ::alef_core::config::FormatConfig::default(),
+    format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -288,6 +290,7 @@ fn unit_enum_emits_dart_enum() {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
+            is_tuple: false,
             },
             EnumVariant {
                 name: "Inactive".to_string(),
@@ -295,6 +298,7 @@ fn unit_enum_emits_dart_enum() {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
+            is_tuple: false,
             },
         ],
         serde_rename_all: None,

@@ -119,6 +119,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+    format: ::alef_core::config::FormatConfig::default(),
+    format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -191,6 +193,8 @@ fn make_config_with_nif(nif_module: &str) -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+    format: ::alef_core::config::FormatConfig::default(),
+    format_overrides: ::std::collections::HashMap::new(),
     }
 }
 
@@ -272,6 +276,7 @@ fn enum_emits_custom_type() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
+                is_tuple: false,
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -279,6 +284,7 @@ fn enum_emits_custom_type() {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
+                is_tuple: false,
                 },
             ],
             doc: String::new(),
@@ -386,6 +392,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
+            is_tuple: false,
             }],
             doc: String::new(),
             cfg: None,

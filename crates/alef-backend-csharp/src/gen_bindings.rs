@@ -51,7 +51,8 @@ impl Backend for CsharpBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        let has_visitor_bridge = !config.trait_bridges.is_empty();
+        // Only emit ConvertWithVisitor method if visitor_callbacks is explicitly enabled in FFI config
+        let has_visitor_callbacks = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
         // Streaming adapter methods use a callback-based C signature that P/Invoke can't call
         // directly. Skip them in all generated method loops.
@@ -82,7 +83,7 @@ impl Backend for CsharpBackend {
                 &prefix,
                 &bridge_param_names,
                 &bridge_type_aliases,
-                has_visitor_bridge,
+                has_visitor_callbacks,
                 &config.trait_bridges,
                 &streaming_methods,
             )),
@@ -135,15 +136,44 @@ impl Backend for CsharpBackend {
                 &prefix,
                 &bridge_param_names,
                 &bridge_type_aliases,
-                has_visitor_bridge,
+                has_visitor_callbacks,
                 &streaming_methods,
             )),
             generated_header: true,
         });
 
         // 3b. Generate visitor support files when a bridge is configured.
-        if has_visitor_bridge {
+        if has_visitor_callbacks {
             for (filename, content) in crate::gen_visitor::gen_visitor_files(&namespace) {
+                files.push(GeneratedFile {
+                    path: base_path.join(filename),
+                    content: strip_trailing_whitespace(&content),
+                    generated_header: true,
+                });
+            }
+        } else {
+            // When visitor_callbacks is disabled, delete stale files from prior runs
+            // to prevent CS8632 warnings (nullable context not enabled).
+            delete_stale_visitor_files(&base_path)?;
+        }
+
+        // 3c. Generate trait bridge classes when configured.
+        if !config.trait_bridges.is_empty() {
+            let trait_defs: Vec<_> = api.types.iter().filter(|t| t.is_trait).collect();
+            let bridges: Vec<_> = config
+                .trait_bridges
+                .iter()
+                .filter_map(|cfg| {
+                    let trait_name = cfg.trait_name.clone();
+                    trait_defs
+                        .iter()
+                        .find(|t| t.name == trait_name)
+                        .map(|trait_def| (trait_name, cfg, *trait_def))
+                })
+                .collect();
+
+            if !bridges.is_empty() {
+                let (filename, content) = crate::trait_bridge::gen_trait_bridges_file(&namespace, &prefix, &bridges);
                 files.push(GeneratedFile {
                     path: base_path.join(filename),
                     content: strip_trailing_whitespace(&content),
@@ -213,7 +243,7 @@ impl Backend for CsharpBackend {
                     continue;
                 }
                 // Skip types that gen_visitor handles with richer visitor-specific versions
-                if has_visitor_bridge && (typ.name == "NodeContext" || typ.name == "VisitResult") {
+                if has_visitor_callbacks && (typ.name == "NodeContext" || typ.name == "VisitResult") {
                     continue;
                 }
 
@@ -236,7 +266,7 @@ impl Backend for CsharpBackend {
         // 6. Generate enums
         for enum_def in &api.enums {
             // Skip enums that gen_visitor handles with richer visitor-specific versions
-            if has_visitor_bridge && (enum_def.name == "VisitResult" || enum_def.name == "NodeContext") {
+            if has_visitor_callbacks && (enum_def.name == "VisitResult" || enum_def.name == "NodeContext") {
                 continue;
             }
             let enum_filename = enum_def.name.to_pascal_case();
@@ -249,6 +279,15 @@ impl Backend for CsharpBackend {
 
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Csharp)?;
+
+        // 7. Generate Directory.Build.props at the package root (always overwritten).
+        // This file enables Nullable=enable and latest LangVersion for all C# projects
+        // in the packages/csharp hierarchy without requiring per-csproj configuration.
+        files.push(GeneratedFile {
+            path: PathBuf::from("packages/csharp/Directory.Build.props"),
+            content: gen_directory_build_props(),
+            generated_header: true,
+        });
 
         Ok(files)
     }
@@ -289,6 +328,13 @@ fn strip_trailing_whitespace(content: &str) -> String {
         result.push('\n');
     }
     result
+}
+
+/// Generate C# file header with hash and nullable-enable pragma.
+fn csharp_file_header() -> String {
+    let mut out = hash::header(CommentStyle::DoubleSlash);
+    out.push_str("#nullable enable\n\n");
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -408,11 +454,11 @@ fn gen_native_methods(
     prefix: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    has_visitor_bridge: bool,
+    has_visitor_callbacks: bool,
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     streaming_methods: &HashSet<String>,
 ) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Runtime.InteropServices;\n\n");
 
@@ -583,7 +629,7 @@ fn gen_native_methods(
     out.push_str("    internal static extern void FreeString(IntPtr ptr);\n");
 
     // Inject visitor create/free/convert P/Invoke declarations when a bridge is configured.
-    if has_visitor_bridge {
+    if has_visitor_callbacks {
         out.push('\n');
         out.push_str(&crate::gen_visitor::gen_native_methods_visitor(
             namespace, lib_name, prefix,
@@ -703,7 +749,7 @@ fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &MethodDef) -> St
 }
 
 fn gen_exception_class(namespace: &str, class_name: &str) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n\n");
 
     out.push_str(&format!("namespace {};\n\n", namespace));
@@ -732,10 +778,10 @@ fn gen_wrapper_class(
     prefix: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    has_visitor_bridge: bool,
+    has_visitor_callbacks: bool,
     streaming_methods: &HashSet<String>,
 ) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.Runtime.InteropServices;\n");
@@ -802,7 +848,7 @@ fn gen_wrapper_class(
     }
 
     // Inject ConvertWithVisitor when a visitor bridge is configured.
-    if has_visitor_bridge {
+    if has_visitor_callbacks {
         out.push_str(&crate::gen_visitor::gen_convert_with_visitor_method(
             exception_name,
             prefix,
@@ -1500,7 +1546,7 @@ fn emit_return_statement_indented(out: &mut String, return_type: &TypeRef, inden
 }
 
 fn gen_opaque_handle(typ: &TypeDef, namespace: &str) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n\n");
 
     out.push_str(&format!("namespace {};\n\n", namespace));
@@ -1539,7 +1585,7 @@ fn gen_record_type(
     custom_converter_enums: &HashSet<String>,
     _lang_rename_all: &str,
 ) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.Text.Json;\n");
@@ -1621,7 +1667,7 @@ fn gen_record_type(
             // Field with an explicit default value or part of a type with defaults.
             // Use typed_default from IR to get Rust-compatible defaults.
             let field_type = if is_complex {
-                "JsonElement".to_string()
+                "JsonElement?".to_string()
             } else {
                 csharp_type(&field.ty).to_string()
             };
@@ -1660,12 +1706,16 @@ fn gen_record_type(
                     TypeRef::Bytes => "Array.Empty<byte>()".to_string(),
                     TypeRef::Primitive(p) => match p {
                         PrimitiveType::Bool => "false".to_string(),
-                        PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
+                        PrimitiveType::F32 => "0.0f".to_string(),
+                        PrimitiveType::F64 => "0.0".to_string(),
                         _ => "0".to_string(),
                     },
                     TypeRef::Named(name) => {
                         let pascal = name.to_pascal_case();
-                        if enum_names.contains(&pascal) {
+                        if complex_enums.contains(&pascal) {
+                            // Taggedunions (complex enums) should default to null
+                            "null".to_string()
+                        } else if enum_names.contains(&pascal) {
                             "default".to_string()
                         } else {
                             "default!".to_string()
@@ -1696,7 +1746,8 @@ fn gen_record_type(
                     TypeRef::Vec(_) => "[]",
                     TypeRef::Bytes => "Array.Empty<byte>()",
                     TypeRef::Primitive(PrimitiveType::Bool) => "false",
-                    TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => "0.0",
+                    TypeRef::Primitive(PrimitiveType::F32) => "0.0f",
+                    TypeRef::Primitive(PrimitiveType::F64) => "0.0",
                     TypeRef::Primitive(_) => "0",
                     _ => "default!",
                 };
@@ -1729,6 +1780,8 @@ fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
 }
 
 fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
+    let mut out = csharp_file_header();
+    out.push_str("using System.Text.Json.Serialization;\n\n");
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
     // Tagged union: enum has a serde tag AND data variants → generate abstract record hierarchy
@@ -1768,10 +1821,8 @@ fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
         })
         .collect();
 
-    let mut out = hash::header(CommentStyle::DoubleSlash);
     out.push_str("using System;\n");
-    out.push_str("using System.Text.Json;\n");
-    out.push_str("using System.Text.Json.Serialization;\n\n");
+    out.push_str("using System.Text.Json;\n\n");
 
     out.push_str(&format!("namespace {};\n\n", namespace));
 
@@ -1879,7 +1930,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     // by a nested record of the same name (e.g. ContentPart.ImageUrl shadows ImageUrl).
     let ns = namespace;
 
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.Text.Json;\n");
@@ -1899,6 +1950,10 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     out.push_str(&format!("[JsonConverter(typeof({converter_name}))]\n"));
     out.push_str(&format!("public abstract record {enum_pascal}\n"));
     out.push_str("{\n");
+
+    // Collect all variant pascal names to check for field-name-to-variant-name clashes
+    let variant_names: std::collections::HashSet<String> =
+        enum_def.variants.iter().map(|v| v.name.to_pascal_case()).collect();
 
     // Nested sealed records for each variant
     for variant in &enum_def.variants {
@@ -1953,9 +2008,16 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                     } else {
                         let json_name = field.name.trim_start_matches('_');
                         let cs_name = to_csharp_name(json_name);
-                        let clashes = cs_name == pascal || cs_name == cs_type;
+                        // Check if this field name clashes with:
+                        // 1. The variant pascal name (e.g., "Slide" variant with "slide" field → "Slide" param)
+                        // 2. The field type name (e.g., "ImageUrl" type with "url" field → "Url" param matching a nested record)
+                        // 3. Another variant pascal name (e.g., nested "Title" record with "title" field in "Slide" variant)
+                        let clashes = cs_name == pascal || cs_name == cs_type || variant_names.contains(&cs_name);
                         if clashes {
-                            out.push_str(&format!("        {cs_type} Value{comma}\n"));
+                            // Rename to Value with JSON property mapping to preserve the original field name
+                            out.push_str(&format!(
+                                "        [property: JsonPropertyName(\"{json_name}\")] {cs_type} Value{comma}\n"
+                            ));
                         } else {
                             out.push_str(&format!(
                                 "        [property: JsonPropertyName(\"{json_name}\")] {cs_type} {cs_name}{comma}\n"
@@ -2109,4 +2171,34 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     out.push_str("}\n");
 
     out
+}
+
+/// Generate Directory.Build.props with Nullable=enable and LangVersion=latest.
+/// This is auto-generated (overwritten on each build) so it doesn't require user maintenance.
+fn gen_directory_build_props() -> String {
+    "<!-- auto-generated by alef (generate_bindings) -->\n\
+<Project>\n  \
+<PropertyGroup>\n    \
+<Nullable>enable</Nullable>\n    \
+<LangVersion>latest</LangVersion>\n  \
+</PropertyGroup>\n\
+</Project>\n"
+        .to_string()
+}
+
+/// Delete stale visitor-related files when visitor_callbacks is disabled.
+/// When visitor_callbacks transitions from true → false, these files remain on disk
+/// and cause CS8632 warnings (nullable context not enabled in these files).
+fn delete_stale_visitor_files(base_path: &std::path::Path) -> anyhow::Result<()> {
+    let stale_files = vec!["IVisitor.cs", "VisitorCallbacks.cs", "NodeContext.cs", "VisitResult.cs"];
+
+    for filename in stale_files {
+        let path = base_path.join(filename);
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|e| anyhow::anyhow!("Failed to delete stale visitor file {}: {}", path.display(), e))?;
+        }
+    }
+
+    Ok(())
 }

@@ -33,6 +33,7 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <RepositoryUrl>{repository}</RepositoryUrl>
 {authors}    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>

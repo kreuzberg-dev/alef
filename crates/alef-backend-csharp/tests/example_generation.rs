@@ -107,6 +107,7 @@ fn test_generated_code_example() {
                 EnumVariant {
                     name: "Tesseract".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Tesseract OCR engine".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -114,6 +115,7 @@ fn test_generated_code_example() {
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "PaddleOCR engine".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -208,6 +210,8 @@ fn test_generated_code_example() {
         e2e: None,
         trait_bridges: vec![],
         tools: Default::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();

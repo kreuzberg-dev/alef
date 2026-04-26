@@ -98,6 +98,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -178,6 +180,7 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Tesseract".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Tesseract OCR".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -185,6 +188,7 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "PaddleOCR backend".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -324,6 +328,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Pending".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Pending status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -331,6 +336,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Processing".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Processing status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -338,6 +344,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Complete".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Complete status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -939,7 +946,14 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "my_lib",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        );
 
         assert!(
             code.contains("pub struct RbHtmlVisitorBridge"),
@@ -954,7 +968,14 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "my_lib",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        );
 
         assert!(
             !code.contains("#[magnus::init]"),
@@ -969,11 +990,315 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "my_lib",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        );
 
         assert!(
             code.contains("impl my_lib::HtmlVisitor for RbHtmlVisitorBridge"),
             "visitor bridge must implement the trait"
         );
     }
+
+    // ---- Plugin-pattern bridges: register_fn + super_trait ----
+
+    fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
+        let register_fn_name = trait_name.chars().fold(String::new(), |mut acc, c| {
+            if c.is_uppercase() && !acc.is_empty() {
+                acc.push('_');
+                acc.push(c.to_lowercase().next().unwrap());
+            } else {
+                acc.push(c.to_lowercase().next().unwrap());
+            }
+            acc
+        });
+        TraitBridgeConfig {
+            trait_name: trait_name.to_string(),
+            super_trait: Some("Plugin".to_string()),
+            registry_getter: Some("get_registry".to_string()),
+            register_fn: Some(format!("register_{}", register_fn_name)),
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_plugin_bridge_emits_struct_when_register_fn_configured() {
+        let trait_def = make_trait_def(
+            "OcrBackend",
+            vec![make_method("recognize", TypeRef::String, true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("OcrBackend");
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "kreuzberg",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        );
+
+        assert!(
+            !code.is_empty(),
+            "plugin bridge must emit non-empty code when register_fn is set"
+        );
+        assert!(
+            code.contains("pub struct RbOcrBackendBridge"),
+            "plugin bridge must define RbOcrBackendBridge struct"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_emits_registration_fn() {
+        let trait_def = make_trait_def(
+            "EmbeddingBackend",
+            vec![make_method(
+                "embed",
+                TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F64))),
+                true,
+                false,
+            )],
+        );
+        let cfg = make_plugin_bridge_cfg("EmbeddingBackend");
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "kreuzberg",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        );
+
+        assert!(
+            code.contains("register_embedding_backend"),
+            "plugin bridge must emit register_embedding_backend function"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_emits_plugin_impl() {
+        let trait_def = make_trait_def(
+            "PostProcessor",
+            vec![make_method("process", TypeRef::String, true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("PostProcessor");
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "kreuzberg",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        );
+
+        assert!(
+            code.contains("impl kreuzberg::Plugin for RbPostProcessorBridge"),
+            "plugin bridge must implement Plugin super-trait"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_emits_trait_impl() {
+        let trait_def = make_trait_def(
+            "Validator",
+            vec![make_method(
+                "validate",
+                TypeRef::Primitive(PrimitiveType::Bool),
+                true,
+                false,
+            )],
+        );
+        let cfg = make_plugin_bridge_cfg("Validator");
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "kreuzberg",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        );
+
+        assert!(
+            code.contains("impl my_lib::Validator for RbValidatorBridge"),
+            "plugin bridge must implement the target trait (uses trait_def.rust_path)"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_skip_when_excluded() {
+        let trait_def = make_trait_def(
+            "SomeBackend",
+            vec![make_method("execute", TypeRef::String, false, false)],
+        );
+        let mut cfg = make_plugin_bridge_cfg("SomeBackend");
+        cfg.exclude_languages = vec!["ruby".to_string()];
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "kreuzberg",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        );
+
+        assert!(
+            code.is_empty(),
+            "plugin bridge must emit empty code when 'ruby' is in exclude_languages"
+        );
+    }
+
+    #[test]
+    fn test_plugin_bridge_validates_required_methods_in_constructor() {
+        let trait_def = make_trait_def(
+            "OcrBackend",
+            vec![
+                make_method("recognize", TypeRef::String, true, false), // required
+                make_method("shutdown", TypeRef::Unit, false, true),    // optional
+            ],
+        );
+        let cfg = make_plugin_bridge_cfg("OcrBackend");
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "kreuzberg",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        );
+
+        assert!(
+            code.contains("respond_to"),
+            "constructor must check respond_to? for required methods"
+        );
+    }
+}
+
+#[test]
+fn test_tagged_union_enum_vec_field_serde_marshalling() {
+    let backend = MagnusBackend;
+
+    // Create API with a tagged-union enum that has a Vec<Named> field on one variant.
+    // Named types require JSON marshalling, so Vec<Named> should map to String in the
+    // Magnus binding enum, and the conversion code will use serde_json to deserialize.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Item".to_string(),
+            rust_path: "test_lib::Item".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("value", TypeRef::String, false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Result".to_string(),
+            rust_path: "test_lib::Result".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Success".to_string(),
+                    fields: vec![FieldDef {
+                        name: "items".to_string(),
+                        ty: TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                    }],
+                    is_tuple: false,
+                    doc: "Success with items".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Error".to_string(),
+                    fields: vec![FieldDef {
+                        name: "message".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: CoreWrapper::None,
+                        vec_inner_core_wrapper: CoreWrapper::None,
+                        newtype_wrapper: None,
+                    }],
+                    is_tuple: false,
+                    doc: "Error with message".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Tagged union result type".to_string(),
+            cfg: None,
+            serde_tag: Some("type".to_string()),
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+
+    assert!(result.is_ok(), "Generation should succeed");
+
+    let files = result.unwrap();
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_file.content;
+
+    // Print the relevant chunk on failure for diagnosis.
+    eprintln!("---generated lib.rs (Result enum context)---");
+    if let Some(idx) = content.find("enum Result") {
+        eprintln!("{}", &content[idx..idx.saturating_add(500).min(content.len())]);
+    }
+
+    // Vec<Named> fields must round-trip as actual Vec<Named> so serde can deserialize a
+    // JSON array. Mapping to bare `String` previously broke decoding for tagged-union
+    // variants like StopSequence::Multiple(Vec<String>) — the FFI sends a JSON array, not
+    // a JSON-encoded string.
+    assert!(
+        content.contains("items: Vec<Item>"),
+        "Tagged-union enum variant with Vec<Named> field should map to Vec<Named> for JSON array round-trip"
+    );
+
+    // Verify the enum definition includes proper variant structure
+    assert!(content.contains("enum Result"), "Should generate Result enum");
+    assert!(content.contains("Success"), "Should contain Success variant");
+    assert!(content.contains("Error"), "Should contain Error variant");
+
+    // Verify that the serde tag attribute is present
+    assert!(content.contains("tag = \"type\""), "Should have serde tag attribute");
 }

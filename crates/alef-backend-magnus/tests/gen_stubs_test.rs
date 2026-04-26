@@ -116,6 +116,8 @@ fn make_config_with_stubs() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -196,6 +198,7 @@ fn test_basic_rbs_stubs() {
                 EnumVariant {
                     name: "Tesseract".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Tesseract OCR".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -203,6 +206,7 @@ fn test_basic_rbs_stubs() {
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "PaddleOCR backend".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -386,6 +390,7 @@ fn test_enum_stubs() {
                 EnumVariant {
                     name: "Pending".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Pending status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -393,6 +398,7 @@ fn test_enum_stubs() {
                 EnumVariant {
                     name: "Processing".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Processing status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -400,6 +406,7 @@ fn test_enum_stubs() {
                 EnumVariant {
                     name: "Complete".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Complete status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -407,6 +414,7 @@ fn test_enum_stubs() {
                 EnumVariant {
                     name: "Failed".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Failed status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -669,6 +677,8 @@ fn test_rbs_stubs_without_config() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let result = backend.generate_type_stubs(&api, &config);
@@ -842,6 +852,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
             variants: vec![EnumVariant {
                 name: "Fast".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
@@ -988,6 +999,8 @@ fn test_module_naming_from_crate_name() {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     };
 
     let result = backend.generate_type_stubs(&api, &config);

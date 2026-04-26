@@ -38,6 +38,9 @@ enum Commands {
         /// Ignore cache, regenerate everything.
         #[arg(long)]
         clean: bool,
+        /// Skip post-generation formatting of emitted files.
+        #[arg(long)]
+        no_format: bool,
     },
     /// Generate type stubs (.pyi, .rbs).
     Stubs {
@@ -104,6 +107,9 @@ enum Commands {
         /// Comma-separated list of languages.
         #[arg(long, value_delimiter = ',')]
         lang: Option<Vec<String>>,
+        /// Override the per-language setup timeout in seconds (default: 600).
+        #[arg(long)]
+        timeout: Option<u64>,
     },
     /// Clean build artifacts for each language.
     Clean {
@@ -293,7 +299,7 @@ fn main() -> Result<()> {
             println!("Wrote IR to {}", output.display());
             Ok(())
         }
-        Commands::Generate { lang, clean } => {
+        Commands::Generate { lang, clean, no_format } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
             eprintln!("Generating bindings for: {}", format_languages(&languages));
@@ -369,6 +375,16 @@ fn main() -> Result<()> {
                 } else {
                     eprintln!("  [stubs] up to date (skipping)");
                 }
+            }
+
+            if any_written && !no_format {
+                // Auto-format generated files using language-native formatters
+                // (ruff, mix format, cargo fmt, etc.). This ensures CI formatter
+                // checks pass without requiring users to run formatters manually.
+                // Formatting failures are logged as warnings and do not fail the
+                // generate command, since formatter quirks shouldn't block codegen.
+                eprintln!("Formatting generated files...");
+                pipeline::format_generated(&files, &config, &base_dir);
             }
 
             if any_written {
@@ -491,7 +507,7 @@ fn main() -> Result<()> {
                 pipeline::set_version(&config, version)?;
             }
             eprintln!("Syncing versions from Cargo.toml");
-            pipeline::sync_versions(&config, bump.as_deref())?;
+            pipeline::sync_versions(&config, config_path, bump.as_deref())?;
             println!("Version sync complete");
             Ok(())
         }
@@ -534,11 +550,11 @@ fn main() -> Result<()> {
             println!("Tests complete");
             Ok(())
         }
-        Commands::Setup { lang } => {
+        Commands::Setup { lang, timeout } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
             eprintln!("Setting up dependencies for: {}", format_languages(&languages));
-            pipeline::setup(&config, &languages)?;
+            pipeline::setup(&config, &languages, timeout)?;
             println!("Setup complete");
             Ok(())
         }

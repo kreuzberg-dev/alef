@@ -63,7 +63,16 @@ impl Backend for MagnusBackend {
             .unwrap_or_default();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
-        builder.add_inner_attribute("allow(dead_code)");
+        // Match the inner-attribute set every other backend uses so that bookkeeping
+        // helpers (cached names, intermediate bindings, conditional imports) introduced
+        // by the codegen don't fire warnings in legitimately-functional generated code.
+        builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
+        builder.add_inner_attribute(
+            "allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, \
+             clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, \
+             clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, \
+             clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)",
+        );
         builder.add_import(
             "magnus::{function, method, prelude::*, Error, Ruby, IntoValueFromNative, try_convert::TryConvertOwned}",
         );
@@ -204,10 +213,32 @@ impl Backend for MagnusBackend {
             }
         }
 
-        // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects
+        // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects.
+        // Pass the host crate's canonical error type/constructor so generated `impl Plugin`
+        // and `impl {Trait}` blocks match the trait signatures (e.g. `Result<T, KreuzbergError>`).
+        // Check if any trait has async methods and add async_trait import if needed.
+        if !config.trait_bridges.is_empty() {
+            let needs_async_trait = config.trait_bridges.iter().any(|bridge_cfg| {
+                api.types
+                    .iter()
+                    .find(|t| t.is_trait && t.name == bridge_cfg.trait_name)
+                    .is_some_and(|trait_type| trait_type.methods.iter().any(|m| m.is_async))
+            });
+            if needs_async_trait {
+                builder.add_import("async_trait::async_trait");
+            }
+        }
+
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
-                let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                let bridge_code = crate::trait_bridge::gen_trait_bridge(
+                    trait_type,
+                    bridge_cfg,
+                    &core_import,
+                    &config.error_type(),
+                    &config.error_constructor(),
+                    api,
+                );
                 builder.add_item(&bridge_code);
             }
         }
@@ -845,9 +876,12 @@ fn pascal_to_snake(name: &str) -> String {
 /// Generate a Magnus enum definition with IntoValue and TryConvert impls.
 /// Unit-variant enums are represented as Ruby Symbols for ergonomic Ruby usage.
 /// Map a field type to a Rust type suitable for serde deserialization in data enums.
-fn field_type_for_serde(field: &FieldDef) -> String {
+/// Helper to recursively map inner TypeRef to serde type strings.
+/// For types that need JSON marshalling (Vec<Named>, Map, etc.), returns "String"
+/// to indicate they should be JSON-serialized. Otherwise returns the proper type.
+fn field_type_for_serde_inner(ty: &TypeRef) -> String {
     use alef_core::ir::PrimitiveType;
-    let base = match &field.ty {
+    match ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path => "String".to_string(),
         TypeRef::Primitive(PrimitiveType::Bool) => "bool".to_string(),
         TypeRef::Primitive(PrimitiveType::U8) => "u8".to_string(),
@@ -863,9 +897,20 @@ fn field_type_for_serde(field: &FieldDef) -> String {
         TypeRef::Primitive(PrimitiveType::F32) => "f32".to_string(),
         TypeRef::Primitive(PrimitiveType::F64) => "f64".to_string(),
         TypeRef::Duration => "u64".to_string(),
+        // Named types serde-derive in the generated module — emit by name so JSON
+        // arrays/objects deserialize directly via serde.
         TypeRef::Named(n) => n.clone(),
+        // Recurse for Vec so Vec<Item> / Vec<String> round-trip as actual JSON arrays.
+        TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_serde_inner(inner)),
+        // Map keys/values may be opaque or non-serde; collapse to String and round-trip via serde_json.
+        TypeRef::Map(_, _) => "String".to_string(),
+        TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_serde_inner(inner)),
         _ => "String".to_string(),
-    };
+    }
+}
+
+fn field_type_for_serde(field: &FieldDef) -> String {
+    let base = field_type_for_serde_inner(&field.ty);
     if field.optional {
         format!("Option<{base}>")
     } else {
@@ -1132,8 +1177,14 @@ fn gen_function(
     } else {
         gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
+    // Add #[allow(unused_variables)] to functions with unimplemented bodies to suppress warnings for unused params
+    let allow_attr = if !can_delegate {
+        "#[allow(unused_variables)]\n"
+    } else {
+        ""
+    };
     format!(
-        "fn {}({params}) -> {return_annotation} {{\n    \
+        "{allow_attr}fn {}({params}) -> {return_annotation} {{\n    \
          {deser_preamble}{body}\n}}",
         func.name
     )
@@ -1228,8 +1279,14 @@ fn gen_async_function(
             func.error_type.is_some(),
         )
     };
+    // Add #[allow(unused_variables)] to functions with unimplemented bodies to suppress warnings for unused params
+    let allow_attr = if !can_delegate {
+        "#[allow(unused_variables)]\n"
+    } else {
+        ""
+    };
     format!(
-        "fn {}_async({params}) -> {return_annotation} {{\n    \
+        "{allow_attr}fn {}_async({params}) -> {return_annotation} {{\n    \
          {deser_preamble}{body}\n\
          }}",
         func.name
@@ -1366,6 +1423,19 @@ fn gen_module_init(
                 r#"    module.define_module_function("{name}", function!({name}, {count}))?;"#,
                 name = func.name,
                 count = param_count
+            ));
+        }
+    }
+
+    // Register trait bridge entry points: pub fn register_xxx(rb_obj, name) -> Result<...>
+    // is emitted by the trait_bridge generator; surface it on the Ruby module here.
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg.exclude_languages.iter().any(|s| s == "ruby") {
+            continue;
+        }
+        if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+            lines.push(format!(
+                r#"    module.define_module_function("{register_fn}", function!({register_fn}, 2))?;"#
             ));
         }
     }

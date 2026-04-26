@@ -12,7 +12,7 @@ pub(crate) fn gen_native_lib(
     config: &AlefConfig,
     package: &str,
     prefix: &str,
-    has_visitor_bridge: bool,
+    has_visitor_pattern: bool,
 ) -> String {
     // Generate the class body first, then scan it to determine which imports are needed.
     let mut body = String::with_capacity(2048);
@@ -369,17 +369,41 @@ pub(crate) fn gen_native_lib(
     writeln!(body, "    }}").ok();
     writeln!(body).ok();
 
+    // Collect trait bridge handle names that will be emitted later, so we can skip them
+    // in the functions loop (prevents duplicate handle emission with wrong descriptors).
+    let trait_bridge_handles: AHashSet<String> = config
+        .trait_bridges
+        .iter()
+        .filter(|b| {
+            !b.exclude_languages
+                .contains(&alef_core::config::Language::Java.to_string())
+        })
+        .flat_map(|b| {
+            let trait_snake = b.trait_name.to_snake_case();
+            let trait_upper = trait_snake.to_uppercase();
+            vec![
+                format!("{}_REGISTER_{}", prefix.to_uppercase(), trait_upper),
+                format!("{}_UNREGISTER_{}", prefix.to_uppercase(), trait_upper),
+            ]
+        })
+        .collect();
+
     // Generate method handles for free functions.
     // All functions get handles regardless of is_async — the FFI layer always exposes
     // synchronous C functions, and the Java async wrapper delegates to the sync method.
     for func in &api.functions {
+        let handle_name = format!("{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
+
+        // Skip if this function's handle will be emitted by trait bridge code (with correct descriptor).
+        if trait_bridge_handles.contains(&handle_name) {
+            continue;
+        }
+
         let ffi_name = format!("{}_{}", prefix, func.name.to_lowercase());
         let return_layout = gen_ffi_layout(&func.return_type);
         let param_layouts: Vec<String> = func.params.iter().map(|p| gen_ffi_layout(&p.ty)).collect();
 
         let layout_str = gen_function_descriptor(&return_layout, &param_layouts);
-
-        let handle_name = format!("{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
 
         writeln!(
             body,
@@ -436,8 +460,8 @@ pub(crate) fn gen_native_lib(
         writeln!(body, "    );").ok();
     }
 
-    // Track emitted free handles to avoid duplicates (a type may appear both as
-    // a function return type AND as an opaque type).
+    // Track emitted handles to avoid duplicates (a type may appear both as
+    // a function return type AND as an opaque type, or as both return and parameter type).
     let mut emitted_free_handles: AHashSet<String> = AHashSet::new();
     // Same dedup for `_to_json` handles — when multiple functions return the
     // same Named type we'd otherwise emit the constant twice.
@@ -596,8 +620,64 @@ pub(crate) fn gen_native_lib(
         }
     }
 
+    // Trait bridge register/unregister FFI handles (de-duplicated with function-related handles)
+    let mut emitted_register_handles: AHashSet<String> = AHashSet::new();
+    let mut emitted_unregister_handles: AHashSet<String> = AHashSet::new();
+
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg
+            .exclude_languages
+            .contains(&alef_core::config::Language::Java.to_string())
+        {
+            continue;
+        }
+
+        let trait_snake = bridge_cfg.trait_name.to_snake_case();
+        let trait_upper = trait_snake.to_uppercase();
+
+        // Register handle
+        let register_handle_name = format!("{}_REGISTER_{}", prefix.to_uppercase(), trait_upper);
+        let register_ffi_name = format!("{}_register_{}", prefix, trait_snake);
+        if emitted_register_handles.insert(register_handle_name.clone()) {
+            writeln!(body).ok();
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LINKER.downcallHandle(",
+                register_handle_name
+            )
+            .ok();
+            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", register_ffi_name).ok();
+            writeln!(
+                body,
+                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+            )
+            .ok();
+            writeln!(body, "    );").ok();
+        }
+
+        // Unregister handle
+        let unregister_handle_name = format!("{}_UNREGISTER_{}", prefix.to_uppercase(), trait_upper);
+        let unregister_ffi_name = format!("{}_unregister_{}", prefix, trait_snake);
+        if emitted_unregister_handles.insert(unregister_handle_name.clone()) {
+            writeln!(body).ok();
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LINKER.downcallHandle(",
+                unregister_handle_name
+            )
+            .ok();
+            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", unregister_ffi_name).ok();
+            writeln!(
+                body,
+                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+            )
+            .ok();
+            writeln!(body, "    );").ok();
+        }
+    }
+
     // Inject visitor FFI method handles when a trait bridge is configured.
-    if has_visitor_bridge {
+    if has_visitor_pattern {
         body.push_str(&crate::gen_visitor::gen_native_lib_visitor_handles(prefix));
     }
 

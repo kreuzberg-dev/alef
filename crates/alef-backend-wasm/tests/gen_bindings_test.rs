@@ -101,6 +101,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -167,6 +169,7 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Fast".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Fast mode".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -174,6 +177,7 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Accurate".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Accurate mode".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -303,6 +307,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Low".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Low level".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -310,6 +315,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Medium".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Medium level".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -317,6 +323,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "High".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "High level".to_string(),
                     is_default: false,
                     serde_rename: None,

@@ -80,6 +80,8 @@ fn make_config_with_extension(extension_name: &str) -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -176,6 +178,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -256,6 +260,7 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "Tesseract".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Tesseract OCR".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -263,6 +268,7 @@ fn test_basic_generation() {
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "PaddleOCR backend".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -394,6 +400,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Pending".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Pending status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -401,6 +408,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Active".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Active status".to_string(),
                     is_default: false,
                     serde_rename: None,
@@ -408,6 +416,7 @@ fn test_enum_generation() {
                 EnumVariant {
                     name: "Inactive".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: "Inactive status".to_string(),
                     is_default: false,
                     serde_rename: None,

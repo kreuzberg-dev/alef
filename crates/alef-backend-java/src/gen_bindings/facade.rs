@@ -16,7 +16,6 @@ pub(crate) fn gen_facade_class(
     _prefix: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    has_visitor_bridge: bool,
 ) -> String {
     let mut body = String::with_capacity(4096);
 
@@ -137,14 +136,31 @@ pub(crate) fn gen_facade_class(
             .ok();
 
             // Build call to raw class: bridge params are excluded (stripped from raw
-            // class signature), optional params passed as null.
+            // class signature), optional params passed as default values or null.
             let full_args: Vec<String> = func
                 .params
                 .iter()
                 .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
                 .map(|p| {
                     if p.optional {
-                        "null".to_string()
+                        match &p.ty {
+                            TypeRef::Primitive(prim) => match prim {
+                                alef_core::ir::PrimitiveType::I8 => "0".to_string(),
+                                alef_core::ir::PrimitiveType::I16 => "0".to_string(),
+                                alef_core::ir::PrimitiveType::I32 => "0".to_string(),
+                                alef_core::ir::PrimitiveType::I64 => "0L".to_string(),
+                                alef_core::ir::PrimitiveType::Isize => "0L".to_string(),
+                                alef_core::ir::PrimitiveType::U8 => "0".to_string(),
+                                alef_core::ir::PrimitiveType::U16 => "0".to_string(),
+                                alef_core::ir::PrimitiveType::U32 => "0".to_string(),
+                                alef_core::ir::PrimitiveType::U64 => "0L".to_string(),
+                                alef_core::ir::PrimitiveType::Usize => "0L".to_string(),
+                                alef_core::ir::PrimitiveType::F32 => "0.0f".to_string(),
+                                alef_core::ir::PrimitiveType::F64 => "0.0".to_string(),
+                                alef_core::ir::PrimitiveType::Bool => "false".to_string(),
+                            },
+                            _ => "null".to_string(),
+                        }
                     } else {
                         to_java_name(&p.name)
                     }
@@ -174,31 +190,6 @@ pub(crate) fn gen_facade_class(
             writeln!(body, "    }}").ok();
             writeln!(body).ok();
         }
-    }
-
-    // Expose convertWithVisitor in the public facade when visitor bridge is configured.
-    if has_visitor_bridge {
-        writeln!(body, "    /**").ok();
-        writeln!(
-            body,
-            "     * Convert HTML to Markdown, invoking visitor callbacks during processing."
-        )
-        .ok();
-        writeln!(body, "     */").ok();
-        writeln!(
-            body,
-            "    public static ConversionResult convertWithVisitor(String html, ConversionOptions options, Visitor visitor)"
-        )
-        .ok();
-        writeln!(body, "            throws {}Exception {{", raw_class).ok();
-        writeln!(
-            body,
-            "        return {}.convertWithVisitor(html, options, visitor);",
-            raw_class
-        )
-        .ok();
-        writeln!(body, "    }}").ok();
-        writeln!(body).ok();
     }
 
     writeln!(body, "}}").ok();

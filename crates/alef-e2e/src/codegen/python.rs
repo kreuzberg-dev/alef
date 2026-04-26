@@ -563,7 +563,8 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
             .as_ref()
             .and_then(|s| s.reason.as_deref())
             .unwrap_or("skipped for python");
-        let _ = writeln!(out, "@pytest.mark.skip(reason=\"{reason}\")");
+        let escaped = escape_python(reason);
+        let _ = writeln!(out, "@pytest.mark.skip(reason=\"{escaped}\")");
     }
 
     let _ = writeln!(out, "def test_{fn_name}(client) -> None:");
@@ -731,7 +732,8 @@ fn render_test_function(
             .as_ref()
             .and_then(|s| s.reason.as_deref())
             .unwrap_or("skipped for python");
-        let _ = writeln!(out, "@pytest.mark.skip(reason=\"{reason}\")");
+        let escaped = escape_python(reason);
+        let _ = writeln!(out, "@pytest.mark.skip(reason=\"{escaped}\")");
     }
 
     let is_async = call_config.r#async;

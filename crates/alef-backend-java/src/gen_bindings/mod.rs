@@ -11,6 +11,7 @@ mod ffi_class;
 mod helpers;
 mod marshal;
 mod native_lib;
+mod trait_bridge;
 mod types;
 
 use facade::gen_facade_class;
@@ -69,7 +70,13 @@ impl Backend for JavaBackend {
             "packages/java/src/main/java/",
         );
 
-        let base_path = PathBuf::from(&output_dir).join(&package_path);
+        // If output_dir already ends with the package path (user configured the full path),
+        // use it as-is. Otherwise, append the package path.
+        let base_path = if output_dir.ends_with(&package_path) || output_dir.ends_with(&format!("{}/", package_path)) {
+            PathBuf::from(&output_dir)
+        } else {
+            PathBuf::from(&output_dir).join(&package_path)
+        };
 
         // Collect bridge param names and type aliases so we can strip them from generated
         // function signatures and emit convertWithVisitor instead.
@@ -83,10 +90,8 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        let has_visitor_bridge = config
-            .trait_bridges
-            .iter()
-            .any(|b| b.trait_name == "Visitor" || b.type_alias.as_deref() == Some("VisitorHandle"));
+        // Only generate visitor support if visitor_callbacks is explicitly enabled in FFI config
+        let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
         let mut files = Vec::new();
 
@@ -109,7 +114,7 @@ impl Backend for JavaBackend {
         // 1. NativeLib.java - FFI method handles
         files.push(GeneratedFile {
             path: base_path.join("NativeLib.java"),
-            content: gen_native_lib(api, config, &package, &prefix, has_visitor_bridge),
+            content: gen_native_lib(api, config, &package, &prefix, has_visitor_pattern),
             generated_header: true,
         });
 
@@ -124,7 +129,7 @@ impl Backend for JavaBackend {
                 &prefix,
                 &bridge_param_names,
                 &bridge_type_aliases,
-                has_visitor_bridge,
+                has_visitor_pattern,
             ),
             generated_header: true,
         });
@@ -153,7 +158,7 @@ impl Backend for JavaBackend {
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if !typ.is_opaque && !typ.fields.is_empty() {
                 // Skip types that gen_visitor handles with richer visitor-specific versions
-                if has_visitor_bridge && (typ.name == "NodeContext" || typ.name == "VisitResult") {
+                if has_visitor_pattern && (typ.name == "NodeContext" || typ.name == "VisitResult") {
                     continue;
                 }
                 files.push(GeneratedFile {
@@ -195,7 +200,7 @@ impl Backend for JavaBackend {
         // 5. Enums
         for enum_def in &api.enums {
             // Skip enums that gen_visitor handles with richer visitor-specific versions
-            if has_visitor_bridge && enum_def.name == "VisitResult" {
+            if has_visitor_pattern && enum_def.name == "VisitResult" {
                 continue;
             }
             files.push(GeneratedFile {
@@ -216,13 +221,41 @@ impl Backend for JavaBackend {
             }
         }
 
-        // 7. Visitor support files (when a trait bridge is configured)
-        if has_visitor_bridge {
+        // 7. Visitor support files (only when ConversionOptions/ConversionResult types exist)
+        if has_visitor_pattern {
             for (filename, content) in crate::gen_visitor::gen_visitor_files(&package, &main_class) {
                 files.push(GeneratedFile {
                     path: base_path.join(filename),
                     content,
                     generated_header: false, // already has header comment
+                });
+            }
+        }
+
+        // 8. Trait bridge plugin registration files
+        // Emits two files per trait: I{Trait}.java (managed interface) and
+        // {Trait}Bridge.java (Panama upcall stubs + register/unregister helpers).
+        for bridge_cfg in &config.trait_bridges {
+            if bridge_cfg.exclude_languages.contains(&Language::Java.to_string()) {
+                continue;
+            }
+
+            if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
+                let has_super_trait = bridge_cfg.super_trait.is_some();
+                let trait_bridge::BridgeFiles {
+                    interface_content,
+                    bridge_content,
+                } = trait_bridge::gen_trait_bridge_files(trait_def, &prefix, &package, has_super_trait);
+
+                files.push(GeneratedFile {
+                    path: base_path.join(format!("I{}.java", trait_def.name)),
+                    content: interface_content,
+                    generated_header: true,
+                });
+                files.push(GeneratedFile {
+                    path: base_path.join(format!("{}Bridge.java", trait_def.name)),
+                    content: bridge_content,
+                    generated_header: true,
                 });
             }
         }
@@ -245,7 +278,13 @@ impl Backend for JavaBackend {
             "packages/java/src/main/java/",
         );
 
-        let base_path = PathBuf::from(&output_dir).join(&package_path);
+        // If output_dir already ends with the package path (user configured the full path),
+        // use it as-is. Otherwise, append the package path.
+        let base_path = if output_dir.ends_with(&package_path) || output_dir.ends_with(&format!("{}/", package_path)) {
+            PathBuf::from(&output_dir)
+        } else {
+            PathBuf::from(&output_dir).join(&package_path)
+        };
 
         // Collect bridge param names/aliases to strip from the public facade.
         let bridge_param_names: HashSet<String> = config
@@ -258,10 +297,6 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
-        let has_visitor_bridge = config
-            .trait_bridges
-            .iter()
-            .any(|b| b.trait_name == "Visitor" || b.type_alias.as_deref() == Some("VisitorHandle"));
 
         // Generate a high-level public API class that wraps the raw FFI class.
         // Class name = main_class without "Rs" suffix (e.g., HtmlToMarkdownRs -> HtmlToMarkdown)
@@ -274,7 +309,6 @@ impl Backend for JavaBackend {
             &prefix,
             &bridge_param_names,
             &bridge_type_aliases,
-            has_visitor_bridge,
         );
 
         Ok(vec![GeneratedFile {

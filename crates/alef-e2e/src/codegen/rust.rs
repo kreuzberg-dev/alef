@@ -164,7 +164,7 @@ fn is_skipped(fixture: &Fixture, language: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
-fn render_cargo_toml(
+pub fn render_cargo_toml(
     crate_name: &str,
     dep_name: &str,
     crate_path: &str,
@@ -207,14 +207,9 @@ fn render_cargo_toml(
         }
     };
     let serde_line = if needs_serde_json { "\nserde_json = \"1\"" } else { "" };
-    // In registry mode the generated Cargo.toml is a standalone project, so add
-    // an empty [workspace] table to opt out of parent workspace discovery.
-    // In local mode the e2e crate is typically listed as a workspace member of
-    // the parent project, so adding [workspace] would create a conflicting
-    // second workspace root — omit it.
-    // Always add [workspace] — both registry and local e2e crates are standalone
-    // projects that must not inherit the parent workspace.
-    let workspace_section = "\n[workspace]\n";
+    // [workspace] is intentionally omitted: the parent Cargo.toml is expected to
+    // exclude e2e/rust (consumers must add it to their workspace `exclude` array),
+    // and adding [workspace] here would create a conflicting second workspace root.
     // Mock server requires axum (HTTP router) and tokio-stream (SSE streaming).
     // The standalone binary additionally needs serde (derive) and walkdir.
     let mock_lines = if needs_mock_server {
@@ -257,7 +252,7 @@ fn render_cargo_toml(
     };
     let header = hash::header(CommentStyle::Hash);
     format!(
-        r#"{header}{workspace_section}
+        r#"{header}
 [package]
 name = "{e2e_name}"
 version = "0.1.0"

@@ -70,6 +70,9 @@ pub mod cargo {
     // renovate: datasource=crate depName=rustler
     pub const RUSTLER: &str = "0.37";
 
+    // renovate: datasource=crate depName=async-trait
+    pub const ASYNC_TRAIT: &str = "0.1";
+
     // renovate: datasource=crate depName=extendr-api
     pub const EXTENDR_API: &str = "0.7";
 
@@ -352,5 +355,5 @@ pub mod precommit {
     pub const TYPOS_REV: &str = "v0.7.10";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.7.10";
+    pub const ALEF_REV: &str = "v0.7.11";
 }

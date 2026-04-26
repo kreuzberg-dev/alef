@@ -13,6 +13,49 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Run a shell command with an optional timeout.
+///
+/// If `timeout_secs` is `Some(n)`, kills the child process after `n` seconds and
+/// returns a "timed out" error. Otherwise behaves identically to
+/// [`run_command_captured`].
+pub(crate) fn run_command_captured_with_timeout(
+    cmd: &str,
+    timeout_secs: Option<u64>,
+) -> anyhow::Result<(String, String)> {
+    let Some(secs) = timeout_secs else {
+        return run_command_captured(cmd);
+    };
+    info!("Running (timeout {secs}s): {cmd}");
+    let mut child = std::process::Command::new("sh")
+        .args(["-c", cmd])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to spawn: {cmd}"))?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    loop {
+        match child.try_wait()? {
+            Some(status) => {
+                let output = child.wait_with_output()?;
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                if !status.success() {
+                    anyhow::bail!("Command failed: {cmd}\n{stderr}");
+                }
+                return Ok((stdout, stderr));
+            }
+            None => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    anyhow::bail!("Command timed out after {secs}s: {cmd}");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
+}
+
 /// Run a shell command, capturing stdout and stderr.
 ///
 /// Returns the captured output on success.  On failure the error includes
@@ -304,5 +347,32 @@ mod tests {
             toml::from_str(&config_str).expect("generated config should parse as valid AlefConfig");
         assert_eq!(config.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(config.crate_config.name, "my-lib");
+    }
+
+    #[test]
+    fn run_command_captured_with_timeout_succeeds_within_limit() {
+        // A command that completes quickly should succeed even with a timeout
+        let result = run_command_captured_with_timeout("echo hello", Some(5));
+        assert!(result.is_ok(), "Quick command should succeed with timeout");
+        let (stdout, _) = result.unwrap();
+        assert!(stdout.contains("hello"), "Command output should be captured");
+    }
+
+    #[test]
+    fn run_command_captured_with_timeout_kills_on_timeout() {
+        // A command that takes longer than the timeout should fail
+        let result = run_command_captured_with_timeout("sleep 5", Some(1));
+        assert!(result.is_err(), "Command that exceeds timeout should return error");
+        let err_msg = format!("{:?}", result);
+        assert!(err_msg.contains("timed out"), "Error should mention timeout");
+    }
+
+    #[test]
+    fn run_command_captured_without_timeout() {
+        // Commands without a timeout should work as before
+        let result = run_command_captured_with_timeout("echo test", None);
+        assert!(result.is_ok(), "Command without timeout should succeed");
+        let (stdout, _) = result.unwrap();
+        assert!(stdout.contains("test"), "Command output should be captured");
     }
 }

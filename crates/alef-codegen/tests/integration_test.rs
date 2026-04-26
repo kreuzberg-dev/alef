@@ -147,6 +147,7 @@ fn simple_enum_def() -> EnumDef {
             EnumVariant {
                 name: "Json".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: true,
                 serde_rename: None,
@@ -154,6 +155,7 @@ fn simple_enum_def() -> EnumDef {
             EnumVariant {
                 name: "Csv".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
@@ -161,6 +163,7 @@ fn simple_enum_def() -> EnumDef {
             EnumVariant {
                 name: "Plain".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
@@ -2277,6 +2280,7 @@ fn test_enum_has_data_variants_true_when_fields_present() {
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
             }],
+            is_tuple: false,
             doc: String::new(),
             is_default: false,
             serde_rename: None,
@@ -2301,6 +2305,7 @@ fn test_gen_enum_with_single_variant_uses_discriminant_zero() {
         variants: vec![EnumVariant {
             name: "Only".to_string(),
             fields: vec![],
+            is_tuple: false,
             doc: String::new(),
             is_default: true,
             serde_rename: None,
@@ -2355,6 +2360,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
             EnumVariant {
                 name: "Active".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: true,
                 serde_rename: None,
@@ -2362,6 +2368,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
             EnumVariant {
                 name: "Inactive".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
@@ -2369,6 +2376,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
             EnumVariant {
                 name: "Pending".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
@@ -2376,6 +2384,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
             EnumVariant {
                 name: "Deleted".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
@@ -2408,6 +2417,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
             EnumVariant {
                 name: "None".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: true,
                 serde_rename: None,
@@ -2415,6 +2425,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
             EnumVariant {
                 name: "True".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
@@ -2422,6 +2433,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
             EnumVariant {
                 name: "Normal".to_string(),
                 fields: vec![],
+                is_tuple: false,
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
@@ -2461,6 +2473,7 @@ fn test_gen_enum_without_pyclass_does_not_rename_python_keywords() {
         variants: vec![EnumVariant {
             name: "None".to_string(),
             fields: vec![],
+            is_tuple: false,
             doc: String::new(),
             is_default: true,
             serde_rename: None,

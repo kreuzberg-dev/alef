@@ -75,6 +75,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
+            is_tuple: false,
             })
             .collect(),
         doc: String::new(),
@@ -143,6 +144,8 @@ fn make_config() -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+    format: ::alef_core::config::FormatConfig::default(),
+    format_overrides: ::std::collections::HashMap::new(),
     }
 }
 

@@ -71,6 +71,8 @@ fn make_config(app_name: &str) -> AlefConfig {
         e2e: None,
         trait_bridges: vec![],
         tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
         custom_files: None,
         adapters: vec![],
         custom_modules: alef_core::config::CustomModulesConfig::default(),
@@ -241,6 +243,7 @@ fn test_generate_public_api_creates_all_files() {
                 EnumVariant {
                     name: "Setext".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: true,
                     serde_rename: None,
@@ -248,6 +251,7 @@ fn test_generate_public_api_creates_all_files() {
                 EnumVariant {
                     name: "Atx".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
@@ -450,6 +454,7 @@ fn test_struct_module_has_defstruct() {
                 EnumVariant {
                     name: "Setext".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: true,
                     serde_rename: None,
@@ -457,6 +462,7 @@ fn test_struct_module_has_defstruct() {
                 EnumVariant {
                     name: "Atx".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
@@ -641,6 +647,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
                 EnumVariant {
                     name: "Setext".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: true,
                     serde_rename: None,
@@ -648,6 +655,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
                 EnumVariant {
                     name: "Atx".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,

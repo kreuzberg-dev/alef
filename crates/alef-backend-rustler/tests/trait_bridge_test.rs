@@ -121,8 +121,8 @@ fn test_plugin_bridge_generates_wrapper_struct() {
         "plugin bridge must generate RustlerOcrBackendBridge wrapper struct"
     );
     assert!(
-        code.code.contains("inner: rustler::env::SavedTerm"),
-        "wrapper struct must hold a rustler::env::SavedTerm"
+        code.code.contains("inner: rustler::LocalPid") || code.code.contains("pid: rustler::LocalPid"),
+        "wrapper struct must hold a rustler::LocalPid for message passing"
     );
     assert!(
         code.code.contains("cached_name: String"),
@@ -166,8 +166,8 @@ fn test_plugin_bridge_sync_method_uses_owned_env_and_map_get() {
         "sync method body must reference the method name 'analyze'"
     );
     assert!(
-        code.code.contains("map_get") || code.code.contains("self.env.run"),
-        "sync method body must dispatch via OwnedEnv or map_get"
+        code.code.contains("OwnedEnv::new()") || code.code.contains("send_and_clear"),
+        "sync method body must dispatch via OwnedEnv and send_and_clear to the GenServer"
     );
 }
 
@@ -252,8 +252,8 @@ fn test_plugin_bridge_constructor_caches_name() {
         "constructor must populate cached_name"
     );
     assert!(
-        code.code.contains("OwnedEnv") || code.code.contains("owned"),
-        "constructor must create an OwnedEnv to extend term lifetime"
+        code.code.contains("LocalPid") || code.code.contains("plugin_name"),
+        "constructor must accept a LocalPid and plugin_name for message passing"
     );
 }
 
@@ -359,5 +359,51 @@ fn test_visitor_bridge_holds_owned_env_and_saved_term() {
     assert!(
         code.code.contains("rustler::env::SavedTerm"),
         "visitor bridge struct must hold a rustler::env::SavedTerm"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Plugin bridge: Send + Sync compliance
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_plugin_bridge_struct_does_not_hold_owned_env() {
+    let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
+    let cfg = make_plugin_bridge_cfg("OcrBackend");
+    let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+
+    // The struct definition should NOT contain an 'env:' field that holds OwnedEnv.
+    // Only 'inner: SavedTerm' and 'cached_name: String', both of which are Send + Sync.
+    let struct_section = output
+        .code
+        .split("pub struct RustlerOcrBackendBridge")
+        .nth(1)
+        .and_then(|s| s.split("}").next())
+        .unwrap_or("");
+
+    // Check that there's no field named "env:" (but "rustler::env::" in the type is OK)
+    let has_env_field = struct_section.lines().any(|line| line.trim().starts_with("env:"));
+
+    assert!(
+        !has_env_field,
+        "plugin bridge struct must not hold an OwnedEnv field to ensure Send + Sync"
+    );
+}
+
+#[test]
+fn test_plugin_bridge_sync_method_creates_owned_env_locally() {
+    let trait_def = make_trait_def("Analyzer", vec![make_method("analyze", TypeRef::String, true, false)]);
+    let cfg = make_plugin_bridge_cfg("Analyzer");
+    let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api());
+
+    // Sync method body should create a fresh OwnedEnv locally, not access self.env.
+    let method_impl = output.code.split("fn analyze(").nth(1).unwrap_or("");
+    assert!(
+        method_impl.contains("let mut env = rustler::OwnedEnv::new()"),
+        "sync method must create OwnedEnv locally for thread-safe dispatch"
+    );
+    assert!(
+        !method_impl.contains("self.env.run"),
+        "sync method must not use self.env (which doesn't exist)"
     );
 }

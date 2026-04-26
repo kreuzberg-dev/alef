@@ -66,7 +66,12 @@ pub(crate) fn marshal_param_to_ffi(
         TypeRef::Path => {
             // Arena.allocateFrom takes a CharSequence; java.nio.file.Path is not one.
             let cname = "c".to_string() + name;
-            writeln!(out, "            var {} = arena.allocateFrom({}.toString());", cname, name).ok();
+            writeln!(
+                out,
+                "            var {} = arena.allocateFrom({}.toString());",
+                cname, name
+            )
+            .ok();
         }
         TypeRef::Named(type_name) => {
             let cname = "c".to_string() + name;

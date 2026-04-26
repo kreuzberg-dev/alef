@@ -7,15 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.11] - 2026-04-26
+
 ### Changed
 
 - **E2E**: bump pinned `vitest` in generated TypeScript and WASM `package.json` from `^3.0.0` to `^4.1.5`, matching the version dependabot already pulls into the alef repo's own e2e lockfile.
 - **Codegen/Scaffold**: all hardcoded third-party dependency version strings used in scaffold and e2e templates are centralized in `alef_core::template_versions` (110 constants grouped by ecosystem: npm, cargo, maven, gem, packagist, nuget, hex, pypi, cran, precommit). Each const that should auto-bump is annotated with a `// renovate: datasource=...` marker, and a new `renovate.json` at the repo root wires up the custom regex manager so Renovate can open version-bump PRs. Pure refactor — no value changes.
+- **Tooling**: `task set-version` now targets the centralized `ALEF_REV` constant in `crates/alef-core/src/template_versions.rs` instead of the stale path in `precommit.rs`.
 
 ### Fixed
 
 - **Update**: `alef update --latest` no longer hangs when Node and Wasm are both configured. Commands shared across multiple language default configs (e.g. `pnpm up --latest -r -w`) are now deduplicated — only the first language claiming a command runs it, preventing pnpm lockfile races under parallel execution.
 - **Update**: R `upgrade` command now passes `ask = FALSE` to `remotes::update_packages()`, preventing an interactive prompt that blocked the non-interactive runner.
+- **E2E (Python)**: skip-reason strings on generated `@pytest.mark.skip` decorators are now escaped before interpolation, so reasons containing quotes or backslashes no longer produce syntactically invalid Python test files.
 
 ### Removed
 
