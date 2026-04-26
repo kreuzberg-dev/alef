@@ -769,7 +769,9 @@ fn test_scaffold_swift() {
     let all_files = scaffold(&api, &config, &[Language::Swift]).unwrap();
     let files = language_files(&all_files);
     // Package.swift + .gitignore + Tests/MyLibTests/MyLibTests.swift
-    assert_eq!(files.len(), 3);
+    // + Sources/RustBridge/RustBridge.h + Sources/RustBridge/module.modulemap
+    // + Sources/RustBridge/RustBridge.swift + BUILDING.md
+    assert_eq!(files.len(), 7);
 
     let package_swift = &files[0];
     assert_eq!(package_swift.path, PathBuf::from("packages/swift/Package.swift"));
@@ -804,9 +806,68 @@ fn test_scaffold_swift() {
         "got: {}",
         package_swift.content
     );
+    // Must declare RustBridge target
+    assert!(
+        package_swift.content.contains("\"RustBridge\""),
+        "Package.swift must declare RustBridge target; got: {}",
+        package_swift.content
+    );
+    // RustBridge must link the static library
+    assert!(
+        package_swift.content.contains("linkedLibrary(\"my_lib_swift\")"),
+        "Package.swift must link my_lib_swift; got: {}",
+        package_swift.content
+    );
 
     let gitignore = &files[1];
     assert_eq!(gitignore.path, PathBuf::from("packages/swift/.gitignore"));
     assert!(gitignore.content.contains(".build/"), "got: {}", gitignore.content);
     assert!(gitignore.content.contains(".swiftpm/"), "got: {}", gitignore.content);
+
+    // RustBridge placeholder header
+    let header = files.iter().find(|f| f.path.ends_with("RustBridge.h")).unwrap();
+    assert!(
+        header.content.contains("#ifndef RUST_BRIDGE_H"),
+        "got: {}",
+        header.content
+    );
+
+    // module.modulemap exposes C header
+    let modulemap = files.iter().find(|f| f.path.ends_with("module.modulemap")).unwrap();
+    assert!(
+        modulemap.content.contains("module RustBridge"),
+        "got: {}",
+        modulemap.content
+    );
+    assert!(
+        modulemap.content.contains("header \"RustBridge.h\""),
+        "got: {}",
+        modulemap.content
+    );
+
+    // RustBridge placeholder Swift source
+    let rust_bridge_swift = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/Sources/RustBridge/RustBridge.swift"))
+        .unwrap();
+    assert!(
+        !rust_bridge_swift.content.is_empty(),
+        "RustBridge.swift must not be empty"
+    );
+
+    // BUILDING.md documents the cargo-then-copy workflow
+    let building = files
+        .iter()
+        .find(|f| f.path == PathBuf::from("packages/swift/BUILDING.md"))
+        .unwrap();
+    assert!(
+        building.content.contains("cargo build"),
+        "BUILDING.md must mention cargo build; got: {}",
+        building.content
+    );
+    assert!(
+        building.content.contains("Sources/RustBridge"),
+        "BUILDING.md must mention copy destination; got: {}",
+        building.content
+    );
 }
