@@ -1,8 +1,9 @@
 use alef_backend_dart::DartBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig};
+use alef_core::config::{AlefConfig, CrateConfig, TraitBridgeConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
+    ReceiverKind, TypeDef, TypeRef,
 };
 use alef_core::template_versions::cargo as tv;
 
@@ -403,4 +404,156 @@ fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
 
     let has_dart = files.iter().any(|f| f.path.to_string_lossy().ends_with(".dart") && !f.path.to_string_lossy().contains("rust/"));
     assert!(has_dart, "missing Dart wrapper file");
+}
+
+fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async: bool) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: rust_path.to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: true,
+        is_clone: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    }
+}
+
+fn make_config_with_bridge(bridge_trait_name: &str) -> AlefConfig {
+    let mut config = make_config();
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: bridge_trait_name.to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+    }];
+    config
+}
+
+/// A trait with a single synchronous unit-returning method should produce an opaque struct,
+/// a trait impl that block_on's the DartFnFuture callback, and a factory function.
+#[test]
+fn lib_rs_emits_frb_trait_bridge_for_sync_method_trait() {
+    let trait_def = make_trait(
+        "Validator",
+        "demo_crate::Validator",
+        vec![make_method(
+            "validate",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+    let config = make_config_with_bridge("Validator");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Opaque struct with DartFnFuture callback field
+    assert!(lib.contains("#[frb(opaque)]"), "missing #[frb(opaque)]: {lib}");
+    assert!(lib.contains("pub struct ValidatorDartImpl"), "missing opaque struct: {lib}");
+    assert!(lib.contains("DartFnFuture"), "missing DartFnFuture callback type: {lib}");
+    assert!(lib.contains("validate:"), "missing validate field: {lib}");
+
+    // Trait impl block
+    assert!(
+        lib.contains("impl demo_crate::Validator for ValidatorDartImpl"),
+        "missing trait impl: {lib}"
+    );
+    assert!(lib.contains("fn validate("), "missing validate method: {lib}");
+    assert!(lib.contains("block_on"), "missing block_on for async bridging: {lib}");
+
+    // Factory function
+    assert!(lib.contains("pub fn create_validator_dart_impl("), "missing factory fn: {lib}");
+
+    // Trait defs should NOT be emitted as mirror structs
+    assert!(
+        !lib.contains("#[frb(mirror(Validator))]"),
+        "trait should not be emitted as mirror struct: {lib}"
+    );
+}
+
+/// A trait with an async method should still produce the same structure (async-to-sync via block_on).
+#[test]
+fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
+    let trait_def = make_trait(
+        "OcrBackend",
+        "demo_crate::OcrBackend",
+        vec![make_method(
+            "extract_text",
+            vec![make_param("data", TypeRef::Bytes)],
+            TypeRef::String,
+            true, // async method
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+    let config = make_config_with_bridge("OcrBackend");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    // Opaque struct
+    assert!(lib.contains("#[frb(opaque)]"), "missing #[frb(opaque)]: {lib}");
+    assert!(lib.contains("pub struct OcrBackendDartImpl"), "missing opaque struct: {lib}");
+    assert!(lib.contains("flutter_rust_bridge::DartFnFuture<String>"), "missing DartFnFuture<String>: {lib}");
+    assert!(lib.contains("extract_text:"), "missing extract_text field: {lib}");
+
+    // Factory function exists
+    assert!(
+        lib.contains("pub fn create_ocr_backend_dart_impl("),
+        "missing factory fn: {lib}"
+    );
+
+    // Trait impl uses async_trait and awaits the DartFnFuture directly in async fn
+    assert!(
+        lib.contains("impl demo_crate::OcrBackend for OcrBackendDartImpl"),
+        "missing trait impl: {lib}"
+    );
+    assert!(lib.contains("#[async_trait::async_trait]"), "async trait must use async_trait macro: {lib}");
+    assert!(lib.contains(".await"), "async method must await the DartFnFuture: {lib}");
+    assert!(lib.contains("fn extract_text("), "missing extract_text impl: {lib}");
 }

@@ -1,8 +1,8 @@
 use alef_backend_swift::gen_rust_crate;
-use alef_core::config::{AlefConfig, CrateConfig};
+use alef_core::config::{AlefConfig, CrateConfig, TraitBridgeConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef,
-    TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
+    ReceiverKind, TypeDef, TypeRef,
 };
 use alef_core::template_versions;
 
@@ -616,6 +616,186 @@ fn lib_rs_enum_extern_block_and_wrapper() {
     assert!(
         lib.content.contains("pub enum Status {"),
         "lib.rs missing Status wrapper enum: {}",
+        lib.content
+    );
+}
+
+// ── trait bridge tests ────────────────────────────────────────────────────────
+
+fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async: bool, error_type: Option<&str>) -> MethodDef {
+    MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async,
+        is_static: false,
+        error_type: error_type.map(|s| s.to_string()),
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    }
+}
+
+fn make_trait_type(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: rust_path.to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: false,
+        is_clone: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    }
+}
+
+fn config_with_bridge(trait_name: &str) -> AlefConfig {
+    let mut cfg = make_config();
+    cfg.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+    }];
+    cfg
+}
+
+/// Test 1: a trait with only sync unit methods emits the correct extern block and wrapper.
+#[test]
+fn trait_bridge_sync_unit_methods_emits_box_type_and_trampolines() {
+    let trait_def = make_trait_type(
+        "Validator",
+        "demo::Validator",
+        vec![
+            make_method(
+                "validate",
+                vec![make_param("score", TypeRef::Primitive(PrimitiveType::F64))],
+                TypeRef::Primitive(PrimitiveType::Bool),
+                false,
+                None,
+            ),
+            make_method("priority", vec![], TypeRef::Primitive(PrimitiveType::I32), false, None),
+        ],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let cfg = config_with_bridge("Validator");
+    let files = gen_rust_crate::emit(&api, &cfg).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // The extern block must declare the opaque box type.
+    assert!(
+        lib.content.contains("type ValidatorBox;"),
+        "lib.rs missing ValidatorBox extern type: {}",
+        lib.content
+    );
+    // Trampoline functions must appear in the extern block.
+    assert!(
+        lib.content.contains("fn validator_call_validate("),
+        "lib.rs missing validator_call_validate trampoline: {}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("fn validator_call_priority("),
+        "lib.rs missing validator_call_priority trampoline: {}",
+        lib.content
+    );
+    // Wrapper struct must wrap Box<dyn Trait>.
+    assert!(
+        lib.content.contains("pub struct ValidatorBox(pub Box<dyn demo::Validator"),
+        "lib.rs missing ValidatorBox wrapper struct: {}",
+        lib.content
+    );
+    // Trampoline implementations must delegate to this.0.{method}.
+    assert!(
+        lib.content.contains("this.0.validate("),
+        "lib.rs trampoline not delegating to this.0.validate: {}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("this.0.priority("),
+        "lib.rs trampoline not delegating to this.0.priority: {}",
+        lib.content
+    );
+}
+
+/// Test 2: a trait with an async method emits a tokio block_on wrapper.
+#[test]
+fn trait_bridge_async_method_emits_block_on() {
+    let trait_def = make_trait_type(
+        "Processor",
+        "demo::Processor",
+        vec![make_method(
+            "run",
+            vec![make_param("input", TypeRef::String)],
+            TypeRef::String,
+            true,
+            Some("MyError"),
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let cfg = config_with_bridge("Processor");
+    let files = gen_rust_crate::emit(&api, &cfg).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // Extern block and wrapper struct.
+    assert!(
+        lib.content.contains("type ProcessorBox;"),
+        "lib.rs missing ProcessorBox extern type: {}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("pub struct ProcessorBox(pub Box<dyn demo::Processor"),
+        "lib.rs missing ProcessorBox wrapper struct: {}",
+        lib.content
+    );
+    // Async method trampoline must use tokio block_on.
+    assert!(
+        lib.content.contains("tokio::runtime::Builder"),
+        "async trait method trampoline must use tokio runtime: {}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains(".block_on("),
+        "async trait method trampoline must call block_on: {}",
+        lib.content
+    );
+    // Result-returning method must have map_err.
+    assert!(
+        lib.content.contains("map_err(|e| e.to_string())"),
+        "async Result trampoline must have map_err: {}",
         lib.content
     );
 }
