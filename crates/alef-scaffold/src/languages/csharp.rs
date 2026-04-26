@@ -59,7 +59,9 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
             // conflict with this one (CS0579 duplicate AssemblyAttribute).
             path: PathBuf::from(format!("packages/csharp/{0}/{0}.csproj", namespace)),
             content,
-            generated_header: true,
+            // Scaffold-once so consumers can extend metadata (deps, runtime
+            // configs, package metadata) without alef stomping on it.
+            generated_header: false,
         },
         GeneratedFile {
             path: PathBuf::from("packages/csharp/.editorconfig"),
