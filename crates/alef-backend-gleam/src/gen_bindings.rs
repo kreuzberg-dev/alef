@@ -34,15 +34,26 @@ impl Backend for GleamBackend {
         let module_name = gleam_module_name(&config.crate_config.name);
         let nif_module = config.gleam_nif_module();
 
+        let exclude_functions: std::collections::HashSet<&str> = config
+            .gleam
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        let exclude_types: std::collections::HashSet<&str> = config
+            .gleam
+            .as_ref()
+            .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+
         let mut imports: BTreeSet<&'static str> = BTreeSet::new();
         let mut body = String::new();
 
-        for ty in &api.types {
+        for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
             emit_type(ty, &mut body, &mut imports);
             body.push('\n');
         }
 
-        for en in &api.enums {
+        for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
             emit_enum(en, &mut body, &mut imports);
             body.push('\n');
         }
@@ -52,7 +63,7 @@ impl Backend for GleamBackend {
             body.push('\n');
         }
 
-        for f in &api.functions {
+        for f in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
             emit_function(f, &nif_module, &mut body, &mut imports);
             body.push('\n');
         }

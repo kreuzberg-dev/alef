@@ -70,18 +70,29 @@ fn emit_kotlin_source(api: &ApiSurface, config: &AlefConfig) -> String {
     let prefix = config.ffi_prefix();
     let crate_name = &config.crate_config.name;
 
+    let exclude_functions: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let exclude_types: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
     let mut imports: BTreeSet<String> = BTreeSet::new();
     imports.insert("import kotlinx.cinterop.*".to_string());
     imports.insert(format!("import {crate_name}.*"));
 
     let mut body = String::new();
 
-    for ty in &api.types {
+    for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
         emit_native_type(ty, &mut body);
         body.push('\n');
     }
 
-    for en in &api.enums {
+    for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
         emit_native_enum(en, &mut body);
         body.push('\n');
     }
@@ -91,9 +102,15 @@ fn emit_kotlin_source(api: &ApiSurface, config: &AlefConfig) -> String {
         body.push('\n');
     }
 
-    if !api.functions.is_empty() {
+    let visible_functions: Vec<&alef_core::ir::FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        .collect();
+
+    if !visible_functions.is_empty() {
         body.push_str(&format!("object {module_name} {{\n"));
-        for f in &api.functions {
+        for f in &visible_functions {
             emit_native_function(f, &prefix, &mut body);
             body.push('\n');
         }

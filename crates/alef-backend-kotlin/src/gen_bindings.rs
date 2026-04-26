@@ -55,15 +55,26 @@ fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
     let module_name = kotlin_module_name(&config.crate_config.name);
     let java_package = java_package(config);
 
+    let exclude_functions: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let exclude_types: std::collections::HashSet<&str> = config
+        .kotlin
+        .as_ref()
+        .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
 
-    for ty in &api.types {
+    for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
         emit_type_with_imports(ty, &mut body, &mut imports);
         body.push('\n');
     }
 
-    for en in &api.enums {
+    for en in api.enums.iter().filter(|e| !exclude_types.contains(e.name.as_str())) {
         emit_enum(en, &mut body);
         body.push('\n');
     }
@@ -73,18 +84,24 @@ fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
         body.push('\n');
     }
 
-    if !api.functions.is_empty() {
+    let visible_functions: Vec<&FunctionDef> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        .collect();
+
+    if !visible_functions.is_empty() {
         // Import the Java facade class with an alias so it does not collide with the
         // Kotlin object that wraps it (both share the PascalCase crate name).
         imports.insert(format!("import {java_package}.{module_name} as {BRIDGE_ALIAS}"));
-        if api.functions.iter().any(|f| f.is_async) {
+        if visible_functions.iter().any(|f| f.is_async) {
             imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
             imports.insert("import kotlinx.coroutines.future.await".to_string());
             imports.insert("import kotlinx.coroutines.withContext".to_string());
         }
 
         body.push_str(&format!("object {module_name} {{\n"));
-        for f in &api.functions {
+        for f in &visible_functions {
             emit_function(f, &mut body, &mut imports, &java_package);
             body.push('\n');
         }
