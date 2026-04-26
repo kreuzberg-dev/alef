@@ -51,9 +51,18 @@ impl Backend for KotlinBackend {
 }
 
 fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-    let package = kotlin_package(config);
-    let module_name = kotlin_module_name(&config.crate_config.name);
     let java_package = java_package(config);
+    let module_name = kotlin_module_name(&config.crate_config.name);
+    // If the user's Kotlin and Java packages collide on the same FQN as the
+    // generated module, the Kotlin object would shadow the Java facade class
+    // (both compile to `<package>/<module>.class`). Push the Kotlin code into
+    // a `.kt` sub-package in that case so the Java class remains importable.
+    let configured_kotlin_package = kotlin_package(config);
+    let package = if configured_kotlin_package == java_package {
+        format!("{configured_kotlin_package}.kt")
+    } else {
+        configured_kotlin_package
+    };
 
     let exclude_functions: std::collections::HashSet<&str> = config
         .kotlin
@@ -182,7 +191,7 @@ fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet
     out.push_str(&format!("data class {}(\n", ty.name));
     for (idx, field) in ty.fields.iter().enumerate() {
         let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
-        let name = to_lower_camel(&field.name);
+        let name = kotlin_field_name(&field.name, idx);
         let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
         out.push_str(&format!("    val {name}: {ty_str}{comma}\n"));
     }
@@ -215,11 +224,7 @@ fn emit_enum(en: &EnumDef, out: &mut String) {
                 out.push_str(&format!("    data class {}(\n", variant.name));
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let ty_str = kotlin_type(&f.ty, f.optional, &mut BTreeSet::new());
-                    let name = if f.name.is_empty() {
-                        format!("field{idx}")
-                    } else {
-                        to_lower_camel(&f.name)
-                    };
+                    let name = kotlin_field_name(&f.name, idx);
                     let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
                     out.push_str(&format!("        val {name}: {ty_str}{comma}\n"));
                 }
@@ -254,9 +259,12 @@ fn emit_error_type_with_imports(error: &alef_core::ir::ErrorDef, out: &mut Strin
             out.push_str(&format!("    data class {}(\n", variant.name));
             for (idx, f) in variant.fields.iter().enumerate() {
                 let ty_str = kotlin_type_with_string_imports(&f.ty, f.optional, imports);
-                let name = to_lower_camel(&f.name);
+                let name = kotlin_field_name(&f.name, idx);
+                // `message` on Throwable subclasses must be `override` because
+                // `kotlin.Throwable` declares `open val message: String?`.
+                let modifier = if name == "message" { "override " } else { "" };
                 let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                out.push_str(&format!("        val {name}: {ty_str}{comma}\n"));
+                out.push_str(&format!("        {modifier}val {name}: {ty_str}{comma}\n"));
             }
             let message_template = variant.message_template.as_deref().unwrap_or(&variant.name);
             out.push_str(&format!("    ) : {}(\"{message_template}\")\n", error.name));
@@ -414,6 +422,17 @@ pub(crate) fn to_lower_camel(name: &str) -> String {
         Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
         None => String::new(),
     }
+}
+
+/// Field-name resolution for Kotlin record-style data class params. IR
+/// positional fields use names like `_0`, `_1` which lowerCamelCase to `0`/`1`
+/// — invalid Kotlin identifiers. Map them to `field0`, `field1`, ...
+pub(crate) fn kotlin_field_name(raw: &str, idx: usize) -> String {
+    let stripped = raw.trim_start_matches('_');
+    if stripped.is_empty() || stripped.chars().all(|c| c.is_ascii_digit()) {
+        return format!("field{idx}");
+    }
+    to_lower_camel(raw)
 }
 
 pub(crate) fn to_screaming_snake(name: &str) -> String {

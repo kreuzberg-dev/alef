@@ -45,10 +45,31 @@ java {{
     targetCompatibility = JavaVersion.VERSION_{jvm_target}
 }}
 
+// Include the alef-emitted Java facade (sibling package) so the Kotlin object
+// can call into the JNA-loaded native bridge. The Kotlin backend places its
+// generated files in a sub-package (`<group>.kt`) to avoid colliding with the
+// Java facade that uses the canonical `<group>` package.
+sourceSets {{
+    main {{
+        java {{
+            srcDir("../java/src/main/java")
+        }}
+    }}
+}}
+
 kotlin {{
     compilerOptions {{
         jvmTarget.set(JvmTarget.JVM_{jvm_target})
     }}
+}}
+
+// JNA needs the native lib on java.library.path; default to the workspace
+// `target/release` cargo output. Override with `-Pkb.lib.path=<dir>`.
+tasks.withType<Test>().configureEach {{
+    val libPath = (project.findProperty("kb.lib.path") as String?) ?: "${{rootDir}}/../../target/release"
+    systemProperty("jna.library.path", libPath)
+    systemProperty("java.library.path", libPath)
+    useJUnit()
 }}
 
 publishing {{

@@ -13,7 +13,7 @@ use alef_core::template_versions;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use crate::gen_bindings::{to_lower_camel, to_pascal_case, to_screaming_snake};
+use crate::gen_bindings::{kotlin_field_name, to_lower_camel, to_pascal_case, to_screaming_snake};
 
 /// Emit all Kotlin/Native files for the given API surface.
 ///
@@ -144,7 +144,7 @@ fn emit_native_type(ty: &TypeDef, out: &mut String) {
     out.push_str(&format!("data class {}(\n", ty.name));
     for (idx, field) in ty.fields.iter().enumerate() {
         let ty_str = native_type_str(&field.ty, field.optional);
-        let name = to_lower_camel(&field.name);
+        let name = kotlin_field_name(&field.name, idx);
         let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
         out.push_str(&format!("    val {name}: {ty_str}{comma}\n"));
     }
@@ -177,11 +177,7 @@ fn emit_native_enum(en: &EnumDef, out: &mut String) {
                 out.push_str(&format!("    data class {}(\n", variant.name));
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let ty_str = native_type_str(&f.ty, f.optional);
-                    let name = if f.name.is_empty() {
-                        format!("field{idx}")
-                    } else {
-                        to_lower_camel(&f.name)
-                    };
+                    let name = kotlin_field_name(&f.name, idx);
                     let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
                     out.push_str(&format!("        val {name}: {ty_str}{comma}\n"));
                 }
@@ -216,9 +212,10 @@ fn emit_native_error(error: &ErrorDef, out: &mut String) {
             out.push_str(&format!("    data class {}(\n", variant.name));
             for (idx, f) in variant.fields.iter().enumerate() {
                 let ty_str = native_type_str(&f.ty, f.optional);
-                let name = to_lower_camel(&f.name);
+                let name = kotlin_field_name(&f.name, idx);
+                let modifier = if name == "message" { "override " } else { "" };
                 let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                out.push_str(&format!("        val {name}: {ty_str}{comma}\n"));
+                out.push_str(&format!("        {modifier}val {name}: {ty_str}{comma}\n"));
             }
             let message_template = variant.message_template.as_deref().unwrap_or(&variant.name);
             out.push_str(&format!("    ) : {}(\"{message_template}\")\n", error.name));
