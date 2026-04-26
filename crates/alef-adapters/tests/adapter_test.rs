@@ -53,6 +53,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
         java: None,
         kotlin: None,
         dart: None,
+        swift: None,
         csharp: None,
         r: None,
         zig: None,

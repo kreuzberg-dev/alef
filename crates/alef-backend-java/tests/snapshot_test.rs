@@ -311,6 +311,7 @@ fn print_generated_java_code() {
         }),
         kotlin: None,
         dart: None,
+        swift: None,
         csharp: None,
         r: None,
         zig: None,

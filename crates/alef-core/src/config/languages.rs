@@ -387,6 +387,25 @@ fn default_frb_version() -> String {
     "2.12.0".to_string()
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SwiftConfig {
+    /// Swift module name (e.g. `"MyLibrary"`). Defaults to PascalCase of the crate name.
+    #[serde(default)]
+    pub module_name: Option<String>,
+    /// Swift package name. Defaults to the module name.
+    #[serde(default)]
+    pub package_name: Option<String>,
+    /// swift-bridge version to use (e.g. `"0.1.59"`).
+    #[serde(default)]
+    pub swift_bridge_version: Option<String>,
+    /// Minimum macOS deployment target (e.g. `"13.0"`).
+    #[serde(default)]
+    pub min_macos_version: Option<String>,
+    /// Minimum iOS deployment target (e.g. `"16.0"`).
+    #[serde(default)]
+    pub min_ios_version: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GleamConfig {
     pub app_name: Option<String>,

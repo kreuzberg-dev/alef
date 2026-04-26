@@ -90,6 +90,7 @@ fn make_config_with_stubs() -> AlefConfig {
 
         kotlin: None,
         dart: None,
+        swift: None,
         csharp: None,
         r: None,
 
@@ -642,6 +643,7 @@ fn test_rbs_stubs_without_config() {
 
         kotlin: None,
         dart: None,
+        swift: None,
         csharp: None,
         r: None,
 
@@ -960,6 +962,7 @@ fn test_module_naming_from_crate_name() {
 
         kotlin: None,
         dart: None,
+        swift: None,
         csharp: None,
         r: None,
 

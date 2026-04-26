@@ -96,6 +96,7 @@ fn make_config() -> AlefConfig {
 
         kotlin: None,
         dart: None,
+        swift: None,
         csharp: None,
         r: None,
 

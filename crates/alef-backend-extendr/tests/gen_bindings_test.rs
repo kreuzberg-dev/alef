@@ -55,6 +55,7 @@ fn make_config() -> AlefConfig {
         java: None,
         kotlin: None,
         dart: None,
+        swift: None,
         csharp: None,
         r: Some(RConfig {
             package_name: Some("testlib".to_string()),

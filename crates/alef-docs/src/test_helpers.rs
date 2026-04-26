@@ -133,6 +133,7 @@ pub(crate) fn make_test_config() -> alef_core::config::AlefConfig {
 
         kotlin: None,
         dart: None,
+        swift: None,
         csharp: None,
         r: None,
 

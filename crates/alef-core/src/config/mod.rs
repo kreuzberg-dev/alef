@@ -28,7 +28,7 @@ pub use extras::{AdapterConfig, AdapterParam, AdapterPattern, Language};
 pub use languages::{
     CSharpConfig, CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig, DartConfig, ElixirConfig,
     FfiConfig, GleamConfig, GoConfig, JavaConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig,
-    RubyConfig, StubsConfig, WasmConfig, ZigConfig,
+    RubyConfig, StubsConfig, SwiftConfig, WasmConfig, ZigConfig,
 };
 pub use output::{
     BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
@@ -78,6 +78,8 @@ pub struct AlefConfig {
     pub dart: Option<DartConfig>,
     #[serde(default)]
     pub kotlin: Option<KotlinConfig>,
+    #[serde(default)]
+    pub swift: Option<SwiftConfig>,
     #[serde(default)]
     pub csharp: Option<CSharpConfig>,
     #[serde(default)]
@@ -810,6 +812,21 @@ impl AlefConfig {
             .and_then(|d| d.pubspec_name.as_ref())
             .cloned()
             .unwrap_or_else(|| self.crate_config.name.replace('-', "_"))
+    }
+
+    /// Get the Swift module name.
+    ///
+    /// Returns `[swift] module_name` if configured, otherwise derives a PascalCase
+    /// name from the crate name (e.g. `"my-lib"` → `"MyLib"`).
+    pub fn swift_module(&self) -> String {
+        self.swift
+            .as_ref()
+            .and_then(|s| s.module_name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| {
+                use heck::ToUpperCamelCase;
+                self.crate_config.name.to_upper_camel_case()
+            })
     }
 
     /// Get the Gleam app name.
