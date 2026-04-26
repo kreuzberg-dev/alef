@@ -1151,7 +1151,7 @@ fn gen_wrapper_function(
         out.push_str("        return await Task.Run(() =>\n        {\n");
 
         if func.return_type != TypeRef::Unit {
-            out.push_str("            var result = ");
+            out.push_str("            var nativeResult = ");
         } else {
             out.push_str("            ");
         }
@@ -1177,7 +1177,7 @@ fn gen_wrapper_function(
         // Check for FFI error (null result means the call failed).
         if func.return_type != TypeRef::Unit {
             out.push_str(
-                "            if (result == IntPtr.Zero)\n            {\n                var err = GetLastError();\n                if (err.Code != 0)\n                {\n                    throw err;\n                }\n            }\n",
+                "            if (nativeResult == IntPtr.Zero)\n            {\n                var err = GetLastError();\n                if (err.Code != 0)\n                {\n                    throw err;\n                }\n            }\n",
             );
         }
 
@@ -1193,7 +1193,7 @@ fn gen_wrapper_function(
         out.push_str("        });\n");
     } else {
         if func.return_type != TypeRef::Unit {
-            out.push_str("        var result = ");
+            out.push_str("        var nativeResult = ");
         } else {
             out.push_str("        ");
         }
@@ -1221,7 +1221,7 @@ fn gen_wrapper_function(
         // don't use IntPtr.Zero as an error sentinel.
         if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             out.push_str(
-                "        if (result == IntPtr.Zero)\n        {\n            var err = GetLastError();\n            if (err.Code != 0)\n            {\n                throw err;\n            }\n        }\n",
+                "        if (nativeResult == IntPtr.Zero)\n        {\n            var err = GetLastError();\n            if (err.Code != 0)\n            {\n                throw err;\n            }\n        }\n",
             );
         }
 
@@ -1332,7 +1332,7 @@ fn gen_wrapper_method(
         out.push_str("        return await Task.Run(() =>\n        {\n");
 
         if method.return_type != TypeRef::Unit {
-            out.push_str("            var result = ");
+            out.push_str("            var nativeResult = ");
         } else {
             out.push_str("            ");
         }
@@ -1367,7 +1367,7 @@ fn gen_wrapper_method(
         out.push_str("        });\n");
     } else {
         if method.return_type != TypeRef::Unit {
-            out.push_str("        var result = ");
+            out.push_str("        var nativeResult = ");
         } else {
             out.push_str("        ");
         }
@@ -1424,27 +1424,27 @@ fn emit_return_marshalling(
 
     if returns_string(return_type) {
         // IntPtr → string, then free the native buffer.
-        out.push_str("        var returnValue = Marshal.PtrToStringUTF8(result) ?? string.Empty;\n");
-        out.push_str("        NativeMethods.FreeString(result);\n");
+        out.push_str("        var returnValue = Marshal.PtrToStringUTF8(nativeResult) ?? string.Empty;\n");
+        out.push_str("        NativeMethods.FreeString(nativeResult);\n");
     } else if returns_bool_via_int(return_type) {
         // C int → bool
-        out.push_str("        var returnValue = result != 0;\n");
+        out.push_str("        var returnValue = nativeResult != 0;\n");
     } else if let TypeRef::Named(type_name) = return_type {
         let pascal = type_name.to_pascal_case();
         if true_opaque_types.contains(type_name) {
             // Truly opaque handle: wrap the IntPtr in the C# handle class.
-            out.push_str(&format!("        var returnValue = new {pascal}(result);\n"));
+            out.push_str(&format!("        var returnValue = new {pascal}(nativeResult);\n"));
         } else if !enum_names.contains(&pascal) {
             // Data struct with to_json: call to_json, deserialise, then free both.
             let to_json_method = format!("{pascal}ToJson");
             let free_method = format!("{pascal}Free");
             let cs_ty = csharp_type(return_type);
             out.push_str(&format!(
-                "        var jsonPtr = NativeMethods.{to_json_method}(result);\n"
+                "        var jsonPtr = NativeMethods.{to_json_method}(nativeResult);\n"
             ));
             out.push_str("        var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
             out.push_str("        NativeMethods.FreeString(jsonPtr);\n");
-            out.push_str(&format!("        NativeMethods.{free_method}(result);\n"));
+            out.push_str(&format!("        NativeMethods.{free_method}(nativeResult);\n"));
             out.push_str(&format!(
                 "        var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
                 cs_ty
@@ -1452,8 +1452,8 @@ fn emit_return_marshalling(
         } else {
             // Enum returned as JSON string IntPtr.
             let cs_ty = csharp_type(return_type);
-            out.push_str("        var json = Marshal.PtrToStringUTF8(result);\n");
-            out.push_str("        NativeMethods.FreeString(result);\n");
+            out.push_str("        var json = Marshal.PtrToStringUTF8(nativeResult);\n");
+            out.push_str("        NativeMethods.FreeString(nativeResult);\n");
             out.push_str(&format!(
                 "        var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
                 cs_ty
@@ -1462,15 +1462,15 @@ fn emit_return_marshalling(
     } else if returns_json_object(return_type) {
         // IntPtr → JSON string → deserialized object, then free the native buffer.
         let cs_ty = csharp_type(return_type);
-        out.push_str("        var json = Marshal.PtrToStringUTF8(result);\n");
-        out.push_str("        NativeMethods.FreeString(result);\n");
+        out.push_str("        var json = Marshal.PtrToStringUTF8(nativeResult);\n");
+        out.push_str("        NativeMethods.FreeString(nativeResult);\n");
         out.push_str(&format!(
             "        var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
             cs_ty
         ));
     } else {
         // Numeric primitives — direct return.
-        out.push_str("        var returnValue = result;\n");
+        out.push_str("        var returnValue = nativeResult;\n");
     }
 }
 
@@ -1498,27 +1498,27 @@ fn emit_return_marshalling_indented(
 
     if returns_string(return_type) {
         out.push_str(&format!(
-            "{indent}var returnValue = Marshal.PtrToStringUTF8(result) ?? string.Empty;\n"
+            "{indent}var returnValue = Marshal.PtrToStringUTF8(nativeResult) ?? string.Empty;\n"
         ));
-        out.push_str(&format!("{indent}NativeMethods.FreeString(result);\n"));
+        out.push_str(&format!("{indent}NativeMethods.FreeString(nativeResult);\n"));
     } else if returns_bool_via_int(return_type) {
-        out.push_str(&format!("{indent}var returnValue = result != 0;\n"));
+        out.push_str(&format!("{indent}var returnValue = nativeResult != 0;\n"));
     } else if let TypeRef::Named(type_name) = return_type {
         let pascal = type_name.to_pascal_case();
         if true_opaque_types.contains(type_name) {
             // Truly opaque handle: wrap the IntPtr in the C# handle class.
-            out.push_str(&format!("{indent}var returnValue = new {pascal}(result);\n"));
+            out.push_str(&format!("{indent}var returnValue = new {pascal}(nativeResult);\n"));
         } else if !enum_names.contains(&pascal) {
             // Data struct with to_json: call to_json, deserialise, then free both.
             let to_json_method = format!("{pascal}ToJson");
             let free_method = format!("{pascal}Free");
             let cs_ty = csharp_type(return_type);
             out.push_str(&format!(
-                "{indent}var jsonPtr = NativeMethods.{to_json_method}(result);\n"
+                "{indent}var jsonPtr = NativeMethods.{to_json_method}(nativeResult);\n"
             ));
             out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(jsonPtr);\n"));
             out.push_str(&format!("{indent}NativeMethods.FreeString(jsonPtr);\n"));
-            out.push_str(&format!("{indent}NativeMethods.{free_method}(result);\n"));
+            out.push_str(&format!("{indent}NativeMethods.{free_method}(nativeResult);\n"));
             out.push_str(&format!(
                 "{indent}var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
                 cs_ty
@@ -1526,8 +1526,8 @@ fn emit_return_marshalling_indented(
         } else {
             // Enum returned as JSON string IntPtr.
             let cs_ty = csharp_type(return_type);
-            out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(result);\n"));
-            out.push_str(&format!("{indent}NativeMethods.FreeString(result);\n"));
+            out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(nativeResult);\n"));
+            out.push_str(&format!("{indent}NativeMethods.FreeString(nativeResult);\n"));
             out.push_str(&format!(
                 "{indent}var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
                 cs_ty
@@ -1535,14 +1535,14 @@ fn emit_return_marshalling_indented(
         }
     } else if returns_json_object(return_type) {
         let cs_ty = csharp_type(return_type);
-        out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(result);\n"));
-        out.push_str(&format!("{indent}NativeMethods.FreeString(result);\n"));
+        out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(nativeResult);\n"));
+        out.push_str(&format!("{indent}NativeMethods.FreeString(nativeResult);\n"));
         out.push_str(&format!(
             "{indent}var returnValue = JsonSerializer.Deserialize<{}>(json ?? \"null\", JsonOptions)!;\n",
             cs_ty
         ));
     } else {
-        out.push_str(&format!("{indent}var returnValue = result;\n"));
+        out.push_str(&format!("{indent}var returnValue = nativeResult;\n"));
     }
 }
 
