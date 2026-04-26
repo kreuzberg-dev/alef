@@ -2,10 +2,13 @@
 
 pub mod c_ffi;
 pub mod cli;
+pub mod dart;
 pub mod gleam;
 pub mod go;
 pub mod kotlin;
 pub mod php;
+pub mod swift;
+pub mod util;
 pub mod zig;
 
 use anyhow::{Context, Result};

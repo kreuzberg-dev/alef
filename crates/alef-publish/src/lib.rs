@@ -337,6 +337,16 @@ pub fn package(
                 let artifact = package::zig::package_zig(config, t, ws_root, output_dir, version)?;
                 Some(artifact)
             }
+            Language::Dart => {
+                // Dart source packaging is target-independent (FRB handles cross-compilation).
+                let artifact = package::dart::package_dart(config, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
+            Language::Swift => {
+                // Swift source packaging is target-independent; XCFramework requires xcodebuild.
+                let artifact = package::swift::package_swift(config, ws_root, output_dir, version)?;
+                Some(artifact)
+            }
             Language::Rust => {
                 // CLI packaging is invoked explicitly from alef-cli, not through the language dispatch.
                 eprintln!("  CLI (Rust) packaging handled separately");
@@ -399,6 +409,8 @@ pub fn validate(config: &AlefConfig, languages: &[Language]) -> Result<Vec<Strin
             Language::Kotlin => vec!["build.gradle.kts"],
             Language::Gleam => vec!["gleam.toml"],
             Language::Zig => vec!["build.zig"],
+            Language::Dart => vec!["pubspec.yaml"],
+            Language::Swift => vec!["Package.swift"],
             _ => vec![],
         };
 

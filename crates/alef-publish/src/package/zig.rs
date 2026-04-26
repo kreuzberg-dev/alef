@@ -1,5 +1,6 @@
 //! Zig package — archives the source code + FFI shared library for distribution.
 
+use super::util::copy_dir_recursive;
 use super::PackageArtifact;
 use crate::platform::RustTarget;
 use alef_core::config::AlefConfig;
@@ -80,31 +81,3 @@ pub fn package_zig(
     })
 }
 
-/// Recursively copy a directory tree, excluding common ignore patterns.
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    for entry in fs::read_dir(src).context("reading source directory")? {
-        let entry = entry?;
-        let path = entry.path();
-        let file_name = entry.file_name();
-        let dest_path = dst.join(&file_name);
-
-        if path.is_dir() {
-            // Skip hidden directories and common ignore patterns.
-            let name = file_name.to_string_lossy();
-            if name.starts_with('.') {
-                continue;
-            }
-            if matches!(
-                name.as_ref(),
-                "target" | "node_modules" | "__pycache__" | ".git" | "zig-cache"
-            ) {
-                continue;
-            }
-            fs::create_dir_all(&dest_path)?;
-            copy_dir_recursive(&path, &dest_path)?;
-        } else {
-            fs::copy(&path, &dest_path)?;
-        }
-    }
-    Ok(())
-}
