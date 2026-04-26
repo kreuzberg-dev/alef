@@ -7,6 +7,56 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
+/// Linux Swift build instructions for non-Apple targets.
+const LINUX_BUILDING_MD: &str = "\
+# Building on Linux\n\
+\n\
+The same `rust/` swift-bridge crate that drives the macOS/iOS XCFramework also\n\
+builds on Linux. swift-bridge generates Swift glue files at build time; SwiftPM\n\
+on Linux consumes them via the same `Package.swift` checked into this archive.\n\
+\n\
+## Steps\n\
+\n\
+1. Build the Rust shared library:\n\
+\n\
+   ```sh\n\
+   cd rust\n\
+   cargo build --release --target x86_64-unknown-linux-gnu\n\
+   # Or for ARM64 servers:\n\
+   cargo build --release --target aarch64-unknown-linux-gnu\n\
+   ```\n\
+\n\
+2. The build script (`rust/build.rs`) writes Swift glue into `OUT_DIR`. Surface it\n\
+   to SwiftPM by symlinking or copying into `Sources/<Module>/generated/`.\n\
+\n\
+3. Build and test the Swift package:\n\
+\n\
+   ```sh\n\
+   swift build -c release\n\
+   swift test\n\
+   ```\n\
+\n\
+## CI matrix suggestion\n\
+\n\
+Add a `swift-linux` job to your GitHub Actions matrix:\n\
+\n\
+```yaml\n\
+jobs:\n\
+  swift-linux:\n\
+    runs-on: ubuntu-latest\n\
+    steps:\n\
+      - uses: actions/checkout@v4\n\
+      - uses: swift-actions/setup-swift@v2\n\
+        with: { swift-version: '5.10' }\n\
+      - uses: dtolnay/rust-toolchain@stable\n\
+      - run: cd rust && cargo build --release\n\
+      - run: swift test\n\
+```\n\
+\n\
+Linux Swift consumers (e.g., Vapor servers) link the resulting `.so` directly\n\
+through SwiftPM — no XCFramework involvement.\n\
+";
+
 /// XCFramework build instructions emitted as a placeholder.
 const BUILDING_MD: &str = "\
 # Building the XCFramework\n\
@@ -97,6 +147,12 @@ pub fn package_swift(
     fs::create_dir_all(&xcframework_dir).context("creating xcframework placeholder directory")?;
     fs::write(xcframework_dir.join("BUILDING.md"), BUILDING_MD)
         .context("writing xcframework/BUILDING.md")?;
+
+    // Emit Linux build instructions alongside the XCFramework guidance.
+    let linux_dir = staging.join("linux");
+    fs::create_dir_all(&linux_dir).context("creating linux build instructions directory")?;
+    fs::write(linux_dir.join("BUILDING.md"), LINUX_BUILDING_MD)
+        .context("writing linux/BUILDING.md")?;
 
     // Copy optional top-level docs into the staging root.
     for filename in ["README.md", "CHANGELOG.md", "LICENSE"] {
