@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-04-26
+
+This release closes a long-standing gap in alef's polyglot generator: bindings for every supported language now compile cleanly with zero errors and zero warnings against real-world Rust crates that exercise trait bridges, tagged-union enums, async functions, and feature-gated modules. Most of the surface area changes are codegen-internal — public APIs are unchanged — but the cumulative effect is that downstream projects (Kreuzberg in particular) can now consume alef-emitted code without any post-generation patching across Java, C#, Go, Ruby, Elixir, R, WASM, and the previously-stable Python/Node/PHP/FFI bindings.
+
+### Added
+
+- **Trait bridges (Java, C#, Magnus/Ruby)**: full plugin-style register/unregister codegen with proper FFI-side vtable struct names and method dispatch. Previously gated behind `exclude_languages = ["..."]` per-bridge; the generated code is now compile-clean across all backends.
+- **Trait bridges (Rustler/Elixir)**: new `LocalPid`-based dispatch using `OwnedEnv::send_and_clear` plus a global oneshot reply registry (`TRAIT_REPLY_COUNTER`, `TRAIT_REPLY_CHANNELS`) for synchronous and asynchronous trait method calls. The `alef-scaffold` Elixir generator emits a companion GenServer module per trait so consumer code can `use` the bridge directly.
+- **Auto-format**: `alef generate` now runs the language-native formatter (`ruff format`, `mix format`, `cargo fmt`, `biome format --write`, `gofmt -w`, `php-cs-fixer fix`, `dotnet format`, `google-java-format -i`) on the emitted output by default. `--no-format` opts out. Per-language overrides via `[format.<lang>]` in `alef.toml`.
+- **Setup timeouts**: `alef setup` accepts `--timeout <seconds>` (default 600 per language). Per-language `timeout_seconds` settable via `[setup.<lang>]` in `alef.toml`. Hangs in tooling that ignores Ctrl-C now fail cleanly via `try_wait` deadline + `child.kill`.
+- **Sync-versions (RubyGems prerelease format)**: `alef sync-versions` now writes Bundler-canonical prerelease strings (`1.8.0-rc.2` → `1.8.0.pre.rc.2`) to gemspecs and `version.rb` files. Previously emitted SemVer dashes were rejected by RubyGems.
+- **Sync-versions (README regeneration)**: after manifest updates, alef extracts current IR and regenerates per-language READMEs so embedded version strings (e.g. `<version>1.8.0</version>` in pom.xml snippets) refresh without a separate `alef readme` invocation.
+- **Sync-versions (cache invalidation)**: removes `.alef/` after manifest updates so subsequent generation steps see fresh IR.
+- **Publish `after` hooks**: `[publish.<lang>] after = "..."` is now executed at the success-path end of `prepare`, `build`, and `package` stages, mirroring the existing `before`/`precondition` hook contract. The `after` field on `PublishLanguageConfig` was previously dead config.
+- **Feature-gated extraction**: `alef-extract` now captures `#[cfg(feature = "...")]` annotations on `pub use` re-exports and `pub mod` declarations, propagating the cfg to all re-exported items.
+- **WASM feature filtering**: `alef-backend-wasm` reads enabled feature flags from `alef.toml` and automatically excludes types/functions/enums whose cfg references a disabled feature, preventing broken references like `ServerConfig` (gated behind `api`) from leaking into the WASM crate.
+- **Orphan file cleanup**: after `alef generate` writes the current binding output, alef scans the per-language output directories for files containing the alef-generated header that are not in the current run's emission set, and deletes them. Prevents stale alef-emitted files from blocking builds when types are removed from the public Rust API.
+- **Magnus tuple variant codegen**: tagged-union enum variants like `Multiple(Vec<String>)` now emit valid `Multiple(Vec<String>)` Rust syntax. Previously emitted invalid `Multiple { _0: ... }` struct-style braces.
+- **FFI enum from_json/free**: enums that flow through FFI as opaque pointer parameters now get `*_from_json` and `*_free` exports so backends (C#, Java, etc.) can construct enum values across the FFI boundary.
+- **C# Directory.Build.props**: emitted on every `alef generate` (always overwritten) with `<Nullable>enable</Nullable>` and `<LangVersion>latest</LangVersion>`. MSBuild auto-imports it from the package directory so the setting survives user edits to `Kreuzberg.csproj`.
+
+### Changed
+
+- **Magnus serde marshalling for tagged-union enum fields**: `Vec<Item>` (where `Item` is a Named type) is now emitted as `Vec<Item>` in the generated Rust enum — preserving JSON array round-trip — instead of being collapsed to `String`. Map fields still collapse to `String` for serde_json indirection. Vec of primitives stays `Vec<T>`.
+- **Java facade Optional unwrap**: facade methods declared with non-Optional return types (e.g. `String getPreset(...)`) now call `.orElseThrow()` on FFI results that come back as `Optional<T>`, eliminating the type mismatch between the facade and the Panama FFM layer.
+- **C# wrapper `result` shadowing**: emitted local `result` variables are renamed to `nativeResult` to avoid CS0136/CS0841 collisions when the wrapper method takes a parameter named `result` (e.g. `SerializeToJson(ExtractionResult result)`).
+- **C# tagged-enum string defaults**: when a serde-tagged enum field maps to `string` in C#, the default is emitted as the variant's JSON tag (`"Plain"`) rather than the non-existent `string.Plain` static.
+- **C# async unit returns**: `async Task` methods with unit returns no longer emit `return await Task.Run(() => …);` — the `return` is dropped to satisfy CS1997.
+- **Go trait_bridges.go**: now generated independently of the `visitor_callbacks` flag so plugin-style bridges work without enabling visitor codegen. The vtable struct name uses cbindgen's `{CRATE_UPPER}{CratePascal}{TraitPascal}VTable` convention; register/unregister calls use `{prefix}_register_{trait_snake}` / `{prefix}_unregister_{trait_snake}`. Function pointer fields are now wrapped via `(*[0]byte)(unsafe.Pointer(C.export))` so cgo treats them as C function pointer types. JSON-decoded `interface{}` parameters are type-asserted to `map[string]interface{}` before being handed to the impl method. `bool` parameters are converted to `C.uchar` via a conditional rather than direct cast.
+- **C# stale-visitor cleanup**: when `visitor_callbacks = false`, alef now deletes `IVisitor.cs`, `VisitorCallbacks.cs`, `NodeContext.cs`, and `VisitResult.cs` from the output dir if they remain from a prior run.
+- **Hash injection (XML)**: `alef_core::hash::inject_hash_line` now correctly handles `<!-- … -->` comment style for XML/csproj files; `pipeline::write_files` and `pipeline::diff_files` respect the per-file `generated_header` flag rather than always assuming Rust line comments.
+- **alef-cli helpers**: `run_command_captured_with_timeout` uses a deadline-driven `try_wait` poll loop to enforce setup timeouts without adding new dependencies.
+
+### Fixed
+
+- **Magnus**: emits `Vec<T>` and `Map<K,V>` as their actual JSON-shaped types in serde-marshalled enum variants. Collapsing to bare `String` previously broke deserialization of tagged-union variants like `StopSequence::Multiple(Vec<String>)`.
+- **Magnus**: deprecated `magnus::value::qnil()` and `magnus::RString::new()` API calls replaced with `Ruby::qnil()` / `Ruby::str_new` in trait bridge and binding emit. Crate-level inner attributes silence the remaining cosmetic warnings.
+- **Java**: `gen_facade_class` now wraps FFI Optional returns with `.orElseThrow()` for non-Optional facade signatures (`getPreset`, `detectLanguages`).
+- **Java**: `*_TO_JSON` symbol duplicates in `NativeLib.java` are deduplicated via a tracking set, mirroring the existing `_from_json` and `_free` dedup paths.
+- **Java**: output-path doubling fixed when `output.java` already contains the `dev/<group>/` prefix.
+- **C#**: `_vtable` field promoted to `internal` so cross-class dispatch from the wrapper compiles.
+- **C#**: `sizeof(IntPtr)` replaced with the const `IntPtr.Size` so the call site no longer requires `unsafe`.
+- **C#**: `bool` parameters cast to `int` (`(arg ? 1 : 0)`) at FFI call sites.
+- **C#**: F32 default values emit the `f` suffix; F64 emits the `d` suffix where required for unambiguous typing.
+- **C# scaffold**: removed `<NoWarn>` suppression — every generated `.cs` file now has `#nullable enable` and the project enables nullable reference types via `Directory.Build.props`.
+- **Rustler**: trait bridge dispatch was previously stubbed; now wired to the reply registry with proper error_constructor template substitution. Atom creation uses `rustler::types::atom::ok()` (the previous `Env::new()` call did not exist).
+- **Rustler**: error constructor template now substituted (`{msg}`) into `Err(...)` paths in both sync and async method bodies.
+- **CLI**: `alef sync-versions` now updates `packages/ruby/lib/{gem}/version.rb` files in addition to gemspec/pyproject/package.json/pom.xml, completing the previously-incomplete Ruby version sync.
+- **e2e/rust**: dropped the unconditional `[workspace]` block from generated `e2e/rust/Cargo.toml`. Parent workspace `[workspace.exclude]` now governs whether cargo trips on two-workspace-roots.
+- **Go visitor.go**: regenerated visitor.go now compiles (`HTMHtmNodeContext`/`goVisitText` errors fixed at the alef-backend-go source).
+- **Setup pipeline**: closure no longer fights `?`-propagation against rayon's parallel iterator; setup errors now surface with proper context.
+- **alef-cli**: setup timeouts now actually kill the spawned process group on deadline rather than logging a spurious "skeleton" error.
+
+### Removed
+
+- C# scaffold no longer emits `<NoWarn>CS1591,CS8618,CS0168,CS0219,CS8625,CS0414,CS8632,CS8866</NoWarn>`. All formerly-suppressed warnings are now fixed at codegen.
+
 ## [0.7.11] - 2026-04-26
 
 ### Changed
