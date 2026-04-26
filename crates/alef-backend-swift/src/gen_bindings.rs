@@ -1,11 +1,12 @@
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use crate::gen_rust_crate;
 use crate::type_map::SwiftMapper;
 
 pub struct SwiftBackend;
@@ -81,11 +82,17 @@ impl Backend for SwiftBackend {
         );
         let path = PathBuf::from(dir).join(format!("{module_name}.swift"));
 
-        Ok(vec![GeneratedFile {
+        let mut files = vec![GeneratedFile {
             path,
             content,
             generated_header: false,
-        }])
+        }];
+
+        // Phase 2C: emit the Rust-side swift-bridge crate
+        let rust_crate_files = gen_rust_crate::emit(api, config)?;
+        files.extend(rust_crate_files);
+
+        Ok(files)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
@@ -93,7 +100,12 @@ impl Backend for SwiftBackend {
             tool: "swift",
             crate_suffix: "-swift",
             build_dep: BuildDependency::None,
-            post_build: vec![],
+            // Build the Rust bridge crate first so swift-bridge codegen produces
+            // the Swift glue files that the Swift Package consumes.
+            post_build: vec![PostBuildStep::RunCommand {
+                cmd: "cargo",
+                args: vec!["build", "--release"],
+            }],
         })
     }
 }

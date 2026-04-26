@@ -144,7 +144,8 @@ fn struct_with_primitive_fields_emits_public_struct() {
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
-    assert_eq!(files.len(), 1);
+    // generate_bindings returns 1 Swift file + 3 Rust-crate files (Cargo.toml, src/lib.rs, build.rs)
+    assert_eq!(files.len(), 4);
     let content = &files[0].content;
 
     assert!(
@@ -546,8 +547,10 @@ fn output_path_uses_pascal_case_module_name() {
     };
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
-    assert_eq!(files.len(), 1);
+    // generate_bindings returns 1 Swift file + 3 Rust-crate files (Cargo.toml, src/lib.rs, build.rs)
+    assert_eq!(files.len(), 4);
 
+    // The first file is always the Swift wrapper
     let path = files[0].path.to_string_lossy();
     assert!(
         path.contains("Sources/DemoCrate/DemoCrate.swift"),
