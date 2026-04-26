@@ -9,7 +9,6 @@ use std::borrow::Cow;
 /// arrays (from `dart:typed_data`). Optional types use the Dart nullable
 /// suffix `?`. The `error_wrapper` returns `"Result"` as a placeholder for
 /// the sealed-class result type that lands in Phase 2B.
-#[allow(dead_code)]
 pub struct DartMapper;
 
 impl TypeMapper for DartMapper {
