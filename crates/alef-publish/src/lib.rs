@@ -497,10 +497,10 @@ fn run_publish_hooks(lang: Language, lang_config: &PublishLanguageConfig) -> Res
 /// After hooks run only when the main operation succeeds (symmetrical with before hooks,
 /// which run only before a successful start). This ensures cleanup/finalization logic
 /// only runs when the operation completed.
-fn run_publish_after_hooks(_lang: Language, lang_config: &PublishLanguageConfig) -> Result<()> {
+fn run_publish_after_hooks(lang: Language, lang_config: &PublishLanguageConfig) -> Result<()> {
     if let Some(after) = &lang_config.after {
         for cmd in after.commands() {
-            run_shell_command(cmd)?;
+            run_shell_command(cmd).with_context(|| format!("running after hook for {lang}: {cmd}"))?;
         }
     }
     Ok(())
