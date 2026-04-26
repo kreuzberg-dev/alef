@@ -307,7 +307,12 @@ pub(crate) fn gen_sync_function_method(
         if is_opaque {
             // Opaque handles: wrap the raw pointer directly, caller owns and will close()
             if is_optional_return {
-                writeln!(out, "            return Optional.of(new {}(resultPtr));", return_type_name).ok();
+                writeln!(
+                    out,
+                    "            return Optional.of(new {}(resultPtr));",
+                    return_type_name
+                )
+                .ok();
             } else {
                 writeln!(out, "            return new {}(resultPtr);", return_type_name).ok();
             }
@@ -599,7 +604,6 @@ mod tests {
             &bridge_type_aliases,
         );
 
-        eprintln!("Generated code:\n{}", out);
         assert!(out.contains("return Optional.empty();"));
         assert!(out.contains("return Optional.of(str);"));
     }
