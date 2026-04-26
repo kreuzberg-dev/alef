@@ -37,6 +37,18 @@ fn emit_cargo_toml(rust_dir: &str, config: &AlefConfig, source_crate_name: &str)
         format!("../../../crates/{core_crate_dir}")
     };
 
+    let features = config.features_for_language(alef_core::config::extras::Language::Dart);
+    let features_block = if features.is_empty() {
+        String::new()
+    } else {
+        let list = features
+            .iter()
+            .map(|f| format!("\"{f}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(", features = [{list}]")
+    };
+
     let content = format!(
         r#"[package]
 name = "{crate_name}-dart"
@@ -47,7 +59,7 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{source_crate_name} = {{ path = "{core_path}" }}
+{source_crate_name} = {{ path = "{core_path}"{features_block} }}
 flutter_rust_bridge = "{frb_version}"
 "#
     );
@@ -57,6 +69,22 @@ flutter_rust_bridge = "{frb_version}"
         content,
         generated_header: false,
     }
+}
+
+fn build_type_path_lookup(api: &ApiSurface, source_crate_name: &str) -> std::collections::HashMap<String, String> {
+    let mut paths = std::collections::HashMap::new();
+    for ty in &api.types {
+        if !ty.rust_path.is_empty() {
+            paths.insert(ty.name.clone(), ty.rust_path.replace('-', "_"));
+        }
+    }
+    for en in &api.enums {
+        if !en.rust_path.is_empty() {
+            paths.insert(en.name.clone(), en.rust_path.replace('-', "_"));
+        }
+    }
+    let _ = source_crate_name;
+    paths
 }
 
 fn emit_lib_rs(rust_dir: &str, api: &ApiSurface, source_crate_name: &str) -> GeneratedFile {
@@ -74,9 +102,10 @@ fn emit_lib_rs(rust_dir: &str, api: &ApiSurface, source_crate_name: &str) -> Gen
         emit_mirror_enum(&mut content, en);
     }
 
+    let type_paths = build_type_path_lookup(api, source_crate_name);
     for f in &api.functions {
         content.push('\n');
-        emit_bridge_fn(&mut content, f, source_crate_name);
+        emit_bridge_fn(&mut content, f, source_crate_name, &type_paths);
     }
 
     GeneratedFile {
@@ -154,7 +183,12 @@ fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
     }
 }
 
-fn emit_bridge_fn(out: &mut String, f: &FunctionDef, source_crate_name: &str) {
+fn emit_bridge_fn(
+    out: &mut String,
+    f: &FunctionDef,
+    source_crate_name: &str,
+    type_paths: &std::collections::HashMap<String, String>,
+) {
     // FRB v2: ordinary public functions need no annotation. A bare `#[frb]`
     // with no arguments is rejected by the macro. Don't emit it.
     let fn_name = &f.name;
@@ -164,18 +198,47 @@ fn emit_bridge_fn(out: &mut String, f: &FunctionDef, source_crate_name: &str) {
         .params
         .iter()
         .map(|p| {
-            let rust_ty = frb_rust_type(&p.ty, p.optional);
+            // Use the source-crate type for Named types so the bridge fn passes
+            // them straight through to the underlying Rust API. The `#[frb(mirror(T))]`
+            // attribute on the mirror struct tells FRB that the local declaration
+            // is layout-identical to the source type — FRB substitutes them on the
+            // Dart side but the generated Rust code must still pass the original.
+            let rust_ty = frb_rust_type_with_source(&p.ty, p.optional, source_crate_name, type_paths);
             format!("{}: {rust_ty}", p.name)
         })
         .collect();
 
-    let call_args: Vec<String> = f.params.iter().map(|p| p.name.clone()).collect();
+    // For each parameter, build the call-site expression. The IR records whether
+    // the underlying Rust function takes the value by reference (`is_ref`) and
+    // whether the parameter is `Option<T>` (`optional`). FRB-friendly types are
+    // owned (Vec/String/Option), so we add `&` when the target signature wants
+    // a borrow. Bytes (`Vec<u8>` -> `&[u8]`) and Strings (`String` -> `&str`)
+    // are the common cases.
+    let call_args: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| {
+            if !p.is_ref {
+                return p.name.clone();
+            }
+            match (&p.ty, p.optional) {
+                (alef_core::ir::TypeRef::Bytes, false) => format!("&{}", p.name),
+                (alef_core::ir::TypeRef::String | alef_core::ir::TypeRef::Path, false) => {
+                    format!("&{}", p.name)
+                }
+                (alef_core::ir::TypeRef::String | alef_core::ir::TypeRef::Path, true) => {
+                    format!("{}.as_deref()", p.name)
+                }
+                _ => format!("&{}", p.name),
+            }
+        })
+        .collect();
 
     let has_error = f.error_type.is_some();
     let return_ty = if has_error {
-        format!("Result<{}, String>", frb_rust_return_type(&f.return_type))
+        format!("Result<{}, String>", frb_rust_type_with_source(&f.return_type, false, source_crate_name, type_paths))
     } else {
-        frb_rust_return_type(&f.return_type)
+        frb_rust_type_with_source(&f.return_type, false, source_crate_name, type_paths)
     };
 
     out.push_str(&format!(
@@ -241,6 +304,40 @@ fn frb_rust_type_inner(ty: &TypeRef) -> String {
         TypeRef::Unit => "()".to_string(),
         TypeRef::Json => "String".to_string(),
         TypeRef::Duration => "i64".to_string(),
+    }
+}
+
+/// Like `frb_rust_type`, but Named types resolve to their source-crate path
+/// so the bridge fn signature uses the original Rust type (the mirror struct
+/// is layout-identical via `#[frb(mirror(T))]`).
+fn frb_rust_type_with_source(
+    ty: &TypeRef,
+    optional: bool,
+    source_crate: &str,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    let inner = frb_rust_type_inner_with_source(ty, source_crate, type_paths);
+    if optional { format!("Option<{inner}>") } else { inner }
+}
+
+fn frb_rust_type_inner_with_source(
+    ty: &TypeRef,
+    source_crate: &str,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    match ty {
+        TypeRef::Named(name) => match type_paths.get(name) {
+            Some(path) => path.clone(),
+            None => format!("{source_crate}::{name}"),
+        },
+        TypeRef::Optional(inner) => format!("Option<{}>", frb_rust_type_inner_with_source(inner, source_crate, type_paths)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", frb_rust_type_inner_with_source(inner, source_crate, type_paths)),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            frb_rust_type_inner_with_source(k, source_crate, type_paths),
+            frb_rust_type_inner_with_source(v, source_crate, type_paths)
+        ),
+        _ => frb_rust_type_inner(ty),
     }
 }
 
