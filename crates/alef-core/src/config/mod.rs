@@ -26,9 +26,9 @@ pub use dto::{
 pub use e2e::E2eConfig;
 pub use extras::{AdapterConfig, AdapterParam, AdapterPattern, Language};
 pub use languages::{
-    CSharpConfig, CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig, DartConfig, ElixirConfig,
-    FfiConfig, GleamConfig, GoConfig, JavaConfig, KotlinConfig, KotlinTarget, NodeConfig, PhpConfig, PythonConfig,
-    RConfig, RubyConfig, StubsConfig, SwiftConfig, WasmConfig, ZigConfig,
+    CSharpConfig, CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig, DartConfig, DartStyle,
+    ElixirConfig, FfiConfig, GleamConfig, GoConfig, JavaConfig, KotlinConfig, KotlinTarget, NodeConfig, PhpConfig,
+    PythonConfig, RConfig, RubyConfig, StubsConfig, SwiftConfig, WasmConfig, ZigConfig,
 };
 pub use output::{
     BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
@@ -689,6 +689,11 @@ impl AlefConfig {
             .and_then(|f| f.header_name.as_ref())
             .cloned()
             .unwrap_or_else(|| format!("{}.h", self.ffi_prefix()))
+    }
+
+    /// Get the Dart bridging style (`frb` or `ffi`).
+    pub fn dart_style(&self) -> languages::DartStyle {
+        self.dart.as_ref().map(|d| d.style).unwrap_or_default()
     }
 
     /// Get the Python module name.

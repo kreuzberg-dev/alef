@@ -392,6 +392,20 @@ pub struct KotlinConfig {
     pub target: KotlinTarget,
 }
 
+/// Dart bridging style: FRB (default) or raw `dart:ffi`.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DartStyle {
+    /// flutter_rust_bridge — emits a Rust crate plus Dart wrappers using
+    /// FRB-generated bridge symbols. Default.
+    #[default]
+    Frb,
+    /// Raw `dart:ffi` over the cbindgen C ABI — emits Dart-only source that
+    /// loads the shared library at runtime. Cheaper to ship; loses FRB's
+    /// async ergonomics and freezed-style data classes.
+    Ffi,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DartConfig {
     /// Dart pub.dev package name (e.g. `"my_package"`). Used as the `name` in
@@ -404,6 +418,10 @@ pub struct DartConfig {
     /// Dart package name override (e.g. for pub.dev scoped packages).
     #[serde(default)]
     pub package_name: Option<String>,
+    /// Bridging style. `"frb"` (default) uses flutter_rust_bridge; `"ffi"` emits
+    /// raw `dart:ffi` source over the cbindgen C library.
+    #[serde(default)]
+    pub style: DartStyle,
     /// flutter_rust_bridge version to pin in generated pubspec.yaml.
     /// Defaults to `template_versions::cargo::FLUTTER_RUST_BRIDGE` when unset.
     #[serde(default)]
