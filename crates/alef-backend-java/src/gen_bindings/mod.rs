@@ -18,7 +18,6 @@ use facade::gen_facade_class;
 use ffi_class::gen_main_class;
 use helpers::gen_exception_class;
 use native_lib::gen_native_lib;
-use trait_bridge::gen_trait_bridge;
 use types::{gen_builder_class, gen_enum_class, gen_opaque_handle_class, gen_record_type};
 
 pub struct JavaBackend;
@@ -227,19 +226,33 @@ impl Backend for JavaBackend {
         }
 
         // 8. Trait bridge plugin registration files
+        // Emits two files per trait: I{Trait}.java (managed interface) and
+        // {Trait}Bridge.java (Panama upcall stubs + register/unregister helpers).
         for bridge_cfg in &config.trait_bridges {
             if bridge_cfg.exclude_languages.contains(&Language::Java.to_string()) {
                 continue;
             }
 
-            // Find the trait definition in the API
             if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
                 let has_super_trait = bridge_cfg.super_trait.is_some();
-                let bridge_code = gen_trait_bridge(trait_def, &prefix, has_super_trait);
+                let trait_bridge::BridgeFiles {
+                    interface_content,
+                    bridge_content,
+                } = trait_bridge::gen_trait_bridge_files(
+                    trait_def,
+                    &prefix,
+                    &package,
+                    has_super_trait,
+                );
 
                 files.push(GeneratedFile {
+                    path: base_path.join(format!("I{}.java", trait_def.name)),
+                    content: interface_content,
+                    generated_header: true,
+                });
+                files.push(GeneratedFile {
                     path: base_path.join(format!("{}Bridge.java", trait_def.name)),
-                    content: bridge_code,
+                    content: bridge_content,
                     generated_header: true,
                 });
             }

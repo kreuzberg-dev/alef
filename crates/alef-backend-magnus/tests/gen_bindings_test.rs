@@ -931,7 +931,7 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "MyError", "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}", &make_api());
 
         assert!(
             code.contains("pub struct RbHtmlVisitorBridge"),
@@ -946,7 +946,7 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "MyError", "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}", &make_api());
 
         assert!(
             !code.contains("#[magnus::init]"),
@@ -961,7 +961,7 @@ mod trait_bridge {
             vec![make_method("visit_node", TypeRef::Unit, false, true)],
         );
         let cfg = make_visitor_bridge_cfg("HtmlVisitor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "my_lib", "MyError", "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}", &make_api());
 
         assert!(
             code.contains("impl my_lib::HtmlVisitor for RbHtmlVisitorBridge"),
@@ -1002,7 +1002,7 @@ mod trait_bridge {
             vec![make_method("recognize", TypeRef::String, true, false)],
         );
         let cfg = make_plugin_bridge_cfg("OcrBackend");
-        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", "MyError", "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}", &make_api());
 
         assert!(
             !code.is_empty(),
@@ -1021,7 +1021,7 @@ mod trait_bridge {
             vec![make_method("embed", TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F64))), true, false)],
         );
         let cfg = make_plugin_bridge_cfg("EmbeddingBackend");
-        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", "MyError", "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}", &make_api());
 
         assert!(
             code.contains("register_embedding_backend"),
@@ -1036,7 +1036,7 @@ mod trait_bridge {
             vec![make_method("process", TypeRef::String, true, false)],
         );
         let cfg = make_plugin_bridge_cfg("PostProcessor");
-        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", "MyError", "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}", &make_api());
 
         assert!(
             code.contains("impl kreuzberg::Plugin for RbPostProcessorBridge"),
@@ -1051,7 +1051,7 @@ mod trait_bridge {
             vec![make_method("validate", TypeRef::Primitive(PrimitiveType::Bool), true, false)],
         );
         let cfg = make_plugin_bridge_cfg("Validator");
-        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", "MyError", "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}", &make_api());
 
         assert!(
             code.contains("impl my_lib::Validator for RbValidatorBridge"),
@@ -1067,7 +1067,7 @@ mod trait_bridge {
         );
         let mut cfg = make_plugin_bridge_cfg("SomeBackend");
         cfg.exclude_languages = vec!["ruby".to_string()];
-        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", "MyError", "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}", &make_api());
 
         assert!(
             code.is_empty(),
@@ -1085,7 +1085,7 @@ mod trait_bridge {
             ],
         );
         let cfg = make_plugin_bridge_cfg("OcrBackend");
-        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", &make_api());
+        let code = gen_trait_bridge(&trait_def, &cfg, "kreuzberg", "MyError", "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}", &make_api());
 
         assert!(
             code.contains("respond_to"),

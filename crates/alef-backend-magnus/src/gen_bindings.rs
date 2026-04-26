@@ -204,10 +204,19 @@ impl Backend for MagnusBackend {
             }
         }
 
-        // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects
+        // Trait bridge wrappers — generate Magnus bridge structs that delegate to Ruby objects.
+        // Pass the host crate's canonical error type/constructor so generated `impl Plugin`
+        // and `impl {Trait}` blocks match the trait signatures (e.g. `Result<T, KreuzbergError>`).
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
-                let bridge_code = crate::trait_bridge::gen_trait_bridge(trait_type, bridge_cfg, &core_import, api);
+                let bridge_code = crate::trait_bridge::gen_trait_bridge(
+                    trait_type,
+                    bridge_cfg,
+                    &core_import,
+                    &config.error_type(),
+                    &config.error_constructor(),
+                    api,
+                );
                 builder.add_item(&bridge_code);
             }
         }
@@ -1366,6 +1375,19 @@ fn gen_module_init(
                 r#"    module.define_module_function("{name}", function!({name}, {count}))?;"#,
                 name = func.name,
                 count = param_count
+            ));
+        }
+    }
+
+    // Register trait bridge entry points: pub fn register_xxx(rb_obj, name) -> Result<...>
+    // is emitted by the trait_bridge generator; surface it on the Ruby module here.
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg.exclude_languages.iter().any(|s| s == "ruby") {
+            continue;
+        }
+        if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+            lines.push(format!(
+                r#"    module.define_module_function("{register_fn}", function!({register_fn}, 2))?;"#
             ));
         }
     }

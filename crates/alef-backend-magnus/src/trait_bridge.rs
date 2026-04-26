@@ -18,6 +18,8 @@ pub fn gen_trait_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     core_import: &str,
+    error_type: &str,
+    error_constructor: &str,
     api: &ApiSurface,
 ) -> String {
     // Skip if explicitly excluded for Ruby
@@ -60,10 +62,14 @@ pub fn gen_trait_bridge(
         );
         out
     } else {
-        // Plugin pattern: use the shared TraitBridgeGenerator infrastructure
+        // Plugin pattern: use the shared TraitBridgeGenerator infrastructure.
+        // Use the host crate's canonical error type (e.g. KreuzbergError) so the
+        // generated `impl Plugin for ...` matches the trait's actual signature.
         let generator = MagnusBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
+            error_type: error_type.to_string(),
+            error_constructor: error_constructor.to_string(),
         };
         let spec = TraitBridgeSpec {
             trait_def: trait_type,
@@ -71,12 +77,24 @@ pub fn gen_trait_bridge(
             core_import,
             wrapper_prefix: "Rb",
             type_paths,
-            error_type: "Box<dyn std::error::Error + Send + Sync>".to_string(),
-            error_constructor: "Box::new({msg})".to_string(),
+            error_type: error_type.to_string(),
+            error_constructor: error_constructor.to_string(),
         };
         let output = gen_bridge_all(&spec, &generator);
-        // Add imports to the output (they'll be collected by the caller)
-        output.code
+        // Emit trait-bridge specific imports as `use ... as _;` at the top of the
+        // bridge block so multiple bridges can share trait imports without name
+        // collisions on the same module-level identifier.
+        let mut prefixed = String::with_capacity(output.imports.len() * 64 + output.code.len());
+        for imp in &output.imports {
+            if imp == "magnus::prelude::*" {
+                continue;
+            }
+            prefixed.push_str("use ");
+            prefixed.push_str(imp);
+            prefixed.push_str(" as _;\n");
+        }
+        prefixed.push_str(&output.code);
+        prefixed
     }
 }
 
@@ -289,31 +307,55 @@ struct MagnusBridgeGenerator {
     core_import: String,
     /// Map of type name → fully-qualified Rust path for type references.
     type_paths: HashMap<String, String>,
+    /// Canonical error type for the host crate (e.g. `"KreuzbergError"`).
+    /// Used to construct Result return types matching the trait's signature.
+    error_type: String,
+    /// Error constructor template (e.g. `"KreuzbergError::Plugin {{ message: {msg}, plugin_name: String::new() }}"`).
+    error_constructor: String,
+}
+
+impl MagnusBridgeGenerator {
+    /// Build the fully-qualified error path (`{core_import}::{error_type}` unless already qualified).
+    fn error_path(&self) -> String {
+        if self.error_type.contains("::") || self.error_type.contains('<') {
+            self.error_type.clone()
+        } else {
+            format!("{}::{}", self.core_import, self.error_type)
+        }
+    }
+
+    /// Build an error construction expression from a message expression.
+    fn make_error(&self, msg_expr: &str) -> String {
+        self.error_constructor.replace("{msg}", msg_expr)
+    }
 }
 
 impl TraitBridgeGenerator for MagnusBridgeGenerator {
     fn foreign_object_type(&self) -> &str {
-        "magnus::Opaque<magnus::Value>"
+        "magnus::value::Opaque<magnus::Value>"
     }
 
     fn bridge_imports(&self) -> Vec<String> {
+        // Keep this list small. `Arc` is already imported globally at file scope by
+        // the magnus gen_bindings pipeline. Trait-only imports are emitted as `use ... as _`
+        // by `gen_trait_bridge` so multiple bridges can co-exist without name collisions.
         vec![
-            "magnus::prelude::*".to_string(),
-            "std::sync::Arc".to_string(),
-            "std::sync::Mutex".to_string(),
+            "magnus::value::InnerValue".to_string(),
+            "magnus::TryConvert".to_string(),
         ]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
         let has_error = method.error_type.is_some();
+        let is_unit = matches!(method.return_type, TypeRef::Unit);
         let mut out = String::with_capacity(512);
 
-        // Magnus requires holding the GVL (Global VM Lock) to call Ruby methods.
-        // Use Ruby::get() to acquire it inside a closure.
-        writeln!(out, "let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {{").ok();
-        writeln!(out, "    let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
-        writeln!(out, "    let value = *self.inner;").ok();
+        // Magnus requires holding the GVL. Caller is on a Ruby thread because the bridge
+        // is registered from one. catch_unwind guards against Ruby exceptions panicking.
+        writeln!(out, "// SAFETY: bridge methods are only invoked from threads holding the GVL").ok();
+        writeln!(out, "let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+        writeln!(out, "let value = self.inner.get_inner_with(&ruby);").ok();
 
         // Build funcall args
         let args: Vec<String> = method
@@ -333,50 +375,28 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             format!("value.funcall::<_, _, magnus::Value>(\"{name}\", {args_tuple})")
         };
 
-        writeln!(out, "    {call}").ok();
-        writeln!(out, "}});").ok();
-        writeln!(out).ok();
-
-        writeln!(out, "let val = match result {{").ok();
-        writeln!(out, "    Ok(Ok(v)) => v,").ok();
-        writeln!(out, "    Ok(Err(e)) => {{").ok();
-        writeln!(out, "        let msg = format!(\"Ruby method '{{}}' failed: {{}}\", \"{name}\", e);").ok();
+        writeln!(out, "let val: magnus::Value = match {call} {{").ok();
+        writeln!(out, "    Ok(v) => v,").ok();
+        writeln!(out, "    Err(e) => {{").ok();
         if has_error {
-            writeln!(out, "        return Err(Box::new(std::io::Error::new(").ok();
-            writeln!(out, "            std::io::ErrorKind::Other,").ok();
-            writeln!(out, "            msg,").ok();
-            writeln!(out, "        )));").ok();
+            let err_expr = self.make_error(&format!(
+                "format!(\"Ruby method '{name}' failed: {{}}\", e)"
+            ));
+            writeln!(out, "        return Err({err_expr});").ok();
         } else {
-            writeln!(out, "        return Default::default();").ok();
-        }
-        writeln!(out, "    }}").ok();
-        writeln!(out, "    Err(_) => {{").ok();
-        if has_error {
-            writeln!(out, "        return Err(Box::new(std::io::Error::new(").ok();
-            writeln!(out, "            std::io::ErrorKind::Other,").ok();
-            writeln!(out, "            \"Ruby method panicked\",").ok();
-            writeln!(out, "        )));").ok();
-        } else {
+            writeln!(out, "        let _ = e;").ok();
             writeln!(out, "        return Default::default();").ok();
         }
         writeln!(out, "    }}").ok();
         writeln!(out, "}};").ok();
 
-        // Extract and convert return value
-        if matches!(method.return_type, TypeRef::Unit) {
-            // Unit return type — just return ()
-            writeln!(out, "Ok(())").ok();
-        } else {
-            let ret_type = self.extract_magnus_type(&method.return_type);
-            writeln!(out, "val.try_convert::<{ret_type}>()").ok();
+        if is_unit {
+            writeln!(out, "let _ = val;").ok();
             if has_error {
-                writeln!(out, "    .map_err(|e| Box::new(std::io::Error::new(").ok();
-                writeln!(out, "        std::io::ErrorKind::InvalidData,").ok();
-                writeln!(out, "        format!(\"Failed to convert return value: {{}}\", e),").ok();
-                writeln!(out, "    )) as Box<dyn std::error::Error + Send + Sync>)").ok();
-            } else {
-                writeln!(out, "    .unwrap_or_default()").ok();
+                writeln!(out, "Ok(())").ok();
             }
+        } else {
+            self.write_return_conversion(&mut out, method, has_error);
         }
 
         out
@@ -384,34 +404,69 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
 
     fn gen_async_method_body(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
+        let has_error = method.error_type.is_some();
+        let is_unit = matches!(method.return_type, TypeRef::Unit);
         let mut out = String::with_capacity(1024);
 
-        // Magnus is fundamentally sync-only (Ruby is single-threaded with GVL).
-        // For async trait methods, we spawn a blocking task that acquires the GVL
-        // and calls the Ruby method synchronously. This blocks the async executor
-        // but is necessary because Ruby is not Send + Sync.
+        // async_trait wraps the body in `Pin<Box<dyn Future + Send>>`, so anything
+        // captured into the future must be Send. magnus::Value is !Send, so we
+        // capture only the Send wrappers (Opaque<Value>, owned param copies),
+        // then dereference inside spawn_blocking which holds GVL on the worker thread.
 
-        writeln!(out, "Box::pin(async move {{").ok();
-        writeln!(out, "    let ruby_value = *self.inner;").ok();
-        writeln!(out, "    let cached_name = self.cached_name.clone();").ok();
+        writeln!(out, "let inner = self.inner;").ok();
+        writeln!(out, "let cached_name = self.cached_name.clone();").ok();
+        // cached_name is referenced both inside the spawn_blocking closure and after
+        // the await for the JoinError fallback, so clone once for each consumer.
+        writeln!(out, "let cached_name_for_blocking = cached_name.clone();").ok();
+        let _ = name;
 
-        // Clone/convert params for the blocking closure
+        // Clone params into Send-safe owned copies for the blocking task.
         for p in &method.params {
             match (&p.ty, p.is_ref) {
                 (TypeRef::String, true) => {
-                    writeln!(out, "    let {0}_owned = {0}.to_string();", p.name).ok();
+                    writeln!(out, "let {0}_owned = {0}.to_string();", p.name).ok();
+                }
+                (TypeRef::Bytes, true) => {
+                    writeln!(out, "let {0}_owned = {0}.to_vec();", p.name).ok();
+                }
+                (TypeRef::Path, true) => {
+                    writeln!(out, "let {0}_owned = {0}.to_path_buf();", p.name).ok();
                 }
                 _ => {
-                    writeln!(out, "    let {0}_owned = {0}.clone();", p.name).ok();
+                    writeln!(out, "let {0}_owned = {0}.clone();", p.name).ok();
                 }
             }
         }
         writeln!(out).ok();
 
-        writeln!(out, "    tokio::task::spawn_blocking(move || {{").ok();
-        writeln!(out, "        let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+        let return_type_rust = if is_unit {
+            "()".to_string()
+        } else {
+            self.return_rust_type(&method.return_type)
+        };
+        let err_path = self.error_path();
+        let result_ty = if has_error {
+            format!("std::result::Result<{return_type_rust}, {err_path}>")
+        } else {
+            return_type_rust.clone()
+        };
 
-        // Build funcall args (using owned copies)
+        // The shared generator emits `async fn ...` with `#[async_trait]`; the body is
+        // the function body. async_trait wraps it into `Pin<Box<dyn Future + Send>>`.
+        writeln!(
+            out,
+            "let join: std::result::Result<{result_ty}, tokio::task::JoinError> ="
+        )
+        .ok();
+        writeln!(
+            out,
+            "        tokio::task::spawn_blocking(move || -> {result_ty} {{"
+        )
+        .ok();
+        writeln!(out, "            // SAFETY: spawn_blocking thread acquires GVL via Ruby::get_unchecked").ok();
+        writeln!(out, "            let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+        writeln!(out, "            let value = inner.get_inner_with(&ruby);").ok();
+
         let args: Vec<String> = method
             .params
             .iter()
@@ -426,41 +481,53 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             .collect();
 
         let call = if args.is_empty() {
-            format!("ruby_value.funcall::<_, _, magnus::Value>(\"{name}\", ())")
+            format!("value.funcall::<_, _, magnus::Value>(\"{name}\", ())")
         } else {
             let args_tuple = if args.len() == 1 {
                 format!("({},)", args[0])
             } else {
                 format!("({})", args.join(", "))
             };
-            format!("ruby_value.funcall::<_, _, magnus::Value>(\"{name}\", {args_tuple})")
+            format!("value.funcall::<_, _, magnus::Value>(\"{name}\", {args_tuple})")
         };
 
-        writeln!(out, "        {call}").ok();
-        writeln!(out, "            .map_err(|e| Box::new(std::io::Error::new(").ok();
-        writeln!(out, "                std::io::ErrorKind::Other,").ok();
-        writeln!(out, "                format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name, e),").ok();
-        writeln!(out, "            )) as Box<dyn std::error::Error + Send + Sync>)").ok();
-        writeln!(out, "    }})").ok();
-        writeln!(out, "    .await").ok();
-        writeln!(out, "    .map_err(|e| Box::new(std::io::Error::new(").ok();
-        writeln!(out, "        std::io::ErrorKind::Other,").ok();
-        writeln!(out, "        format!(\"spawn_blocking failed: {{}}\", e),").ok();
-        writeln!(out, "    )) as Box<dyn std::error::Error + Send + Sync>)?").ok();
-
-        // Extract and convert return value
-        if !matches!(method.return_type, TypeRef::Unit) {
-            let ret_type = self.extract_magnus_type(&method.return_type);
-            writeln!(out, "    .try_convert::<{ret_type}>()").ok();
-            writeln!(out, "    .map_err(|e| Box::new(std::io::Error::new(").ok();
-            writeln!(out, "        std::io::ErrorKind::InvalidData,").ok();
-            writeln!(out, "        format!(\"Failed to convert return value: {{}}\", e),").ok();
-            writeln!(out, "    )) as Box<dyn std::error::Error + Send + Sync>)").ok();
+        writeln!(out, "            let val: magnus::Value = match {call} {{").ok();
+        writeln!(out, "                Ok(v) => v,").ok();
+        writeln!(out, "                Err(e) => {{").ok();
+        if has_error {
+            let err_expr = self.make_error(&format!(
+                "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name_for_blocking, e)"
+            ));
+            writeln!(out, "                    return Err({err_expr});").ok();
         } else {
-            writeln!(out, "    Ok(())").ok();
+            writeln!(out, "                    let _ = e;").ok();
+            writeln!(out, "                    return Default::default();").ok();
+        }
+        writeln!(out, "                }}").ok();
+        writeln!(out, "            }};").ok();
+
+        if is_unit {
+            writeln!(out, "            let _ = val;").ok();
+            if has_error {
+                writeln!(out, "            Ok(())").ok();
+            }
+        } else {
+            self.write_async_return_conversion(&mut out, method, has_error);
         }
 
-        writeln!(out, "}})").ok();
+        writeln!(out, "        }}).await;").ok();
+        writeln!(out).ok();
+        writeln!(out, "match join {{").ok();
+        writeln!(out, "    Ok(v) => v,").ok();
+        if has_error {
+            let err_expr = self.make_error(&format!(
+                "format!(\"spawn_blocking failed for '{{}}': {{}}\", cached_name, e)"
+            ));
+            writeln!(out, "    Err(e) => Err({err_expr}),").ok();
+        } else {
+            writeln!(out, "    Err(_) => Default::default(),").ok();
+        }
+        writeln!(out, "}}").ok();
         out
     }
 
@@ -517,7 +584,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
 
         writeln!(out).ok();
         writeln!(out, "        Ok(Self {{").ok();
-        writeln!(out, "            inner: magnus::Opaque::new(rb_obj),").ok();
+        writeln!(out, "            inner: magnus::value::Opaque::from(rb_obj),").ok();
         writeln!(out, "            cached_name: name,").ok();
         writeln!(out, "        }})").ok();
         writeln!(out, "    }}").ok();
@@ -529,84 +596,71 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
             return String::new();
         };
-        let Some(_registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
             return String::new();
         };
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
+        let core_import = spec.core_import;
 
         let mut out = String::with_capacity(1024);
 
-        // Magnus module init function: #[magnus::init]
-        writeln!(out, "#[magnus::init]").ok();
+        // Free function the main #[magnus::init] block can register via
+        // `module.define_module_function("{register_fn}", function!({register_fn}, 2))?`.
+        // We do NOT emit our own #[magnus::init] — there is exactly one per cdylib and
+        // the gen_bindings init owns it.
         writeln!(
             out,
-            "pub fn init() -> magnus::RModule {{"
+            "pub fn {register_fn}(rb_obj: magnus::Value, name: String) -> Result<(), magnus::Error> {{"
         )
         .ok();
-        writeln!(out, "    let module = magnus::define_module(\"Kreuzberg\").unwrap();").ok();
-        writeln!(out).ok();
 
-        writeln!(
-            out,
-            "    module.define_singleton_method(\"{register_fn}\", magnus::function!"
-        )
-        .ok();
-        writeln!(out, "        fn register_bridge(rb_obj: magnus::Value, name: String) -> Result<(), magnus::Error> {{").ok();
-
-        // Validate required methods
+        // Validate required methods exist on the Ruby object
         let req_methods: Vec<_> = spec.required_methods();
         if !req_methods.is_empty() {
-            writeln!(out, "            let required_methods = [{}];", req_methods
-                .iter()
-                .map(|m| format!("\"{}\"", m.name))
-                .collect::<Vec<_>>()
-                .join(", "))
-                .ok();
-            writeln!(out, "            for method in &required_methods {{").ok();
-            writeln!(out, "                if !rb_obj.respond_to(*method, false).unwrap_or(false) {{").ok();
-            writeln!(out, "                    let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
             writeln!(
                 out,
-                "                    return Err(magnus::Error::new("
+                "    let required_methods = [{}];",
+                req_methods
+                    .iter()
+                    .map(|m| format!("\"{}\"", m.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
             .ok();
-            writeln!(
-                out,
-                "                        ruby.exception_runtime_error(),"
-            )
-            .ok();
-            writeln!(
-                out,
-                "                        format!(\"Backend missing required method: {{}}\", method),"
-            )
-            .ok();
-            writeln!(out, "                    ));").ok();
-            writeln!(out, "                }}").ok();
-            writeln!(out, "            }}").ok();
+            writeln!(out, "    for method in &required_methods {{").ok();
+            writeln!(out, "        if !rb_obj.respond_to(*method, false).unwrap_or(false) {{").ok();
+            writeln!(out, "            let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+            writeln!(out, "            return Err(magnus::Error::new(").ok();
+            writeln!(out, "                ruby.exception_runtime_error(),").ok();
+            writeln!(out, "                format!(\"Backend missing required method: {{}}\", method),").ok();
+            writeln!(out, "            ));").ok();
+            writeln!(out, "        }}").ok();
+            writeln!(out, "    }}").ok();
+            writeln!(out).ok();
         }
 
-        writeln!(out).ok();
-        writeln!(out, "            let wrapper = {wrapper}::new(rb_obj, name)?;").ok();
-        writeln!(out, "            let arc: Arc<dyn {trait_path}> = Arc::new(wrapper);").ok();
-        writeln!(out).ok();
+        writeln!(out, "    let wrapper = {wrapper}::new(rb_obj, name)?;").ok();
+        writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(wrapper);").ok();
 
-        // Register in the plugin registry
-        let _extra = spec
+        let extra = spec
             .bridge_config
             .register_extra_args
             .as_deref()
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
-        writeln!(out, "            // Register in the backend registry").ok();
-        writeln!(out, "            // Note: registry interaction is deferred to Rust code").ok();
-        writeln!(out, "            Ok(())").ok();
-
-        writeln!(out, "        }},").ok();
-        writeln!(out, "    ).unwrap();").ok();
-        writeln!(out).ok();
-        writeln!(out, "    module").ok();
+        writeln!(
+            out,
+            "    {registry_getter}().write().register(arc{extra}).map_err(|e| {{"
+        )
+        .ok();
+        writeln!(out, "        let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+        writeln!(out, "        magnus::Error::new(ruby.exception_runtime_error(), format!(\"register failed: {{}}\", e))").ok();
+        writeln!(out, "    }})?;").ok();
+        writeln!(out, "    Ok(())").ok();
         writeln!(out, "}}").ok();
+
+        let _ = core_import;
         out
     }
 }
@@ -652,22 +706,201 @@ impl MagnusBridgeGenerator {
         }
     }
 
+    /// The fully-qualified Rust return type as it appears in the trait method
+    /// signature — uses `core_import::Foo` for Named types.
+    fn return_rust_type(&self, ty: &TypeRef) -> String {
+        match ty {
+            TypeRef::Primitive(p) => {
+                use alef_core::ir::PrimitiveType::*;
+                match p {
+                    Bool => "bool",
+                    U8 => "u8",
+                    U16 => "u16",
+                    U32 => "u32",
+                    U64 => "u64",
+                    I8 => "i8",
+                    I16 => "i16",
+                    I32 => "i32",
+                    I64 => "i64",
+                    F32 => "f32",
+                    F64 => "f64",
+                    Usize => "usize",
+                    Isize => "isize",
+                }
+                .to_string()
+            }
+            TypeRef::String => "String".to_string(),
+            TypeRef::Bytes => "Vec<u8>".to_string(),
+            TypeRef::Vec(inner) => format!("Vec<{}>", self.return_rust_type(inner)),
+            TypeRef::Optional(inner) => format!("Option<{}>", self.return_rust_type(inner)),
+            TypeRef::Named(name) => self
+                .type_paths
+                .get(name.as_str())
+                .cloned()
+                .unwrap_or_else(|| format!("{}::{}", self.core_import, name)),
+            TypeRef::Unit => "()".to_string(),
+            TypeRef::Map(k, v) => format!(
+                "std::collections::HashMap<{}, {}>",
+                self.return_rust_type(k),
+                self.return_rust_type(v)
+            ),
+            TypeRef::Json => "serde_json::Value".to_string(),
+            TypeRef::Duration => "std::time::Duration".to_string(),
+            TypeRef::Char => "char".to_string(),
+            TypeRef::Path => "std::path::PathBuf".to_string(),
+        }
+    }
+
+    /// Whether converting `ty` from a Ruby `magnus::Value` requires a JSON round-trip.
+    /// True for any Named type or composite that contains a Named type — magnus's
+    /// `TryConvert` is only implemented for primitives, String, Vec<T: TryConvert>,
+    /// HashMap with TryConvert keys/values, and a few container types.
+    fn needs_json_marshalling(&self, ty: &TypeRef) -> bool {
+        match ty {
+            TypeRef::Named(_) | TypeRef::Json => true,
+            TypeRef::Vec(inner) | TypeRef::Optional(inner) => self.needs_json_marshalling(inner),
+            TypeRef::Map(k, v) => self.needs_json_marshalling(k) || self.needs_json_marshalling(v),
+            _ => false,
+        }
+    }
+
+    /// Emit code that converts the Ruby `val` (in scope) into the Rust return type
+    /// and either returns it (if has_error: false) or wraps it in `Ok(...)` (if has_error: true).
+    /// For sync bodies — no leading whitespace.
+    fn write_return_conversion(&self, out: &mut String, method: &MethodDef, has_error: bool) {
+        let rust_ty = self.return_rust_type(&method.return_type);
+        if self.needs_json_marshalling(&method.return_type) {
+            // Ruby callback should return either a Hash/Array (we'll JSON.dump it)
+            // or a JSON String we parse directly. Try string first, fall back to to_json.
+            writeln!(out, "let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {{").ok();
+            writeln!(out, "    s").ok();
+            writeln!(out, "}} else {{").ok();
+            writeln!(out, "    match val.funcall::<_, _, String>(\"to_json\", ()) {{").ok();
+            writeln!(out, "        Ok(s) => s,").ok();
+            writeln!(out, "        Err(e) => {{").ok();
+            if has_error {
+                let err_expr = self.make_error(&format!(
+                    "format!(\"Ruby method '{}' returned non-JSON value: {{}}\", e)",
+                    method.name
+                ));
+                writeln!(out, "            return Err({err_expr});").ok();
+            } else {
+                writeln!(out, "            let _ = e;").ok();
+                writeln!(out, "            return Default::default();").ok();
+            }
+            writeln!(out, "        }}").ok();
+            writeln!(out, "    }}").ok();
+            writeln!(out, "}};").ok();
+            if has_error {
+                let err_expr = self.make_error(&format!(
+                    "format!(\"Failed to deserialize Ruby '{}' return value: {{}}\", e)",
+                    method.name
+                ));
+                writeln!(out, "serde_json::from_str::<{rust_ty}>(&json_str)").ok();
+                writeln!(out, "    .map_err(|e| {err_expr})").ok();
+            } else {
+                writeln!(out, "serde_json::from_str::<{rust_ty}>(&json_str).unwrap_or_default()").ok();
+            }
+        } else {
+            // Direct TryConvert path for primitives, String, etc.
+            if has_error {
+                let err_expr = self.make_error(&format!(
+                    "format!(\"Failed to convert Ruby '{}' return value: {{}}\", e)",
+                    method.name
+                ));
+                writeln!(out, "<{rust_ty} as magnus::TryConvert>::try_convert(val)").ok();
+                writeln!(out, "    .map_err(|e| {err_expr})").ok();
+            } else {
+                writeln!(
+                    out,
+                    "<{rust_ty} as magnus::TryConvert>::try_convert(val).unwrap_or_default()"
+                )
+                .ok();
+            }
+        }
+    }
+
+    /// Same as `write_return_conversion` but indented for use inside spawn_blocking closure.
+    fn write_async_return_conversion(&self, out: &mut String, method: &MethodDef, has_error: bool) {
+        let rust_ty = self.return_rust_type(&method.return_type);
+        if self.needs_json_marshalling(&method.return_type) {
+            writeln!(out, "            let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {{").ok();
+            writeln!(out, "                s").ok();
+            writeln!(out, "            }} else {{").ok();
+            writeln!(out, "                match val.funcall::<_, _, String>(\"to_json\", ()) {{").ok();
+            writeln!(out, "                    Ok(s) => s,").ok();
+            writeln!(out, "                    Err(e) => {{").ok();
+            if has_error {
+                let err_expr = self.make_error(&format!(
+                    "format!(\"Ruby method '{}' returned non-JSON value: {{}}\", e)",
+                    method.name
+                ));
+                writeln!(out, "                        return Err({err_expr});").ok();
+            } else {
+                writeln!(out, "                        let _ = e;").ok();
+                writeln!(out, "                        return Default::default();").ok();
+            }
+            writeln!(out, "                    }}").ok();
+            writeln!(out, "                }}").ok();
+            writeln!(out, "            }};").ok();
+            if has_error {
+                let err_expr = self.make_error(&format!(
+                    "format!(\"Failed to deserialize Ruby '{}' return value: {{}}\", e)",
+                    method.name
+                ));
+                writeln!(out, "            serde_json::from_str::<{rust_ty}>(&json_str)").ok();
+                writeln!(out, "                .map_err(|e| {err_expr})").ok();
+            } else {
+                writeln!(
+                    out,
+                    "            serde_json::from_str::<{rust_ty}>(&json_str).unwrap_or_default()"
+                )
+                .ok();
+            }
+        } else if has_error {
+            let err_expr = self.make_error(&format!(
+                "format!(\"Failed to convert Ruby '{}' return value: {{}}\", e)",
+                method.name
+            ));
+            writeln!(out, "            <{rust_ty} as magnus::TryConvert>::try_convert(val)").ok();
+            writeln!(out, "                .map_err(|e| {err_expr})").ok();
+        } else {
+            writeln!(
+                out,
+                "            <{rust_ty} as magnus::TryConvert>::try_convert(val).unwrap_or_default()"
+            )
+            .ok();
+        }
+    }
+
     /// Build a Ruby arg expression for funcall given a Rust parameter.
     fn ruby_arg_expr(&self, p: &alef_core::ir::ParamDef) -> String {
         self.ruby_arg_expr_custom(&p.ty, &p.name)
     }
 
     /// Build a Ruby arg expression for funcall given a type and variable name.
+    /// Wraps `var` in deref/borrow as needed so the expression always type-checks
+    /// regardless of whether `var` is owned (`String`, `Vec<u8>`, ...) or borrowed.
     fn ruby_arg_expr_custom(&self, ty: &TypeRef, var: &str) -> String {
         match ty {
-            TypeRef::String => format!("magnus::RString::new({}).as_value()", var),
-            TypeRef::Bytes => format!("magnus::RString::new(String::from_utf8_lossy({}).as_ref()).as_value()", var),
-            TypeRef::Named(_) => {
-                format!("serde_json::to_string({}).ok().map(|s| magnus::RString::new(s).as_value()).unwrap_or_else(|| magnus::value::qnil().as_value())", var)
-            }
-            TypeRef::Vec(_) => {
-                format!("{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; let arr = ruby.ary_new(); for item in {} {{ let _ = arr.push(item); }} arr.as_value() }}", var)
-            }
+            // RString::new takes Into<&str>; AsRef<str> covers both String and &str.
+            TypeRef::String => format!("magnus::RString::new(AsRef::<str>::as_ref(&{var})).as_value()"),
+            // String::from_utf8_lossy needs &[u8]; AsRef<[u8]> covers both Vec<u8> and &[u8].
+            TypeRef::Bytes => format!(
+                "magnus::RString::new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value()"
+            ),
+            // serde_json::to_string takes &T; the macro `&{var}` is fine for both owned and ref.
+            TypeRef::Named(_) | TypeRef::Json => format!(
+                "serde_json::to_string(&{var}).ok().map(|s| magnus::RString::new(s.as_str()).as_value()).unwrap_or_else(|| magnus::value::qnil().as_value())"
+            ),
+            TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Optional(_) => format!(
+                "serde_json::to_string(&{var}).ok().map(|s| magnus::RString::new(s.as_str()).as_value()).unwrap_or_else(|| magnus::value::qnil().as_value())"
+            ),
+            // Both PathBuf (owned) and &Path (borrowed) coerce via AsRef<Path>; pin
+            // the AsRef target type explicitly so type inference doesn't fail.
+            TypeRef::Path => format!(
+                "magnus::RString::new(<_ as AsRef<std::path::Path>>::as_ref(&{var}).to_string_lossy().as_ref()).as_value()"
+            ),
             _ => var.to_string(),
         }
     }

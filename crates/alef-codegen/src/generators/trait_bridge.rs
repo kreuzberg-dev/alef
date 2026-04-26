@@ -31,8 +31,17 @@ pub struct TraitBridgeSpec<'a> {
 
 impl<'a> TraitBridgeSpec<'a> {
     /// Fully qualified error type path (e.g., `"kreuzberg::KreuzbergError"`).
+    ///
+    /// If `error_type` already looks fully-qualified (contains `::`) or is a generic
+    /// type expression (contains `<`), it is returned as-is without prefixing
+    /// `core_import`. This lets backends specify rich error types like
+    /// `"Box<dyn std::error::Error + Send + Sync>"` directly.
     pub fn error_path(&self) -> String {
-        format!("{}::{}", self.core_import, self.error_type)
+        if self.error_type.contains("::") || self.error_type.contains('<') {
+            self.error_type.clone()
+        } else {
+            format!("{}::{}", self.core_import, self.error_type)
+        }
     }
 
     /// Generate an error construction expression from a message expression.
