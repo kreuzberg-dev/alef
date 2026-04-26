@@ -1,6 +1,8 @@
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::TypeDef;
+use alef_core::ir::{TypeDef, TypeRef};
 use std::collections::BTreeSet;
+
+use super::nif_external::{gleam_type, resolve_gleam_error_type};
 
 /// Emit Gleam shim functions for a single trait bridge.
 ///
@@ -18,6 +20,7 @@ pub(crate) fn emit_trait_bridge_shims(
     bridge_cfg: &TraitBridgeConfig,
     trait_type: Option<&TypeDef>,
     nif_module: &str,
+    declared_errors: &[String],
     out: &mut String,
     imports: &mut BTreeSet<&'static str>,
 ) {
@@ -61,6 +64,69 @@ pub(crate) fn emit_trait_bridge_shims(
         out.push_str(&format!(
             "pub fn register_{trait_snake}(pid: Dynamic, plugin_name: String) -> Nil\n"
         ));
+    }
+
+    // Per-method response shims.
+    //
+    // For every method defined on the trait, emit a typed helper that the consumer's
+    // callback module calls to send the result back through the Rustler reply-registry.
+    // The NIF name follows the convention: `{trait_snake}_{method_snake}_response`.
+    //
+    // `call_id` is Dynamic because Gleam has no native Erlang reference type;
+    // callers pass the opaque reference term received in the trait_call message.
+    if let Some(trait_ty) = trait_type {
+        for method in &trait_ty.methods {
+            let method_snake = method.name.to_snake_case();
+            let nif_fn_name = format!("{trait_snake}_{method_snake}_response");
+
+            // Build Gleam return type for the ok branch (Nil when Unit).
+            let ok_type = match &method.return_type {
+                TypeRef::Unit => "Nil".to_string(),
+                other => gleam_type(other, false, imports),
+            };
+
+            // Build Gleam error type: resolve via declared errors list so that
+            // external types like `anyhow::Error` fall back to the module's own
+            // error type (or String when no errors are declared).
+            let err_type = method
+                .error_type
+                .as_deref()
+                .map(|e| resolve_gleam_error_type(e, declared_errors))
+                .unwrap_or_else(|| "String".to_string());
+
+            // Doc comment with usage guidance.
+            out.push_str(&format!(
+                "/// Send the `{method_snake}` response back to the Rustler reply-registry.\n"
+            ));
+            out.push_str("///\n");
+            out.push_str(&format!(
+                "/// Call this from your `handle_info/2` after processing a\n\
+                 /// `{{:trait_call, \"{method_snake}\", args_json, call_id}}` message:\n"
+            ));
+            out.push_str("///\n");
+            out.push_str(&format!(
+                "/// ```gleam\n\
+                 /// // pub fn handle_info(msg, state) {{\n\
+                 /// //   case msg {{\n\
+                 /// //     #(atom.create(\"{method_snake}\"), args_json, call_id) ->\n\
+                 /// //       let result = do_{method_snake}(args_json)\n\
+                 /// //       {nif_fn_name}(call_id, result)\n\
+                 /// //       actor.continue(state)\n\
+                 /// //     _ -> actor.continue(state)\n\
+                 /// //   }}\n\
+                 /// // }}\n\
+                 /// ```\n"
+            ));
+
+            imports.insert("import gleam/dynamic.{type Dynamic}");
+            out.push_str(&format!(
+                "@external(erlang, \"{nif_module}\", \"{nif_fn_name}\")\n"
+            ));
+            out.push_str(&format!(
+                "pub fn {nif_fn_name}(call_id: Dynamic, result: Result({ok_type}, {err_type})) -> Nil\n"
+            ));
+            out.push('\n');
+        }
     }
 }
 
