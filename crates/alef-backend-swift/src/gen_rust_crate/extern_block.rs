@@ -32,7 +32,10 @@ pub(crate) fn emit_extern_block_for_type(ty: &TypeDef, exclude_fields: &HashSet<
                 } else {
                     bridge_ty
                 };
-                let name = f.name.to_snake_case();
+                // Escape Swift keywords so the swift-bridge-generated init param
+                // doesn't become invalid Swift (e.g. `_ extension: T` referencing
+                // `extension` as expression in the body).
+                let name = swift_ident(&f.name.to_snake_case());
                 format!("{name}: {bridge_ty}")
             })
             .collect();
@@ -45,6 +48,8 @@ pub(crate) fn emit_extern_block_for_type(ty: &TypeDef, exclude_fields: &HashSet<
     }
 
     // Getters — excluded fields still get a getter declaration (the impl emits unimplemented!()).
+    // Escape Swift keywords so e.g. `fn extension(&self)` becomes `fn extension_(&self)` —
+    // matches the impl block in wrappers.rs.
     for field in &ty.fields {
         let bridge_ty = bridge_type(&field.ty);
         let bridge_ty = if field.optional && !needs_json_bridge(&field.ty) {
@@ -52,7 +57,7 @@ pub(crate) fn emit_extern_block_for_type(ty: &TypeDef, exclude_fields: &HashSet<
         } else {
             bridge_ty
         };
-        let name = field.name.to_snake_case();
+        let name = swift_ident(&field.name.to_snake_case());
         block.push_str(&format!("        fn {name}(&self) -> {bridge_ty};\n"));
     }
 
