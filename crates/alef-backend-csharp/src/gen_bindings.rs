@@ -1695,9 +1695,15 @@ fn gen_record_type(
             // Duration fields are mapped to ulong? so that 0 is distinguishable from
             // "not set". Always default to null here; Rust has its own default.
             if matches!(&field.ty, TypeRef::Duration) {
+                // base_type is already "ulong?" (from csharp_type); don't add another "?"
+                let nullable_type = if base_type.ends_with('?') {
+                    base_type.clone()
+                } else {
+                    format!("{}?", base_type)
+                };
                 out.push_str(&format!(
-                    "    public {}? {} {{ get; set; }} = null;\n",
-                    base_type, cs_name
+                    "    public {} {} {{ get; set; }} = null;\n",
+                    nullable_type, cs_name
                 ));
                 out.push('\n');
                 continue;

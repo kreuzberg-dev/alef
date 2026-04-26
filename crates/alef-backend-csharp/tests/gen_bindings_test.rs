@@ -2,7 +2,7 @@ use alef_backend_csharp::CsharpBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, CSharpConfig, CrateConfig, FfiConfig};
 use alef_core::ir::{
-    ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
 };
 
 #[test]
@@ -910,5 +910,309 @@ fn test_mixed_struct_skips_tuple_fields_only() {
     assert!(
         !mixed_file.content.contains("\"_0\""),
         "Tuple field '_0' should not appear in JSON property names"
+    );
+}
+
+/// Helper: build a minimal AlefConfig with a CSharp config for crate named "test".
+fn minimal_csharp_config(crate_name: &str) -> AlefConfig {
+    AlefConfig {
+        version: None,
+        crate_config: CrateConfig {
+            name: crate_name.to_string(),
+            sources: vec![],
+            version_from: "Cargo.toml".to_string(),
+            core_import: None,
+            workspace_root: None,
+            skip_core_import: false,
+            features: vec![],
+            path_mappings: std::collections::HashMap::new(),
+            auto_path_mappings: Default::default(),
+            extra_dependencies: Default::default(),
+            source_crates: vec![],
+            error_type: None,
+            error_constructor: None,
+        },
+        languages: vec![],
+        exclude: Default::default(),
+        include: Default::default(),
+        output: Default::default(),
+        python: None,
+        node: None,
+        ruby: None,
+        php: None,
+        elixir: None,
+        wasm: None,
+        ffi: Some(FfiConfig {
+            prefix: Some(crate_name.to_string()),
+            error_style: "last_error".to_string(),
+            header_name: None,
+            lib_name: None,
+            visitor_callbacks: false,
+            features: None,
+            serde_rename_all: None,
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
+            rename_fields: Default::default(),
+        }),
+        go: None,
+        java: None,
+        csharp: Some(CSharpConfig {
+            namespace: Some("Test".to_string()),
+            target_framework: None,
+            features: None,
+            serde_rename_all: None,
+            rename_fields: Default::default(),
+            run_wrapper: None,
+            extra_lint_paths: Vec::new(),
+            project_file: None,
+        }),
+        r: None,
+        scaffold: None,
+        readme: None,
+        lint: None,
+        update: None,
+        test: None,
+        setup: None,
+        clean: None,
+        build_commands: None,
+        publish: None,
+        custom_files: None,
+        adapters: vec![],
+        custom_modules: alef_core::config::CustomModulesConfig::default(),
+        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
+        opaque_types: std::collections::HashMap::new(),
+        generate: alef_core::config::GenerateConfig::default(),
+        generate_overrides: std::collections::HashMap::new(),
+        dto: Default::default(),
+        sync: None,
+        e2e: None,
+        trait_bridges: vec![],
+        tools: alef_core::config::ToolsConfig::default(),
+        format: alef_core::config::FormatConfig::default(),
+        format_overrides: std::collections::HashMap::new(),
+    }
+}
+
+/// Regression test: Duration field in a has_default struct must emit `ulong?` (single `?`),
+/// not `ulong??`. Reproduces the CS1519 error introduced by commit 9ee50d0.
+#[test]
+fn test_duration_field_emits_single_nullable_not_double() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "BrowserConfig".to_string(),
+            rust_path: "test::BrowserConfig".to_string(),
+            original_rust_path: String::new(),
+            // has_default = true triggers the defaulted-field path
+            has_default: true,
+            fields: vec![FieldDef {
+                name: "timeout".to_string(),
+                ty: TypeRef::Duration,
+                optional: false,
+                default: None,
+                typed_default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = minimal_csharp_config("test");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let cs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("BrowserConfig.cs"))
+        .expect("BrowserConfig.cs should be generated");
+
+    // Must have exactly one `?` after ulong — never `??`
+    assert!(
+        !cs_file.content.contains("ulong??"),
+        "Duration field must not produce ulong?? (double nullable); got:\n{}",
+        cs_file.content
+    );
+    assert!(
+        cs_file.content.contains("ulong? Timeout"),
+        "Duration field should emit `ulong? Timeout`; got:\n{}",
+        cs_file.content
+    );
+}
+
+/// Regression test: Option<ulong> field in a has_default struct must also emit a single `?`.
+#[test]
+fn test_optional_ulong_field_emits_single_nullable() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "CrawlConfig".to_string(),
+            rust_path: "test::CrawlConfig".to_string(),
+            original_rust_path: String::new(),
+            has_default: true,
+            fields: vec![FieldDef {
+                name: "max_depth".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64))),
+                optional: true,
+                default: None,
+                typed_default: Some(DefaultValue::None),
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = minimal_csharp_config("test");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let cs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("CrawlConfig.cs"))
+        .expect("CrawlConfig.cs should be generated");
+
+    assert!(
+        !cs_file.content.contains("ulong??"),
+        "Optional<ulong> field must not produce ulong?? (double nullable); got:\n{}",
+        cs_file.content
+    );
+    assert!(
+        cs_file.content.contains("ulong? MaxDepth"),
+        "Optional<ulong> field should emit `ulong? MaxDepth`; got:\n{}",
+        cs_file.content
+    );
+}
+
+/// Regression test: plain enum field with serde(default) and no explicit variant default
+/// becomes nullable (T?) with null init — must not double-add `?`.
+#[test]
+fn test_plain_enum_with_default_emits_single_nullable() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test::Config".to_string(),
+            original_rust_path: String::new(),
+            has_default: true,
+            fields: vec![FieldDef {
+                name: "mode".to_string(),
+                ty: TypeRef::Named("Mode".to_string()),
+                optional: false,
+                default: None,
+                // No explicit variant default → default_val will resolve to "null"
+                typed_default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+            }],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Mode".to_string(),
+            rust_path: "test::Mode".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Fast".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = minimal_csharp_config("test");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let cs_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Config.cs"))
+        .expect("Config.cs should be generated");
+
+    // Should not have double `?` — e.g. `Mode??`
+    assert!(
+        !cs_file.content.contains("Mode??"),
+        "Enum field must not produce Mode?? (double nullable); got:\n{}",
+        cs_file.content
+    );
+    // Should have `Mode? Mode` property (single nullable)
+    assert!(
+        cs_file.content.contains("Mode?"),
+        "Enum field with null default should be nullable; got:\n{}",
+        cs_file.content
     );
 }
