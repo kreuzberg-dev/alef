@@ -212,13 +212,20 @@ pub fn build(b: *std.Build) void {
         // Convert filename like "basic_test.zig" to a test name
         let test_name = filename.trim_end_matches("_test.zig");
         content.push_str(&format!(
-            "    const {test_name}_tests = b.addTest(.{{\n"
+            "    const {test_name}_module = b.createModule(.{{\n"
         ));
         content.push_str(&format!(
             "        .root_source_file = b.path(\"src/{filename}\"),\n"
         ));
         content.push_str("        .target = target,\n");
         content.push_str("        .optimize = optimize,\n");
+        content.push_str("    });\n");
+        content.push_str(&format!(
+            "    const {test_name}_tests = b.addTest(.{{\n"
+        ));
+        content.push_str(&format!(
+            "        .root_module = {test_name}_module,\n"
+        ));
         content.push_str("    });\n");
         content.push_str(&format!(
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
