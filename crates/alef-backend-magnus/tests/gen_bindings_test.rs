@@ -1294,3 +1294,163 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
     // Verify that the serde tag attribute is present
     assert!(content.contains("tag = \"type\""), "Should have serde tag attribute");
 }
+
+/// Bug A regression — tuple variant Foo(Vec<u8>) should keep Vec<u8>, not collapse to String.
+/// The conversion code must use direct assignment, not serde_json round-trip.
+#[test]
+fn test_tuple_variant_vec_primitive_stays_as_vec() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "BytePayload".to_string(),
+            rust_path: "test_lib::BytePayload".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Data".to_string(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U8))),
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                }],
+                is_tuple: true,
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib.content;
+
+    // Vec<u8> (primitive) must NOT be collapsed to String
+    assert!(
+        content.contains("_0: Vec<u8>"),
+        "Vec<u8> tuple variant field must stay as Vec<u8>, got:\n{content}"
+    );
+    // Conversion must not use serde_json for Vec<u8>
+    assert!(
+        !content.contains("serde_json::from_str(&_0)"),
+        "Vec<u8> must not use serde_json::from_str; got:\n{content}"
+    );
+    assert!(
+        !content.contains("serde_json::to_string(&_0)"),
+        "Vec<u8> must not use serde_json::to_string; got:\n{content}"
+    );
+}
+
+/// Bug A regression — tuple variant Foo(Vec<Bar>) where Bar is a Named type should keep
+/// Vec<Bar> in the binding enum and use .into() conversions, not serde_json.
+#[test]
+fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
+    let backend = MagnusBackend;
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Bar".to_string(),
+            rust_path: "test_lib::Bar".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("value", TypeRef::String, false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            doc: String::new(),
+            cfg: None,
+            super_traits: vec![],
+        }],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Payload".to_string(),
+            rust_path: "test_lib::Payload".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Multi".to_string(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Named("Bar".to_string()))),
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                }],
+                is_tuple: true,
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib.content;
+
+    // Vec<Bar> (Named) must stay as Vec<Bar>, not String
+    assert!(
+        content.contains("_0: Vec<Bar>"),
+        "Vec<Named> tuple variant field must stay as Vec<Bar>, got:\n{content}"
+    );
+    // Conversion must not use serde_json for Vec<Named>
+    assert!(
+        !content.contains("serde_json::from_str(&_0)"),
+        "Vec<Named> must not use serde_json::from_str; got:\n{content}"
+    );
+    assert!(
+        !content.contains("serde_json::to_string(&_0)"),
+        "Vec<Named> must not use serde_json::to_string; got:\n{content}"
+    );
+    // Conversion must use .into() for each element
+    assert!(
+        content.contains("into_iter().map(Into::into).collect()"),
+        "Vec<Named> conversion must use .into_iter().map(Into::into).collect(); got:\n{content}"
+    );
+}
