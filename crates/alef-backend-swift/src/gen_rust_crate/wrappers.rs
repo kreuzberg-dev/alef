@@ -11,6 +11,7 @@ use crate::gen_rust_crate::default_construction::{emit_default_construction_body
 use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
 use alef_codegen::generators::type_paths::resolve_type_path;
 use alef_core::ir::{CoreWrapper, TypeDef, TypeRef};
+use alef_core::keywords::swift_ident;
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
 
@@ -49,7 +50,9 @@ pub(crate) fn emit_type_wrapper(
                 } else {
                     bridge_ty
                 };
-                let name = f.name.to_snake_case();
+                // Escape Swift keywords so the param name in `pub fn new()` matches
+                // the extern declaration (which also escapes via swift_ident).
+                let name = swift_ident(&f.name.to_snake_case());
                 format!("{name}: {bridge_ty}")
             })
             .collect();
@@ -135,6 +138,10 @@ fn emit_getters(
             bridge_ty
         };
         let name = field.name.to_snake_case();
+        // Swift-bridge emits the Rust fn name verbatim into Swift; escape Swift
+        // reserved keywords (extension, subscript, etc.) so the generated Swift
+        // accessor is valid. Body still uses `name` for source-struct field access.
+        let getter_name = swift_ident(&name);
         // Explicitly excluded fields: emit an unimplemented getter that compiles
         // but panics at runtime if called.
         let field_key = format!("{}.{}", ty.name, name);
@@ -143,7 +150,7 @@ fn emit_getters(
                 "    // alef: excluded field `{name}` — actual type is not serializable\n"
             ));
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> {bridge_ty_owned} {{ ::std::unimplemented!(\"{name}: excluded field\") }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::std::unimplemented!(\"{name}: excluded field\") }}\n"
             ));
             continue;
         }
@@ -174,43 +181,43 @@ fn emit_getters(
                 "    // alef: skipped — field `{name}` contains `{excluded}` which is excluded from codegen\n"
             ));
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> {bridge_ty_owned} {{ ::std::unimplemented!(\"{name}: {excluded} is not bridgeable\") }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::std::unimplemented!(\"{name}: {excluded} is not bridgeable\") }}\n"
             ));
         } else if needs_json_bridge(&field.ty) {
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).expect(\"serializable {name}\") }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).expect(\"serializable {name}\") }}\n"
             ));
         } else if let TypeRef::Named(wrapper) = &field.ty {
-            emit_named_getter(field, wrapper, &name, &bridge_ty_owned, enum_names, out);
+            emit_named_getter(field, wrapper, &name, &getter_name, &bridge_ty_owned, enum_names, out);
         } else if let TypeRef::Vec(inner) = &field.ty {
-            emit_vec_getter(ty, field, inner, &name, &bridge_ty_owned, enum_names, out);
+            emit_vec_getter(ty, field, inner, &name, &getter_name, &bridge_ty_owned, enum_names, out);
         } else if matches!(field.ty, TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json) {
-            emit_string_like_getter(ty, field, &name, &bridge_ty_owned, out);
+            emit_string_like_getter(ty, field, &name, &getter_name, &bridge_ty_owned, out);
         } else if matches!(field.ty, TypeRef::Bytes) {
             // bytes::Bytes bridges as Vec<u8>; convert with .to_vec() for the return.
             if field.optional {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().map(|b| b.to_vec()) }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().map(|b| b.to_vec()) }}\n"
                 ));
             } else {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.to_vec() }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.to_vec() }}\n"
                 ));
             }
         } else if ty.has_serde && matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Primitive(_)) {
             // Vec<T> or Primitive fields in serde structs: use serde JSON round-trip.
             if field.optional {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n"
                 ));
             } else {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n"
                 ));
             }
         } else {
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.clone() }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.clone() }}\n"
             ));
         }
     }
@@ -220,6 +227,7 @@ fn emit_named_getter(
     field: &alef_core::ir::FieldDef,
     wrapper: &str,
     name: &str,
+    getter_name: &str,
     _bridge_ty_owned: &str,
     enum_names: &HashSet<&str>,
     out: &mut String,
@@ -245,7 +253,7 @@ fn emit_named_getter(
             format!("self.0.{name}.clone().map({wrapper})")
         };
         out.push_str(&format!(
-            "    pub fn {name}(&self) -> Option<{wrapper}> {{ {getter_expr} }}\n"
+            "    pub fn {getter_name}(&self) -> Option<{wrapper}> {{ {getter_expr} }}\n"
         ));
     } else {
         let expr = if field.is_boxed {
@@ -268,7 +276,7 @@ fn emit_named_getter(
             format!("{wrapper}(self.0.{name}.clone())")
         };
         out.push_str(&format!(
-            "    pub fn {name}(&self) -> {wrapper} {{ {expr} }}\n"
+            "    pub fn {getter_name}(&self) -> {wrapper} {{ {expr} }}\n"
         ));
     }
 }
@@ -278,6 +286,7 @@ fn emit_vec_getter(
     field: &alef_core::ir::FieldDef,
     inner: &TypeRef,
     name: &str,
+    getter_name: &str,
     bridge_ty_owned: &str,
     enum_names: &HashSet<&str>,
     out: &mut String,
@@ -295,11 +304,11 @@ fn emit_vec_getter(
         };
         if field.optional {
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> Option<Vec<{wrapper}>> {{ self.0.{name}.as_ref().map(|v| v.iter().map(|elem| {elem_expr}).collect()) }}\n"
+                "    pub fn {getter_name}(&self) -> Option<Vec<{wrapper}>> {{ self.0.{name}.as_ref().map(|v| v.iter().map(|elem| {elem_expr}).collect()) }}\n"
             ));
         } else {
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> Vec<{wrapper}> {{ self.0.{name}.iter().map(|elem| {elem_expr}).collect() }}\n"
+                "    pub fn {getter_name}(&self) -> Vec<{wrapper}> {{ self.0.{name}.iter().map(|elem| {elem_expr}).collect() }}\n"
             ));
         }
     } else if !matches!(inner, TypeRef::Primitive(_) | TypeRef::Bytes) {
@@ -307,11 +316,11 @@ fn emit_vec_getter(
         if ty.has_serde {
             if field.optional {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n"
                 ));
             } else {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n"
                 ));
             }
         } else {
@@ -319,7 +328,7 @@ fn emit_vec_getter(
                 "    // alef: skipped — Vec field `{name}` may have different actual type in non-serde struct\n"
             ));
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> {bridge_ty_owned} {{ ::std::unimplemented!(\"{name}: Vec field type mismatch in non-serde struct\") }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::std::unimplemented!(\"{name}: Vec field type mismatch in non-serde struct\") }}\n"
             ));
         }
     } else {
@@ -327,16 +336,16 @@ fn emit_vec_getter(
         if ty.has_serde {
             if field.optional {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n"
                 ));
             } else {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n"
                 ));
             }
         } else {
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.clone() }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.clone() }}\n"
             ));
         }
     }
@@ -346,6 +355,7 @@ fn emit_string_like_getter(
     ty: &TypeDef,
     field: &alef_core::ir::FieldDef,
     name: &str,
+    getter_name: &str,
     bridge_ty_owned: &str,
     out: &mut String,
 ) {
@@ -360,20 +370,20 @@ fn emit_string_like_getter(
     if !ty.has_serde {
         if field.optional {
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().map(|v| format!(\"{{v:?}}\")) }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().map(|v| format!(\"{{v:?}}\")) }}\n"
             ));
         } else {
             out.push_str(&format!(
-                "    pub fn {name}(&self) -> {bridge_ty_owned} {{ format!(\"{{:?}}\", &self.0.{name}) }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ format!(\"{{:?}}\", &self.0.{name}) }}\n"
             ));
         }
     } else if field.optional {
         out.push_str(&format!(
-            "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok()) }}\n"
+            "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok()) }}\n"
         ));
     } else {
         out.push_str(&format!(
-            "    pub fn {name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).unwrap_or_default() }}\n"
+            "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).unwrap_or_default() }}\n"
         ));
     }
 }

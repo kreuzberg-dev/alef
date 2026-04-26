@@ -22,6 +22,19 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String 
     block.push_str(&format!("        type {}Box;\n", trait_def.name));
 
     let trait_snake = heck::AsSnakeCase(trait_def.name.as_str()).to_string();
+
+    // Phantom `Vec<{Trait}Box>` reference: swift-bridge auto-generates Swift Vec
+    // accessor methods for every opaque `type Foo;` declaration. Those Swift methods
+    // reference C symbols `__swift_bridge__$Vec_FooBox$len` etc. which swift-bridge-build
+    // only emits on the Rust side when the type appears in a `Vec<Foo>` somewhere
+    // in an extern block. Without this phantom, the generated Swift fails to link.
+    // Name does NOT use a leading underscore — Swift treats `_`-prefixed C names as
+    // private and excludes them from the imported module scope.
+    block.push_str(&format!(
+        "        fn alef_phantom_vec_{trait_snake}() -> Vec<{trait_name}Box>;\n",
+        trait_name = trait_def.name,
+    ));
+
     for method in &trait_def.methods {
         let method_name = method.name.to_snake_case();
         let fn_name = format!("{trait_snake}_call_{method_name}");
@@ -77,6 +90,14 @@ pub(crate) fn emit_trait_bridge_wrapper<'a>(
 
     out.push_str(&format!(
         "pub struct {trait_name}Box(pub Box<dyn {trait_path} + Send + Sync>);\n\n"
+    ));
+
+    // Phantom Vec<{Trait}Box> implementation paired with the extern declaration —
+    // never actually called, but its existence forces swift-bridge-build to emit
+    // the `__swift_bridge__$Vec_{Trait}Box$*` C symbols that the auto-generated
+    // Swift Vec extension references.
+    out.push_str(&format!(
+        "#[doc(hidden)]\npub fn alef_phantom_vec_{trait_snake}() -> Vec<{trait_name}Box> {{ Vec::new() }}\n\n"
     ));
 
     for method in &trait_def.methods {

@@ -29,6 +29,10 @@ pub(crate) fn emit_default_construction_body(
     ));
     for f in &ty.fields {
         let name = f.name.to_snake_case();
+        // Param name in the constructor signature is keyword-escaped (matches
+        // wrappers.rs / extern_block.rs). Field access on `__target` uses the
+        // unescaped Rust field name.
+        let param = alef_core::keywords::swift_ident(&name);
         // Explicitly excluded fields: leave at Default::default() silently.
         let field_key = format!("{}.{}", ty.name, name);
         if exclude_fields.contains(&field_key) {
@@ -69,7 +73,7 @@ pub(crate) fn emit_default_construction_body(
             // JSON-decode into a serde_json::Value, then assign as JSON-deserialized
             // typed value via reinterpret.
             out.push_str(&format!(
-                "        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&{name}) {{\n"
+                "        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&{param}) {{\n"
             ));
             out.push_str(&format!(
                 "            if let Ok(t) = ::serde_json::from_value(v) {{ __target.{name} = t; }}\n"
@@ -91,25 +95,25 @@ pub(crate) fn emit_default_construction_body(
                 // Optional Named field; wrap in Some(w.0), Box::new, or Arc::new if needed.
                 if f.is_boxed {
                     out.push_str(&format!(
-                        "        if let Some(w) = {name} {{ __target.{name} = Some(Box::new(w.0)); }}\n"
+                        "        if let Some(w) = {param} {{ __target.{name} = Some(Box::new(w.0)); }}\n"
                     ));
                 } else if matches!(f.core_wrapper, CoreWrapper::Arc) {
                     out.push_str(&format!(
-                        "        if let Some(w) = {name} {{ __target.{name} = Some(std::sync::Arc::new(w.0)); }}\n"
+                        "        if let Some(w) = {param} {{ __target.{name} = Some(std::sync::Arc::new(w.0)); }}\n"
                     ));
                 } else {
                     out.push_str(&format!(
-                        "        if let Some(w) = {name} {{ __target.{name} = Some(w.0); }}\n"
+                        "        if let Some(w) = {param} {{ __target.{name} = Some(w.0); }}\n"
                     ));
                 }
             } else if f.is_boxed {
                 // The source field is Box<T>; wrap in Box::new().
-                out.push_str(&format!("        __target.{name} = Box::new({name}.0);\n"));
+                out.push_str(&format!("        __target.{name} = Box::new({param}.0);\n"));
             } else if matches!(f.core_wrapper, CoreWrapper::Arc) {
                 // The source field is Arc<T>; wrap in Arc::new().
-                out.push_str(&format!("        __target.{name} = std::sync::Arc::new({name}.0);\n"));
+                out.push_str(&format!("        __target.{name} = std::sync::Arc::new({param}.0);\n"));
             } else {
-                out.push_str(&format!("        __target.{name} = {name}.0;\n"));
+                out.push_str(&format!("        __target.{name} = {param}.0;\n"));
             }
         } else if let TypeRef::Vec(inner) = &f.ty {
             // Vec<Named> fields: unwrap bridge wrappers element-wise.
@@ -128,11 +132,11 @@ pub(crate) fn emit_default_construction_body(
                     };
                     if f.optional {
                         out.push_str(&format!(
-                            "        if let Some(v) = {name} {{ __target.{name} = Some(v.into_iter().map(|w| {unwrap_expr}).collect()); }}\n"
+                            "        if let Some(v) = {param} {{ __target.{name} = Some(v.into_iter().map(|w| {unwrap_expr}).collect()); }}\n"
                         ));
                     } else {
                         out.push_str(&format!(
-                            "        __target.{name} = {name}.into_iter().map(|w| {unwrap_expr}).collect();\n"
+                            "        __target.{name} = {param}.into_iter().map(|w| {unwrap_expr}).collect();\n"
                         ));
                     }
                 }
@@ -144,7 +148,7 @@ pub(crate) fn emit_default_construction_body(
                 // Vec→Option<Vec>, Vec<String>→Vec<OtherType>, etc. gracefully:
                 // the deserialized JSON is coerced to whatever type kreuzberg uses.
                 out.push_str(&format!(
-                    "        if let Ok(__v) = ::serde_json::to_value({name}) {{\n"
+                    "        if let Ok(__v) = ::serde_json::to_value({param}) {{\n"
                 ));
                 out.push_str(&format!(
                     "            if let Ok(t) = ::serde_json::from_value(__v) {{ __target.{name} = t; }}\n"
@@ -152,7 +156,7 @@ pub(crate) fn emit_default_construction_body(
                 out.push_str("        }\n");
             } else if matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes) {
                 // Vec<Primitive> or Vec<Bytes> in non-serde struct: types should match.
-                out.push_str(&format!("        __target.{name} = {name};\n"));
+                out.push_str(&format!("        __target.{name} = {param};\n"));
             } else {
                 // Vec<non-Primitive> in non-serde struct: actual type may differ from IR.
                 // Leave at Default to avoid type mismatches.
@@ -172,7 +176,7 @@ pub(crate) fn emit_default_construction_body(
                 ));
             } else if f.optional {
                 out.push_str(&format!(
-                    "        if let Some(s) = {name} {{\n"
+                    "        if let Some(s) = {param} {{\n"
                 ));
                 out.push_str(&format!(
                     "            if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&s) {{\n"
@@ -183,7 +187,7 @@ pub(crate) fn emit_default_construction_body(
                 out.push_str("            }\n        }\n");
             } else {
                 out.push_str(&format!(
-                    "        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&{name}) {{\n"
+                    "        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&{param}) {{\n"
                 ));
                 out.push_str(&format!(
                     "            if let Ok(t) = ::serde_json::from_value(v) {{ __target.{name} = t; }}\n"
@@ -194,7 +198,7 @@ pub(crate) fn emit_default_construction_body(
             // bytes::Bytes != Vec<u8>; convert with .into() so the assignment compiles.
             out.push_str(&format!("        __target.{name} = {name}.into();\n"));
         } else {
-            out.push_str(&format!("        __target.{name} = {name};\n"));
+            out.push_str(&format!("        __target.{name} = {param};\n"));
         }
     }
     out.push_str(&format!("        {}(__target)\n", ty.name));
