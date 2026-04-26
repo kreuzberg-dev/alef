@@ -374,7 +374,10 @@ pub(crate) fn gen_native_lib(
     let trait_bridge_handles: AHashSet<String> = config
         .trait_bridges
         .iter()
-        .filter(|b| !b.exclude_languages.contains(&alef_core::config::Language::Java.to_string()))
+        .filter(|b| {
+            !b.exclude_languages
+                .contains(&alef_core::config::Language::Java.to_string())
+        })
         .flat_map(|b| {
             let trait_snake = b.trait_name.to_snake_case();
             let trait_upper = trait_snake.to_uppercase();
@@ -631,11 +634,7 @@ pub(crate) fn gen_native_lib(
         let trait_upper = trait_snake.to_uppercase();
 
         // Register handle
-        let register_handle_name = format!(
-            "{}_REGISTER_{}",
-            prefix.to_uppercase(),
-            trait_upper
-        );
+        let register_handle_name = format!("{}_REGISTER_{}", prefix.to_uppercase(), trait_upper);
         let register_ffi_name = format!("{}_register_{}", prefix, trait_snake);
         if emitted_register_handles.insert(register_handle_name.clone()) {
             writeln!(body).ok();
@@ -655,11 +654,7 @@ pub(crate) fn gen_native_lib(
         }
 
         // Unregister handle
-        let unregister_handle_name = format!(
-            "{}_UNREGISTER_{}",
-            prefix.to_uppercase(),
-            trait_upper
-        );
+        let unregister_handle_name = format!("{}_UNREGISTER_{}", prefix.to_uppercase(), trait_upper);
         let unregister_ffi_name = format!("{}_unregister_{}", prefix, trait_snake);
         if emitted_unregister_handles.insert(unregister_handle_name.clone()) {
             writeln!(body).ok();

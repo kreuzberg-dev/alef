@@ -380,7 +380,11 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     writeln!(out, "            if (t instanceof Exception e) {{").ok();
     writeln!(out, "                throw e;").ok();
     writeln!(out, "            }} else {{").ok();
-    writeln!(out, "                throw new RuntimeException(\"Unexpected error during registration\", t);").ok();
+    writeln!(
+        out,
+        "                throw new RuntimeException(\"Unexpected error during registration\", t);"
+    )
+    .ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "        {registry_field}.put(impl.name(), bridge);").ok();
@@ -429,7 +433,11 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     writeln!(out, "            if (t instanceof Exception e) {{").ok();
     writeln!(out, "                throw e;").ok();
     writeln!(out, "            }} else {{").ok();
-    writeln!(out, "                throw new RuntimeException(\"Unexpected error during unregistration\", t);").ok();
+    writeln!(
+        out,
+        "                throw new RuntimeException(\"Unexpected error during unregistration\", t);"
+    )
+    .ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "        {bridge_class} old = {registry_field}.remove(name);").ok();

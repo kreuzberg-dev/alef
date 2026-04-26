@@ -99,7 +99,13 @@ pub fn gen_trait_bridges_file(
 }
 
 /// Generate one trait bridge: interface, trampolines, registration/unregistration functions.
-fn gen_trait_bridge(out: &mut String, trait_def: &TypeDef, _bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, crate_name: &str) {
+fn gen_trait_bridge(
+    out: &mut String,
+    trait_def: &TypeDef,
+    _bridge_cfg: &TraitBridgeConfig,
+    ffi_prefix: &str,
+    crate_name: &str,
+) {
     let trait_name = &trait_def.name;
     let trait_snake = heck::AsSnakeCase(trait_name).to_string();
     let trait_pascal = trait_name.to_pascal_case();
@@ -689,7 +695,11 @@ mod tests {
             ("kreuzberg", "OcrBackend", "KREUZBERGKreuzbergOcrBackendVTable"),
             ("kreuzberg", "PostProcessor", "KREUZBERGKreuzbergPostProcessorVTable"),
             ("kreuzberg", "Validator", "KREUZBERGKreuzbergValidatorVTable"),
-            ("kreuzberg", "EmbeddingBackend", "KREUZBERGKreuzbergEmbeddingBackendVTable"),
+            (
+                "kreuzberg",
+                "EmbeddingBackend",
+                "KREUZBERGKreuzbergEmbeddingBackendVTable",
+            ),
         ];
 
         for (crate_name, trait_name, expected_struct) in test_cases {

@@ -52,11 +52,7 @@ impl Backend for CsharpBackend {
             .filter_map(|b| b.type_alias.clone())
             .collect();
         // Only emit ConvertWithVisitor method if visitor_callbacks is explicitly enabled in FFI config
-        let has_visitor_callbacks = config
-            .ffi
-            .as_ref()
-            .map(|f| f.visitor_callbacks)
-            .unwrap_or(false);
+        let has_visitor_callbacks = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
         // Streaming adapter methods use a callback-based C signature that P/Invoke can't call
         // directly. Skip them in all generated method loops.
@@ -173,11 +169,7 @@ impl Backend for CsharpBackend {
                 .collect();
 
             if !bridges.is_empty() {
-                let (filename, content) = crate::trait_bridge::gen_trait_bridges_file(
-                    &namespace,
-                    &prefix,
-                    &bridges,
-                );
+                let (filename, content) = crate::trait_bridge::gen_trait_bridges_file(&namespace, &prefix, &bridges);
                 files.push(GeneratedFile {
                     path: base_path.join(filename),
                     content: strip_trailing_whitespace(&content),
@@ -325,6 +317,13 @@ fn strip_trailing_whitespace(content: &str) -> String {
     result
 }
 
+/// Generate C# file header with hash and nullable-enable pragma.
+fn csharp_file_header() -> String {
+    let mut out = hash::header(CommentStyle::DoubleSlash);
+    out.push_str("#nullable enable\n\n");
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Helpers: P/Invoke return type mapping
 // ---------------------------------------------------------------------------
@@ -446,7 +445,7 @@ fn gen_native_methods(
     trait_bridges: &[alef_core::config::TraitBridgeConfig],
     streaming_methods: &HashSet<String>,
 ) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Runtime.InteropServices;\n\n");
 
@@ -737,7 +736,7 @@ fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &MethodDef) -> St
 }
 
 fn gen_exception_class(namespace: &str, class_name: &str) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n\n");
 
     out.push_str(&format!("namespace {};\n\n", namespace));
@@ -769,7 +768,7 @@ fn gen_wrapper_class(
     has_visitor_callbacks: bool,
     streaming_methods: &HashSet<String>,
 ) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.Runtime.InteropServices;\n");
@@ -1534,7 +1533,7 @@ fn emit_return_statement_indented(out: &mut String, return_type: &TypeRef, inden
 }
 
 fn gen_opaque_handle(typ: &TypeDef, namespace: &str) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n\n");
 
     out.push_str(&format!("namespace {};\n\n", namespace));
@@ -1573,7 +1572,7 @@ fn gen_record_type(
     custom_converter_enums: &HashSet<String>,
     _lang_rename_all: &str,
 ) -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.Text.Json;\n");
@@ -1765,6 +1764,8 @@ fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
 }
 
 fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
+    let mut out = csharp_file_header();
+    out.push_str("using System.Text.Json.Serialization;\n\n");
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
     // Tagged union: enum has a serde tag AND data variants → generate abstract record hierarchy
@@ -1804,10 +1805,8 @@ fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
         })
         .collect();
 
-    let mut out = hash::header(CommentStyle::DoubleSlash);
     out.push_str("using System;\n");
-    out.push_str("using System.Text.Json;\n");
-    out.push_str("using System.Text.Json.Serialization;\n\n");
+    out.push_str("using System.Text.Json;\n\n");
 
     out.push_str(&format!("namespace {};\n\n", namespace));
 
@@ -1915,7 +1914,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     // by a nested record of the same name (e.g. ContentPart.ImageUrl shadows ImageUrl).
     let ns = namespace;
 
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.Text.Json;\n");
@@ -1937,11 +1936,8 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     out.push_str("{\n");
 
     // Collect all variant pascal names to check for field-name-to-variant-name clashes
-    let variant_names: std::collections::HashSet<String> = enum_def
-        .variants
-        .iter()
-        .map(|v| v.name.to_pascal_case())
-        .collect();
+    let variant_names: std::collections::HashSet<String> =
+        enum_def.variants.iter().map(|v| v.name.to_pascal_case()).collect();
 
     // Nested sealed records for each variant
     for variant in &enum_def.variants {

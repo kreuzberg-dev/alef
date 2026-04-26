@@ -5,8 +5,7 @@
 
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
 use alef_codegen::generators::trait_bridge::{
-    bridge_param_type as param_type, visitor_param_type, gen_bridge_all, TraitBridgeGenerator,
-    TraitBridgeSpec,
+    TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
@@ -85,7 +84,9 @@ pub fn gen_trait_bridge(
         // bridge block so multiple bridges can share trait imports without name
         // collisions on the same module-level identifier.
         let mut prefixed = String::with_capacity(output.imports.len() * 64 + output.code.len());
-        let imports_to_emit: Vec<_> = output.imports.iter()
+        let imports_to_emit: Vec<_> = output
+            .imports
+            .iter()
             .filter(|imp| *imp != "magnus::prelude::*")
             .collect();
         // Emit allow attribute before each import group to suppress unused_imports warnings
@@ -281,10 +282,16 @@ fn build_magnus_arg(p: &alef_core::ir::ParamDef) -> String {
         );
     }
     if matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!("{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new({}) }}", p.name);
+        return format!(
+            "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new({}) }}",
+            p.name
+        );
     }
     if matches!(&p.ty, TypeRef::String) {
-        return format!("{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new({}.as_str()) }}", p.name);
+        return format!(
+            "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new({}.as_str()) }}",
+            p.name
+        );
     }
     // Vec/slice types: convert to Ruby array
     if matches!(&p.ty, TypeRef::Vec(_)) {
@@ -355,16 +362,16 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
 
         // Magnus requires holding the GVL. Caller is on a Ruby thread because the bridge
         // is registered from one. catch_unwind guards against Ruby exceptions panicking.
-        writeln!(out, "// SAFETY: bridge methods are only invoked from threads holding the GVL").ok();
+        writeln!(
+            out,
+            "// SAFETY: bridge methods are only invoked from threads holding the GVL"
+        )
+        .ok();
         writeln!(out, "let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
         writeln!(out, "let value = self.inner.get_inner_with(&ruby);").ok();
 
         // Build funcall args
-        let args: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| self.ruby_arg_expr(p))
-            .collect();
+        let args: Vec<String> = method.params.iter().map(|p| self.ruby_arg_expr(p)).collect();
 
         let call = if args.is_empty() {
             format!("value.funcall::<_, _, magnus::Value>(\"{name}\", ())")
@@ -381,9 +388,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         writeln!(out, "    Ok(v) => v,").ok();
         writeln!(out, "    Err(e) => {{").ok();
         if has_error {
-            let err_expr = self.make_error(&format!(
-                "format!(\"Ruby method '{name}' failed: {{}}\", e)"
-            ));
+            let err_expr = self.make_error(&format!("format!(\"Ruby method '{name}' failed: {{}}\", e)"));
             writeln!(out, "        return Err({err_expr});").ok();
         } else {
             writeln!(out, "        let _ = e;").ok();
@@ -460,13 +465,17 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             "let join: std::result::Result<{result_ty}, tokio::task::JoinError> ="
         )
         .ok();
+        writeln!(out, "        tokio::task::spawn_blocking(move || -> {result_ty} {{").ok();
         writeln!(
             out,
-            "        tokio::task::spawn_blocking(move || -> {result_ty} {{"
+            "            // SAFETY: spawn_blocking thread acquires GVL via Ruby::get_unchecked"
         )
         .ok();
-        writeln!(out, "            // SAFETY: spawn_blocking thread acquires GVL via Ruby::get_unchecked").ok();
-        writeln!(out, "            let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+        writeln!(
+            out,
+            "            let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};"
+        )
+        .ok();
         writeln!(out, "            let value = inner.get_inner_with(&ruby);").ok();
 
         let args: Vec<String> = method
@@ -539,11 +548,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let mut out = String::with_capacity(512);
 
         writeln!(out, "impl {wrapper} {{").ok();
-        writeln!(
-            out,
-            "    /// Create a new bridge wrapping a Ruby object."
-        )
-        .ok();
+        writeln!(out, "    /// Create a new bridge wrapping a Ruby object.").ok();
         writeln!(
             out,
             "    /// Validates that the Ruby object responds to all required methods."
@@ -565,16 +570,8 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             .ok();
             let ruby = "unsafe { magnus::Ruby::get_unchecked() }";
             writeln!(out, "            let ruby = {ruby};").ok();
-            writeln!(
-                out,
-                "            return Err(magnus::Error::new("
-            )
-            .ok();
-            writeln!(
-                out,
-                "                ruby.exception_runtime_error(),"
-            )
-            .ok();
+            writeln!(out, "            return Err(magnus::Error::new(").ok();
+            writeln!(out, "                ruby.exception_runtime_error(),").ok();
             writeln!(
                 out,
                 "                format!(\"Ruby object missing required method: {{}}\", \"{}\"),",
@@ -633,10 +630,18 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             .ok();
             writeln!(out, "    for method in &required_methods {{").ok();
             writeln!(out, "        if !rb_obj.respond_to(*method, false).unwrap_or(false) {{").ok();
-            writeln!(out, "            let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+            writeln!(
+                out,
+                "            let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};"
+            )
+            .ok();
             writeln!(out, "            return Err(magnus::Error::new(").ok();
             writeln!(out, "                ruby.exception_runtime_error(),").ok();
-            writeln!(out, "                format!(\"Backend missing required method: {{}}\", method),").ok();
+            writeln!(
+                out,
+                "                format!(\"Backend missing required method: {{}}\", method),"
+            )
+            .ok();
             writeln!(out, "            ));").ok();
             writeln!(out, "        }}").ok();
             writeln!(out, "    }}").ok();
@@ -658,7 +663,11 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         )
         .ok();
         writeln!(out, "        let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
-        writeln!(out, "        magnus::Error::new(ruby.exception_runtime_error(), format!(\"register failed: {{}}\", e))").ok();
+        writeln!(
+            out,
+            "        magnus::Error::new(ruby.exception_runtime_error(), format!(\"register failed: {{}}\", e))"
+        )
+        .ok();
         writeln!(out, "    }})?;").ok();
         writeln!(out, "    Ok(())").ok();
         writeln!(out, "}}").ok();
@@ -735,7 +744,11 @@ impl MagnusBridgeGenerator {
         if self.needs_json_marshalling(&method.return_type) {
             // Ruby callback should return either a Hash/Array (we'll JSON.dump it)
             // or a JSON String we parse directly. Try string first, fall back to to_json.
-            writeln!(out, "let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {{").ok();
+            writeln!(
+                out,
+                "let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {{"
+            )
+            .ok();
             writeln!(out, "    s").ok();
             writeln!(out, "}} else {{").ok();
             writeln!(out, "    match val.funcall::<_, _, String>(\"to_json\", ()) {{").ok();
@@ -787,10 +800,18 @@ impl MagnusBridgeGenerator {
     fn write_async_return_conversion(&self, out: &mut String, method: &MethodDef, has_error: bool) {
         let rust_ty = self.return_rust_type(&method.return_type);
         if self.needs_json_marshalling(&method.return_type) {
-            writeln!(out, "            let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {{").ok();
+            writeln!(
+                out,
+                "            let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {{"
+            )
+            .ok();
             writeln!(out, "                s").ok();
             writeln!(out, "            }} else {{").ok();
-            writeln!(out, "                match val.funcall::<_, _, String>(\"to_json\", ()) {{").ok();
+            writeln!(
+                out,
+                "                match val.funcall::<_, _, String>(\"to_json\", ()) {{"
+            )
+            .ok();
             writeln!(out, "                    Ok(s) => s,").ok();
             writeln!(out, "                    Err(e) => {{").ok();
             if has_error {
@@ -847,7 +868,9 @@ impl MagnusBridgeGenerator {
     fn ruby_arg_expr_custom(&self, ty: &TypeRef, var: &str) -> String {
         match ty {
             // str_new takes Into<&str>; AsRef<str> covers both String and &str.
-            TypeRef::String => format!("{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(AsRef::<str>::as_ref(&{var})).as_value() }}"),
+            TypeRef::String => format!(
+                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(AsRef::<str>::as_ref(&{var})).as_value() }}"
+            ),
             // String::from_utf8_lossy needs &[u8]; AsRef<[u8]> covers both Vec<u8> and &[u8].
             TypeRef::Bytes => format!(
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value() }}"

@@ -374,13 +374,15 @@ fn test_plugin_bridge_struct_does_not_hold_owned_env() {
 
     // The struct definition should NOT contain an 'env:' field that holds OwnedEnv.
     // Only 'inner: SavedTerm' and 'cached_name: String', both of which are Send + Sync.
-    let struct_section = output.code.split("pub struct RustlerOcrBackendBridge").nth(1)
+    let struct_section = output
+        .code
+        .split("pub struct RustlerOcrBackendBridge")
+        .nth(1)
         .and_then(|s| s.split("}").next())
         .unwrap_or("");
 
     // Check that there's no field named "env:" (but "rustler::env::" in the type is OK)
-    let has_env_field = struct_section.lines()
-        .any(|line| line.trim().starts_with("env:"));
+    let has_env_field = struct_section.lines().any(|line| line.trim().starts_with("env:"));
 
     assert!(
         !has_env_field,

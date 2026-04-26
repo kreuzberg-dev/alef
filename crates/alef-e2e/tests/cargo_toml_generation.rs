@@ -3,15 +3,15 @@ use alef_e2e::codegen::rust::render_cargo_toml;
 #[test]
 fn test_cargo_toml_does_not_contain_workspace_section_in_local_mode() {
     let result = render_cargo_toml(
-        "my-lib",         // crate_name
-        "my_lib",         // dep_name
-        "../../crates/my-lib",  // crate_path
-        false,            // needs_serde_json
-        false,            // needs_mock_server
-        false,            // needs_tokio
-        alef_e2e::config::DependencyMode::Local,  // dep_mode
-        None,             // version
-        &[],              // features
+        "my-lib",                                // crate_name
+        "my_lib",                                // dep_name
+        "../../crates/my-lib",                   // crate_path
+        false,                                   // needs_serde_json
+        false,                                   // needs_mock_server
+        false,                                   // needs_tokio
+        alef_e2e::config::DependencyMode::Local, // dep_mode
+        None,                                    // version
+        &[],                                     // features
     );
 
     // The generated Cargo.toml should NOT contain a [workspace] section
@@ -25,15 +25,15 @@ fn test_cargo_toml_does_not_contain_workspace_section_in_local_mode() {
 #[test]
 fn test_cargo_toml_does_not_contain_workspace_section_in_registry_mode() {
     let result = render_cargo_toml(
-        "my-lib",         // crate_name
-        "my_lib",         // dep_name
-        "../../crates/my-lib",  // crate_path
-        false,            // needs_serde_json
-        false,            // needs_mock_server
-        false,            // needs_tokio
-        alef_e2e::config::DependencyMode::Registry,  // dep_mode
-        Some("0.1.0"),    // version
-        &[],              // features
+        "my-lib",                                   // crate_name
+        "my_lib",                                   // dep_name
+        "../../crates/my-lib",                      // crate_path
+        false,                                      // needs_serde_json
+        false,                                      // needs_mock_server
+        false,                                      // needs_tokio
+        alef_e2e::config::DependencyMode::Registry, // dep_mode
+        Some("0.1.0"),                              // version
+        &[],                                        // features
     );
 
     // The generated Cargo.toml should NOT contain a [workspace] section.
