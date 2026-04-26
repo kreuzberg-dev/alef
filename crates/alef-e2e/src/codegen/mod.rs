@@ -3,6 +3,7 @@
 pub mod brew;
 pub mod c;
 pub mod csharp;
+pub mod dart;
 pub mod elixir;
 pub mod gleam;
 pub mod go;
@@ -13,6 +14,7 @@ pub mod python;
 pub mod r;
 pub mod ruby;
 pub mod rust;
+pub mod swift;
 pub mod typescript;
 pub mod wasm;
 pub mod zig;
@@ -76,6 +78,8 @@ pub fn all_generators() -> Vec<Box<dyn E2eCodegen>> {
         Box::new(wasm::WasmCodegen),
         Box::new(c::CCodegen),
         Box::new(zig::ZigE2eCodegen),
+        Box::new(dart::DartE2eCodegen),
+        Box::new(swift::SwiftE2eCodegen),
         Box::new(brew::BrewCodegen),
     ]
 }

@@ -288,9 +288,11 @@ pub mod hex {
     pub const GLEEUNIT_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";
 }
 
-/// pub.dev (Dart) ecosystem. Populated in Phase 2B when Dart codegen emits
-/// `pubspec.yaml` deps.
-pub mod pub_dev {}
+/// pub.dev (Dart) ecosystem.
+pub mod pub_dev {
+    // renovate: datasource=pub depName=test
+    pub const TEST_PACKAGE: &str = "^1.25.0";
+}
 
 /// Platform / toolchain pins. None of these auto-bump; track manually.
 pub mod toolchain {
