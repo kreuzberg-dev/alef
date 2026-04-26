@@ -329,7 +329,14 @@ fn simple_sync_function_emits_static_method() {
     let content = &files[0].content;
     assert!(content.contains("class DemoCrateBridge {"), "missing bridge class: {content}");
     assert!(content.contains("static int greetUser(String userName)"), "missing method sig: {content}");
-    assert!(content.contains("throw UnimplementedError();"), "missing placeholder body: {content}");
+    assert!(
+        content.contains("return rust_bridge.greetUser(userName);"),
+        "missing bridge call body: {content}"
+    );
+    assert!(
+        content.contains("import 'demo_crate_bridge_generated.dart' as rust_bridge;"),
+        "missing rust_bridge import: {content}"
+    );
 }
 
 #[test]
@@ -364,7 +371,10 @@ fn async_function_emits_future_return_and_async_keyword() {
         content.contains("static Future<String> fetchData() async {"),
         "missing async method: {content}"
     );
-    assert!(content.contains("throw UnimplementedError();"), "missing placeholder: {content}");
+    assert!(
+        content.contains("return await rust_bridge.fetchData();"),
+        "missing await bridge call: {content}"
+    );
 }
 
 #[test]

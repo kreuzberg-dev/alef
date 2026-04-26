@@ -59,6 +59,8 @@ impl Backend for DartBackend {
                 imports.insert("import 'dart:async';".to_string());
             }
 
+            imports.insert(format!("import '{module_name}_bridge_generated.dart' as rust_bridge;"));
+
             let bridge_class = dart_bridge_class_name(&config.crate_config.name);
             body.push_str(&format!("class {bridge_class} {{\n"));
             for f in &api.functions {
@@ -341,6 +343,8 @@ fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<Strin
 
     let fn_name = f.name.to_lower_camel_case();
     let params: Vec<String> = f.params.iter().map(|p| format_param(p, imports)).collect();
+    let call_args: Vec<String> = f.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
+    let call_args_str = call_args.join(", ");
 
     if f.is_async {
         let return_ty = if matches!(f.return_type, TypeRef::Unit) {
@@ -352,8 +356,7 @@ fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<Strin
             "  static {return_ty} {fn_name}({}) async {{\n",
             params.join(", ")
         ));
-        out.push_str("    // TODO: bridge to flutter_rust_bridge generated API\n");
-        out.push_str("    throw UnimplementedError();\n");
+        out.push_str(&format!("    return await rust_bridge.{fn_name}({call_args_str});\n"));
         out.push_str("  }\n");
     } else {
         let return_ty = render_type(&f.return_type, imports);
@@ -361,8 +364,7 @@ fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<Strin
             "  static {return_ty} {fn_name}({}) {{\n",
             params.join(", ")
         ));
-        out.push_str("    // TODO: bridge to flutter_rust_bridge generated API\n");
-        out.push_str("    throw UnimplementedError();\n");
+        out.push_str(&format!("    return rust_bridge.{fn_name}({call_args_str});\n"));
         out.push_str("  }\n");
     }
 }
