@@ -63,8 +63,9 @@ impl Backend for GleamBackend {
             body.push('\n');
         }
 
+        let declared_errors: Vec<String> = api.errors.iter().map(|e| e.name.clone()).collect();
         for f in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
-            emit_function(f, &nif_module, &mut body, &mut imports);
+            emit_function(f, &nif_module, &declared_errors, &mut body, &mut imports);
             body.push('\n');
         }
 
@@ -187,7 +188,13 @@ fn emit_error_type(err: &ErrorDef, out: &mut String, imports: &mut BTreeSet<&'st
     out.push_str("}\n");
 }
 
-fn emit_function(f: &FunctionDef, nif_module: &str, out: &mut String, imports: &mut BTreeSet<&'static str>) {
+fn emit_function(
+    f: &FunctionDef,
+    nif_module: &str,
+    declared_errors: &[String],
+    out: &mut String,
+    imports: &mut BTreeSet<&'static str>,
+) {
     if !f.doc.is_empty() {
         for line in f.doc.lines() {
             out.push_str("/// ");
@@ -204,11 +211,24 @@ fn emit_function(f: &FunctionDef, nif_module: &str, out: &mut String, imports: &
 
     let return_ty = gleam_type(&f.return_type, false, imports);
     let return_str = if let Some(err_ty) = &f.error_type {
-        format!("Result({return_ty}, {err_ty})")
+        let resolved = resolve_gleam_error_type(err_ty, declared_errors);
+        format!("Result({return_ty}, {resolved})")
     } else {
         return_ty
     };
     out.push_str(&format!(" -> {return_str}\n"));
+}
+
+/// Map a Rust error type string (e.g. `"anyhow::Error"`, `"KreuzbergError"`)
+/// to a Gleam type identifier. Gleam type names cannot contain `::`. If the
+/// path's last segment matches a declared error type, use it; otherwise fall
+/// back to the first declared error type, or `String` if none are declared.
+fn resolve_gleam_error_type(error_type: &str, declared: &[String]) -> String {
+    let last = error_type.rsplit("::").next().unwrap_or(error_type);
+    if declared.iter().any(|d| d == last) {
+        return last.to_string();
+    }
+    declared.first().cloned().unwrap_or_else(|| "String".to_string())
 }
 
 fn format_param(p: &ParamDef, imports: &mut BTreeSet<&'static str>) -> String {
