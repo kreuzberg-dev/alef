@@ -1,11 +1,12 @@
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
+use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{AlefConfig, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use crate::gen_rust_crate;
 use crate::type_map::DartMapper;
 
 pub struct DartBackend;
@@ -85,19 +86,27 @@ impl Backend for DartBackend {
         );
         let path = PathBuf::from(dir).join(format!("{module_name}.dart"));
 
-        Ok(vec![GeneratedFile {
+        let mut files = vec![GeneratedFile {
             path,
             content,
             generated_header: false,
-        }])
+        }];
+
+        let rust_crate_files = gen_rust_crate::emit(api, config)?;
+        files.extend(rust_crate_files);
+
+        Ok(files)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
         Some(BuildConfig {
-            tool: "flutter_rust_bridge_codegen",
+            tool: "cargo",
             crate_suffix: "-dart",
             build_dep: BuildDependency::None,
-            post_build: vec![],
+            post_build: vec![PostBuildStep::RunCommand {
+                cmd: "flutter_rust_bridge_codegen",
+                args: vec!["generate"],
+            }],
         })
     }
 }
