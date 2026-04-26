@@ -367,6 +367,47 @@ fn error_emits_custom_type() {
 }
 
 #[test]
+fn enum_tuple_variant_emits_unlabeled_field() {
+    // Rust tuple variants like `Pdf(String)` produce fields named `_0`, `_1`, etc.
+    // Gleam constructor arguments cannot have labels starting with `_`, so these
+    // must be emitted as unlabeled positional arguments: `Pdf(String)` not `Pdf(_0: String)`.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Wrapper".into(),
+            rust_path: "demo::Wrapper".into(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Inner".into(),
+                fields: vec![make_field("_0", TypeRef::String, false)],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+        }],
+        errors: vec![],
+    };
+
+    let files = GleamBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(
+        !content.contains("_0:"),
+        "positional field `_0` must not appear as a label: {content}"
+    );
+    assert!(
+        content.contains("Inner(\n    String\n  )") || content.contains("Inner(\n    String"),
+        "unlabeled String argument expected: {content}"
+    );
+}
+
+#[test]
 fn nif_module_override_uses_custom_name() {
     let api = ApiSurface {
         crate_name: "demo".into(),
