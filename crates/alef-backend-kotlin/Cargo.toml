@@ -12,3 +12,10 @@ homepage.workspace = true
 alef-codegen = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "emit"
+harness = false
