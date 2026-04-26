@@ -344,7 +344,7 @@ fn kotlin_module_name(crate_name: &str) -> String {
     to_pascal_case(crate_name)
 }
 
-fn to_pascal_case(name: &str) -> String {
+pub(crate) fn to_pascal_case(name: &str) -> String {
     let mut out = String::new();
     let mut upper_next = true;
     for ch in name.chars() {
@@ -360,7 +360,7 @@ fn to_pascal_case(name: &str) -> String {
     out
 }
 
-fn to_lower_camel(name: &str) -> String {
+pub(crate) fn to_lower_camel(name: &str) -> String {
     let pascal = to_pascal_case(name);
     let mut chars = pascal.chars();
     match chars.next() {
@@ -369,7 +369,7 @@ fn to_lower_camel(name: &str) -> String {
     }
 }
 
-fn to_screaming_snake(name: &str) -> String {
+pub(crate) fn to_screaming_snake(name: &str) -> String {
     let mut out = String::new();
     for (i, ch) in name.chars().enumerate() {
         if ch.is_uppercase() {
