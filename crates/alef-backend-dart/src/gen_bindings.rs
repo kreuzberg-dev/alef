@@ -1,11 +1,12 @@
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
-use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{AlefConfig, DartStyle, Language, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use crate::gen_ffi;
 use crate::gen_rust_crate;
 use crate::type_map::DartMapper;
 
@@ -33,6 +34,10 @@ impl Backend for DartBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        if config.dart_style() == DartStyle::Ffi {
+            return gen_ffi::emit(api, config);
+        }
+
         let module_name = dart_module_name(&config.crate_config.name);
 
         let mut imports: BTreeSet<String> = BTreeSet::new();
@@ -110,6 +115,32 @@ impl Backend for DartBackend {
                 args: vec!["generate"],
             }],
         })
+    }
+}
+
+impl DartBackend {
+    /// Return a `BuildConfig` that reflects the active bridging style from `config`.
+    ///
+    /// - `DartStyle::Ffi` — no Rust crate; use the shared C FFI library.
+    /// - `DartStyle::Frb` — Rust crate + flutter_rust_bridge codegen (default).
+    pub fn build_config_for(&self, config: &AlefConfig) -> Option<BuildConfig> {
+        match config.dart_style() {
+            DartStyle::Ffi => Some(BuildConfig {
+                tool: "dart",
+                crate_suffix: "",
+                build_dep: BuildDependency::Ffi,
+                post_build: vec![],
+            }),
+            DartStyle::Frb => Some(BuildConfig {
+                tool: "cargo",
+                crate_suffix: "-dart",
+                build_dep: BuildDependency::None,
+                post_build: vec![PostBuildStep::RunCommand {
+                    cmd: "flutter_rust_bridge_codegen",
+                    args: vec!["generate"],
+                }],
+            }),
+        }
     }
 }
 
