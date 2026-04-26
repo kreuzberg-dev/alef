@@ -774,6 +774,7 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
                 EnumVariant {
                     name: "Function".to_string(),
                     fields: vec![make_field("name", TypeRef::String, false)],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
@@ -781,6 +782,7 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
                 EnumVariant {
                     name: "Text".to_string(),
                     fields: vec![make_field("content", TypeRef::String, false)],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
@@ -834,6 +836,7 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
                 EnumVariant {
                     name: "Doc".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
@@ -841,6 +844,7 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
                 EnumVariant {
                     name: "Line".to_string(),
                     fields: vec![],
+                    is_tuple: false,
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
