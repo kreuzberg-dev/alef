@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^crates/alef-core/src/template_versions\\.rs$"],
+      "matchStrings": [
+        "// renovate: datasource=(?<datasource>[^\\s]+)(?: packageName=(?<packageName>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\s*\\npub const [A-Z_]+: &str = \"(?<currentValue>[^\"]+)\";"
+      ],
+      "depNameTemplate": "{{#if packageName}}{{{packageName}}}{{else}}{{{depName}}}{{/if}}"
+    }
+  ]
+}

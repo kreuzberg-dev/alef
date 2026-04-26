@@ -2,6 +2,7 @@ use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritanc
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -37,7 +38,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../../../../../crates/{core_crate_dir}"{features} }}
-magnus = "0.8"
+magnus = "{magnus}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["rt-multi-thread"] }}{extra_deps_section}
@@ -50,6 +51,7 @@ workspace = true
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ruby),
+        magnus = tv::cargo::MAGNUS,
         extra_deps_section = extra_deps_section,
     );
 
@@ -107,7 +109,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ['lib']
   spec.extensions    = ['ext/{ext_name}/extconf.rb']
 
-  spec.add_dependency 'rb_sys', '~> 0.9'
+  spec.add_dependency 'rb_sys', '{rb_sys}'
 end
 "#,
         gem_name = gem_name,
@@ -118,6 +120,7 @@ end
         repository = meta.repository,
         license = meta.license,
         metadata = metadata_ruby,
+        rb_sys = tv::gem::RB_SYS,
     );
 
     let rubocop_content = r#"plugins:
@@ -268,23 +271,31 @@ end
         },
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/Gemfile")),
-            content: r#"# frozen_string_literal: true
+            content: format!(
+r#"# frozen_string_literal: true
 
 source 'https://rubygems.org'
 
 gemspec
 
 group :development do
-  gem 'rake-compiler', '~> 1.2'
-  gem 'rb_sys', '~> 0.9'
-  gem 'rspec', '~> 3.0'
-  gem 'rubocop', '~> 1.0'
-  gem 'rubocop-performance', '~> 1.0'
-  gem 'rubocop-rspec', '~> 3.0'
-  gem 'steep', '~> 1.0'
+  gem 'rake-compiler', '{rake_compiler}'
+  gem 'rb_sys', '{rb_sys}'
+  gem 'rspec', '{rspec}'
+  gem 'rubocop', '{rubocop}'
+  gem 'rubocop-performance', '{rubocop_performance}'
+  gem 'rubocop-rspec', '{rubocop_rspec}'
+  gem 'steep', '{steep}'
 end
-"#
-            .to_string(),
+"#,
+                rake_compiler = tv::gem::RAKE_COMPILER,
+                rb_sys = tv::gem::RB_SYS,
+                rspec = tv::gem::RSPEC_SCAFFOLD,
+                rubocop = tv::gem::RUBOCOP_SCAFFOLD,
+                rubocop_performance = tv::gem::RUBOCOP_PERFORMANCE,
+                rubocop_rspec = tv::gem::RUBOCOP_RSPEC_SCAFFOLD,
+                steep = tv::gem::STEEP,
+            ),
             generated_header: false,
         },
         GeneratedFile {

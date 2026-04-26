@@ -5,6 +5,7 @@ use crate::{
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -41,7 +42,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../../../../crates/{core_crate_dir}"{features} }}
-rustler = "0.37"
+rustler = "{rustler}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
@@ -54,6 +55,7 @@ workspace = true
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Elixir),
+        rustler = tv::cargo::RUSTLER,
         extra_deps_section = extra_deps_section,
     );
 
@@ -96,10 +98,10 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::
 
   defp deps do
     [
-      {{:rustler, "~> 0.37.0", optional: true, runtime: false}},
-      {{:rustler_precompiled, "~> 0.9"}},
-      {{:credo, "~> 1.7", only: [:dev, :test], runtime: false}},
-      {{:ex_doc, "~> 0.40", only: :dev, runtime: false}}
+      {{:rustler, "{rustler_hex}", optional: true, runtime: false}},
+      {{:rustler_precompiled, "{rustler_precompiled}"}},
+      {{:credo, "{credo}", only: [:dev, :test], runtime: false}},
+      {{:ex_doc, "{ex_doc}", only: :dev, runtime: false}}
     ]
   end
 end
@@ -111,6 +113,10 @@ end
         description = meta.description,
         license = meta.license,
         repository = meta.repository,
+        rustler_hex = tv::hex::RUSTLER,
+        rustler_precompiled = tv::hex::RUSTLER_PRECOMPILED,
+        credo = tv::hex::CREDO,
+        ex_doc = tv::hex::EX_DOC,
     );
 
     let formatter_content = r#"[

@@ -2,6 +2,7 @@ use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritanc
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
 use alef_core::ir::ApiSurface;
+use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -33,7 +34,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-ext-php-rs = "0.15"
+ext-php-rs = "{ext_php_rs}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
@@ -48,6 +49,7 @@ workspace = true
         crate_name = &config.crate_config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Php),
+        ext_php_rs = tv::cargo::EXT_PHP_RS,
         extra_deps_section = extra_deps_section,
     );
 
@@ -95,9 +97,9 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
     "php": ">=8.2"
   }},
   "require-dev": {{
-    "phpstan/phpstan": "^2.1",
-    "friendsofphp/php-cs-fixer": "^3.95",
-    "phpunit/phpunit": "^13.1"
+    "phpstan/phpstan": "{phpstan}",
+    "friendsofphp/php-cs-fixer": "{php_cs_fixer}",
+    "phpunit/phpunit": "{phpunit}"
   }},
   "autoload": {{
     "psr-4": {{
@@ -123,6 +125,9 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
         php_namespace = php_namespace,
         ext_name = ext_name,
         keywords = keywords_json,
+        phpstan = tv::packagist::PHPSTAN,
+        php_cs_fixer = tv::packagist::PHP_CS_FIXER,
+        phpunit = tv::packagist::PHPUNIT,
     );
 
     let stubs_file = format!("stubs/{ext_name}_extension.php");

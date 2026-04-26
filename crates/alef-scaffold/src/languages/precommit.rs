@@ -1,5 +1,6 @@
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{AlefConfig, Language};
+use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_pre_commit_config(config: &AlefConfig, languages: &[Language]) -> Vec<GeneratedFile> {
@@ -47,21 +48,22 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
     );
 
     // Commit message linting
-    yaml.push_str(
+    yaml.push_str(&format!(
         "  # Commit message linting\n\
          \x20 - repo: https://github.com/Goldziher/gitfluff\n\
-         \x20   rev: v0.7.10\n\
+         \x20   rev: {gitfluff}\n\
          \x20   hooks:\n\
          \x20     - id: gitfluff-lint\n\
          \x20       args: [\"--write\"]\n\
          \x20       stages: [commit-msg]\n\n",
-    );
+        gitfluff = tv::precommit::GITFLUFF_REV,
+    ));
 
     // General file checks
-    yaml.push_str(
+    yaml.push_str(&format!(
         "  # General file checks\n\
          \x20 - repo: https://github.com/pre-commit/pre-commit-hooks\n\
-         \x20   rev: v0.7.10\n\
+         \x20   rev: {pre_commit_hooks}\n\
          \x20   hooks:\n\
          \x20     - id: trailing-whitespace\n\
          \x20     - id: end-of-file-fixer\n\
@@ -73,31 +75,34 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20       args: [\"--allow-multiple-documents\", \"--unsafe\"]\n\
          \x20     - id: check-toml\n\
          \x20     - id: check-case-conflict\n\n",
-    );
+        pre_commit_hooks = tv::precommit::PRE_COMMIT_HOOKS_REV,
+    ));
 
     // TOML formatting (Python only)
     if has(Language::Python) {
-        yaml.push_str(
+        yaml.push_str(&format!(
             "  - repo: https://github.com/tox-dev/pyproject-fmt\n\
-             \x20   rev: \"v2.21.1\"\n\
+             \x20   rev: \"{pyproject_fmt}\"\n\
              \x20   hooks:\n\
              \x20     - id: pyproject-fmt\n\n",
-        );
+            pyproject_fmt = tv::precommit::PYPROJECT_FMT_REV,
+        ));
     }
 
-    yaml.push_str(
+    yaml.push_str(&format!(
         "  - repo: https://github.com/DevinR528/cargo-sort\n\
-         \x20   rev: \"v2.1.3\"\n\
+         \x20   rev: \"{cargo_sort}\"\n\
          \x20   hooks:\n\
          \x20     - id: cargo-sort\n\
          \x20       args: [-w]\n\n",
-    );
+        cargo_sort = tv::precommit::CARGO_SORT_REV,
+    ));
 
     // Rust: formatting, linting, unused deps, license/advisory
     yaml.push_str("  # Rust: formatting, linting, unused deps, license/advisory\n");
-    yaml.push_str(
+    yaml.push_str(&format!(
         "  - repo: https://github.com/AndrejOrsula/pre-commit-cargo\n\
-         \x20   rev: 0.5.0\n\
+         \x20   rev: {pre_commit_cargo}\n\
          \x20   hooks:\n\
          \x20     - id: cargo-fmt\n\
          \x20       args: [\"--all\"]\n\
@@ -110,7 +115,8 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20           \"--allow-staged\",\n\
          \x20           \"--workspace\",\n\
          \x20           \"--all-features\",\n",
-    );
+        pre_commit_cargo = tv::precommit::PRE_COMMIT_CARGO_REV,
+    ));
     yaml.push_str(&clippy_excludes);
     yaml.push_str(
         "            \"--all-targets\",\n\
@@ -120,47 +126,52 @@ pub(crate) fn generate_pre_commit_config(config: &AlefConfig, languages: &[Langu
          \x20         ]\n\n",
     );
 
-    yaml.push_str(
+    yaml.push_str(&format!(
         "  - repo: https://github.com/bnjbvr/cargo-machete\n\
-         \x20   rev: v0.7.10\n\
+         \x20   rev: {cargo_machete}\n\
          \x20   hooks:\n\
          \x20     - id: cargo-machete\n\n\
          \x20 - repo: https://github.com/EmbarkStudios/cargo-deny\n\
-         \x20   rev: 0.19.4\n\
+         \x20   rev: {cargo_deny}\n\
          \x20   hooks:\n\
          \x20     - id: cargo-deny\n\
          \x20       args: [\"check\"]\n\n",
-    );
+        cargo_machete = tv::precommit::CARGO_MACHETE_REV,
+        cargo_deny = tv::precommit::CARGO_DENY_REV,
+    ));
 
     // Markdown
-    yaml.push_str(
+    yaml.push_str(&format!(
         "  # Markdown\n\
          \x20 - repo: https://github.com/rvben/rumdl-pre-commit\n\
-         \x20   rev: \"v0.1.81\"\n\
+         \x20   rev: \"{rumdl}\"\n\
          \x20   hooks:\n\
          \x20     - id: rumdl-fmt\n\n",
-    );
+        rumdl = tv::precommit::RUMDL_REV,
+    ));
 
     // Alef: readme, verify bindings, sync versions
-    yaml.push_str(
+    yaml.push_str(&format!(
         "  # Alef: generate READMEs, verify bindings, sync versions\n\
          \x20 - repo: https://github.com/kreuzberg-dev/alef\n\
-         \x20   rev: v0.7.10\n\
+         \x20   rev: {alef}\n\
          \x20   hooks:\n\
          \x20     - id: alef-readme\n\
          \x20     - id: alef-verify\n\
          \x20     - id: alef-sync-versions\n\n",
-    );
+        alef = tv::precommit::ALEF_REV,
+    ));
 
     // Spelling (last)
-    yaml.push_str(
+    yaml.push_str(&format!(
         "  # Spelling\n\
          \x20 - repo: https://github.com/crate-ci/typos\n\
-         \x20   rev: v0.7.10\n\
+         \x20   rev: {typos}\n\
          \x20   hooks:\n\
          \x20     - id: typos\n\
          \x20       args: [\"--force-exclude\"]\n\n",
-    );
+        typos = tv::precommit::TYPOS_REV,
+    ));
 
     vec![GeneratedFile {
         path: PathBuf::from(".pre-commit-config.yaml"),

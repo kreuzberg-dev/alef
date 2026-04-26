@@ -11,6 +11,7 @@ use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions as tv;
 use anyhow::Result;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -217,9 +218,14 @@ fn render_cargo_toml(
     // Mock server requires axum (HTTP router) and tokio-stream (SSE streaming).
     // The standalone binary additionally needs serde (derive) and walkdir.
     let mock_lines = if needs_mock_server {
-        "\naxum = \"0.8\"\ntokio-stream = \"0.1\"\nserde = { version = \"1\", features = [\"derive\"] }\nwalkdir = \"2\""
+        format!(
+            "\naxum = \"{axum}\"\ntokio-stream = \"{tokio_stream}\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\nwalkdir = \"{walkdir}\"",
+            axum = tv::cargo::AXUM,
+            tokio_stream = tv::cargo::TOKIO_STREAM,
+            walkdir = tv::cargo::WALKDIR,
+        )
     } else {
-        ""
+        String::new()
     };
     let mut machete_ignored: Vec<&str> = Vec::new();
     if needs_serde_json {

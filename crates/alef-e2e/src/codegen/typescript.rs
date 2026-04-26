@@ -7,6 +7,7 @@ use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
+use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::ToUpperCamelCase;
 use std::fmt::Write as FmtWrite;
@@ -171,10 +172,11 @@ fn render_package_json(
   }},
   "devDependencies": {{
     "{pkg_name}": "{dep_value}",
-    "vitest": "^4.1.5"
+    "vitest": "{vitest}"
   }}
 }}
-"#
+"#,
+        vitest = tv::npm::VITEST,
     )
 }
 
