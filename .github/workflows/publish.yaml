@@ -200,7 +200,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Download macOS arm64 artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: cli-macos-arm64
           path: cli-artifacts
@@ -248,7 +248,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Download all CLI artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: cli-*
           path: dist/cli
@@ -332,7 +332,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Download bottle artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: homebrew-bottle-*
           path: dist/homebrew
