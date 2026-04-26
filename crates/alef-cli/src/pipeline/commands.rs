@@ -799,10 +799,7 @@ mod dedupe_tests {
             ),
         ];
         let result = dedupe_plans(plans);
-        assert_eq!(
-            result[0].1,
-            vec!["corepack use pnpm@latest", "pnpm up --latest -r -w"]
-        );
+        assert_eq!(result[0].1, vec!["corepack use pnpm@latest", "pnpm up --latest -r -w"]);
         assert!(result[1].1.is_empty(), "Wasm should have no commands after dedupe");
     }
 
@@ -811,10 +808,7 @@ mod dedupe_tests {
         let plans = vec![
             (
                 Language::Rust,
-                vec![
-                    "cargo upgrade --incompatible".to_string(),
-                    "cargo update".to_string(),
-                ],
+                vec!["cargo upgrade --incompatible".to_string(), "cargo update".to_string()],
             ),
             (
                 Language::Node,

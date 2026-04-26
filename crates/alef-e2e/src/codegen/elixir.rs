@@ -196,8 +196,8 @@ fn render_mix_exs(
     };
     let _ = writeln!(out, "{dep_line}");
     if has_http_tests {
-        let _ = writeln!(out, "      {{:req, \"{req}\"}}",req = tv::hex::REQ);
-        let _ = writeln!(out, "      {{:jason, \"{jason}\"}}",jason = tv::hex::JASON);
+        let _ = writeln!(out, "      {{:req, \"{req}\"}}", req = tv::hex::REQ);
+        let _ = writeln!(out, "      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON);
     }
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  end");

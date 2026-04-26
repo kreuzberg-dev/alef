@@ -272,7 +272,7 @@ end
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/Gemfile")),
             content: format!(
-r#"# frozen_string_literal: true
+                r#"# frozen_string_literal: true
 
 source 'https://rubygems.org'
 
