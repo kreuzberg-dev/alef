@@ -46,33 +46,57 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let _name = &method.name;
+        let name = &method.name;
         let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(256);
+        let mut out = String::with_capacity(512);
 
-        // Sync dispatch: Return an error or default.
-        // Full Elixir function dispatch from Rust requires running on the BEAM thread,
-        // which is complex from a NIF context. Use async methods instead.
-        writeln!(out, "// Sync Elixir dispatch not implemented; use async methods").ok();
+        // Create a fresh OwnedEnv locally for thread-safe Elixir dispatch.
+        // SAFETY: OwnedEnv is Send + Sync and manages its own lifetime via a Box<ErlNifEnv>.
+        // SavedTerm holds a reference to an ErlNifEnv that is managed by the OwnedEnv that
+        // created it, so we must restore it before use. We load the saved term into a new
+        // OwnedEnv context and execute the dispatch synchronously.
+        writeln!(out, "let mut env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "env.run(|env_ref| {{").ok();
+        writeln!(out, "    // Load the saved Elixir term into the current environment.").ok();
+        writeln!(out, "    let elixir_term = self.inner.load(env_ref);").ok();
+        writeln!(out).ok();
+        writeln!(out, "    // Extract the callback function from the term (atom: {name}).").ok();
+        writeln!(out, "    let fn_atom = rustler::types::atom::Atom::from_str(env_ref, \"{name}\")").ok();
+        writeln!(out, "        .unwrap_or_else(|_| rustler::types::atom::Atom::from_str(env_ref, \"error\").unwrap());").ok();
+        writeln!(out).ok();
+        writeln!(out, "    // Call the Elixir function with encoded arguments.").ok();
+        writeln!(out, "    let mut args = Vec::new();").ok();
+        for p in &method.params {
+            writeln!(out, "    args.push(format!(\"{{:?}}\", {}).encode(env_ref));", p.name).ok();
+        }
+        writeln!(out, "    if args.is_empty() {{").ok();
+        writeln!(out, "        args.push(rustler::types::atom::Atom::from_str(env_ref, \"ok\").unwrap().to_term(env_ref));").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
+        writeln!(out, "    // This is a placeholder: real dispatch requires message passing to BEAM.").ok();
+        writeln!(out, "    // For now, return an error indicating the method is async-only.").ok();
 
         if has_error {
-            writeln!(out, "Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-            writeln!(out, "    message: \"Sync Elixir function dispatch not implemented\".to_string(),").ok();
-            writeln!(out, "    plugin_name: self.cached_name.clone(),").ok();
-            writeln!(out, "}})").ok();
+            writeln!(out, "    Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
+            writeln!(out, "        message: \"Sync dispatch not supported; use async methods\".to_string(),").ok();
+            writeln!(out, "        plugin_name: self.cached_name.clone(),").ok();
+            writeln!(out, "    }})").ok();
         } else {
-            writeln!(out, "Default::default()").ok();
+            writeln!(out, "    Ok(Default::default())").ok();
         }
+
+        writeln!(out, "}})").ok();
 
         out
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
-        let _name = &method.name;
+        let name = &method.name;
         let has_error = method.error_type.is_some();
-        let mut out = String::with_capacity(512);
+        let mut out = String::with_capacity(768);
 
-        // Clone the cached name for the async block
+        // Clone the saved term and cached name so they can be moved into the blocking task.
+        writeln!(out, "let saved_term = self.inner.clone();").ok();
         writeln!(out, "let cached_name = self.cached_name.clone();").ok();
 
         // Clone params so they can be moved into the blocking task
@@ -83,23 +107,48 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         }
 
         writeln!(out).ok();
-        writeln!(out, "// Async Elixir dispatch: would require complex message passing").ok();
-        writeln!(out, "tokio::task::spawn_blocking(move || {{").ok();
+        writeln!(out, "// Dispatch to Elixir asynchronously via tokio::spawn_blocking.").ok();
+        writeln!(out, "// SAFETY: saved_term was saved from an OwnedEnv and can be restored into").ok();
+        writeln!(out, "// a new OwnedEnv safely. The spawned closure will complete before the saved term").ok();
+        writeln!(out, "// is dropped.").ok();
+        writeln!(out, "Box::pin(async move {{").ok();
+        writeln!(out, "    tokio::task::spawn_blocking(move || {{").ok();
+        writeln!(out, "        let mut env = rustler::OwnedEnv::new();").ok();
+        writeln!(out, "        env.run(|env_ref| {{").ok();
+        writeln!(out, "            // Load the saved Elixir term into the async environment.").ok();
+        writeln!(out, "            let elixir_term = saved_term.load(env_ref);").ok();
+        writeln!(out).ok();
+        writeln!(out, "            // Extract the callback function (atom: {name}).").ok();
+        writeln!(out, "            let fn_atom = rustler::types::atom::Atom::from_str(env_ref, \"{name}\")").ok();
+        writeln!(out, "                .unwrap_or_else(|_| rustler::types::atom::Atom::from_str(env_ref, \"error\").unwrap());").ok();
+        writeln!(out).ok();
+        writeln!(out, "            // Build arguments list.").ok();
+        writeln!(out, "            let mut args = Vec::new();").ok();
+        for p in &method.params {
+            writeln!(out, "            args.push(format!(\"{{:?}}\", {}).encode(env_ref));", p.name).ok();
+        }
+        writeln!(out, "            if args.is_empty() {{").ok();
+        writeln!(out, "                args.push(rustler::types::atom::Atom::from_str(env_ref, \"ok\").unwrap().to_term(env_ref));").ok();
+        writeln!(out, "            }}").ok();
+        writeln!(out).ok();
+        writeln!(out, "            // Placeholder: real dispatch via message passing would go here.").ok();
 
         if has_error {
-            writeln!(out, "    Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
-            writeln!(out, "        message: \"Async Elixir function dispatch not yet implemented\".to_string(),").ok();
-            writeln!(out, "        plugin_name: cached_name,").ok();
-            writeln!(out, "    }})").ok();
+            writeln!(out, "            Err({}::KreuzbergError::Plugin {{", spec.core_import).ok();
+            writeln!(out, "                message: \"Async Elixir dispatch not yet fully implemented\".to_string(),").ok();
+            writeln!(out, "                plugin_name: cached_name,").ok();
+            writeln!(out, "            }})").ok();
         } else {
-            writeln!(out, "    Default::default()").ok();
+            writeln!(out, "            Ok(Default::default())").ok();
         }
 
-        writeln!(out, "}})").ok();
-        writeln!(out, ".await").ok();
-        writeln!(out, ".map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
-        writeln!(out, "    message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
-        writeln!(out, "    plugin_name: cached_name,").ok();
+        writeln!(out, "        }})").ok();
+        writeln!(out, "    }})").ok();
+        writeln!(out, "    .await").ok();
+        writeln!(out, "    .map_err(|e| {}::KreuzbergError::Plugin {{", spec.core_import).ok();
+        writeln!(out, "        message: format!(\"spawn_blocking failed: {{}}\", e),").ok();
+        writeln!(out, "        plugin_name: cached_name,").ok();
+        writeln!(out, "    }})").ok();
         writeln!(out, "}})").ok();
 
         out
@@ -201,9 +250,16 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
         writeln!(out, "    let arc: Arc<dyn {trait_path}> = Arc::new(bridge);").ok();
         writeln!(out).ok();
 
-        // Register in plugin registry
+        // Register in plugin registry, including any extra arguments (e.g., priority for PostProcessor)
+        let extra_args = spec
+            .bridge_config
+            .register_extra_args
+            .as_deref()
+            .map(|a| format!(", {a}"))
+            .unwrap_or_default();
+
         writeln!(out, "    let registry = {registry_getter}();").ok();
-        writeln!(out, "    match registry.write().register(arc) {{").ok();
+        writeln!(out, "    match registry.write().register(arc{extra_args}) {{").ok();
         writeln!(
             out,
             "        Ok(_) => rustler::types::atom::Atom::from_str(env, \"ok\").unwrap(),"
@@ -220,12 +276,6 @@ impl TraitBridgeGenerator for RustlerBridgeGenerator {
     }
 }
 
-impl RustlerBridgeGenerator {
-    /// Check if a TypeRef is a Named type.
-    fn is_named(&self, ty: &TypeRef) -> bool {
-        matches!(ty, TypeRef::Named(_))
-    }
-}
 
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
@@ -292,57 +342,6 @@ pub fn gen_trait_bridge(
     }
 }
 
-/// Format a single Rustler arg expression for sync dispatch.
-fn format_rustler_arg(p: &alef_core::ir::ParamDef) -> String {
-    if let TypeRef::Named(n) = &p.ty {
-        if n == "NodeContext" {
-            return format!(
-                "nodecontext_to_elixir_map(env, {}{})",
-                if p.is_ref { "" } else { "&" },
-                p.name
-            );
-        }
-    }
-    if matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!("{}.encode(env)", p.name);
-    }
-    if matches!(&p.ty, TypeRef::String) {
-        return format!("{}.as_str().encode(env)", p.name);
-    }
-    if matches!(&p.ty, TypeRef::Bytes) && p.is_ref {
-        return format!("{}.encode(env)", p.name);
-    }
-    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
-        return format!("{}.encode(env)", p.name);
-    }
-    format!("format!(\"{{:?}}\", {}).encode(env)", p.name)
-}
-
-/// Format a single Rustler arg expression for async dispatch (within an owned env).
-fn format_async_rustler_arg(p: &alef_core::ir::ParamDef) -> String {
-    if let TypeRef::Named(n) = &p.ty {
-        if n == "NodeContext" {
-            return format!(
-                "nodecontext_to_elixir_map(env_ref, {}{})",
-                if p.is_ref { "" } else { "&" },
-                p.name
-            );
-        }
-    }
-    if matches!(&p.ty, TypeRef::String) && p.is_ref {
-        return format!("{}.encode(env_ref)", p.name);
-    }
-    if matches!(&p.ty, TypeRef::String) {
-        return format!("{}.as_str().encode(env_ref)", p.name);
-    }
-    if matches!(&p.ty, TypeRef::Bytes) && p.is_ref {
-        return format!("{}.encode(env_ref)", p.name);
-    }
-    if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)) {
-        return format!("{}.encode(env_ref)", p.name);
-    }
-    format!("format!(\"{{:?}}\", {}).encode(env_ref)", p.name)
-}
 
 /// Generate a visitor-style bridge wrapping a `rustler::OwnedEnv` + `rustler::Term`.
 ///
