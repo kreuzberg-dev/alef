@@ -82,12 +82,24 @@ impl Backend for ZigBackend {
         }
 
         let declared_errors: Vec<String> = api.errors.iter().map(|e| e.name.clone()).collect();
+        // Collect all top-level decl names so we can rename param names that would
+        // shadow them. Zig 0.16 forbids parameter shadowing of file-scope decls.
+        let mut top_level_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for f in &api.functions {
+            top_level_names.insert(f.name.clone());
+        }
+        for ty in &api.types {
+            top_level_names.insert(ty.name.clone());
+        }
+        for en in &api.enums {
+            top_level_names.insert(en.name.clone());
+        }
         for f in api.functions.iter().filter(|f| !exclude_functions.contains(f.name.as_str())) {
             // Async functions are not supported — skip silently.
             if f.is_async {
                 continue;
             }
-            emit_function(f, &prefix, &declared_errors, &mut content);
+            emit_function(f, &prefix, &declared_errors, &top_level_names, &mut content);
             content.push('\n');
         }
 
@@ -135,11 +147,11 @@ fn emit_helpers(prefix: &str, out: &mut String) {
     out.push_str("/// Retrieve the last error set by the FFI layer, if any.\n");
     out.push_str("/// Returns a slice into thread-local storage valid until the next FFI call.\n");
     out.push_str("pub fn _last_error() ?[]const u8 {\n");
-    out.push_str(&format!("    const code = c.{error_code_symbol}();\n"));
-    out.push_str("    if (code == 0) return null;\n");
-    out.push_str(&format!("    const ctx = c.{error_context_symbol}();\n"));
-    out.push_str("    if (ctx == null) return null;\n");
-    out.push_str("    return std.mem.sliceTo(ctx, 0);\n");
+    out.push_str(&format!("    const _code = c.{error_code_symbol}();\n"));
+    out.push_str("    if (_code == 0) return null;\n");
+    out.push_str(&format!("    const _ctx = c.{error_context_symbol}();\n"));
+    out.push_str("    if (_ctx == null) return null;\n");
+    out.push_str("    return std.mem.sliceTo(_ctx, 0);\n");
     out.push_str("}\n\n");
 
     out.push_str("/// Map the last FFI error to a typed error from the given error set.\n");
@@ -237,7 +249,13 @@ fn resolve_zig_error_type(error_type: &str, declared: &[String]) -> String {
     declared.first().cloned().unwrap_or_else(|| "anyerror".to_string())
 }
 
-fn emit_function(f: &FunctionDef, prefix: &str, declared_errors: &[String], out: &mut String) {
+fn emit_function(
+    f: &FunctionDef,
+    prefix: &str,
+    declared_errors: &[String],
+    top_level_names: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
     if !f.doc.is_empty() {
         for line in f.doc.lines() {
             out.push_str("/// ");
@@ -245,6 +263,25 @@ fn emit_function(f: &FunctionDef, prefix: &str, declared_errors: &[String], out:
             out.push('\n');
         }
     }
+
+    // Rename param names that would shadow a top-level decl (Zig 0.16+ rejects
+    // shadowing of file-scope identifiers by function parameters).
+    let renamed_params: Vec<ParamDef> = f
+        .params
+        .iter()
+        .map(|p| {
+            let mut p2 = p.clone();
+            if top_level_names.contains(&p2.name) {
+                p2.name = format!("{}_arg", p2.name);
+            }
+            p2
+        })
+        .collect();
+    let f_local = FunctionDef {
+        params: renamed_params,
+        ..f.clone()
+    };
+    let f = &f_local;
 
     // Build the wrapper-level parameter list (Zig-idiomatic types, not raw C types).
     let params: Vec<String> = f.params.iter().map(format_param_wrapper).collect();
