@@ -29,6 +29,25 @@ gleeunit = "{gleeunit}"
 
     let gitignore = "build/\n";
 
+    // Smoke test that exercises the generated module loads. `gleam test` requires a
+    // `test/<app_name>_test.gleam` entry point; without it the test runner errors out.
+    let smoke_test = format!(
+        r#"import gleeunit
+import {app_name}
+
+pub fn main() {{
+  gleeunit.main()
+}}
+
+/// Smoke test: confirms the generated module compiles and is importable.
+pub fn smoke_test() {{
+  let _ = {app_name}
+  Nil
+}}
+"#,
+        app_name = gleam_app,
+    );
+
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/gleam/gleam.toml"),
@@ -43,6 +62,11 @@ gleeunit = "{gleeunit}"
         GeneratedFile {
             path: PathBuf::from("packages/gleam/.gitignore"),
             content: gitignore.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("packages/gleam/test/{gleam_app}_test.gleam")),
+            content: smoke_test,
             generated_header: false,
         },
     ])
