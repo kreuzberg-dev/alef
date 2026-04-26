@@ -149,6 +149,8 @@ fn make_native_config(crate_name: &str) -> AlefConfig {
             features: None,
             serde_rename_all: None,
             rename_fields: std::collections::HashMap::new(),
+            exclude_functions: vec![],
+            exclude_types: vec![],
             run_wrapper: None,
             extra_lint_paths: vec![],
             target: KotlinTarget::Native,

@@ -157,6 +157,8 @@ fn make_config_with_nif(nif_module: &str) -> AlefConfig {
             features: None,
             serde_rename_all: None,
             rename_fields: std::collections::HashMap::new(),
+            exclude_functions: Vec::new(),
+            exclude_types: Vec::new(),
             run_wrapper: None,
             extra_lint_paths: Vec::new(),
         }),
