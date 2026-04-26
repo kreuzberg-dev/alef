@@ -38,6 +38,9 @@ enum Commands {
         /// Ignore cache, regenerate everything.
         #[arg(long)]
         clean: bool,
+        /// Skip post-generation formatting of emitted files.
+        #[arg(long)]
+        no_format: bool,
     },
     /// Generate type stubs (.pyi, .rbs).
     Stubs {
@@ -293,7 +296,7 @@ fn main() -> Result<()> {
             println!("Wrote IR to {}", output.display());
             Ok(())
         }
-        Commands::Generate { lang, clean } => {
+        Commands::Generate { lang, clean, no_format } => {
             let config = load_config(config_path)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
             eprintln!("Generating bindings for: {}", format_languages(&languages));
@@ -369,6 +372,16 @@ fn main() -> Result<()> {
                 } else {
                     eprintln!("  [stubs] up to date (skipping)");
                 }
+            }
+
+            if any_written && !no_format {
+                // Auto-format generated files using language-native formatters
+                // (ruff, mix format, cargo fmt, etc.). This ensures CI formatter
+                // checks pass without requiring users to run formatters manually.
+                // Formatting failures are logged as warnings and do not fail the
+                // generate command, since formatter quirks shouldn't block codegen.
+                eprintln!("Formatting generated files...");
+                pipeline::format_generated(&files, &config, &base_dir);
             }
 
             if any_written {

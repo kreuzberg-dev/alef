@@ -305,4 +305,34 @@ mod tests {
         assert_eq!(config.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(config.crate_config.name, "my-lib");
     }
+
+    #[test]
+    fn run_command_captured_with_timeout_succeeds_within_limit() {
+        // A command that completes quickly should succeed even with a timeout
+        let result = run_command_captured_with_timeout("echo hello", Some(5));
+        assert!(result.is_ok(), "Quick command should succeed with timeout");
+        let (stdout, _) = result.unwrap();
+        assert!(stdout.contains("hello"), "Command output should be captured");
+    }
+
+    #[test]
+    fn run_command_captured_with_timeout_kills_on_timeout() {
+        // A command that takes longer than the timeout should fail
+        let result = run_command_captured_with_timeout("sleep 5", Some(1));
+        assert!(
+            result.is_err(),
+            "Command that exceeds timeout should return error"
+        );
+        let err_msg = format!("{:?}", result);
+        assert!(err_msg.contains("timed out"), "Error should mention timeout");
+    }
+
+    #[test]
+    fn run_command_captured_without_timeout() {
+        // Commands without a timeout should work as before
+        let result = run_command_captured_with_timeout("echo test", None);
+        assert!(result.is_ok(), "Command without timeout should succeed");
+        let (stdout, _) = result.unwrap();
+        assert!(stdout.contains("test"), "Command output should be captured");
+    }
 }
