@@ -378,14 +378,23 @@ pub struct DartConfig {
     #[serde(default)]
     pub package_name: Option<String>,
     /// flutter_rust_bridge version to pin in generated pubspec.yaml.
-    /// Defaults to `"2.12.0"`.
-    #[serde(default = "default_frb_version")]
-    pub frb_version: String,
+    /// Defaults to `DEFAULT_FRB_VERSION` when unset.
+    #[serde(default)]
+    pub frb_version: Option<String>,
+    /// Cargo features to enable on the binding crate.
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
 
-fn default_frb_version() -> String {
-    "2.12.0".to_string()
-}
+/// Default flutter_rust_bridge version, pinned to the latest stable as of 2026-04-26.
+pub const DEFAULT_FRB_VERSION: &str = "2.12.0";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SwiftConfig {
@@ -395,16 +404,33 @@ pub struct SwiftConfig {
     /// Swift package name. Defaults to the module name.
     #[serde(default)]
     pub package_name: Option<String>,
-    /// swift-bridge version to use (e.g. `"0.1.59"`).
+    /// swift-bridge version. Defaults to `DEFAULT_SWIFT_BRIDGE_VERSION` when unset.
     #[serde(default)]
     pub swift_bridge_version: Option<String>,
-    /// Minimum macOS deployment target (e.g. `"13.0"`).
+    /// Minimum macOS deployment target. Defaults to `DEFAULT_SWIFT_MIN_MACOS` when unset.
     #[serde(default)]
     pub min_macos_version: Option<String>,
-    /// Minimum iOS deployment target (e.g. `"16.0"`).
+    /// Minimum iOS deployment target. Defaults to `DEFAULT_SWIFT_MIN_IOS` when unset.
     #[serde(default)]
     pub min_ios_version: Option<String>,
+    /// Cargo features to enable on the binding crate.
+    #[serde(default)]
+    pub features: Option<Vec<String>>,
+    /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
+    #[serde(default)]
+    pub serde_rename_all: Option<String>,
+    /// Per-field name remapping. Key is `TypeName.field_name`, value is the
+    /// desired binding field name. Applied after automatic keyword escaping.
+    #[serde(default)]
+    pub rename_fields: HashMap<String, String>,
 }
+
+/// Default swift-bridge version, pinned to the latest release as of 2026-04-26.
+pub const DEFAULT_SWIFT_BRIDGE_VERSION: &str = "0.1.59";
+/// Default minimum macOS deployment target.
+pub const DEFAULT_SWIFT_MIN_MACOS: &str = "13.0";
+/// Default minimum iOS deployment target.
+pub const DEFAULT_SWIFT_MIN_IOS: &str = "16.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GleamConfig {

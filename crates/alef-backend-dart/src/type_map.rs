@@ -67,6 +67,8 @@ impl TypeMapper for DartMapper {
     }
 
     fn error_wrapper(&self) -> &str {
+        // Dart has no native `Result` type; Stage 2B emits a sealed-class
+        // `Result<T, E>` (Ok/Err freezed-style variants) and replaces this placeholder.
         "Result"
     }
 }

@@ -85,7 +85,8 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                         Language::Rust => format!("Vec<{inner_ty}>"),
                         Language::Ffi => format!("{inner_ty}*"),
                         Language::Java | Language::Csharp => unreachable!(),
-                        Language::Kotlin | Language::Swift | Language::Dart => format!("List<{inner_ty}>"),
+                        Language::Kotlin | Language::Dart => format!("List<{inner_ty}>"),
+                        Language::Swift => format!("[{inner_ty}]"),
                         Language::Gleam => format!("List({inner_ty})"),
                         Language::Zig => format!("[]const {inner_ty}"),
                     }
@@ -268,8 +269,9 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Rust => "serde_json::Value".to_string(),
             Language::Ffi => "void*".to_string(),
             Language::Kotlin => "Any".to_string(),
-            Language::Swift => "Any".to_string(),
-            Language::Dart => "dynamic".to_string(),
+            // Swift and Dart mappers return "String" — JSON is passed serialized.
+            Language::Swift => "String".to_string(),
+            Language::Dart => "String".to_string(),
             // Gleam and Zig backends serialize JSON as a string (the Mappers
             // return "String" / "[:0]const u8"); doc names must match.
             Language::Gleam => "String".to_string(),
@@ -288,7 +290,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Rust => "std::time::Duration".to_string(),
             Language::Ffi => "uint64_t".to_string(),
             Language::Kotlin => "Duration".to_string(),
-            Language::Swift => "TimeInterval".to_string(),
+            Language::Swift => "Duration".to_string(),
             Language::Dart => "Duration".to_string(),
             Language::Gleam => "Int".to_string(),
             Language::Zig => "i64".to_string(),
@@ -576,6 +578,8 @@ mod tests {
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Rust, TEST_PREFIX), "Vec<u8>");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Ffi, TEST_PREFIX), "const uint8_t*");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Kotlin, TEST_PREFIX), "ByteArray");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Swift, TEST_PREFIX), "Data");
+        assert_eq!(doc_type(&TypeRef::Bytes, Language::Dart, TEST_PREFIX), "Uint8List");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Gleam, TEST_PREFIX), "BitArray");
         assert_eq!(doc_type(&TypeRef::Bytes, Language::Zig, TEST_PREFIX), "[]const u8");
     }
@@ -643,8 +647,10 @@ mod tests {
         );
         assert_eq!(doc_type(&TypeRef::Json, Language::Ffi, TEST_PREFIX), "void*");
         assert_eq!(doc_type(&TypeRef::Json, Language::Kotlin, TEST_PREFIX), "Any");
-        // GleamMapper and ZigMapper return String / [:0]const u8 — JSON is
-        // serialized as a string at the FFI boundary in those backends.
+        // SwiftMapper, DartMapper, GleamMapper, and ZigMapper all serialize JSON
+        // as a string at the FFI boundary; doc names must match the mappers.
+        assert_eq!(doc_type(&TypeRef::Json, Language::Swift, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::Json, Language::Dart, TEST_PREFIX), "String");
         assert_eq!(doc_type(&TypeRef::Json, Language::Gleam, TEST_PREFIX), "String");
         assert_eq!(doc_type(&TypeRef::Json, Language::Zig, TEST_PREFIX), "[:0]const u8");
     }
@@ -665,6 +671,32 @@ mod tests {
             "std::time::Duration"
         );
         assert_eq!(doc_type(&TypeRef::Duration, Language::Ffi, TEST_PREFIX), "uint64_t");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Kotlin, TEST_PREFIX), "Duration");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Swift, TEST_PREFIX), "Duration");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Dart, TEST_PREFIX), "Duration");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Gleam, TEST_PREFIX), "Int");
+        assert_eq!(doc_type(&TypeRef::Duration, Language::Zig, TEST_PREFIX), "i64");
+    }
+
+    #[test]
+    fn test_doc_type_swift_dart_vec_and_map() {
+        // Swift uses `[T]` syntactic sugar; Dart uses `List<T>` like Kotlin.
+        let vec_string = TypeRef::Vec(Box::new(TypeRef::String));
+        assert_eq!(doc_type(&vec_string, Language::Swift, TEST_PREFIX), "[String]");
+        assert_eq!(doc_type(&vec_string, Language::Dart, TEST_PREFIX), "List<String>");
+
+        // Swift dict literal: `[K: V]`. Dart: `Map<K, V>`.
+        let map = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
+        assert_eq!(doc_type(&map, Language::Swift, TEST_PREFIX), "[String: String]");
+        assert_eq!(doc_type(&map, Language::Dart, TEST_PREFIX), "Map<String, String>");
+    }
+
+    #[test]
+    fn test_doc_type_swift_dart_path_and_unit() {
+        assert_eq!(doc_type(&TypeRef::Path, Language::Swift, TEST_PREFIX), "URL");
+        assert_eq!(doc_type(&TypeRef::Path, Language::Dart, TEST_PREFIX), "String");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Swift, TEST_PREFIX), "Void");
+        assert_eq!(doc_type(&TypeRef::Unit, Language::Dart, TEST_PREFIX), "void");
     }
 
     #[test]

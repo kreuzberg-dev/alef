@@ -26,6 +26,7 @@ impl Backend for SwiftBackend {
     }
 
     fn generate_bindings(&self, _api: &ApiSurface, _config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Phase 2A skeleton: real codegen lands in Phase 2B.
         Ok(vec![])
     }
 

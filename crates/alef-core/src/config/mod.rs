@@ -814,6 +814,15 @@ impl AlefConfig {
             .unwrap_or_else(|| self.crate_config.name.replace('-', "_"))
     }
 
+    /// Get the resolved flutter_rust_bridge version, falling back to `DEFAULT_FRB_VERSION`.
+    pub fn dart_frb_version(&self) -> String {
+        self.dart
+            .as_ref()
+            .and_then(|d| d.frb_version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| crate::config::languages::DEFAULT_FRB_VERSION.to_string())
+    }
+
     /// Get the Swift module name.
     ///
     /// Returns `[swift] module_name` if configured, otherwise derives a PascalCase
@@ -827,6 +836,33 @@ impl AlefConfig {
                 use heck::ToUpperCamelCase;
                 self.crate_config.name.to_upper_camel_case()
             })
+    }
+
+    /// Get the resolved swift-bridge version, falling back to `DEFAULT_SWIFT_BRIDGE_VERSION`.
+    pub fn swift_bridge_version(&self) -> String {
+        self.swift
+            .as_ref()
+            .and_then(|s| s.swift_bridge_version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| crate::config::languages::DEFAULT_SWIFT_BRIDGE_VERSION.to_string())
+    }
+
+    /// Get the resolved minimum macOS deployment target.
+    pub fn swift_min_macos(&self) -> String {
+        self.swift
+            .as_ref()
+            .and_then(|s| s.min_macos_version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| crate::config::languages::DEFAULT_SWIFT_MIN_MACOS.to_string())
+    }
+
+    /// Get the resolved minimum iOS deployment target.
+    pub fn swift_min_ios(&self) -> String {
+        self.swift
+            .as_ref()
+            .and_then(|s| s.min_ios_version.as_ref())
+            .cloned()
+            .unwrap_or_else(|| crate::config::languages::DEFAULT_SWIFT_MIN_IOS.to_string())
     }
 
     /// Get the Gleam app name.
