@@ -7,22 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-04-26
+
+A follow-up release to v0.8.0 focused on closing remaining clippy/build-correctness gaps surfaced by Kreuzberg's full workspace build. All alef-generated bindings (Python, Node, Ruby, PHP, FFI, WASM, Elixir, R, Go, Java, C#) now compile cleanly with `-D warnings` against the kreuzberg verification worktree. Adds an `is_copy` IR flag so the FFI backend can correctly distinguish Copy enums from Clone-but-not-Copy data-bearing enums.
+
 ### Added
 
 - **`is_copy` IR flag on `TypeDef` and `EnumDef`**: extracted from `#[derive(Copy)]`. Lets backends distinguish Copy types from Clone-but-not-Copy types when emitting field accessors and method returns.
 
 ### Fixed
 
-- **WASM trait-bridge regression**: shared `gen_bridge_trait_impl` emitted `#[async_trait::async_trait]` unconditionally, but `kreuzberg-wasm` has no `async_trait` dep. On non-wasm32 targets the trait declaration uses `#[cfg_attr(not(target_arch = "wasm32"), async_trait)]`, producing E0195 lifetime mismatches and E0433 missing-crate errors. WASM trait bridges now compile inside a private `#[cfg(target_arch = "wasm32")]` mod with a public re-export — the bridge is wasm-only by nature (wraps `wasm_bindgen::JsValue`), so host workspace builds skip the impl entirely.
+- **WASM trait-bridge regression**: shared `gen_bridge_trait_impl` emitted `#[async_trait::async_trait]` unconditionally, but `kreuzberg-wasm` has no `async_trait` dep. On non-wasm32 targets the trait declaration uses `#[cfg_attr(not(target_arch = "wasm32"), async_trait)]`, producing E0195 lifetime mismatches and E0433 missing-crate errors. WASM trait bridges now compile inside a private `#[cfg(target_arch = "wasm32")]` mod with a public re-export — the bridge is wasm-only by nature (wraps `wasm_bindgen::JsValue`), so host workspace builds skip the impl entirely. The same `cfg(target_arch="wasm32")` gate is also applied to bridge-using free functions.
+- **WASM scaffold deps**: generated `kreuzberg-wasm/Cargo.toml` now ensures `js-sys` is present, and serde-style `Vec<&str>` parameters are correctly bridged via `serde_wasm_bindgen` instead of failing JsValue→Vec deserialization.
 - **FFI clone-on-copy lints (~25 occurrences)**: field accessors and method returns previously emitted `Box::into_raw(Box::new(obj.field.clone()))` for every Named-typed field, tripping `clippy::clone_on_copy` on the `Copy` enums (`TableModel`, `ChunkerType`, `LayoutClass`, `BBox`, etc.). Codegen now consults `enum.is_copy` / `type.is_copy` to emit auto-copy/deref for Copy types and `.clone()` for Clone-but-not-Copy types. Non-Clone opaques fall back to a raw-pointer alias.
 - **FFI move-out-of-borrow errors (E0507)**: data-bearing enums (`Provider`, `HtmlTheme`, `PdfBackend`, `NodeContent`, `OcrBoundingGeometry`, etc.) are not Copy; previous codegen emitted `Box::new(obj.field)` (no clone), causing E0507. Now correctly emits `.clone()` when `is_clone && !is_copy`.
 - **FFI let_and_return in vtable wrappers**: infallible primitive/Duration vtable returns previously emitted `let _rc = unsafe { fp(args) }; _rc`, tripping `clippy::let_and_return`. Skip the binding for that case and emit `unsafe { fp(args) }` as the tail expression.
 - **FFI useless conversion in PathBuf::from on Option<PathBuf>**: codegen unconditionally wrapped `cache_dir_rs.map(std::path::PathBuf::from)` even when `cache_dir_rs` was already `Option<PathBuf>`. Now passes through directly.
 - **PHP plugin bridge clippy cleanup**: 33 lint errors eliminated across `alef-backend-php`'s trait bridge generator — `let_and_return` in async wrappers, `clone_on_copy` on `*mut _zend_object` (raw ptr is Copy), `useless_conversion` on `&str`/`PhpException` self-conversions, `vec_init_then_push` replaced with `vec![…]` literals, and a duplicate `let texts = texts;` redundant local.
 - **Rustler/Elixir useless `.into()`**: NIF function wrappers no longer wrap owned `String` / `Vec<u8>` returns in `.into()` (which clippy flags as `String → String` / `Vec<u8> → Vec<u8>` identity). The `gen_rustler_wrap_return` helper now consults `returns_ref` to decide.
+- **Rustler reserved Elixir attribute names**: emitted GenServer modules no longer use Elixir-reserved module-attribute names (`@behaviour`, `@callback`, etc.), preventing `mix compile` errors.
+- **Rustler/Go/scaffold misc**: Elixir builtins handling fix, Go cbindgen prefix correction for re-exported types, Cargo `tokio` dep added when async functions are present.
+- **Rustler test fixture**: `EnumVariant` test data updated for the new `is_tuple` field added in v0.8.0.
+- **PyO3 / WASM static method wrappers**: `wrap_return_with_mutex` now wraps the inner core type in the binding wrapper for `default()` / `from()` static methods on non-opaque types (was previously skipping the conversion via the broken `n == type_name` shortcut, producing 24 `mismatched types` errors in PyO3).
 - **PyO3 useless `.into()` on owned String returns**: `wrap_return` in the shared serde path no longer emits `.into()` for `TypeRef::String | TypeRef::Bytes` (both are identity in all backends). Eliminates `.map(Into::into)` chains on `Result<String, _>` returns in generated PyO3 functions like `reduce_tokens`, `serialize_to_toon`, `serialize_to_json`.
-- **Reverted broken `n == type_name` shortcut**: `wrap_return_with_mutex` previously skipped the `.into()` conversion whenever the IR Named type name matched the binding struct type name (intended for `HtmlMetadata::from`). For non-opaque binding types this produced 24 `mismatched types` errors in PyO3 (e.g. static `default()` methods returning core types instead of binding types). The fix is now scoped to PyO3/WASM static methods that legitimately need this — the FFI/general `wrap_return_with_mutex` path always emits `.into()`.
 - **`useless_conversion` on extracted `From<X> for Y` static methods**: kreuzberg's `From<html_to_markdown_rs::HtmlMetadata> for HtmlMetadata` impl is extracted as a static method on `HtmlMetadata` whose param type is normalized to `Self`. The generated FFI/PyO3 wrapper calls `Y::from(arg: Y)`, which Rust resolves to the blanket `From<T> for T` (identity). The wrapper is preserved for ABI stability; `clippy::useless_conversion` is suppressed at the FFI and PyO3 file level.
+- **C# nullable double-coalesce**: visitor field accessors emitted `x?.Property ?? null ?? defaultValue` on already-nullable types. The redundant `?? null` is now dropped.
+- **C# Name property on visitor interface**: `IVisitor` was missing the `Name` property on some codegen paths; now always emitted so trait bridge dispatch works.
+- **C# csproj scaffolding**: `Kreuzberg.csproj` is scaffolded once into the package subdir (not the language root) and not overwritten on subsequent runs. User-tuned project settings (target framework, package metadata) survive regeneration.
+- **Elixir NIF Cargo.toml**: emits `[workspace]` block so the NIF crate is its own cargo workspace, plus `futures-util` dep for the async bridge dispatch path.
+- **Java primitive trait method parameters**: trait bridges now correctly box primitives (`int` → `Integer`, `bool` → `Boolean`) before passing through `Object[]` callbacks; primitive return values are unboxed via `.intValue()` / `.booleanValue()` rather than direct cast.
+- **Magnus tagged-union `Vec<Named>` field marshalling**: Vec-of-Named fields preserve `Vec<Named>` type in generated Rust enum variants instead of collapsing to `String`. JSON array round-trip now works for tagged unions like `Multi(Vec<Item>)`. Map fields still collapse to `String` for serde_json indirection.
+- **Magnus Option<T> double-wrap in kwargs**: kwargs builders no longer emit `Option<Option<T>>` for nullable struct fields when the field type is already `Option<T>` and the kwarg flag also makes it optional. Single-Option emission across kwargs and getters.
+- **Go/WASM NodeContext cbindgen prefix**: cbindgen-emitted C struct names use the configured crate prefix (e.g. `KZBNodeContext` instead of `NodeContext`), matching the declared FFI symbol convention.
+- **Go binding `futures-util` dep**: generated Go FFI's `Cargo.toml` declares `futures-util` when the IR exposes async functions.
 
 ## [0.8.0] - 2026-04-26
 
