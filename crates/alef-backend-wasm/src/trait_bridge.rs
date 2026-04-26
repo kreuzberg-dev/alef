@@ -493,7 +493,7 @@ pub fn gen_trait_bridge(
         && bridge_cfg.super_trait.is_none()
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
-    if is_visitor_bridge {
+    let bridge = if is_visitor_bridge {
         let mut out = String::with_capacity(8192);
         let struct_name = format!("Wasm{}Bridge", bridge_cfg.trait_name);
         let trait_path = trait_type.rust_path.replace('-', "_");
@@ -527,6 +527,26 @@ pub fn gen_trait_bridge(
             error_constructor: error_constructor.to_string(),
         };
         gen_bridge_all(&spec, &generator)
+    };
+
+    // Gate the entire bridge on wasm32 target. The bridge implements traits that may use
+    // `#[cfg_attr(not(target_arch = "wasm32"), async_trait)]`, so on host targets the
+    // trait would have async_trait-rewritten signatures while the impl uses bare `async fn`,
+    // producing E0195 lifetime mismatches. The bridge is also conceptually wasm-only:
+    // it wraps `wasm_bindgen::JsValue` and is invoked from the JS register_* entry point.
+    let mod_name = format!(
+        "__alef_wasm_bridge_{}",
+        bridge_cfg.trait_name.to_lowercase()
+    );
+    let gated = format!(
+        "#[cfg(target_arch = \"wasm32\")]\nmod {mod_name} {{\n    use super::*;\n\n{body}\n}}\n#[cfg(target_arch = \"wasm32\")]\npub use {mod_name}::*;",
+        mod_name = mod_name,
+        body = bridge.code,
+    );
+
+    BridgeOutput {
+        imports: bridge.imports,
+        code: gated,
     }
 }
 
