@@ -436,9 +436,10 @@ pub(crate) fn gen_native_lib(
         writeln!(body, "    );").ok();
     }
 
-    // Track emitted free handles to avoid duplicates (a type may appear both as
-    // a function return type AND as an opaque type).
+    // Track emitted handles to avoid duplicates (a type may appear both as
+    // a function return type AND as an opaque type, or as both return and parameter type).
     let mut emitted_free_handles: AHashSet<String> = AHashSet::new();
+    let mut emitted_to_json_handles: AHashSet<String> = AHashSet::new();
 
     // Build the set of opaque type names so we can pick the right accessor below.
     let opaque_type_names: AHashSet<String> = api
@@ -464,20 +465,22 @@ pub(crate) fn gen_native_lib(
                 // NOTE: _content returns only the markdown string field, not the full JSON.
                 let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
                 let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
-                writeln!(body).ok();
-                writeln!(
-                    body,
-                    "    static final MethodHandle {} = LINKER.downcallHandle(",
-                    to_json_handle
-                )
-                .ok();
-                writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", to_json_ffi).ok();
-                writeln!(
-                    body,
-                    "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
-                )
-                .ok();
-                writeln!(body, "    );").ok();
+                if emitted_to_json_handles.insert(to_json_handle.clone()) {
+                    writeln!(body).ok();
+                    writeln!(
+                        body,
+                        "    static final MethodHandle {} = LINKER.downcallHandle(",
+                        to_json_handle
+                    )
+                    .ok();
+                    writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", to_json_ffi).ok();
+                    writeln!(
+                        body,
+                        "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+                    )
+                    .ok();
+                    writeln!(body, "    );").ok();
+                }
             }
 
             // _free: (struct_ptr) -> void
@@ -591,9 +594,15 @@ pub(crate) fn gen_native_lib(
         }
     }
 
-    // Trait bridge register/unregister FFI handles
+    // Trait bridge register/unregister FFI handles (de-duplicated with function-related handles)
+    let mut emitted_register_handles: AHashSet<String> = AHashSet::new();
+    let mut emitted_unregister_handles: AHashSet<String> = AHashSet::new();
+
     for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg.exclude_languages.contains(&alef_core::config::Language::Java.to_string()) {
+        if bridge_cfg
+            .exclude_languages
+            .contains(&alef_core::config::Language::Java.to_string())
+        {
             continue;
         }
 
@@ -601,26 +610,52 @@ pub(crate) fn gen_native_lib(
         let trait_upper = trait_snake.to_uppercase();
 
         // Register handle
-        let register_handle_name = format!("{}_{}_REGISTER_{}", prefix.to_uppercase(), prefix.to_uppercase(), trait_upper);
+        let register_handle_name = format!(
+            "{}_REGISTER_{}",
+            prefix.to_uppercase(),
+            trait_upper
+        );
         let register_ffi_name = format!("{}_register_{}", prefix, trait_snake);
-        writeln!(body).ok();
-        writeln!(body, "    static final MethodHandle {} = LINKER.downcallHandle(", register_handle_name).ok();
-        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", register_ffi_name).ok();
-        writeln!(
-            body,
-            "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
-        )
-        .ok();
-        writeln!(body, "    );").ok();
+        if emitted_register_handles.insert(register_handle_name.clone()) {
+            writeln!(body).ok();
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LINKER.downcallHandle(",
+                register_handle_name
+            )
+            .ok();
+            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", register_ffi_name).ok();
+            writeln!(
+                body,
+                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+            )
+            .ok();
+            writeln!(body, "    );").ok();
+        }
 
         // Unregister handle
-        let unregister_handle_name = format!("{}_{}_UNREGISTER_{}", prefix.to_uppercase(), prefix.to_uppercase(), trait_upper);
+        let unregister_handle_name = format!(
+            "{}_UNREGISTER_{}",
+            prefix.to_uppercase(),
+            trait_upper
+        );
         let unregister_ffi_name = format!("{}_unregister_{}", prefix, trait_snake);
-        writeln!(body).ok();
-        writeln!(body, "    static final MethodHandle {} = LINKER.downcallHandle(", unregister_handle_name).ok();
-        writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", unregister_ffi_name).ok();
-        writeln!(body, "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)").ok();
-        writeln!(body, "    );").ok();
+        if emitted_unregister_handles.insert(unregister_handle_name.clone()) {
+            writeln!(body).ok();
+            writeln!(
+                body,
+                "    static final MethodHandle {} = LINKER.downcallHandle(",
+                unregister_handle_name
+            )
+            .ok();
+            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", unregister_ffi_name).ok();
+            writeln!(
+                body,
+                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+            )
+            .ok();
+            writeln!(body, "    );").ok();
+        }
     }
 
     // Inject visitor FFI method handles when a trait bridge is configured.

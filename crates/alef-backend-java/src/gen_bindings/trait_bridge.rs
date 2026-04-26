@@ -24,12 +24,7 @@ pub struct BridgeFiles {
 }
 
 /// Generate both the managed interface file and the bridge class file for one trait.
-pub fn gen_trait_bridge_files(
-    trait_def: &TypeDef,
-    prefix: &str,
-    package: &str,
-    has_super_trait: bool,
-) -> BridgeFiles {
+pub fn gen_trait_bridge_files(trait_def: &TypeDef, prefix: &str, package: &str, has_super_trait: bool) -> BridgeFiles {
     BridgeFiles {
         interface_content: gen_interface_file(trait_def, package, has_super_trait),
         bridge_content: gen_bridge_file(trait_def, prefix, package, has_super_trait),
@@ -48,11 +43,7 @@ fn gen_interface_file(trait_def: &TypeDef, package: &str, has_super_trait: bool)
     writeln!(out).ok();
 
     writeln!(out, "/**").ok();
-    writeln!(
-        out,
-        " * Bridge interface for the {trait_pascal} plugin system."
-    )
-    .ok();
+    writeln!(out, " * Bridge interface for the {trait_pascal} plugin system.").ok();
     writeln!(out, " *").ok();
     writeln!(
         out,
@@ -134,11 +125,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     )
     .ok();
     writeln!(out, " * assembles the C vtable in native memory, and provides static").ok();
-    writeln!(
-        out,
-        " * register{trait_pascal}/unregister{trait_pascal} helpers."
-    )
-    .ok();
+    writeln!(out, " * register{trait_pascal}/unregister{trait_pascal} helpers.").ok();
     writeln!(out, " */").ok();
     writeln!(out, "public final class {bridge_class} implements AutoCloseable {{").ok();
     writeln!(out).ok();
@@ -149,11 +136,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         "    private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();"
     )
     .ok();
-    writeln!(
-        out,
-        "    private static final ObjectMapper JSON = new ObjectMapper();"
-    )
-    .ok();
+    writeln!(out, "    private static final ObjectMapper JSON = new ObjectMapper();").ok();
     writeln!(out).ok();
 
     writeln!(
@@ -250,11 +233,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         )
         .ok();
         writeln!(out, "                arena);").ok();
-        writeln!(
-            out,
-            "            vtable.set(ValueLayout.ADDRESS, offset, {stub_name});"
-        )
-        .ok();
+        writeln!(out, "            vtable.set(ValueLayout.ADDRESS, offset, {stub_name});").ok();
         writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
         writeln!(out).ok();
     }
@@ -283,22 +262,18 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
         writeln!(out, "    private MemorySegment handleName(MemorySegment userData) {{").ok();
         writeln!(out, "        try {{").ok();
         writeln!(out, "            return arena.allocateFrom(impl.name());").ok();
-        writeln!(
-            out,
-            "        }} catch (Throwable e) {{ return MemorySegment.NULL; }}"
-        )
-        .ok();
+        writeln!(out, "        }} catch (Throwable e) {{ return MemorySegment.NULL; }}").ok();
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
 
-        writeln!(out, "    private MemorySegment handleVersion(MemorySegment userData) {{").ok();
-        writeln!(out, "        try {{").ok();
-        writeln!(out, "            return arena.allocateFrom(impl.version());").ok();
         writeln!(
             out,
-            "        }} catch (Throwable e) {{ return MemorySegment.NULL; }}"
+            "    private MemorySegment handleVersion(MemorySegment userData) {{"
         )
         .ok();
+        writeln!(out, "        try {{").ok();
+        writeln!(out, "            return arena.allocateFrom(impl.version());").ok();
+        writeln!(out, "        }} catch (Throwable e) {{ return MemorySegment.NULL; }}").ok();
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
 
@@ -337,7 +312,11 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     }
 
     // Shared error-writer.
-    writeln!(out, "    private void writeError(MemorySegment outError, Throwable e) {{").ok();
+    writeln!(
+        out,
+        "    private void writeError(MemorySegment outError, Throwable e) {{"
+    )
+    .ok();
     writeln!(
         out,
         "        try {{ outError.set(ValueLayout.ADDRESS, 0, arena.allocateFrom(e.getClass().getSimpleName() + \": \" + e.getMessage())); }}"
@@ -366,11 +345,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     writeln!(out, "        var bridge = new {bridge_class}(impl);").ok();
     writeln!(out, "        try {{").ok();
     writeln!(out, "            try (var nameArena = Arena.ofConfined()) {{").ok();
-    writeln!(
-        out,
-        "                var nameCs = nameArena.allocateFrom(impl.name());"
-    )
-    .ok();
+    writeln!(out, "                var nameCs = nameArena.allocateFrom(impl.name());").ok();
     writeln!(
         out,
         "                MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);"
@@ -408,11 +383,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
 
-    writeln!(
-        out,
-        "    /** Unregister a {trait_pascal} implementation by name. */"
-    )
-    .ok();
+    writeln!(out, "    /** Unregister a {trait_pascal} implementation by name. */").ok();
     writeln!(
         out,
         "    public static void unregister{trait_pascal}(String name) throws Exception {{"
@@ -449,11 +420,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     .ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "        }}").ok();
-    writeln!(
-        out,
-        "        {bridge_class} old = {registry_field}.remove(name);"
-    )
-    .ok();
+    writeln!(out, "        {bridge_class} old = {registry_field}.remove(name);").ok();
     writeln!(out, "        if (old != null) {{ old.close(); }}").ok();
     writeln!(out, "    }}").ok();
 
@@ -462,12 +429,7 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
 }
 
 /// Emit the upcall-stub-allocation block for a Plugin lifecycle slot.
-fn emit_lifecycle_stub(
-    out: &mut String,
-    pascal: &str,
-    method_return_type: &str,
-    descriptor_return: &str,
-) {
+fn emit_lifecycle_stub(out: &mut String, pascal: &str, method_return_type: &str, descriptor_return: &str) {
     let handle = format!("handle{pascal}");
     let stub_var = format!("stub{pascal}");
     let extra_param = if pascal == "Initialize" || pascal == "Shutdown" {
@@ -496,11 +458,7 @@ fn emit_lifecycle_stub(
     )
     .ok();
     writeln!(out, "                arena);").ok();
-    writeln!(
-        out,
-        "            vtable.set(ValueLayout.ADDRESS, offset, {stub_var});"
-    )
-    .ok();
+    writeln!(out, "            vtable.set(ValueLayout.ADDRESS, offset, {stub_var});").ok();
     writeln!(out, "            offset += ValueLayout.ADDRESS.byteSize();").ok();
     writeln!(out).ok();
 }
@@ -519,12 +477,7 @@ fn emit_method_handler(out: &mut String, method: &alef_core::ir::MethodDef) {
     }
     sig_params.push("MemorySegment outError".to_string());
 
-    writeln!(
-        out,
-        "    private int {handle}({}) {{",
-        sig_params.join(", ")
-    )
-    .ok();
+    writeln!(out, "    private int {handle}({}) {{", sig_params.join(", ")).ok();
     writeln!(out, "        try {{").ok();
 
     for param in &method.params {
@@ -533,20 +486,10 @@ fn emit_method_handler(out: &mut String, method: &alef_core::ir::MethodDef) {
         unmarshal_param(out, &local, &segment, &param.ty);
     }
 
-    let java_args: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| java_param_name(&p.name))
-        .collect();
+    let java_args: Vec<String> = method.params.iter().map(|p| java_param_name(&p.name)).collect();
 
     if matches!(method.return_type, TypeRef::Unit) {
-        writeln!(
-            out,
-            "            impl.{}({});",
-            method.name,
-            java_args.join(", ")
-        )
-        .ok();
+        writeln!(out, "            impl.{}({});", method.name, java_args.join(", ")).ok();
     } else {
         let return_type_str = java_type(&method.return_type);
         writeln!(
@@ -556,11 +499,7 @@ fn emit_method_handler(out: &mut String, method: &alef_core::ir::MethodDef) {
             java_args.join(", ")
         )
         .ok();
-        writeln!(
-            out,
-            "            String json = JSON.writeValueAsString(result);"
-        )
-        .ok();
+        writeln!(out, "            String json = JSON.writeValueAsString(result);").ok();
         writeln!(out, "            MemorySegment jsonCs = arena.allocateFrom(json);").ok();
         writeln!(out, "            outResult.set(ValueLayout.ADDRESS, 0, jsonCs);").ok();
     }
@@ -592,11 +531,7 @@ fn unmarshal_param(out: &mut String, local: &str, segment: &str, ty: &TypeRef) {
                 "            // (fix me when a trait exposes a primitive method param)"
             )
             .ok();
-            writeln!(
-                out,
-                "            {local} = 0; /* unsupported primitive bridge */"
-            )
-            .ok();
+            writeln!(out, "            {local} = 0; /* unsupported primitive bridge */").ok();
         }
         TypeRef::Bytes => {
             writeln!(
@@ -649,12 +584,11 @@ fn unmarshal_param(out: &mut String, local: &str, segment: &str, ty: &TypeRef) {
 /// Java reserves several keywords; sanitize parameter names that would clash.
 fn java_param_name(name: &str) -> String {
     match name {
-        "default" | "class" | "package" | "new" | "return" | "this" | "void" | "interface" | "enum"
-        | "switch" | "case" | "for" | "while" | "do" | "if" | "else" | "throw" | "throws"
-        | "try" | "catch" | "finally" | "int" | "long" | "short" | "byte" | "boolean" | "float"
-        | "double" | "char" | "synchronized" | "volatile" | "transient" | "abstract" | "static"
-        | "final" | "private" | "protected" | "public" | "native" | "strictfp" | "extends"
-        | "implements" | "instanceof" | "super" | "import" | "true" | "false" | "null" => {
+        "default" | "class" | "package" | "new" | "return" | "this" | "void" | "interface" | "enum" | "switch"
+        | "case" | "for" | "while" | "do" | "if" | "else" | "throw" | "throws" | "try" | "catch" | "finally"
+        | "int" | "long" | "short" | "byte" | "boolean" | "float" | "double" | "char" | "synchronized" | "volatile"
+        | "transient" | "abstract" | "static" | "final" | "private" | "protected" | "public" | "native"
+        | "strictfp" | "extends" | "implements" | "instanceof" | "super" | "import" | "true" | "false" | "null" => {
             format!("{name}_")
         }
         _ => name.to_string(),
@@ -708,10 +642,7 @@ mod tests {
 
     #[test]
     fn interface_emits_package_and_lifecycle_when_super_trait() {
-        let trait_def = make_trait(
-            "OcrBackend",
-            vec![make_method("process", TypeRef::String, vec![])],
-        );
+        let trait_def = make_trait("OcrBackend", vec![make_method("process", TypeRef::String, vec![])]);
         let files = gen_trait_bridge_files(&trait_def, "krz", "dev.kreuzberg", true);
         assert!(files.interface_content.starts_with("package dev.kreuzberg;"));
         assert!(files.interface_content.contains("public interface IOcrBackend"));

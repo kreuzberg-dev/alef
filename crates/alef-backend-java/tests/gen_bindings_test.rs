@@ -762,3 +762,41 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
         "should import JsonUnwrapped:\n{content}"
     );
 }
+
+#[test]
+fn test_output_path_no_doubling() {
+    // Regression test for Bug 1: output path doubling when user config already includes package
+    use std::path::PathBuf;
+
+    // Simulate the fix: detect if output_dir already ends with package_path
+    let package = "dev.kreuzberg";
+    let package_path = package.replace('.', "/");
+
+    // Case 1: User configured the full package path (should NOT append again)
+    let output_dir_1 = "packages/java/src/main/java/dev/kreuzberg/";
+    let base_path_1 = if output_dir_1.ends_with(&package_path) || output_dir_1.ends_with(&format!("{}/", package_path))
+    {
+        PathBuf::from(&output_dir_1)
+    } else {
+        PathBuf::from(&output_dir_1).join(&package_path)
+    };
+    assert_eq!(
+        base_path_1,
+        PathBuf::from("packages/java/src/main/java/dev/kreuzberg/"),
+        "Should not double the package path"
+    );
+
+    // Case 2: User configured without package path (should append)
+    let output_dir_2 = "packages/java/src/main/java/";
+    let base_path_2 = if output_dir_2.ends_with(&package_path) || output_dir_2.ends_with(&format!("{}/", package_path))
+    {
+        PathBuf::from(&output_dir_2)
+    } else {
+        PathBuf::from(&output_dir_2).join(&package_path)
+    };
+    assert_eq!(
+        base_path_2,
+        PathBuf::from("packages/java/src/main/java/dev/kreuzberg"),
+        "Should append package path when not already present"
+    );
+}

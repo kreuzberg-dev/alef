@@ -70,7 +70,13 @@ impl Backend for JavaBackend {
             "packages/java/src/main/java/",
         );
 
-        let base_path = PathBuf::from(&output_dir).join(&package_path);
+        // If output_dir already ends with the package path (user configured the full path),
+        // use it as-is. Otherwise, append the package path.
+        let base_path = if output_dir.ends_with(&package_path) || output_dir.ends_with(&format!("{}/", package_path)) {
+            PathBuf::from(&output_dir)
+        } else {
+            PathBuf::from(&output_dir).join(&package_path)
+        };
 
         // Collect bridge param names and type aliases so we can strip them from generated
         // function signatures and emit convertWithVisitor instead.
@@ -238,12 +244,7 @@ impl Backend for JavaBackend {
                 let trait_bridge::BridgeFiles {
                     interface_content,
                     bridge_content,
-                } = trait_bridge::gen_trait_bridge_files(
-                    trait_def,
-                    &prefix,
-                    &package,
-                    has_super_trait,
-                );
+                } = trait_bridge::gen_trait_bridge_files(trait_def, &prefix, &package, has_super_trait);
 
                 files.push(GeneratedFile {
                     path: base_path.join(format!("I{}.java", trait_def.name)),
@@ -276,7 +277,13 @@ impl Backend for JavaBackend {
             "packages/java/src/main/java/",
         );
 
-        let base_path = PathBuf::from(&output_dir).join(&package_path);
+        // If output_dir already ends with the package path (user configured the full path),
+        // use it as-is. Otherwise, append the package path.
+        let base_path = if output_dir.ends_with(&package_path) || output_dir.ends_with(&format!("{}/", package_path)) {
+            PathBuf::from(&output_dir)
+        } else {
+            PathBuf::from(&output_dir).join(&package_path)
+        };
 
         // Collect bridge param names/aliases to strip from the public facade.
         let bridge_param_names: HashSet<String> = config

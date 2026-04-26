@@ -16,7 +16,7 @@ pub(crate) fn gen_facade_class(
     _prefix: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    has_visitor_bridge: bool,
+    _has_visitor_bridge: bool,
 ) -> String {
     let mut body = String::with_capacity(4096);
 
@@ -168,31 +168,6 @@ pub(crate) fn gen_facade_class(
             writeln!(body, "    }}").ok();
             writeln!(body).ok();
         }
-    }
-
-    // Expose convertWithVisitor in the public facade when visitor bridge is configured.
-    if has_visitor_bridge {
-        writeln!(body, "    /**").ok();
-        writeln!(
-            body,
-            "     * Convert HTML to Markdown, invoking visitor callbacks during processing."
-        )
-        .ok();
-        writeln!(body, "     */").ok();
-        writeln!(
-            body,
-            "    public static ConversionResult convertWithVisitor(String html, ConversionOptions options, Visitor visitor)"
-        )
-        .ok();
-        writeln!(body, "            throws {}Exception {{", raw_class).ok();
-        writeln!(
-            body,
-            "        return {}.convertWithVisitor(html, options, visitor);",
-            raw_class
-        )
-        .ok();
-        writeln!(body, "    }}").ok();
-        writeln!(body).ok();
     }
 
     writeln!(body, "}}").ok();
