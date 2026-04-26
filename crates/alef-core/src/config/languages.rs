@@ -350,6 +350,21 @@ fn default_java_ffi_style() -> String {
     "panama".to_string()
 }
 
+/// Target platform for Kotlin code generation.
+///
+/// - `"jvm"` (default): emits source consuming the Java/Panama FFM facade.
+/// - `"native"`: emits Kotlin/Native source consuming the cbindgen C FFI library.
+/// - `"multiplatform"`: reserved for the KMP stage (Phase 3 follow-up).
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum KotlinTarget {
+    #[default]
+    Jvm,
+    Native,
+    // Multiplatform — Phase 3 KMP stage; placeholder so the enum is forward-compatible.
+    Multiplatform,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KotlinConfig {
     pub package: Option<String>,
@@ -370,6 +385,11 @@ pub struct KotlinConfig {
     /// Extra paths to append to default lint commands (format, check, typecheck).
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Target platform for Kotlin output. `"jvm"` (default) emits source consuming
+    /// the Java/Panama FFM facade; `"native"` emits Kotlin/Native source consuming
+    /// the cbindgen C FFI library. `"multiplatform"` is reserved for the KMP stage.
+    #[serde(default)]
+    pub target: KotlinTarget,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
