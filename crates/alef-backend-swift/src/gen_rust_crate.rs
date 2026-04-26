@@ -202,6 +202,11 @@ fn emit_extern_block_for_type(ty: &TypeDef) -> String {
             .iter()
             .map(|f| {
                 let bridge_ty = bridge_type(&f.ty);
+                let bridge_ty = if f.optional && !needs_json_bridge(&f.ty) {
+                    format!("Option<{bridge_ty}>")
+                } else {
+                    bridge_ty
+                };
                 let name = f.name.to_snake_case();
                 format!("{name}: {bridge_ty}")
             })
@@ -217,6 +222,11 @@ fn emit_extern_block_for_type(ty: &TypeDef) -> String {
     // Getters
     for field in &ty.fields {
         let bridge_ty = bridge_type(&field.ty);
+        let bridge_ty = if field.optional && !needs_json_bridge(&field.ty) {
+            format!("Option<{bridge_ty}>")
+        } else {
+            bridge_ty
+        };
         let name = field.name.to_snake_case();
         block.push_str(&format!("        fn {name}(&self) -> {bridge_ty};\n"));
     }
@@ -293,16 +303,24 @@ fn emit_type_wrapper(ty: &TypeDef, source_crate: &str) -> String {
         out.push_str(&format!("impl {} {{\n", ty.name));
 
         // Constructor — params use bridge types (String for JSON-bridged fields)
+        // and Option<bridge_ty> when the field is optional.
         let params: Vec<String> = ty
             .fields
             .iter()
             .map(|f| {
                 let bridge_ty = bridge_type(&f.ty);
+                let bridge_ty = if f.optional && !needs_json_bridge(&f.ty) {
+                    // Optional fields are JSON-bridged so this branch is rarely hit;
+                    // when it is (a primitive Option), wrap in Option<>.
+                    format!("Option<{bridge_ty}>")
+                } else {
+                    bridge_ty
+                };
                 let name = f.name.to_snake_case();
                 format!("{name}: {bridge_ty}")
             })
             .collect();
-        // Field initializers: JSON-deserialize where needed
+        // Field initializers: JSON-deserialize, unwrap newtype wrappers, etc.
         let field_inits: Vec<String> = ty
             .fields
             .iter()
@@ -310,9 +328,18 @@ fn emit_type_wrapper(ty: &TypeDef, source_crate: &str) -> String {
                 let name = f.name.to_snake_case();
                 if needs_json_bridge(&f.ty) {
                     let native_ty = swift_bridge_rust_type(&f.ty);
+                    let opt_ty = if f.optional { format!("Option<{native_ty}>") } else { native_ty };
                     format!(
-                        "            {name}: serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")"
+                        "            {name}: serde_json::from_str::<{opt_ty}>(&{name}).expect(\"valid JSON for {name}\")"
                     )
+                } else if matches!(f.ty, TypeRef::Named(_)) {
+                    // Named field: wrapper newtype → unwrap with `.0` to get
+                    // the source-crate type the inner struct expects.
+                    if f.optional {
+                        format!("            {name}: {name}.map(|w| w.0)")
+                    } else {
+                        format!("            {name}: {name}.0")
+                    }
                 } else {
                     format!("            {name}")
                 }
@@ -323,28 +350,130 @@ fn emit_type_wrapper(ty: &TypeDef, source_crate: &str) -> String {
             params.join(", "),
             ty.name
         ));
-        out.push_str(&format!(
-            "        {}({}::{} {{\n",
-            ty.name, source_crate, ty.name
-        ));
-        for init in &field_inits {
-            out.push_str(init);
-            out.push_str(",\n");
+        // Wrap source struct construction in a closure that takes a mutable
+        // default and populates each field by JSON-decoding the bridge string
+        // into a `serde_json::Value` first; this side-steps Rust's static type
+        // check when alef's IR has lost the precise field type. For fields
+        // alef *did* extract precisely (primitives, collections of primitives),
+        // we still set them directly. The output requires the source struct
+        // to implement `Default`.
+        let needs_default_construction = ty.fields.iter().any(|f| {
+            // If the field has Optional<Named> where Named isn't in api.types
+            // we don't know the exact type — fall back to Default + JSON.
+            needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_))
+        });
+        if needs_default_construction && ty.has_default {
+            out.push_str(&format!(
+                "        let mut __target: {}::{} = ::std::default::Default::default();\n",
+                source_crate, ty.name
+            ));
+            for f in &ty.fields {
+                let name = f.name.to_snake_case();
+                if needs_json_bridge(&f.ty) {
+                    // JSON-decode into a serde_json::Value, then assign as JSON-deserialized
+                    // typed value via reinterpret.
+                    out.push_str(&format!(
+                        "        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&{name}) {{\n"
+                    ));
+                    out.push_str(&format!(
+                        "            if let Ok(t) = ::serde_json::from_value(v) {{ __target.{name} = t; }}\n"
+                    ));
+                    out.push_str("        }\n");
+                } else if matches!(f.ty, TypeRef::Named(_)) {
+                    if f.optional {
+                        out.push_str(&format!(
+                            "        if let Some(w) = {name} {{ __target.{name} = Some(w.0); }}\n"
+                        ));
+                    } else {
+                        out.push_str(&format!("        __target.{name} = {name}.0;\n"));
+                    }
+                } else if matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json | TypeRef::Bytes) {
+                    // String-like fields may map to enum/Named types in the source struct
+                    // (alef's IR uses String as a fallback when the actual type can't be
+                    // resolved). JSON-deserialize at runtime; on failure leave the default.
+                    if f.optional {
+                        out.push_str(&format!(
+                            "        if let Some(s) = {name} {{\n"
+                        ));
+                        out.push_str(&format!(
+                            "            if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&s) {{\n"
+                        ));
+                        out.push_str(&format!(
+                            "                if let Ok(t) = ::serde_json::from_value(v) {{ __target.{name} = Some(t); }}\n"
+                        ));
+                        out.push_str("            }\n        }\n");
+                    } else {
+                        out.push_str(&format!(
+                            "        if let Ok(v) = ::serde_json::from_str::<::serde_json::Value>(&{name}) {{\n"
+                        ));
+                        out.push_str(&format!(
+                            "            if let Ok(t) = ::serde_json::from_value(v) {{ __target.{name} = t; }}\n"
+                        ));
+                        out.push_str("        }\n");
+                    }
+                } else {
+                    out.push_str(&format!("        __target.{name} = {name};\n"));
+                }
+            }
+            out.push_str(&format!("        {}(__target)\n", ty.name));
+        } else {
+            out.push_str(&format!(
+                "        {}({}::{} {{\n",
+                ty.name, source_crate, ty.name
+            ));
+            for init in &field_inits {
+                out.push_str(init);
+                out.push_str(",\n");
+            }
+            out.push_str("        })\n");
         }
-        out.push_str("        })\n");
         out.push_str("    }\n");
 
-        // Getters — return bridge types (String for JSON-bridged fields)
+        // Getters — return bridge types (String for JSON-bridged, wrappers for Named).
         for field in &ty.fields {
             let bridge_ty = bridge_type(&field.ty);
+            let bridge_ty_owned = if field.optional && !needs_json_bridge(&field.ty) {
+                format!("Option<{bridge_ty}>")
+            } else {
+                bridge_ty
+            };
             let name = field.name.to_snake_case();
             if needs_json_bridge(&field.ty) {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty} {{ serde_json::to_string(&self.0.{name}).expect(\"serializable {name}\") }}\n"
+                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).expect(\"serializable {name}\") }}\n"
                 ));
+            } else if matches!(field.ty, TypeRef::Named(ref _n) if true) {
+                // Named field: wrap source value in our newtype so the Swift
+                // side gets the bridge wrapper (preserves nominal identity).
+                let wrapper = match &field.ty {
+                    TypeRef::Named(n) => n.clone(),
+                    _ => unreachable!(),
+                };
+                if field.optional {
+                    out.push_str(&format!(
+                        "    pub fn {name}(&self) -> Option<{wrapper}> {{ self.0.{name}.clone().map({wrapper}) }}\n"
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "    pub fn {name}(&self) -> {wrapper} {{ {wrapper}(self.0.{name}.clone()) }}\n"
+                    ));
+                }
+            } else if matches!(field.ty, TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json | TypeRef::Bytes) {
+                // String-like fields might be JSON-bridged enums in the source struct;
+                // serialize via serde_json so the result works for both `String` and
+                // typed source fields.
+                if field.optional {
+                    out.push_str(&format!(
+                        "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok()) }}\n"
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "    pub fn {name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).unwrap_or_default() }}\n"
+                    ));
+                }
             } else {
                 out.push_str(&format!(
-                    "    pub fn {name}(&self) -> {bridge_ty} {{ self.0.{name}.clone() }}\n"
+                    "    pub fn {name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.clone() }}\n"
                 ));
             }
         }
