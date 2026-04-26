@@ -85,16 +85,31 @@ pub fn build(b: *std.Build) void {{
 }
 
 /// Derive a deterministic 64-bit fingerprint from the package name.
-/// Zig 0.16+ requires a `.fingerprint` field in `build.zig.zon`. Upstream
-/// generates a random value with `zig init`; alef regenerates the scaffold
-/// idempotently, so we use FNV-1a over the package name to get a stable
-/// value. The fingerprint is local to the on-disk `.zon` file and does not
-/// need to match upstream package indexes.
+/// Zig 0.16+ requires a `.fingerprint` field in `build.zig.zon` with structure
+/// `(crc32_ieee(name) << 32) | id`, where `id` is a 32-bit value not equal to
+/// `0x00000000` or `0xffffffff`. We use FNV-1a over the package name as the
+/// stable id so regeneration is deterministic.
 fn zig_fingerprint(name: &str) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let name_crc = crc32_ieee(name.as_bytes());
+    let mut id: u32 = 0x811c_9dc5;
     for byte in name.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        id ^= *byte as u32;
+        id = id.wrapping_mul(0x0100_0193);
     }
-    hash
+    if id == 0 || id == 0xffff_ffff {
+        id = 0x1;
+    }
+    ((name_crc as u64) << 32) | (id as u64)
+}
+
+fn crc32_ieee(bytes: &[u8]) -> u32 {
+    let mut crc: u32 = 0xffff_ffff;
+    for byte in bytes {
+        crc ^= *byte as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+        }
+    }
+    !crc
 }
