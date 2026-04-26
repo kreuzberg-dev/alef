@@ -1,5 +1,6 @@
 //! Gleam Hex package — archives the source tree for distribution.
 
+use super::util::copy_dir_recursive;
 use super::PackageArtifact;
 use alef_core::config::AlefConfig;
 use anyhow::{Context, Result};
@@ -67,30 +68,3 @@ pub fn package_gleam(
     })
 }
 
-/// Recursively copy a directory tree.
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    for entry in fs::read_dir(src).context("reading source directory")? {
-        let entry = entry?;
-        let path = entry.path();
-        let file_name = entry.file_name();
-        let dest_path = dst.join(&file_name);
-
-        if path.is_dir() {
-            // Skip hidden directories and common ignore patterns.
-            if file_name.to_string_lossy().starts_with('.') {
-                continue;
-            }
-            if matches!(
-                file_name.to_string_lossy().as_ref(),
-                "target" | "node_modules" | "__pycache__" | ".git"
-            ) {
-                continue;
-            }
-            fs::create_dir_all(&dest_path)?;
-            copy_dir_recursive(&path, &dest_path)?;
-        } else {
-            fs::copy(&path, &dest_path)?;
-        }
-    }
-    Ok(())
-}
