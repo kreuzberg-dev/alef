@@ -732,8 +732,8 @@ fn test_scaffold_dart() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Dart]).unwrap();
     let files = language_files(&all_files);
-    // pubspec.yaml + analysis_options.yaml + .gitignore
-    assert_eq!(files.len(), 3);
+    // pubspec.yaml + analysis_options.yaml + .gitignore + test/my_lib_test.dart + BUILDING.md
+    assert_eq!(files.len(), 5);
 
     let pubspec = &files[0];
     assert_eq!(pubspec.path, PathBuf::from("packages/dart/pubspec.yaml"));
@@ -760,6 +760,42 @@ fn test_scaffold_dart() {
     assert!(gitignore.content.contains(".dart_tool/"), "got: {}", gitignore.content);
     assert!(gitignore.content.contains("build/"), "got: {}", gitignore.content);
     assert!(gitignore.content.contains("pubspec.lock"), "got: {}", gitignore.content);
+
+    let test_file = &files[3];
+    assert_eq!(test_file.path, PathBuf::from("packages/dart/test/my_lib_test.dart"));
+    assert!(
+        test_file.content.contains("import 'package:test/test.dart'"),
+        "got: {}",
+        test_file.content
+    );
+    assert!(
+        test_file.content.contains("test('placeholder'"),
+        "got: {}",
+        test_file.content
+    );
+    assert!(
+        test_file.content.contains("expect(1 + 1, equals(2))"),
+        "got: {}",
+        test_file.content
+    );
+
+    let building_md = &files[4];
+    assert_eq!(building_md.path, PathBuf::from("packages/dart/BUILDING.md"));
+    assert!(
+        building_md.content.contains("cargo install flutter_rust_bridge_codegen"),
+        "got: {}",
+        building_md.content
+    );
+    assert!(
+        building_md.content.contains("flutter_rust_bridge_codegen generate"),
+        "got: {}",
+        building_md.content
+    );
+    assert!(
+        building_md.content.contains("dart test"),
+        "got: {}",
+        building_md.content
+    );
 }
 
 #[test]

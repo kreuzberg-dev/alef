@@ -41,6 +41,61 @@ dev_dependencies:
 
     let gitignore = ".dart_tool/\nbuild/\npubspec.lock\n";
 
+    let module_name = api.crate_name.replace('-', "_");
+
+    let test_dart = format!(
+        r#"import 'package:test/test.dart';
+
+void main() {{
+  test('placeholder', () {{
+    expect(1 + 1, equals(2));
+  }});
+}}
+"#
+    );
+
+    let crate_name = &api.crate_name;
+    let building_md = format!(
+        r#"# Building {crate_name} Dart bindings
+
+## Prerequisites
+
+Install the flutter_rust_bridge codegen tool (one-time setup):
+
+```sh
+cargo install flutter_rust_bridge_codegen
+```
+
+## Build steps
+
+1. Build the Rust binding crate:
+
+   ```sh
+   cargo build -p {crate_name}-dart
+   ```
+
+2. Run the FRB codegen to generate Dart bridge files:
+
+   ```sh
+   flutter_rust_bridge_codegen generate
+   ```
+
+   Alternatively, use alef which runs this step automatically via the configured
+   post-build hook:
+
+   ```sh
+   alef build --lang=dart
+   ```
+
+3. Fetch Dart dependencies and run the test suite:
+
+   ```sh
+   dart pub get
+   dart test
+   ```
+"#
+    );
+
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from("packages/dart/pubspec.yaml"),
@@ -55,6 +110,16 @@ dev_dependencies:
         GeneratedFile {
             path: PathBuf::from("packages/dart/.gitignore"),
             content: gitignore.to_string(),
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from(format!("packages/dart/test/{module_name}_test.dart")),
+            content: test_dart,
+            generated_header: false,
+        },
+        GeneratedFile {
+            path: PathBuf::from("packages/dart/BUILDING.md"),
+            content: building_md,
             generated_header: false,
         },
     ])
