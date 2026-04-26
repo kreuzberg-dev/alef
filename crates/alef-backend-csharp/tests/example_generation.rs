@@ -172,6 +172,7 @@ fn test_generated_code_example() {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: Some(CSharpConfig {
             namespace: Some("Kreuzberg".to_string()),
             target_framework: None,

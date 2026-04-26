@@ -176,6 +176,7 @@ fn test_basic_generation() {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: Some(CSharpConfig {
             namespace: Some("Kreuzberg".to_string()),
             target_framework: None,
@@ -338,6 +339,7 @@ fn test_namespace_resolution() {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: Some(CSharpConfig {
             namespace: Some("MyCompany.MyLib".to_string()),
             target_framework: None,
@@ -434,6 +436,7 @@ fn test_generated_header() {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 
@@ -604,6 +607,7 @@ fn test_type_mapping() {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 
@@ -749,6 +753,7 @@ fn test_tuple_struct_fields_skipped() {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 
@@ -887,6 +892,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 

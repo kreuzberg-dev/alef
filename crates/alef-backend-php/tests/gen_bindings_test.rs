@@ -53,6 +53,7 @@ fn make_config_with_extension(extension_name: &str) -> AlefConfig {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 
@@ -147,6 +148,7 @@ fn make_config() -> AlefConfig {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 

@@ -52,6 +52,7 @@ fn make_config(languages: Vec<Language>) -> AlefConfig {
         go: None,
         java: None,
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
         zig: None,

@@ -46,6 +46,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "alef-backend-dart"
+version = "0.7.8"
+dependencies = [
+ "alef-codegen",
+ "alef-core",
+ "anyhow",
+]
+
+[[package]]
 name = "alef-backend-extendr"
 version = "0.7.10"
 dependencies = [
@@ -195,6 +204,7 @@ version = "0.7.10"
 dependencies = [
  "ahash",
  "alef-backend-csharp",
+ "alef-backend-dart",
  "alef-backend-extendr",
  "alef-backend-ffi",
  "alef-backend-gleam",

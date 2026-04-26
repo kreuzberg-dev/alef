@@ -365,6 +365,28 @@ pub struct KotlinConfig {
     pub rename_fields: HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DartConfig {
+    /// Dart pub.dev package name (e.g. `"my_package"`). Used as the `name` in
+    /// `pubspec.yaml`. Defaults to a snake_case derivation of the crate name.
+    #[serde(default)]
+    pub pubspec_name: Option<String>,
+    /// Dart library name (the `library` declaration). Defaults to the pubspec name.
+    #[serde(default)]
+    pub lib_name: Option<String>,
+    /// Dart package name override (e.g. for pub.dev scoped packages).
+    #[serde(default)]
+    pub package_name: Option<String>,
+    /// flutter_rust_bridge version to pin in generated pubspec.yaml.
+    /// Defaults to `"2.12.0"`.
+    #[serde(default = "default_frb_version")]
+    pub frb_version: String,
+}
+
+fn default_frb_version() -> String {
+    "2.12.0".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GleamConfig {
     pub app_name: Option<String>,

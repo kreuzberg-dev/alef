@@ -26,9 +26,9 @@ pub use dto::{
 pub use e2e::E2eConfig;
 pub use extras::{AdapterConfig, AdapterParam, AdapterPattern, Language};
 pub use languages::{
-    CSharpConfig, CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig, ElixirConfig, FfiConfig,
-    GleamConfig, GoConfig, JavaConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig, RubyConfig,
-    StubsConfig, WasmConfig, ZigConfig,
+    CSharpConfig, CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig, DartConfig, ElixirConfig,
+    FfiConfig, GleamConfig, GoConfig, JavaConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig,
+    RubyConfig, StubsConfig, WasmConfig, ZigConfig,
 };
 pub use output::{
     BuildCommandConfig, CleanConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
@@ -74,6 +74,8 @@ pub struct AlefConfig {
     pub go: Option<GoConfig>,
     #[serde(default)]
     pub java: Option<JavaConfig>,
+    #[serde(default)]
+    pub dart: Option<DartConfig>,
     #[serde(default)]
     pub kotlin: Option<KotlinConfig>,
     #[serde(default)]
@@ -796,6 +798,18 @@ impl AlefConfig {
             .and_then(|k| k.package.as_ref())
             .cloned()
             .unwrap_or_else(|| "dev.kreuzberg".to_string())
+    }
+
+    /// Get the Dart pubspec package name.
+    ///
+    /// Returns `[dart] pubspec_name` if set, otherwise derives a snake_case
+    /// name from the crate name by replacing hyphens with underscores.
+    pub fn dart_pubspec_name(&self) -> String {
+        self.dart
+            .as_ref()
+            .and_then(|d| d.pubspec_name.as_ref())
+            .cloned()
+            .unwrap_or_else(|| self.crate_config.name.replace('-', "_"))
     }
 
     /// Get the Gleam app name.

@@ -93,6 +93,7 @@ fn make_config() -> AlefConfig {
         go: None,
         java: None,
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
         zig: None,

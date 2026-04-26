@@ -75,6 +75,7 @@ fn make_config_with_stubs() -> AlefConfig {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 

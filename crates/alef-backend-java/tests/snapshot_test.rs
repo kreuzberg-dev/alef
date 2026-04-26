@@ -310,6 +310,7 @@ fn print_generated_java_code() {
             project_file: None,
         }),
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
         zig: None,

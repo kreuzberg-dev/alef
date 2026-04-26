@@ -35,6 +35,7 @@ pub struct OutputConfig {
     pub go: Option<PathBuf>,
     pub java: Option<PathBuf>,
     pub kotlin: Option<PathBuf>,
+    pub dart: Option<PathBuf>,
     pub csharp: Option<PathBuf>,
     pub r: Option<PathBuf>,
     pub zig: Option<PathBuf>,

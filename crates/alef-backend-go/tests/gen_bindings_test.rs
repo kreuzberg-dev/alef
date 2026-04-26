@@ -76,6 +76,7 @@ fn make_config() -> AlefConfig {
         }),
         java: None,
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 
@@ -1052,6 +1053,7 @@ fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> AlefConfi
         }),
         java: None,
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 

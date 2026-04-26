@@ -53,6 +53,7 @@ fn make_config(app_name: &str) -> AlefConfig {
         java: None,
 
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
 

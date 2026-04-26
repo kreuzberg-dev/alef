@@ -58,6 +58,7 @@ fn make_test_config(package: &str) -> AlefConfig {
             project_file: None,
         }),
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
         zig: None,
@@ -250,6 +251,7 @@ fn test_basic_generation() {
             project_file: None,
         }),
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
         zig: None,
@@ -402,6 +404,7 @@ fn test_package_default() {
         java: None,
 
         kotlin: None, // No explicit package
+        dart: None,
         csharp: None,
         r: None,
 
@@ -587,6 +590,7 @@ fn test_optional_field_defaults_in_builder() {
             project_file: None,
         }),
         kotlin: None,
+        dart: None,
         csharp: None,
         r: None,
         zig: None,
