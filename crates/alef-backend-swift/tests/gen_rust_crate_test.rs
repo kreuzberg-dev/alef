@@ -384,9 +384,11 @@ fn lib_rs_has_free_function_shim() {
 }
 
 #[test]
-fn lib_rs_async_function_emits_todo_marker_not_swift_bridge_async() {
-    // swift-bridge v0.1.x has no `async` attribute or async-fn extern support;
-    // async functions emit a TODO marker pointing the user at callback bridging.
+fn lib_rs_async_function_blocks_on_tokio_runtime() {
+    // swift-bridge v0.1.x has no `async` attribute or async-fn extern support
+    // (the build script's parser rejects `#[swift_bridge(async)]`). Async
+    // source functions are bridged via a sync wrapper that blocks on a tokio
+    // current-thread runtime, so Swift sees a normal sync call.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -418,16 +420,20 @@ fn lib_rs_async_function_emits_todo_marker_not_swift_bridge_async() {
         "swift_bridge(async) is not a real attribute in v0.1.x: {}",
         lib.content
     );
+    // The wrapper is sync — it spins up a tokio runtime and `block_on` the future.
     assert!(
-        lib.content.contains("TODO(swift-bridge async)"),
-        "lib.rs should carry a TODO marker for async functions: {}",
+        lib.content.contains("pub fn load_async("),
+        "wrapper should be sync (block_on a tokio runtime): {}",
         lib.content
     );
-    // The outer wrapper fn (outside the extern block) keeps `async fn` so the
-    // user's source-call site stays type-correct.
     assert!(
-        lib.content.contains("pub async fn load_async("),
-        "outer wrapper should remain async fn: {}",
+        lib.content.contains("tokio::runtime::Builder"),
+        "wrapper should construct a tokio runtime: {}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains(".block_on("),
+        "wrapper should call block_on on the future: {}",
         lib.content
     );
 }

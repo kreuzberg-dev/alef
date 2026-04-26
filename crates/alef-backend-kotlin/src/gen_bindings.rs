@@ -82,14 +82,39 @@ fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
     // classes via `typealias` so the wrapper functions can pass values straight
     // through to the JNA-loaded native bridge without conversion. Redeclaring the
     // types in Kotlin would create distinct nominal types that the bridge can't
-    // accept. Trait types are skipped because the Java backend doesn't emit them.
+    // accept. Trait types map to the Java backend's `I{Trait}` interface when
+    // a `[[trait_bridges]]` entry exists for them; otherwise, plain types
+    // alias to the Java record `<group>.<TypeName>`.
+    let configured_trait_bridges: std::collections::HashSet<&str> = config
+        .trait_bridges
+        .iter()
+        .filter(|b| !b.exclude_languages.contains(&"kotlin".to_string()))
+        .map(|b| b.trait_name.as_str())
+        .collect();
     let visible_types: Vec<&TypeDef> = api
         .types
         .iter()
-        .filter(|t| !exclude_types.contains(t.name.as_str()) && !t.is_trait)
+        .filter(|t| {
+            if exclude_types.contains(t.name.as_str()) {
+                return false;
+            }
+            // Skip trait types that don't have a configured bridge — Java
+            // doesn't emit them, so a typealias would fail to resolve.
+            if t.is_trait && !configured_trait_bridges.contains(t.name.as_str()) {
+                return false;
+            }
+            true
+        })
         .collect();
     for ty in &visible_types {
-        body.push_str(&format!("typealias {} = {java_package}.{}\n", ty.name, ty.name));
+        if ty.is_trait {
+            body.push_str(&format!(
+                "typealias {} = {java_package}.I{}\n",
+                ty.name, ty.name
+            ));
+        } else {
+            body.push_str(&format!("typealias {} = {java_package}.{}\n", ty.name, ty.name));
+        }
     }
     if !visible_types.is_empty() {
         body.push('\n');
@@ -129,45 +154,12 @@ fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
         .map(|t| t.name.as_str())
         .collect();
     let function_uses_trait = |f: &FunctionDef| -> bool {
-        if f.params.iter().any(|p| type_ref_uses_named(&p.ty, &trait_type_names)) {
-            return true;
-        }
-        if type_ref_uses_named(&f.return_type, &trait_type_names) {
-            return true;
-        }
-        // Trait-registry helpers — Java emits these via trait_bridge under
-        // different names; bypass them in the Kotlin wrapper.
-        let trait_registry_prefixes = [
-            "register_",
-            "unregister_",
-            "list_",
-            "clear_",
-        ];
-        let lname = f.name.as_str();
-        for prefix in trait_registry_prefixes {
-            if let Some(rest) = lname.strip_prefix(prefix) {
-                if trait_type_names.iter().any(|t| {
-                    let ts = pascal_to_snake(t);
-                    rest == ts || rest == format!("{ts}s") || rest == format!("{ts}_type")
-                }) {
-                    return true;
-                }
-                // Also catch generic helpers like "list_extractors" that don't include the trait name
-                if rest == "extractors"
-                    || rest == "extractor"
-                    || rest == "ocr_backends"
-                    || rest == "embedding_backends"
-                    || rest == "post_processors"
-                    || rest == "validators"
-                    || rest == "plugins"
-                    || rest == "renderers"
-                    || rest == "renderer"
-                {
-                    return true;
-                }
-            }
-        }
-        false
+        // Only skip functions that take a trait type as a parameter (those
+        // need the Java facade's trait-bridge wrapper, which can't be reached
+        // via a typealias-only Kotlin shim). Functions returning trait types
+        // or trait registry helpers (register_*, list_*, clear_*) flow through
+        // the Java facade unchanged.
+        f.params.iter().any(|p| type_ref_uses_named(&p.ty, &trait_type_names))
     };
 
     let visible_functions: Vec<&FunctionDef> = api
