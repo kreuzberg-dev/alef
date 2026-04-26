@@ -152,7 +152,7 @@ fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::config:
     let min_zig = toolchain::MIN_ZIG_VERSION;
     format!(
         r#".{{
-    .name = "e2e_zig",
+    .name = .e2e_zig,
     .version = "0.1.0",
     .minimum_zig_version = "{min_zig}",
     .dependencies = .{{
