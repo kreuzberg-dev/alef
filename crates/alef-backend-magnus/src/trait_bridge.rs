@@ -85,6 +85,10 @@ pub fn gen_trait_bridge(
         // bridge block so multiple bridges can share trait imports without name
         // collisions on the same module-level identifier.
         let mut prefixed = String::with_capacity(output.imports.len() * 64 + output.code.len());
+        let has_imports = output.imports.iter().any(|imp| imp != "magnus::prelude::*");
+        if has_imports {
+            prefixed.push_str("#[allow(unused_imports)]\n");
+        }
         for imp in &output.imports {
             if imp == "magnus::prelude::*" {
                 continue;
