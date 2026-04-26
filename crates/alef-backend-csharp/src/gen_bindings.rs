@@ -1694,7 +1694,8 @@ fn gen_record_type(
                     TypeRef::Bytes => "Array.Empty<byte>()".to_string(),
                     TypeRef::Primitive(p) => match p {
                         PrimitiveType::Bool => "false".to_string(),
-                        PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
+                        PrimitiveType::F32 => "0.0f".to_string(),
+                        PrimitiveType::F64 => "0.0".to_string(),
                         _ => "0".to_string(),
                     },
                     TypeRef::Named(name) => {
@@ -1730,7 +1731,8 @@ fn gen_record_type(
                     TypeRef::Vec(_) => "[]",
                     TypeRef::Bytes => "Array.Empty<byte>()",
                     TypeRef::Primitive(PrimitiveType::Bool) => "false",
-                    TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => "0.0",
+                    TypeRef::Primitive(PrimitiveType::F32) => "0.0f",
+                    TypeRef::Primitive(PrimitiveType::F64) => "0.0",
                     TypeRef::Primitive(_) => "0",
                     _ => "default!",
                 };

@@ -128,6 +128,11 @@ fn gen_single_trait_bridge(
     let trait_pascal = trait_name.to_pascal_case();
     let _trait_snake = trait_name.to_snake_case();
     let has_super_trait = bridge_cfg.super_trait.is_some();
+    let has_bytes_param = trait_def
+        .methods
+        .iter()
+        .flat_map(|m| m.params.iter())
+        .any(|p| matches!(&p.ty, TypeRef::Bytes));
 
     // --- Public Interface ---
     writeln!(out, "/// <summary>").ok();
@@ -377,16 +382,15 @@ fn gen_single_trait_bridge(
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
 
-    // Bytes marshaling helper
-    writeln!(out, "    private static byte[] MarshalBytesFromIntPtr(IntPtr ptr) {{").ok();
-    writeln!(out, "        if (ptr == IntPtr.Zero) return Array.Empty<byte>();").ok();
-    writeln!(out, "        // Bytes are passed as JSON string \"[b1,b2,...]\" or base64 or raw bytes").ok();
-    writeln!(out, "        // For now, assume raw bytes with length prepended").ok();
-    writeln!(out, "        // In practice, Rust FFI would pass (ptr, len) pair via callback params").ok();
-    writeln!(out, "        var json = Marshal.PtrToStringUTF8(ptr) ?? \"[]\";").ok();
-    writeln!(out, "        return JsonSerializer.Deserialize<byte[]>(json) ?? Array.Empty<byte>();").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
+    // Bytes marshaling helper — emitted only when at least one trait method takes a Bytes parameter.
+    if has_bytes_param {
+        writeln!(out, "    private static byte[] MarshalBytesFromIntPtr(IntPtr ptr) {{").ok();
+        writeln!(out, "        if (ptr == IntPtr.Zero) return Array.Empty<byte>();").ok();
+        writeln!(out, "        var json = Marshal.PtrToStringUTF8(ptr) ?? \"[]\";").ok();
+        writeln!(out, "        return JsonSerializer.Deserialize<byte[]>(json) ?? Array.Empty<byte>();").ok();
+        writeln!(out, "    }}").ok();
+        writeln!(out).ok();
+    }
 
     // Plugin lifecycle callbacks
     if has_super_trait {
