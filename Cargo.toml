@@ -16,6 +16,7 @@ members = [
     "crates/alef-backend-pyo3",
     "crates/alef-backend-rustler",
     "crates/alef-backend-wasm",
+    "crates/alef-backend-swift",
     "crates/alef-backend-zig",
     "crates/alef-cli",
     "crates/alef-codegen",
@@ -55,6 +56,7 @@ alef-backend-php = { version = "0.7.2", path = "crates/alef-backend-php" }
 alef-backend-pyo3 = { version = "0.7.2", path = "crates/alef-backend-pyo3" }
 alef-backend-rustler = { version = "0.7.2", path = "crates/alef-backend-rustler" }
 alef-backend-wasm = { version = "0.7.2", path = "crates/alef-backend-wasm" }
+alef-backend-swift = { version = "0.7.2", path = "crates/alef-backend-swift" }
 alef-backend-zig = { version = "0.7.2", path = "crates/alef-backend-zig" }
 alef-codegen = { version = "0.7.2", path = "crates/alef-codegen" }
 alef-core = { version = "0.7.2", path = "crates/alef-core" }

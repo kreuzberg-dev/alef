@@ -17,7 +17,7 @@ pub fn get_backend(lang: Language) -> Box<dyn Backend> {
         Language::R => Box::new(alef_backend_extendr::ExtendrBackend),
         Language::Rust => panic!("Rust is a docs-only language target; it does not have a binding backend"),
         Language::Kotlin => Box::new(alef_backend_kotlin::KotlinBackend),
-        Language::Swift => panic!("Phase 2: Swift backend not yet implemented"),
+        Language::Swift => Box::new(alef_backend_swift::SwiftBackend),
         Language::Dart => Box::new(alef_backend_dart::DartBackend),
         Language::Gleam => Box::new(alef_backend_gleam::GleamBackend),
         Language::Zig => Box::new(alef_backend_zig::ZigBackend),
