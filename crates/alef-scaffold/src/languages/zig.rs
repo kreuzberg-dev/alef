@@ -9,6 +9,7 @@ pub(crate) fn scaffold_zig(api: &ApiSurface, config: &AlefConfig) -> anyhow::Res
     let ffi_lib_name = config.ffi_lib_name();
     let module_name = config.zig_module_name();
 
+    let ffi_crate_dir = format!("{}-ffi", config.crate_config.name);
     let build_zig = format!(
         r#"const std = @import("std");
 
@@ -16,11 +17,19 @@ pub fn build(b: *std.Build) void {{
     const target = b.standardTargetOptions(.{{}});
     const optimize = b.standardOptimizeOption(.{{}});
 
+    // Default library/include search paths follow the conventional Cargo workspace
+    // layout (`<workspace>/target/{{profile}}` and the FFI crate's `include/` dir).
+    // Override with `-Dffi_path=...` and `-Dffi_include_path=...` if your layout differs.
+    const ffi_path = b.option([]const u8, "ffi_path", "Path to directory containing lib{ffi_lib}.{{dylib,so,dll,a}}") orelse "../../target/debug";
+    const ffi_include = b.option([]const u8, "ffi_include_path", "Path to directory containing the FFI C header") orelse "../../crates/{ffi_crate_dir}/include";
+
     const module = b.addModule("{module_name}", .{{
         .root_source_file = b.path("src/{module_name}.zig"),
         .target = target,
         .optimize = optimize,
     }});
+    module.addLibraryPath(.{{ .cwd_relative = ffi_path }});
+    module.addIncludePath(.{{ .cwd_relative = ffi_include }});
     module.linkSystemLibrary("{ffi_lib}", .{{}});
 
     const test_module = b.createModule(.{{
@@ -28,6 +37,8 @@ pub fn build(b: *std.Build) void {{
         .target = target,
         .optimize = optimize,
     }});
+    test_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});
+    test_module.addIncludePath(.{{ .cwd_relative = ffi_include }});
     test_module.linkSystemLibrary("{ffi_lib}", .{{}});
 
     const tests = b.addTest(.{{
@@ -41,6 +52,7 @@ pub fn build(b: *std.Build) void {{
 "#,
         module_name = module_name,
         ffi_lib = ffi_lib_name,
+        ffi_crate_dir = ffi_crate_dir,
     );
 
     // build.zig.zon — Zig 0.14+ requires `.name` to be an enum literal; Zig 0.16+ requires
