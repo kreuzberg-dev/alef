@@ -63,7 +63,16 @@ impl Backend for MagnusBackend {
             .unwrap_or_default();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
-        builder.add_inner_attribute("allow(dead_code)");
+        // Match the inner-attribute set every other backend uses so that bookkeeping
+        // helpers (cached names, intermediate bindings, conditional imports) introduced
+        // by the codegen don't fire warnings in legitimately-functional generated code.
+        builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
+        builder.add_inner_attribute(
+            "allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, \
+             clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, \
+             clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, \
+             clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)",
+        );
         builder.add_import(
             "magnus::{function, method, prelude::*, Error, Ruby, IntoValueFromNative, try_convert::TryConvertOwned}",
         );
@@ -1153,8 +1162,10 @@ fn gen_function(
     } else {
         gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
+    // Add #[allow(unused_variables)] to functions with unimplemented bodies to suppress warnings for unused params
+    let allow_attr = if !can_delegate { "#[allow(unused_variables)]\n" } else { "" };
     format!(
-        "fn {}({params}) -> {return_annotation} {{\n    \
+        "{allow_attr}fn {}({params}) -> {return_annotation} {{\n    \
          {deser_preamble}{body}\n}}",
         func.name
     )
@@ -1249,8 +1260,10 @@ fn gen_async_function(
             func.error_type.is_some(),
         )
     };
+    // Add #[allow(unused_variables)] to functions with unimplemented bodies to suppress warnings for unused params
+    let allow_attr = if !can_delegate { "#[allow(unused_variables)]\n" } else { "" };
     format!(
-        "fn {}_async({params}) -> {return_annotation} {{\n    \
+        "{allow_attr}fn {}_async({params}) -> {return_annotation} {{\n    \
          {deser_preamble}{body}\n\
          }}",
         func.name

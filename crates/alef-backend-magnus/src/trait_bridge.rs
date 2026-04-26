@@ -85,9 +85,18 @@ pub fn gen_trait_bridge(
         // bridge block so multiple bridges can share trait imports without name
         // collisions on the same module-level identifier.
         let mut prefixed = String::with_capacity(output.imports.len() * 64 + output.code.len());
-        let imports_to_emit: Vec<_> = output.imports.iter()
+        let mut imports_to_emit: Vec<_> = output.imports.iter()
             .filter(|imp| *imp != "magnus::prelude::*")
+            .map(|s| s.to_string())
             .collect();
+
+        // Add async_trait if the trait has async methods (needed for #[async_trait::async_trait] attribute)
+        if trait_type.methods.iter().any(|m| m.is_async)
+            && !imports_to_emit.iter().any(|imp| imp.contains("async_trait"))
+        {
+            imports_to_emit.push("async_trait".to_string());
+        }
+
         // Emit allow attribute before each import group to suppress unused_imports warnings
         for imp in &imports_to_emit {
             prefixed.push_str("#[allow(unused_imports)]\n");
@@ -522,11 +531,9 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         writeln!(out, "match join {{").ok();
         writeln!(out, "    Ok(v) => v,").ok();
         if has_error {
-            // Need to escape braces in the format string: in the generated code, we want
-            // format!("...", ...) which means we need to pass the literal string with single braces.
-            // To include single braces in the final generated code, we use double braces here,
-            // which will be processed by writeln! to become single braces.
-            let msg_expr = "format!(\"spawn_blocking failed for '{{}}': {{}}\", cached_name, e)";
+            // Format string with placeholders for the error message. The string is written
+            // directly to the output code, so we use single braces {} for format placeholders.
+            let msg_expr = "format!(\"spawn_blocking failed for '{}': {}\", cached_name, e)";
             let err_expr = self.make_error(msg_expr);
             writeln!(out, "    Err(e) => Err({err_expr}),").ok();
         } else {
