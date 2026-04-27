@@ -3,16 +3,24 @@ use std::path::{Path, PathBuf};
 
 const CACHE_DIR: &str = ".alef";
 
-/// Hash a list of files + config to determine if extraction is needed.
-pub fn compute_source_hash(sources: &[PathBuf], config_path: &Path) -> anyhow::Result<String> {
-    let mut hasher = blake3::Hasher::new();
-    for source in sources {
-        let content = fs::read(source)?;
-        hasher.update(&content);
-    }
-    let config_content = fs::read(config_path)?;
-    hasher.update(&config_content);
-    Ok(hasher.finalize().to_hex().to_string())
+/// CLI version of alef. Embedded into [`generation_hash`] so cached IR is
+/// invalidated when alef itself is upgraded (different alef → different IR/output).
+const ALEF_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Compute the input-deterministic generation hash for the current run.
+///
+/// Wraps [`alef_core::hash::compute_generation_hash`], passing the crate's
+/// `CARGO_PKG_VERSION` as the alef-version dimension. Used for both:
+///
+/// - IR cache invalidation (different inputs → re-extract IR)
+/// - The `alef:hash:<hex>` line written into every alef-generated file
+///   (and the value `alef verify` recomputes & compares)
+pub fn generation_hash(sources: &[PathBuf], config_path: &Path) -> anyhow::Result<String> {
+    Ok(alef_core::hash::compute_generation_hash(
+        sources,
+        config_path,
+        ALEF_VERSION,
+    )?)
 }
 
 /// Check if cached IR is still valid.

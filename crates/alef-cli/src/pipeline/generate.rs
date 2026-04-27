@@ -108,11 +108,18 @@ pub fn generate_public_api(
 
 /// Write generated files to disk.
 ///
-/// Rust files are formatted with `rustfmt` before writing so the on-disk
-/// content matches what [`diff_files`] produces during `alef verify`.
-/// This also means `cargo fmt` (run by prek) becomes a no-op for generated
-/// files, making `alef all` idempotent.
-pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> anyhow::Result<usize> {
+/// Rust files are formatted with `rustfmt` before writing so prek's `cargo fmt`
+/// hook is a no-op on regenerated content. The embedded `alef:hash:<hex>`
+/// header is the **input-deterministic** hash from
+/// [`hash::compute_generation_hash`] — same hash for every file in this run,
+/// computed once from (rust sources + alef.toml + alef version). Verify
+/// recomputes the same input hash and compares; downstream formatters can
+/// reformat file bodies freely without invalidating it.
+pub fn write_files(
+    files: &[(Language, Vec<GeneratedFile>)],
+    base_dir: &Path,
+    generation_hash: &str,
+) -> anyhow::Result<usize> {
     // First pass: create all needed directories (sequential, deduped)
     let dirs: std::collections::BTreeSet<_> = files
         .iter()
@@ -129,15 +136,11 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
     all_files.par_iter().try_for_each(|file| -> anyhow::Result<()> {
         let full_path = base_dir.join(&file.path);
         let normalized = normalize_content(&file.path, &file.content);
-        // Always attempt to inject the hash line. `inject_hash_line` is a no-op
-        // when the alef header marker isn't present (e.g. scaffold-once Cargo.toml,
-        // composer.json), so files without an alef header pass through unchanged.
-        // For any file the backend tagged with the alef header, this gives us a
-        // single ground-truth hash on disk that `alef verify` can compare against
-        // — independent of whatever external formatter (cargo fmt, php-cs-fixer,
-        // ruff, rubocop, biome) reformats the body afterward.
-        let content_hash = hash::hash_content(&normalized);
-        let final_content = hash::inject_hash_line(&normalized, &content_hash);
+        // `inject_hash_line` is a no-op when the alef header marker isn't present
+        // (scaffold-once Cargo.toml, composer.json), so files without a marker pass
+        // through unchanged. For files the backend tagged with the alef header,
+        // every file in this run gets the same input-deterministic generation hash.
+        let final_content = hash::inject_hash_line(&normalized, generation_hash);
         std::fs::write(&full_path, &final_content)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         debug!("  wrote: {}", full_path.display());
@@ -236,8 +239,15 @@ pub fn readme(api: &ApiSurface, config: &AlefConfig, languages: &[Language]) -> 
 /// Scaffold files are create-only by default: if the target file already exists
 /// on disk it is left untouched so that user customisations are preserved.
 /// Pass `overwrite = true` (e.g. via `--clean`) to force-write all files.
-pub fn write_scaffold_files(files: &[GeneratedFile], base_dir: &Path) -> anyhow::Result<usize> {
-    write_scaffold_files_with_overwrite(files, base_dir, false)
+///
+/// `generation_hash` is the input-deterministic hash for this run (from
+/// [`hash::compute_generation_hash`]); it is injected into any scaffold file
+/// that carries the alef header marker (regenerated bindings, READMEs).
+/// Scaffold files without the marker (Cargo.toml templates, composer.json,
+/// gemspec) pass through unchanged because [`hash::inject_hash_line`] is a
+/// no-op for them.
+pub fn write_scaffold_files(files: &[GeneratedFile], base_dir: &Path, generation_hash: &str) -> anyhow::Result<usize> {
+    write_scaffold_files_with_overwrite(files, base_dir, false, generation_hash)
 }
 
 /// Like [`write_scaffold_files`] but with an explicit `overwrite` flag.
@@ -245,6 +255,7 @@ pub fn write_scaffold_files_with_overwrite(
     files: &[GeneratedFile],
     base_dir: &Path,
     overwrite: bool,
+    generation_hash: &str,
 ) -> anyhow::Result<usize> {
     let mut count = 0;
     for file in files {
@@ -257,8 +268,7 @@ pub fn write_scaffold_files_with_overwrite(
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create directory {}", parent.display()))?;
         }
-        let content_hash = hash::hash_content(&file.content);
-        let content = hash::inject_hash_line(&file.content, &content_hash);
+        let content = hash::inject_hash_line(&file.content, generation_hash);
         std::fs::write(&full_path, &content)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         count += 1;

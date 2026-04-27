@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`alef verify` is now input-deterministic**. The embedded `alef:hash:<hex>` line in every generated file is no longer a per-file hash of the normalised generated content; it is a single fingerprint of the **inputs** that produced the run:
+  - `blake3(sorted(rust_source_files) + alef.toml + alef_version)`
+
+  `alef generate` computes this hash once and writes the same value into every alef-headered file. `alef verify` recomputes the same input hash and compares it to the disk hash without inspecting any file body. As a result, downstream formatters (rustfmt, rubocop, dotnet format, spotless, biome, mix format, php-cs-fixer, taplo, ruff, …) can reformat alef-generated content freely without breaking verify — only changes to the generation inputs invalidate the embedded hash. The previous output-deterministic semantics caused `alef verify` to flag bindings as stale on every commit in repos with active language formatters.
+
+  Migration: after upgrading, every existing alef-generated file still carries the old per-file hash. Run `alef generate` once (then `alef e2e generate` if the repo uses `[e2e]`) to refresh all embedded hashes — a single regenerate pass writes the new uniform input hash everywhere.
+
+- **`alef verify` ignores `--lang`, `--compile`, `--lint`**. The flags are still accepted for backwards compatibility but no longer affect the check, since verify no longer regenerates per-language. Use `alef build`, `alef lint`, `alef test` for those concerns.
+
+### Added
+
+- **`alef_core::hash::compute_generation_hash(sources, config_path, alef_version)`** — public function exposing the canonical input-hash recipe so other consumers (cache invalidation, custom build tools) can reuse it. `alef-cli`'s `cache::generation_hash` is now a thin wrapper passing `env!("CARGO_PKG_VERSION")` for the version dimension.
+
 ### Fixed
 
 - **Bare `Path` resolved to `Named("Path")` and silently sanitized to `String`**: `alef-extract`'s `resolve_path_type` only recognized `PathBuf` (and `&Path` via the reference path). Functions taking `path: impl AsRef<Path>` resolved the inner generic arg `Path` to `Named("Path")`, then `sanitize_unknown_types` (which considers stdlib `Path` an unknown user type) replaced it with `TypeRef::String` and marked the param as sanitized. The result was that every binding emitted "Not implemented" stubs for `extract_file`, `extract_file_sync`, and any other API using `impl AsRef<Path>`. Bare `Path` now maps to `TypeRef::Path` like `PathBuf`.
