@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-04-27
+
+A patch fixing a CI-hang in the C# `alef setup` default and replacing the `// TODO: add usage example` placeholder in alef-generated READMEs with a pointer to the main repository docs.
+
+### Fixed
+
+- **`alef setup --lang csharp` walks the entire repo when no .csproj is at the top level**: `dotnet restore packages/csharp` searches for project files recursively under the given directory, including `target/`, `node_modules/`, and other artifact dirs. On CI this took longer than the 600s timeout. The C# setup default now applies the same precondition + `find` strategy as the upgrade default — both `dotnet` and a discoverable `.sln`/`.csproj` (depth 3) must exist, otherwise setup is skipped, and the resolved project path is passed explicitly to `dotnet restore`.
+- **README usage examples were `// TODO: add usage example` placeholders**: the alef-generated per-language READMEs in the FFI/WASM crate dirs and `packages/{lang}/` for hardcoded fallbacks now redirect readers to the main repository's documentation instead of emitting a literal TODO.
+
 ## [0.8.6] - 2026-04-27
 
 A patch hardening the C# upgrade default introduced in v0.8.5. The original `$(ls ... || find ... || echo …)` chain didn't actually skip when no project file existed — `ls foo/*.csproj 2>/dev/null` always exits 0 with empty stdout, so the `||` fallbacks never triggered and `dotnet outdated` ran with no path argument and errored out at the repo root.

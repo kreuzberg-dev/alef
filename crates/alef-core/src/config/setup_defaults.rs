@@ -82,9 +82,19 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             timeout_seconds: 600,
         },
         Language::Csharp => SetupConfig {
-            precondition: Some(require_tool("dotnet")),
+            // Both `dotnet` AND a discoverable .sln/.csproj must exist under output_dir, or
+            // `dotnet restore` walks the entire repo (including target/ and node_modules/)
+            // looking for a project file and times out. Skip cleanly when no project is present.
+            precondition: Some(format!(
+                "command -v dotnet >/dev/null 2>&1 && [ -n \"$(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)\" ]"
+            )),
             before: None,
-            install: Some(StringOrVec::Single(format!("dotnet restore {output_dir}"))),
+            // Resolve the first .sln/.csproj under output_dir (depth 3) — same approach as
+            // the C# upgrade default. Avoids the unbounded directory walk that caused the
+            // 600s timeout on CI.
+            install: Some(StringOrVec::Single(format!(
+                "dotnet restore $(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)"
+            ))),
             timeout_seconds: 600,
         },
         Language::Elixir => SetupConfig {
