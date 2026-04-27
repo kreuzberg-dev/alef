@@ -9,13 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.3] - 2026-04-27
 
-A patch release fixing `alef e2e generate` so it only emits test projects for languages the consumer has actually scaffolded.
+A patch release fixing `alef e2e generate` so it only emits test projects for languages the consumer has actually scaffolded, plus two `alef verify`-vs-`prek` drift fixes uncovered by a clean v0.10.2 regenerate of the downstream polyglot repos.
 
 ### Fixed
 
 - **`alef e2e generate` emitted test projects for every supported backend** when neither `--lang` nor `[e2e].languages` was set, including languages with no scaffolded binding (e.g. `gleam`, `kotlin`, `dart`, `swift`, `zig`, `brew`). The resulting `e2e/<lang>/` directories couldn't compile because the package they reference doesn't exist. The default now mirrors `alef generate` / `alef scaffold`: derive the e2e language list from the top-level `[languages]` array, mapping `Language::Ffi` → the `c` e2e harness and always including `rust` for the source-crate suite. Generators without a matching `Language` variant (`brew`) require explicit opt-in via `[e2e].languages`.
 
   Migration: after upgrading, run `alef e2e generate` once, then manually delete any stale `e2e/<lang>/` directories for languages you never scaffolded — the cleanup pass only revisits dirs the current run touched, so untouched stale dirs from prior runs are not auto-removed.
+
+- **e2e Rust default formatter command was invalid**: v0.10.2 introduced a built-in default of `cargo fmt --manifest-path {dir}/Cargo.toml`, but `--manifest-path` is not a stable global flag for `cargo fmt` (cargo prints `Specify message-format: short|json|human / --all / --check` and exits 1). The default is now `(cd {dir} && cargo fmt --all)`, which formats the standalone e2e crate from inside its own directory and works regardless of whether the crate is a workspace member. Without this fix, `e2e/rust/tests/*.rs` were left unformatted by `alef e2e generate`, and prek's cargo-fmt hook then rewrote them post-finalisation, breaking `alef verify`.
+
+- **`normalize_content` skipped trailing-whitespace stripping for `.rs` files** when rustfmt could not parse them — for example, cextendr's `packages/r/src/rust/src/lib.rs` uses the non-standard `name: T = "default"` parameter-default syntax, which rustfmt rejects, so `format_rust_content` falls back to the raw codegen output. The raw output contains trailing whitespace on blank lines (e.g. `    \n` between `#[must_use]` and the next `pub fn`), which prek's `trailing-whitespace` hook then strips, breaking `alef verify`. `normalize_content` now always pipes through `normalize_whitespace` after rustfmt, so the embedded `alef:hash` always reflects whitespace-clean content regardless of whether rustfmt parsed the file.
 
 ### Added
 

@@ -2,8 +2,8 @@
 //! for languages the consumer has actually scaffolded — never for backends
 //! that don't have a binding crate.
 
-use alef_e2e::default_e2e_languages;
 use alef_core::config::Language;
+use alef_e2e::default_e2e_languages;
 
 #[test]
 fn default_includes_each_scaffolded_language() {

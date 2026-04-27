@@ -14,8 +14,8 @@ pub mod scaffold;
 pub mod validate;
 
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
 use alef_core::config::e2e::DependencyMode;
+use alef_core::config::{AlefConfig, Language};
 use anyhow::{Context, Result};
 use config::E2eConfig;
 use fixture::{group_fixtures, load_fixtures};

@@ -16,13 +16,16 @@ use tracing::warn;
 /// no custom override is present in `e2e_config.format`. The `{dir}` placeholder
 /// is replaced with the actual output directory path before execution.
 ///
-/// * `rust` — `cargo fmt --manifest-path {dir}/Cargo.toml` formats the
-///   standalone e2e crate without requiring it to be a workspace member.
+/// * `rust` — `(cd {dir} && cargo fmt --all)` formats the standalone e2e crate
+///   from inside its own directory. `cargo fmt --manifest-path` is *not* a
+///   global cargo flag (it's an unstable cargo-fmt-only flag in nightly), so
+///   running cargo fmt from the e2e crate's own directory is the portable way
+///   to format a non-workspace-member crate.
 /// * `python` — `ruff format {dir}` normalises whitespace/newlines in the
 ///   generated test files so prek's ruff hook is a no-op.
 fn default_formatter(lang: &str) -> Option<&'static str> {
     match lang {
-        "rust" => Some("cargo fmt --manifest-path {dir}/Cargo.toml"),
+        "rust" => Some("(cd {dir} && cargo fmt --all)"),
         "python" => Some("ruff format {dir}"),
         _ => None,
     }
@@ -82,11 +85,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_formatter_rust_uses_manifest_path() {
+    fn test_default_formatter_rust_uses_cd_into_dir() {
         let cmd = default_formatter("rust").expect("rust must have a default formatter");
         assert!(
-            cmd.contains("--manifest-path"),
-            "rust formatter must use --manifest-path so it works on standalone e2e crates: {cmd}"
+            cmd.contains("cd {dir}") && cmd.contains("cargo fmt"),
+            "rust formatter must cd into {{dir}} before invoking cargo fmt so it works on \
+             standalone (non-workspace-member) e2e crates: {cmd}"
+        );
+        assert!(
+            !cmd.contains("--manifest-path"),
+            "rust formatter must not use --manifest-path; cargo-fmt does not accept it as a \
+             global flag: {cmd}"
         );
         assert!(
             cmd.contains("{dir}"),

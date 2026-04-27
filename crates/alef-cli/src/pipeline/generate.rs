@@ -233,13 +233,23 @@ pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> 
 }
 
 /// Normalize content the same way `write_files` does before hashing.
-/// Rust files go through rustfmt; everything else gets whitespace normalization.
+///
+/// Rust files go through rustfmt for canonical formatting, then through
+/// `normalize_whitespace` so trailing-whitespace and trailing-newline rules
+/// hold even when rustfmt could not parse the file (e.g. cextendr `lib.rs`
+/// with non-standard `parameter: T = "default"` syntax that rustfmt rejects;
+/// without the second pass, the raw codegen output retains trailing
+/// whitespace on blank lines, and prek's `trailing-whitespace` hook then
+/// rewrites the file post-finalisation, breaking `alef verify`).
+///
+/// Non-rust files skip rustfmt and go straight to whitespace normalization.
 pub fn normalize_content(path: &Path, content: &str) -> String {
-    if path.extension().is_some_and(|ext| ext == "rs") {
+    let pre = if path.extension().is_some_and(|ext| ext == "rs") {
         format_rust_content(content)
     } else {
-        normalize_whitespace(content)
-    }
+        content.to_string()
+    };
+    normalize_whitespace(&pre)
 }
 
 /// Normalize whitespace for comparison: strip trailing whitespace per line,
@@ -429,5 +439,31 @@ mod write_scaffold_normalize_tests {
         let written = std::fs::read_to_string(base.join("out.zig")).expect("read ok");
         assert!(!written.ends_with("\n\n"), "must not have double trailing newline");
         assert!(written.ends_with('\n'));
+    }
+
+    /// `normalize_content` must strip trailing whitespace from `.rs` files even
+    /// when rustfmt rejects them — e.g. cextendr `lib.rs` files use the
+    /// `name: T = "default"` parameter-default syntax that rustfmt cannot
+    /// parse, so it falls back to the raw codegen output. Without a final
+    /// whitespace pass, the raw output's trailing-whitespace blank lines
+    /// (e.g. `    \n` between `#[must_use]` and `pub fn …`) survive into the
+    /// finalised `alef:hash`, and prek's `trailing-whitespace` hook then
+    /// rewrites the file post-hash, breaking `alef verify`.
+    #[test]
+    fn test_normalize_content_strips_trailing_whitespace_when_rustfmt_fails() {
+        // This rust-shaped content uses cextendr's parameter-default syntax,
+        // which rustfmt rejects with `parameter defaults are not supported`.
+        // The trailing whitespace on the `    ` line must be stripped.
+        let path = PathBuf::from("packages/r/src/rust/src/lib.rs");
+        let content = "extendr_module! {\n    fn convert(\n    \n        title: String = \"\",\n    );\n}\n";
+        let normalized = normalize_content(&path, content);
+        for (i, line) in normalized.lines().enumerate() {
+            assert_eq!(
+                line.trim_end(),
+                line,
+                "line {i} has trailing whitespace after normalize: {line:?}"
+            );
+        }
+        assert!(normalized.ends_with('\n'), "must end with newline");
     }
 }
