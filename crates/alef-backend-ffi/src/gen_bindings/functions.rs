@@ -10,13 +10,42 @@ use heck::ToSnakeCase;
 /// `Vec<tuple>`).  In that case the FFI param is a `*const c_char` JSON array and the
 /// existing `Vec` conversion path produces `let items_rs = serde_json::from_str(...)?` whose
 /// element type is inferred from the core call.
-fn sanitized_params_recoverable(params: &[ParamDef]) -> bool {
-    params.iter().all(|p| {
+///
+/// The function-level signature might also have been marked `sanitized` because of the return
+/// type (e.g. `Option<&'static EmbeddingPreset>` → `Option<String>` after stdlib unification).
+/// We can only recover when the return is itself representable in the FFI's existing return
+/// machinery — i.e. simple types, owned Named, Optional<Named>, Vec, Map.  If the return
+/// type was Named but got sanitized to String (because the type isn't in the API surface),
+/// the FFI would marshal a struct as a string and miscompile, so we still emit a stub there.
+fn sanitized_recoverable(func: &FunctionDef) -> bool {
+    let params_ok = func.params.iter().all(|p| {
         if !p.sanitized {
             return true;
         }
         p.original_type.is_some() && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
-    })
+    });
+    if !params_ok {
+        return false;
+    }
+    // Conservative: if the function was sanitized but no param was sanitized, the trigger was
+    // the return type — and we can't recover that without knowing the original core type.
+    let any_param_sanitized = func.params.iter().any(|p| p.sanitized);
+    !func.sanitized || any_param_sanitized
+}
+
+/// Method-level analogue of [`sanitized_recoverable`].
+fn method_sanitized_recoverable(method: &MethodDef) -> bool {
+    let params_ok = method.params.iter().all(|p| {
+        if !p.sanitized {
+            return true;
+        }
+        p.original_type.is_some() && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
+    });
+    if !params_ok {
+        return false;
+    }
+    let any_param_sanitized = method.params.iter().any(|p| p.sanitized);
+    !method.sanitized || any_param_sanitized
 }
 
 use crate::type_map::{c_param_type_with_paths, c_return_type_with_paths, is_passthrough_return, is_void_return};
@@ -134,7 +163,7 @@ pub(super) fn gen_method_wrapper(
     // Check if this method will be unimplemented before building params.
     // Sanitized methods with recoverable params (Vec<String> originally Vec<tuple>) are
     // re-routed through the standard JSON-roundtrip Vec conversion below.
-    let will_be_unimplemented = method.sanitized && !sanitized_params_recoverable(&method.params);
+    let will_be_unimplemented = method.sanitized && !method_sanitized_recoverable(method);
 
     // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();
@@ -528,7 +557,7 @@ pub(super) fn gen_free_function(
     // Check if this function will be unimplemented before building params.
     // Sanitized funcs with recoverable params (Vec<String> originally Vec<tuple>) are
     // re-routed through the standard JSON-roundtrip Vec conversion below.
-    let will_be_unimplemented = func.sanitized && !sanitized_params_recoverable(&func.params);
+    let will_be_unimplemented = func.sanitized && !sanitized_recoverable(func);
 
     // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();

@@ -20,4 +20,5 @@ toml = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+tempfile = "3"
 tracing-test = { workspace = true }
