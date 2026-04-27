@@ -17,7 +17,25 @@ pub(crate) fn emit_extern_block_for_type(ty: &TypeDef, exclude_fields: &HashSet<
     // Constructor — use bridge_type to avoid nested generics that swift-bridge 0.1.59
     // cannot parse (Vec<Vec<T>>, HashMap<K,V>); those become String (JSON).
     // Excluded fields are omitted from the constructor params.
-    if !ty.fields.is_empty() {
+    //
+    // When the wrapper would use mutable-default construction but the type does not
+    // implement Default, wrappers.rs omits the impl entirely. We mirror that here by
+    // also skipping the extern declaration — swift-bridge must not declare `fn new()`
+    // without a corresponding Rust impl or linking will fail with E0599.
+    let has_vec_non_primitive = ty.fields.iter().any(|f| {
+        matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes))
+    });
+    let has_non_serde_string_field = !ty.has_serde
+        && ty.fields.iter().any(|f| {
+            matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char)
+        });
+    let needs_default_construction = ty.has_serde
+        || has_vec_non_primitive
+        || has_non_serde_string_field
+        || ty.fields.iter().any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
+    let emit_constructor = !ty.fields.is_empty() && !(needs_default_construction && !ty.has_default);
+
+    if emit_constructor {
         let params: Vec<String> = ty
             .fields
             .iter()

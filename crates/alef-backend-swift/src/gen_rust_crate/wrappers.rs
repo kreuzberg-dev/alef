@@ -73,16 +73,18 @@ pub(crate) fn emit_type_wrapper(
                 needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_))
             });
 
+        if needs_default_construction && !ty.has_default {
+            // The struct needs mutable-default construction but doesn't impl Default.
+            // Omit the constructor entirely — swift-bridge will not expose `init()` for
+            // this type, which is correct: the host language can't construct it anyway.
+        } else {
         out.push_str(&format!(
             "    pub fn new({}) -> {} {{\n",
             params.join(", "),
             ty.name
         ));
 
-        if needs_default_construction && !ty.has_default {
-            // The struct needs mutable-default construction but doesn't impl Default.
-            out.push_str("        ::std::unimplemented!(\"constructor not available: struct requires Default which is not implemented\")\n");
-        } else if needs_default_construction && ty.has_default {
+        if needs_default_construction && ty.has_default {
             let body = emit_default_construction_body(
                 ty,
                 &source_path,
@@ -111,6 +113,7 @@ pub(crate) fn emit_type_wrapper(
             out.push_str("        })\n");
         }
         out.push_str("    }\n");
+        } // end else (constructor emitted)
 
         // Getters — return bridge types (String for JSON-bridged, wrappers for Named).
         emit_getters(ty, type_paths, enum_names, no_serde_names, exclude_fields, &mut out);

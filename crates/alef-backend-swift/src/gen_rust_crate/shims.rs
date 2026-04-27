@@ -13,6 +13,57 @@ use alef_core::keywords::swift_ident;
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
 
+/// Returns true when a function can be fully bridged without emitting `unimplemented!()`.
+///
+/// A function is unbridgeable when any parameter is an enum bridge wrapper (no reverse From),
+/// any tuple-vec parameter has an unbridgeable inner type (e.g. `Vec<u8>,`), or when the
+/// return type requires JSON bridging but the inner Named type lacks serde.
+pub(crate) fn is_bridgeable_fn(
+    f: &FunctionDef,
+    enum_names: &std::collections::HashSet<&str>,
+    type_paths: &HashMap<String, String>,
+    no_serde_names: &std::collections::HashSet<&str>,
+) -> bool {
+    // Enum parameter: no reverse From generated.
+    if f.params.iter().any(|p| matches!(&p.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()))) {
+        return false;
+    }
+    // Tuple-vec with Vec<u8> inner: batch_extract_bytes pattern.
+    for p in &f.params {
+        let original = p.original_type.as_deref().unwrap_or("");
+        let stripped = original.trim().trim_start_matches('&').trim_start_matches("mut ").trim();
+        if !stripped.is_empty() && stripped.starts_with("Vec(") && stripped.contains("Named(\"(") {
+            let tuple_inner = stripped
+                .find("Named(\"(")
+                .and_then(|start| {
+                    let rest = &stripped[start + 8..];
+                    rest.find(")\")")
+                        .map(|end| rest[..end].trim_end_matches(')').to_string())
+                })
+                .unwrap_or_default();
+            if tuple_inner.starts_with("Vec<u8>,") || tuple_inner.starts_with("Vec<u8> ,") {
+                return false;
+            }
+        }
+    }
+    // Unbridgeable JSON return: inner Named type excluded or lacks serde.
+    fn inner_named(ty: &TypeRef) -> Option<&str> {
+        match ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => inner_named(inner),
+            _ => None,
+        }
+    }
+    if needs_json_bridge(&f.return_type) {
+        if let Some(inner_name) = inner_named(&f.return_type) {
+            if !type_paths.contains_key(inner_name) || no_serde_names.contains(inner_name) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Build the call-site expression for a function parameter.
 ///
 /// Handles JSON-bridged types, Path conversion, primitive casts, and reference borrows
