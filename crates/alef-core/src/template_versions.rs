@@ -259,13 +259,13 @@ pub mod maven {
 
 pub mod nuget {
     // renovate: datasource=nuget depName=Microsoft.NET.Test.Sdk
-    pub const MICROSOFT_NET_TEST_SDK: &str = "17.12.0";
+    pub const MICROSOFT_NET_TEST_SDK: &str = "18.4.0";
 
     // renovate: datasource=nuget depName=xunit
     pub const XUNIT: &str = "2.9.3";
 
     // renovate: datasource=nuget depName=xunit.runner.visualstudio
-    pub const XUNIT_RUNNER_VISUALSTUDIO: &str = "2.8.2";
+    pub const XUNIT_RUNNER_VISUALSTUDIO: &str = "3.1.5";
 }
 
 pub mod hex {
