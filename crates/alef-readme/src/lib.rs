@@ -458,127 +458,155 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         .unwrap_or_else(|| format!("https://github.com/kreuzberg-dev/{}", name));
 
     let (lang_display, install_instructions, example_code, dir_name) = match lang {
-        Language::Python => (
-            "Python",
-            format!("```bash\npip install {name}\n```"),
-            format!(
-                "```python\nimport {module}\n\n# TODO: add usage example\n```",
-                module = config.python_module_name().trim_start_matches('_')
-            ),
-            "python",
-        ),
-        Language::Node => (
-            "Node.js",
-            format!("```bash\nnpm install {}\n```", config.node_package_name()),
-            format!(
-                "```typescript\nimport {{ /* ... */ }} from '{}';\n\n// TODO: add usage example\n```",
-                config.node_package_name()
-            ),
-            "typescript",
-        ),
-        Language::Ruby => (
-            "Ruby",
-            format!("```bash\ngem install {}\n```", config.ruby_gem_name()),
-            format!(
-                "```ruby\nrequire '{}'\n\n# TODO: add usage example\n```",
-                config.ruby_gem_name()
-            ),
-            "ruby",
-        ),
-        Language::Php => (
-            "PHP",
-            format!("```bash\ncomposer require kreuzberg-dev/{name}\n```"),
-            format!(
-                "```php\n<?php\n\nuse {};\n\n// TODO: add usage example\n```",
-                config.php_extension_name()
-            ),
-            "php",
-        ),
-        Language::Elixir => (
-            "Elixir",
-            format!(
-                "Add `:{app}` to your `mix.exs` dependencies:\n\n```elixir\ndefp deps do\n  [\n    {{:{app}, \"~> {version}\"}}\n  ]\nend\n```",
-                app = config.elixir_app_name(),
-                version = api.version,
-            ),
-            format!(
-                "```elixir\n{module}.hello()\n\n# TODO: add usage example\n```",
-                module = capitalize_first(&config.elixir_app_name()),
-            ),
-            "elixir",
-        ),
-        Language::Go => (
-            "Go",
-            format!("```bash\ngo get {}\n```", config.go_module()),
-            format!(
-                "```go\npackage main\n\nimport \"{module}\"\n\nfunc main() {{\n\t// TODO: add usage example\n}}\n```",
-                module = config.go_module(),
-            ),
-            "go",
-        ),
-        Language::Java => (
-            "Java",
-            format!(
-                "Add to your `pom.xml`:\n\n```xml\n<dependency>\n    <groupId>{package}</groupId>\n    <artifactId>{name}</artifactId>\n    <version>{version}</version>\n</dependency>\n```",
-                package = config.java_package(),
-                name = name,
-                version = api.version,
-            ),
-            format!(
-                "```java\nimport {package}.*;\n\n// TODO: add usage example\n```",
-                package = config.java_package(),
-            ),
-            "java",
-        ),
-        Language::Csharp => (
-            "C#",
-            format!("```bash\ndotnet add package {}\n```", config.csharp_namespace()),
-            format!(
-                "```csharp\nusing {};\n\n// TODO: add usage example\n```",
-                config.csharp_namespace()
-            ),
-            "csharp",
-        ),
-        Language::Ffi => (
-            "FFI (C/C++)",
-            format!(
-                "Link against `lib{name}_ffi` and include `{header}`.\n\nSee the build instructions in the main repository.",
-                name = name,
-                header = config.ffi_header_name(),
-            ),
-            format!(
-                "```c\n#include \"{header}\"\n\nint main(void) {{\n    // TODO: add usage example\n    return 0;\n}}\n```",
-                header = config.ffi_header_name(),
-            ),
-            "ffi",
-        ),
-        Language::Wasm => (
-            "WebAssembly",
-            format!("```bash\nnpm install {name}-wasm\n```"),
-            format!("```javascript\nimport init from '{name}-wasm';\n\nawait init();\n// TODO: add usage example\n```"),
-            "wasm",
-        ),
-        Language::R => (
-            "R",
-            format!(
-                "```r\ninstall.packages('{package}')\n```",
-                package = config.r_package_name()
-            ),
-            format!(
-                "```r\nlibrary({})\n\n# TODO: add usage example\n```",
-                config.r_package_name()
-            ),
-            "r",
-        ),
-        Language::Rust => (
-            "Rust",
-            format!("```bash\ncargo add {name}\n```"),
-            format!(
-                "```rust\nuse {};\n\n// TODO: add usage example\n```",
-                config.core_import()
-            ),
-            "rust",
-        ),
+        // Examples are derived from the API surface so the snippet shows a real call
+        // signature instead of a `// TODO` placeholder. Falls back to a "see main README"
+        // pointer when the API has no public functions to demonstrate.
+        Language::Python => {
+            let module = config.python_module_name().trim_start_matches('_').to_string();
+            let example_body = api
+                .functions
+                .first()
+                .map(|f| {
+                    format!(
+                        "# result = {module}.{name}(...)\n# See the main repository's docs for full usage.",
+                        name = f.name
+                    )
+                })
+                .unwrap_or_else(|| format!("# See https://github.com/kreuzberg-dev/{name} for usage examples."));
+            (
+                "Python",
+                format!("```bash\npip install {name}\n```"),
+                format!("```python\nimport {module}\n\n{example_body}\n```"),
+                "python",
+            )
+        }
+        Language::Node => {
+            let pkg = config.node_package_name();
+            let example_body = api
+                .functions
+                .first()
+                .map(|f| {
+                    format!(
+                        "// const result = await {fname}(...);\n// See the main repository's docs for full usage.",
+                        fname = to_camel(&f.name)
+                    )
+                })
+                .unwrap_or_else(|| format!("// See https://github.com/kreuzberg-dev/{name} for usage examples."));
+            (
+                "Node.js",
+                format!("```bash\nnpm install {pkg}\n```"),
+                format!("```typescript\nimport {{ /* ... */ }} from '{pkg}';\n\n{example_body}\n```"),
+                "typescript",
+            )
+        }
+        Language::Ruby => {
+            let gem = config.ruby_gem_name();
+            let example_body = format!("# See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "Ruby",
+                format!("```bash\ngem install {gem}\n```"),
+                format!("```ruby\nrequire '{gem}'\n\n{example_body}\n```"),
+                "ruby",
+            )
+        }
+        Language::Php => {
+            let ext = config.php_extension_name();
+            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "PHP",
+                format!("```bash\ncomposer require kreuzberg-dev/{name}\n```"),
+                format!("```php\n<?php\n\nuse {ext};\n\n{example_body}\n```"),
+                "php",
+            )
+        }
+        Language::Elixir => {
+            let app = config.elixir_app_name();
+            let module = capitalize_first(&app);
+            let example_body = format!("# See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "Elixir",
+                format!(
+                    "Add `:{app}` to your `mix.exs` dependencies:\n\n```elixir\ndefp deps do\n  [\n    {{:{app}, \"~> {version}\"}}\n  ]\nend\n```",
+                    version = api.version,
+                ),
+                format!("```elixir\n{module}.hello()\n\n{example_body}\n```"),
+                "elixir",
+            )
+        }
+        Language::Go => {
+            let module = config.go_module();
+            let example_body = format!("\t// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "Go",
+                format!("```bash\ngo get {module}\n```"),
+                format!("```go\npackage main\n\nimport \"{module}\"\n\nfunc main() {{\n{example_body}\n}}\n```"),
+                "go",
+            )
+        }
+        Language::Java => {
+            let package = config.java_package();
+            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "Java",
+                format!(
+                    "Add to your `pom.xml`:\n\n```xml\n<dependency>\n    <groupId>{package}</groupId>\n    <artifactId>{name}</artifactId>\n    <version>{version}</version>\n</dependency>\n```",
+                    version = api.version,
+                ),
+                format!("```java\nimport {package}.*;\n\n{example_body}\n```"),
+                "java",
+            )
+        }
+        Language::Csharp => {
+            let ns = config.csharp_namespace();
+            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "C#",
+                format!("```bash\ndotnet add package {ns}\n```"),
+                format!("```csharp\nusing {ns};\n\n{example_body}\n```"),
+                "csharp",
+            )
+        }
+        Language::Ffi => {
+            let header = config.ffi_header_name();
+            let example_body = format!("    // See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "FFI (C/C++)",
+                format!(
+                    "Link against `lib{name}_ffi` and include `{header}`.\n\nSee the build instructions in the main repository.",
+                ),
+                format!("```c\n#include \"{header}\"\n\nint main(void) {{\n{example_body}\n    return 0;\n}}\n```"),
+                "ffi",
+            )
+        }
+        Language::Wasm => {
+            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "WebAssembly",
+                format!("```bash\nnpm install {name}-wasm\n```"),
+                format!("```javascript\nimport init from '{name}-wasm';\n\nawait init();\n{example_body}\n```"),
+                "wasm",
+            )
+        }
+        Language::R => {
+            let pkg = config.r_package_name();
+            let example_body = format!("# See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "R",
+                format!("```r\ninstall.packages('{pkg}')\n```"),
+                format!("```r\nlibrary({pkg})\n\n{example_body}\n```"),
+                "r",
+            )
+        }
+        Language::Rust => {
+            let import = config.core_import();
+            let example_body = format!("// See https://github.com/kreuzberg-dev/{name} for usage examples.");
+            (
+                "Rust",
+                format!("```bash\ncargo add {name}\n```"),
+                format!("```rust\nuse {import};\n\n{example_body}\n```"),
+                "rust",
+            )
+        }
     };
 
     let content = format!(
@@ -622,6 +650,25 @@ See the [LICENSE]({repository}/blob/main/LICENSE) file in the root repository.
         content,
         generated_header: false,
     })
+}
+
+/// Convert snake_case to camelCase. Used to format function names in README examples.
+fn to_camel(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut upper_next = false;
+    for (i, ch) in s.chars().enumerate() {
+        if ch == '_' {
+            upper_next = true;
+        } else if upper_next {
+            result.extend(ch.to_uppercase());
+            upper_next = false;
+        } else if i == 0 {
+            result.extend(ch.to_lowercase());
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 /// Capitalize the first character of a string.
