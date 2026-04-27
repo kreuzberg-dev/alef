@@ -167,6 +167,13 @@ pub(crate) fn emit_type_wrapper(
     out
 }
 
+/// Per-field derived context reused across getter emitters.
+struct GetterCtx {
+    name: String,
+    getter_name: String,
+    bridge_ty_owned: String,
+}
+
 /// Emit getter methods for all fields of a type wrapper.
 fn emit_getters(
     ty: &TypeDef,
@@ -197,44 +204,67 @@ fn emit_getters(
             ));
             continue;
         }
+        let ctx = GetterCtx {
+            name,
+            getter_name,
+            bridge_ty_owned,
+        };
         if needs_json_bridge(&field.ty) {
             out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).expect(\"serializable {name}\") }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).expect(\"serializable {name}\") }}\n",
+                getter_name = ctx.getter_name,
+                bridge_ty_owned = ctx.bridge_ty_owned,
+                name = ctx.name,
             ));
         } else if let TypeRef::Named(wrapper) = &field.ty {
-            emit_named_getter(field, wrapper, &name, &getter_name, &bridge_ty_owned, enum_names, out);
+            emit_named_getter(field, wrapper, &ctx, enum_names, out);
         } else if let TypeRef::Vec(inner) = &field.ty {
-            emit_vec_getter(ty, field, inner, &name, &getter_name, &bridge_ty_owned, enum_names, out);
+            emit_vec_getter(ty, field, inner, &ctx, enum_names, out);
         } else if matches!(
             field.ty,
             TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json
         ) {
-            emit_string_like_getter(ty, field, &name, &getter_name, &bridge_ty_owned, out);
+            emit_string_like_getter(ty, field, &ctx, out);
         } else if matches!(field.ty, TypeRef::Bytes) {
             // bytes::Bytes bridges as Vec<u8>; convert with .to_vec() for the return.
             if field.optional {
                 out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().map(|b| b.to_vec()) }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().map(|b| b.to_vec()) }}\n",
+                    getter_name = ctx.getter_name,
+                    bridge_ty_owned = ctx.bridge_ty_owned,
+                    name = ctx.name,
                 ));
             } else {
                 out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.to_vec() }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.to_vec() }}\n",
+                    getter_name = ctx.getter_name,
+                    bridge_ty_owned = ctx.bridge_ty_owned,
+                    name = ctx.name,
                 ));
             }
         } else if ty.has_serde && matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Primitive(_)) {
             // Vec<T> or Primitive fields in serde structs: use serde JSON round-trip.
             if field.optional {
                 out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.as_ref().and_then(|v| ::serde_json::to_value(v).ok().and_then(|j| ::serde_json::from_value(j).ok())) }}\n",
+                    getter_name = ctx.getter_name,
+                    bridge_ty_owned = ctx.bridge_ty_owned,
+                    name = ctx.name,
                 ));
             } else {
                 out.push_str(&format!(
-                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n"
+                    "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::serde_json::to_value(&self.0.{name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default() }}\n",
+                    getter_name = ctx.getter_name,
+                    bridge_ty_owned = ctx.bridge_ty_owned,
+                    name = ctx.name,
                 ));
             }
         } else {
             out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.clone() }}\n"
+                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ self.0.{name}.clone() }}\n",
+                getter_name = ctx.getter_name,
+                bridge_ty_owned = ctx.bridge_ty_owned,
+                name = ctx.name,
             ));
         }
     }
@@ -243,12 +273,12 @@ fn emit_getters(
 fn emit_named_getter(
     field: &alef_core::ir::FieldDef,
     wrapper: &str,
-    name: &str,
-    getter_name: &str,
-    _bridge_ty_owned: &str,
+    ctx: &GetterCtx,
     enum_names: &HashSet<&str>,
     out: &mut String,
 ) {
+    let name = &ctx.name;
+    let getter_name = &ctx.getter_name;
     let is_enum = enum_names.contains(wrapper);
     if field.optional {
         // Optional Named: self.0.field.clone().map(T) or T::from
@@ -300,12 +330,13 @@ fn emit_vec_getter(
     ty: &TypeDef,
     field: &alef_core::ir::FieldDef,
     inner: &TypeRef,
-    name: &str,
-    getter_name: &str,
-    bridge_ty_owned: &str,
+    ctx: &GetterCtx,
     enum_names: &HashSet<&str>,
     out: &mut String,
 ) {
+    let name = &ctx.name;
+    let getter_name = &ctx.getter_name;
+    let bridge_ty_owned = &ctx.bridge_ty_owned;
     if let TypeRef::Named(wrapper) = inner {
         let is_enum = enum_names.contains(wrapper.as_str());
         // When the source field is Vec<Arc<T>>, cloning an element
@@ -366,14 +397,10 @@ fn emit_vec_getter(
     }
 }
 
-fn emit_string_like_getter(
-    ty: &TypeDef,
-    field: &alef_core::ir::FieldDef,
-    name: &str,
-    getter_name: &str,
-    bridge_ty_owned: &str,
-    out: &mut String,
-) {
+fn emit_string_like_getter(ty: &TypeDef, field: &alef_core::ir::FieldDef, ctx: &GetterCtx, out: &mut String) {
+    let name = &ctx.name;
+    let getter_name = &ctx.getter_name;
+    let bridge_ty_owned = &ctx.bridge_ty_owned;
     // String-like fields might be JSON-bridged enums in the source struct;
     // serialize via serde_json so the result works for both `String` and
     // typed source fields.

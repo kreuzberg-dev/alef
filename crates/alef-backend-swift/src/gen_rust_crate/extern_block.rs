@@ -43,7 +43,7 @@ pub(crate) fn emit_extern_block_for_type(
             .fields
             .iter()
             .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
-    let emit_constructor = !ty.fields.is_empty() && !(needs_default_construction && !ty.has_default);
+    let emit_constructor = !ty.fields.is_empty() && (!needs_default_construction || ty.has_default);
 
     if emit_constructor {
         let params: Vec<String> = ty
