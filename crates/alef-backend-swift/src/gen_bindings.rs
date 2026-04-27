@@ -10,6 +10,53 @@ use std::path::PathBuf;
 use crate::gen_rust_crate;
 use crate::type_map::SwiftMapper;
 
+/// Checks if a type reference contains any Named types (struct/enum references).
+/// Used to determine if conversion from RustBridge types is needed.
+fn should_convert_return(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Named(_) => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(_)),
+        _ => is_container_of_named(ty),
+    }
+}
+
+/// Recursively checks if a type is a container (Vec, Optional, etc.) of Named types.
+fn is_container_of_named(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Vec(inner) => {
+            matches!(inner.as_ref(), TypeRef::Named(_)) || is_container_of_named(inner)
+        }
+        TypeRef::Optional(inner) => {
+            matches!(inner.as_ref(), TypeRef::Named(_)) || is_container_of_named(inner)
+        }
+        TypeRef::Map(k, v) => {
+            is_container_of_named(k) || is_container_of_named(v)
+        }
+        _ => false,
+    }
+}
+
+/// Builds a Swift expression that converts a value from RustBridge type to the idiomatic wrapper type.
+/// For example: `Data(rustVal: value)` or `[String](rustVal: value)`.
+fn wrap_value_conversion(ty: &TypeRef, expr: &str, mapper: &SwiftMapper) -> String {
+    match ty {
+        TypeRef::Named(name) => {
+            format!("{}(rustVal: {})", name, expr)
+        }
+        TypeRef::Optional(inner) => {
+            let inner_conversion = wrap_value_conversion(inner, "val", mapper);
+            format!("{}.map {{ val in {} }}", expr, inner_conversion)
+        }
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(name) => {
+                format!("{}.map {{ {}(rustVal: $0) }}", expr, name)
+            }
+            _ => expr.to_string(),
+        },
+        _ => expr.to_string(),
+    }
+}
+
 pub struct SwiftBackend;
 
 impl Backend for SwiftBackend {
@@ -180,6 +227,7 @@ fn emit_struct(ty: &TypeDef, out: &mut String, mapper: &SwiftMapper) {
         out.push_str(&format!("        self.{name} = {name}\n"));
     }
     out.push_str("    }\n");
+
     out.push_str("}\n");
 }
 
@@ -269,14 +317,69 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper, force_codable
             let case_name = swift_ident(&variant.name.to_lower_camel_case());
             out.push_str(&format!("    case {case_name}\n"));
         }
+        // Add conversion initializer for unit enums (only if not Codable)
+        emit_enum_conversion_init(en, out, mapper, force_codable);
         out.push_str("}\n");
     } else {
         out.push_str(&format!("public enum {}{} {{\n", en.name, codable));
         for variant in &en.variants {
             emit_variant_with_data(variant, out, mapper);
         }
+        // Add conversion initializer for enums with data (only if not Codable)
+        emit_enum_conversion_init(en, out, mapper, force_codable);
         out.push_str("}\n");
     }
+}
+
+/// Emits a conversion initializer from RustBridge enum to the wrapper enum.
+/// Only emits for non-Codable enums, since Codable enums use JSON deserialization.
+fn emit_enum_conversion_init(en: &EnumDef, out: &mut String, mapper: &SwiftMapper, force_codable: bool) {
+    // Skip Codable enums - they use JSON deserialization, not rustVal conversion
+    if en.has_serde || force_codable {
+        return;
+    }
+
+    out.push('\n');
+    out.push_str(&format!("    public init(rustVal: RustBridge.{}) {{\n", en.name));
+    out.push_str(&format!("        switch rustVal {{\n"));
+
+    for variant in &en.variants {
+        let case_name = swift_ident(&variant.name.to_lower_camel_case());
+        if variant.fields.is_empty() {
+            out.push_str(&format!("        case .{case_name}:\n"));
+            out.push_str(&format!("            self = .{case_name}\n"));
+        } else {
+            // Build the pattern for the switch case
+            let field_patterns: Vec<String> = variant
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(idx, f)| {
+                    let label = swift_associated_label(&f.name, idx);
+                    format!("let {label}")
+                })
+                .collect();
+
+            out.push_str(&format!("        case .{case_name}({}):\n", field_patterns.join(", ")));
+
+            // Build the constructor with conversions
+            let field_conversions: Vec<String> = variant
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(idx, f)| {
+                    let label = swift_associated_label(&f.name, idx);
+                    let conversion = wrap_value_conversion(&f.ty, &label, mapper);
+                    format!("{label}: {conversion}")
+                })
+                .collect();
+
+            out.push_str(&format!("            self = .{case_name}({})\n", field_conversions.join(", ")));
+        }
+    }
+
+    out.push_str("        }\n");
+    out.push_str("    }\n");
 }
 
 /// Emits a single enum case, with or without associated values.
@@ -399,7 +502,13 @@ fn emit_function(f: &FunctionDef, out: &mut String, mapper: &SwiftMapper) {
     if matches!(f.return_type, TypeRef::Unit) {
         out.push_str(&format!("        {invocation}\n"));
     } else {
-        out.push_str(&format!("        return {invocation}\n"));
+        // Wrap return value with conversion if it's a Named type or container of Named types
+        let return_expr = if should_convert_return(&f.return_type) {
+            wrap_value_conversion(&f.return_type, &invocation, mapper)
+        } else {
+            invocation
+        };
+        out.push_str(&format!("        return {return_expr}\n"));
     }
     out.push_str("    }\n");
 }

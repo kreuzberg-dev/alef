@@ -24,10 +24,6 @@ public struct Wrapper {
     public init(output: Output) {
         self.output = output
     }
-
-    public init(rustVal: RustBridge.Wrapper) {
-        self.output = Output(rustVal: rustVal.output())
-    }
 }
 
 public enum Demo {
