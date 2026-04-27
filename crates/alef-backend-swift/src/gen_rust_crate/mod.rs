@@ -158,7 +158,12 @@ fn emit_lib_rs(
     // Collect extern "Rust" blocks for the ffi module
     let mut extern_blocks: Vec<String> = Vec::new();
     for ty in &visible_types {
-        extern_blocks.push(extern_block::emit_extern_block_for_type(ty, exclude_fields));
+        extern_blocks.push(extern_block::emit_extern_block_for_type(
+            ty,
+            exclude_fields,
+            &type_paths,
+            &no_serde_names,
+        ));
     }
     for en in &visible_enums {
         extern_blocks.push(extern_block::emit_extern_block_for_enum(en));
