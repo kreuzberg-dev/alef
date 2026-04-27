@@ -1,7 +1,7 @@
 use super::*;
 use crate::languages::generate_pre_commit_config;
 use alef_core::config::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn test_config() -> AlefConfig {
     AlefConfig {
@@ -1145,7 +1145,7 @@ fn test_scaffold_swift() {
     // RustBridgeC placeholder header (pure C target)
     let header = files
         .iter()
-        .find(|f| f.path == PathBuf::from("packages/swift/Sources/RustBridgeC/RustBridgeC.h"))
+        .find(|f| f.path == Path::new("packages/swift/Sources/RustBridgeC/RustBridgeC.h"))
         .unwrap();
     assert!(
         header.content.contains("#ifndef RUST_BRIDGE_C_H"),
@@ -1160,7 +1160,7 @@ fn test_scaffold_swift() {
     // RustBridge placeholder Swift source
     let rust_bridge_swift = files
         .iter()
-        .find(|f| f.path == PathBuf::from("packages/swift/Sources/RustBridge/RustBridge.swift"))
+        .find(|f| f.path == Path::new("packages/swift/Sources/RustBridge/RustBridge.swift"))
         .unwrap();
     assert!(
         !rust_bridge_swift.content.is_empty(),
@@ -1170,7 +1170,7 @@ fn test_scaffold_swift() {
     // BUILDING.md documents the cargo-then-copy workflow
     let building = files
         .iter()
-        .find(|f| f.path == PathBuf::from("packages/swift/BUILDING.md"))
+        .find(|f| f.path == Path::new("packages/swift/BUILDING.md"))
         .unwrap();
     assert!(
         building.content.contains("cargo build"),
@@ -1183,9 +1183,7 @@ fn test_scaffold_swift() {
         building.content
     );
     // Check for new production files
-    let readme = files
-        .iter()
-        .find(|f| f.path == PathBuf::from("packages/swift/README.md"));
+    let readme = files.iter().find(|f| f.path == Path::new("packages/swift/README.md"));
     assert!(readme.is_some(), "README.md should be generated");
     assert!(
         readme.unwrap().content.contains("swift build"),
@@ -1193,19 +1191,19 @@ fn test_scaffold_swift() {
     );
     let editorconfig = files
         .iter()
-        .find(|f| f.path == PathBuf::from("packages/swift/.editorconfig"));
+        .find(|f| f.path == Path::new("packages/swift/.editorconfig"));
     assert!(editorconfig.is_some(), ".editorconfig should be generated");
     let swiftformat = files
         .iter()
-        .find(|f| f.path == PathBuf::from("packages/swift/.swiftformat"));
+        .find(|f| f.path == Path::new("packages/swift/.swiftformat"));
     assert!(swiftformat.is_some(), ".swiftformat should be generated");
     let demo = files
         .iter()
-        .find(|f| f.path == PathBuf::from("packages/swift/Examples/Demo/main.swift"));
+        .find(|f| f.path == Path::new("packages/swift/Examples/Demo/main.swift"));
     assert!(demo.is_some(), "Demo example should be generated");
     let workflow = files
         .iter()
-        .find(|f| f.path == PathBuf::from(".github/workflows/swift.yml"));
+        .find(|f| f.path == Path::new(".github/workflows/swift.yml"));
     assert!(workflow.is_some(), "GitHub workflow should be generated");
 }
 

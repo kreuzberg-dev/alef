@@ -259,6 +259,7 @@ dependencies = [
  "rayon",
  "regex",
  "serde_json",
+ "tempfile",
  "toml",
  "tracing",
  "tracing-subscriber",

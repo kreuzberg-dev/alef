@@ -1,21 +1,21 @@
 use alef_core::config::{AlefConfig, Language};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracing::{debug, warn};
 
 /// One formatter invocation (command + args).
 struct FormatterCommand {
-    command: &'static str,
-    args: &'static [&'static str],
+    command: String,
+    args: Vec<String>,
 }
 
 /// Post-generation formatter configuration.
 /// Each language may run a sequence of formatter commands in a working directory.
 struct FormatterSpec {
     /// Commands to run in sequence; on first failure the rest are skipped (warning logged).
-    commands: &'static [FormatterCommand],
+    commands: Vec<FormatterCommand>,
     /// Working directory relative to project root; empty string = project root.
-    work_dir: &'static str,
+    work_dir: String,
 }
 
 /// Get the default formatter spec for a language.
@@ -26,136 +26,176 @@ struct FormatterSpec {
 /// We attach this to `Language::Ffi` because FFI is always present when any of the
 /// C-FFI-bridged languages (Go/Java/C#) are enabled, and harmless when only WASM
 /// or pure-Rust bindings are used.
-fn get_default_formatter(lang: Language) -> Option<FormatterSpec> {
+fn get_default_formatter(config: &AlefConfig, lang: Language) -> Option<FormatterSpec> {
     match lang {
         // ruff check --fix runs lint autofixes (unused imports, missing TypeAlias
         // annotations, import sorting); ruff format applies whitespace formatting.
         // Both must run — `format` alone leaves I001/F401/TC008 issues that fail CI.
         Language::Python => Some(FormatterSpec {
-            commands: &[
+            commands: vec![
                 FormatterCommand {
-                    command: "ruff",
-                    args: &["check", "--fix", "."],
+                    command: "ruff".to_owned(),
+                    args: vec!["check".to_owned(), "--fix".to_owned(), ".".to_owned()],
                 },
                 FormatterCommand {
-                    command: "ruff",
-                    args: &["format", "."],
+                    command: "ruff".to_owned(),
+                    args: vec!["format".to_owned(), ".".to_owned()],
                 },
             ],
-            work_dir: "packages/python/",
+            work_dir: "packages/python/".to_owned(),
         }),
         Language::Node => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "biome",
-                args: &["format", "--write", "."],
+            commands: vec![FormatterCommand {
+                command: "biome".to_owned(),
+                args: vec!["format".to_owned(), "--write".to_owned(), ".".to_owned()],
             }],
-            work_dir: "packages/typescript/",
+            work_dir: "packages/typescript/".to_owned(),
         }),
         Language::Ruby => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "rubocop",
-                args: &["-A", "--no-server"],
+            commands: vec![FormatterCommand {
+                command: "rubocop".to_owned(),
+                args: vec!["-A".to_owned(), "--no-server".to_owned()],
             }],
-            work_dir: "packages/ruby/",
+            work_dir: "packages/ruby/".to_owned(),
         }),
         Language::Php => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "php-cs-fixer",
-                args: &["fix"],
+            commands: vec![FormatterCommand {
+                command: "php-cs-fixer".to_owned(),
+                args: vec!["fix".to_owned()],
             }],
-            work_dir: "packages/php/",
+            work_dir: "packages/php/".to_owned(),
         }),
         Language::Elixir => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "mix",
-                args: &["format"],
+            commands: vec![FormatterCommand {
+                command: "mix".to_owned(),
+                args: vec!["format".to_owned()],
             }],
-            work_dir: "packages/elixir/",
+            work_dir: "packages/elixir/".to_owned(),
         }),
         Language::Go => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "gofmt",
-                args: &["-w", "."],
+            commands: vec![FormatterCommand {
+                command: "gofmt".to_owned(),
+                args: vec!["-w".to_owned(), ".".to_owned()],
             }],
-            work_dir: "packages/go/",
+            work_dir: "packages/go/".to_owned(),
         }),
+        // google-java-format requires explicit file paths — no recursive flag.
+        // We collect *.java files from the work_dir at runtime and pass them as args.
+        // The command is built dynamically in `format_generated`; this spec carries
+        // only the base args (the file list is appended before invocation).
         Language::Java => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "google-java-format",
-                args: &["-i"],
+            commands: vec![FormatterCommand {
+                command: "google-java-format".to_owned(),
+                args: vec!["-i".to_owned()],
             }],
-            work_dir: "packages/java/src/",
+            work_dir: "packages/java/src/".to_owned(),
         }),
-        Language::Csharp => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "dotnet",
-                args: &["format"],
-            }],
-            work_dir: "packages/csharp/",
-        }),
-        Language::Wasm => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "cargo",
-                args: &["fmt", "-p", "wasm"],
-            }],
-            work_dir: "packages/wasm/",
-        }),
+        // Bug fix: when both a .csproj and a .slnx exist in packages/csharp/, `dotnet
+        // format` without a workspace argument aborts. Use the project_file from config
+        // when available so the correct project is targeted unambiguously.
+        Language::Csharp => {
+            let mut args = vec!["format".to_owned()];
+            let work_dir = "packages/csharp/".to_owned();
+            if let Some(project_file) = config.project_file_for_language(Language::Csharp) {
+                // project_file is a path relative to the project root (e.g.
+                // "packages/csharp/LiterLlm.csproj"). Strip the work_dir prefix so the
+                // argument is relative to work_dir where the command runs.
+                let relative = Path::new(project_file)
+                    .strip_prefix(&work_dir)
+                    .unwrap_or(Path::new(project_file));
+                args.push(relative.to_string_lossy().into_owned());
+            }
+            Some(FormatterSpec {
+                commands: vec![FormatterCommand {
+                    command: "dotnet".to_owned(),
+                    args,
+                }],
+                work_dir,
+            })
+        }
+        // Bug fix: derive wasm crate name from config instead of hardcoding "wasm".
+        // Runs at workspace root so `cargo fmt -p <pkg>` can resolve the workspace member.
+        Language::Wasm => {
+            let wasm_crate = format!("{}-wasm", config.crate_config.name);
+            Some(FormatterSpec {
+                commands: vec![FormatterCommand {
+                    command: "cargo".to_owned(),
+                    args: vec!["fmt".to_owned(), "-p".to_owned(), wasm_crate],
+                }],
+                work_dir: String::new(),
+            })
+        }
         // FFI runs `cargo fmt --all` from project root: this formats every generated
         // Rust crate in the consumer workspace (FFI, PyO3, NAPI-RS, Magnus, ext-php-rs,
         // Rustler, wasm-bindgen). Was previously `cargo fmt` in `packages/ffi/` —
         // which has no Cargo.toml, so it silently no-op'd and CI's `cargo fmt --check`
         // would fail on the unformatted FFI lib.rs.
         Language::Ffi => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "cargo",
-                args: &["fmt", "--all"],
+            commands: vec![FormatterCommand {
+                command: "cargo".to_owned(),
+                args: vec!["fmt".to_owned(), "--all".to_owned()],
             }],
-            work_dir: "",
+            work_dir: String::new(),
         }),
         Language::R => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "Rscript",
-                args: &["-e", "styler::style_pkg('packages/r')"],
+            commands: vec![FormatterCommand {
+                command: "Rscript".to_owned(),
+                args: vec!["-e".to_owned(), "styler::style_pkg('packages/r')".to_owned()],
             }],
-            work_dir: "",
+            work_dir: String::new(),
         }),
         Language::Kotlin => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "ktlint",
-                args: &["--format"],
+            commands: vec![FormatterCommand {
+                command: "ktlint".to_owned(),
+                args: vec!["--format".to_owned()],
             }],
-            work_dir: "packages/kotlin/src/",
+            work_dir: "packages/kotlin/src/".to_owned(),
         }),
         Language::Swift => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "swift",
-                args: &["format", "--in-place", "--recursive", "Sources"],
+            commands: vec![FormatterCommand {
+                command: "swift".to_owned(),
+                args: vec![
+                    "format".to_owned(),
+                    "--in-place".to_owned(),
+                    "--recursive".to_owned(),
+                    "Sources".to_owned(),
+                ],
             }],
-            work_dir: "packages/swift/",
+            work_dir: "packages/swift/".to_owned(),
         }),
         Language::Dart => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "dart",
-                args: &["format", "."],
+            commands: vec![FormatterCommand {
+                command: "dart".to_owned(),
+                args: vec!["format".to_owned(), ".".to_owned()],
             }],
-            work_dir: "packages/dart/",
+            work_dir: "packages/dart/".to_owned(),
         }),
         Language::Gleam => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "gleam",
-                args: &["format"],
+            commands: vec![FormatterCommand {
+                command: "gleam".to_owned(),
+                args: vec!["format".to_owned()],
             }],
-            work_dir: "packages/gleam/",
+            work_dir: "packages/gleam/".to_owned(),
         }),
         Language::Zig => Some(FormatterSpec {
-            commands: &[FormatterCommand {
-                command: "zig",
-                args: &["fmt", "src"],
+            commands: vec![FormatterCommand {
+                command: "zig".to_owned(),
+                args: vec!["fmt".to_owned(), "src".to_owned()],
             }],
-            work_dir: "packages/zig/",
+            work_dir: "packages/zig/".to_owned(),
         }),
         Language::Rust => None,
     }
+}
+
+/// Collect all `.java` files under `dir` recursively (up to `limit` paths).
+/// Returns an empty vec if the directory does not exist or cannot be read.
+fn collect_java_files(dir: &Path, limit: usize) -> Vec<PathBuf> {
+    let pattern = format!("{}/**/*.java", dir.display());
+    let Ok(entries) = glob::glob(&pattern) else {
+        return vec![];
+    };
+    entries.flatten().filter(|p| p.is_file()).take(limit).collect()
 }
 
 /// Run language-native formatters on emitted packages after generation.
@@ -196,7 +236,7 @@ pub fn format_generated(
             }
             formatted_langs.insert(*lang);
             continue;
-        } else if let Some(spec) = get_default_formatter(*lang) {
+        } else if let Some(spec) = get_default_formatter(config, *lang) {
             spec
         } else {
             // No formatter for this language (e.g., Rust is formatted in-memory before writing)
@@ -208,7 +248,7 @@ pub fn format_generated(
         let work_dir = if formatter_cmd.work_dir.is_empty() {
             base_dir.to_path_buf()
         } else {
-            base_dir.join(formatter_cmd.work_dir)
+            base_dir.join(&formatter_cmd.work_dir)
         };
         if !work_dir.exists() {
             debug!(
@@ -219,17 +259,41 @@ pub fn format_generated(
         }
 
         // Run each command in sequence; stop on first failure (warning logged)
-        for step in formatter_cmd.commands {
-            if !is_tool_available(step.command) {
+        for step in &formatter_cmd.commands {
+            if !is_tool_available(&step.command) {
                 warn!("[{lang_str}] formatter not found: {} (skipping format)", step.command);
                 break;
             }
-            match run_formatter(step.command, step.args, &work_dir) {
+
+            // For Java, google-java-format requires explicit file paths: collect them now.
+            let extra_args: Vec<String> = if *lang == Language::Java {
+                const JAVA_FILE_BATCH_LIMIT: usize = 200;
+                let java_files = collect_java_files(&work_dir, JAVA_FILE_BATCH_LIMIT);
+                if java_files.is_empty() {
+                    debug!(
+                        "  [{lang_str}] no .java files found in {}, skipping",
+                        work_dir.display()
+                    );
+                    break;
+                }
+                java_files
+                    .into_iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect()
+            } else {
+                vec![]
+            };
+
+            let mut all_args: Vec<&str> = step.args.iter().map(String::as_str).collect();
+            let extra_refs: Vec<&str> = extra_args.iter().map(String::as_str).collect();
+            all_args.extend_from_slice(&extra_refs);
+
+            match run_formatter(&step.command, &all_args, &work_dir) {
                 Ok(()) => {
-                    debug!("  [{lang_str}] {} {:?} ok", step.command, step.args);
+                    debug!("  [{lang_str}] {} {:?} ok", step.command, all_args);
                 }
                 Err(e) => {
-                    warn!("[{lang_str}] {} {:?} failed: {}", step.command, step.args, e);
+                    warn!("[{lang_str}] {} {:?} failed: {}", step.command, all_args, e);
                     break;
                 }
             }
@@ -274,5 +338,132 @@ fn run_custom_formatter(cmd: &str, work_dir: &Path) -> bool {
             debug!("custom formatter error: {}", e);
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::{AlefConfig, Language};
+
+    fn make_config(crate_name: &str) -> AlefConfig {
+        toml::from_str(&format!(
+            r#"
+languages = ["rust"]
+
+[crate]
+name = "{crate_name}"
+sources = ["src/lib.rs"]
+"#
+        ))
+        .expect("valid config")
+    }
+
+    fn make_config_with_csharp_project(crate_name: &str, project_file: &str) -> AlefConfig {
+        toml::from_str(&format!(
+            r#"
+languages = ["csharp"]
+
+[crate]
+name = "{crate_name}"
+sources = ["src/lib.rs"]
+
+[csharp]
+project_file = "{project_file}"
+"#
+        ))
+        .expect("valid config")
+    }
+
+    // Bug 1: WASM crate name must be derived from config, not hardcoded to "wasm".
+    #[test]
+    fn test_wasm_formatter_uses_config_crate_name() {
+        let config = make_config("liter-llm");
+        let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
+        assert_eq!(spec.commands.len(), 1);
+        let cmd = &spec.commands[0];
+        assert_eq!(cmd.command, "cargo");
+        assert_eq!(cmd.args, vec!["fmt", "-p", "liter-llm-wasm"]);
+        assert!(spec.work_dir.is_empty(), "WASM formatter must run at workspace root");
+    }
+
+    #[test]
+    fn test_wasm_formatter_different_crate_name() {
+        let config = make_config("kreuzberg");
+        let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
+        let cmd = &spec.commands[0];
+        assert_eq!(cmd.args, vec!["fmt", "-p", "kreuzberg-wasm"]);
+    }
+
+    // Bug 2: C# formatter must include project_file when configured to avoid workspace ambiguity.
+    #[test]
+    fn test_csharp_formatter_with_project_file() {
+        let config = make_config_with_csharp_project("liter-llm", "packages/csharp/LiterLlm.csproj");
+        let spec = get_default_formatter(&config, Language::Csharp).expect("should have formatter");
+        assert_eq!(spec.commands.len(), 1);
+        let cmd = &spec.commands[0];
+        assert_eq!(cmd.command, "dotnet");
+        assert!(cmd.args.contains(&"format".to_owned()), "args must contain 'format'");
+        assert!(
+            cmd.args.contains(&"LiterLlm.csproj".to_owned()),
+            "args must contain the relative project file, got: {:?}",
+            cmd.args
+        );
+        assert_eq!(spec.work_dir, "packages/csharp/");
+    }
+
+    #[test]
+    fn test_csharp_formatter_without_project_file() {
+        let config = make_config("liter-llm");
+        let spec = get_default_formatter(&config, Language::Csharp).expect("should have formatter");
+        let cmd = &spec.commands[0];
+        assert_eq!(cmd.command, "dotnet");
+        assert_eq!(
+            cmd.args,
+            vec!["format"],
+            "without project_file, args must be just ['format']"
+        );
+    }
+
+    // Bug 3: Java file collection — only .java files are returned, non-.java files are excluded.
+    #[test]
+    fn test_collect_java_files_returns_only_java_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+
+        // Create a nested structure with .java and other files
+        std::fs::create_dir_all(root.join("com/example")).unwrap();
+        std::fs::write(root.join("com/example/Foo.java"), "class Foo {}").unwrap();
+        std::fs::write(root.join("com/example/Bar.java"), "class Bar {}").unwrap();
+        std::fs::write(root.join("com/example/readme.txt"), "ignore me").unwrap();
+        std::fs::write(root.join("com/example/Baz.class"), "ignore me").unwrap();
+
+        let files = collect_java_files(root, 200);
+        assert_eq!(files.len(), 2, "expected 2 .java files, got: {:?}", files);
+        assert!(files.iter().all(|p| p.extension().is_some_and(|e| e == "java")));
+    }
+
+    #[test]
+    fn test_collect_java_files_empty_dir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let files = collect_java_files(dir.path(), 200);
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_collect_java_files_nonexistent_dir() {
+        let files = collect_java_files(Path::new("/nonexistent/path/to/src"), 200);
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_collect_java_files_respects_limit() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        for i in 0..10 {
+            std::fs::write(root.join(format!("File{i}.java")), "class Foo {}").unwrap();
+        }
+        let files = collect_java_files(root, 5);
+        assert_eq!(files.len(), 5);
     }
 }
