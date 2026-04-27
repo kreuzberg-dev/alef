@@ -290,6 +290,24 @@ pub(crate) fn gen_php_named_let_bindings(
                             .ok();
                         }
                     }
+                } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
+                    // Sanitized Vec<tuple>: each item is a JSON-encoded tuple string.
+                    // Deserialize so the core function can be called with its native signature.
+                    if p.optional {
+                        writeln!(
+                            out,
+                            "let {n}_core: Option<Vec<_>> = {n}.map(|strs| strs.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))).collect::<Result<Vec<_>, _>>()).transpose()?;",
+                            n = p.name,
+                        )
+                        .ok();
+                    } else {
+                        writeln!(
+                            out,
+                            "let {n}_core: Vec<_> = {n}.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))).collect::<Result<Vec<_>, _>>()?;",
+                            n = p.name,
+                        )
+                        .ok();
+                    }
                 } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
                     // Vec<String> with is_ref=true: core expects &[&str].
                     writeln!(
@@ -388,8 +406,12 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                 } else {
                     false
                 };
+                // Sanitized Vec<String> originating from a tuple type also has a `_core` binding
+                // (JSON-decoded items). Treat it like the named case.
+                let uses_sanitized_binding =
+                    matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some();
 
-                if uses_binding {
+                if uses_binding || uses_sanitized_binding {
                     // Use the _core binding
                     if p.is_ref {
                         if p.optional {

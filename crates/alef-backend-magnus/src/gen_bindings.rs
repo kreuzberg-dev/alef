@@ -1100,20 +1100,31 @@ fn gen_function(
     let has_error = func.error_type.is_some() || func.is_async;
     let return_annotation = mapper.wrap_return(&return_type, has_error);
 
-    // Generate serde_magnus deserialization preamble for non-opaque Named params
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+    let serde_recoverable = !can_delegate && magnus_serde_recoverable(func, opaque_types);
+
+    // Generate serde_magnus deserialization preamble for non-opaque Named params.
+    // Two emission modes:
+    //   - delegate path: rebind {name} to the binding type so the existing call_args gen works.
+    //   - serde-recovery path: emit `{name}_core: core::Type` so gen_call_args_with_let_bindings
+    //     can pass `&{name}_core` to the core function.
     let mut deser_lines = Vec::new();
-    for p in &func.params {
-        if let TypeRef::Named(name) = &p.ty {
-            if !opaque_types.contains(name.as_str()) {
-                let binding_ty = &p.name;
-                if p.optional {
-                    deser_lines.push(format!(
-                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
-                    ));
-                } else {
-                    deser_lines.push(format!(
-                        "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
-                    ));
+    if serde_recoverable {
+        deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import));
+    } else {
+        for p in &func.params {
+            if let TypeRef::Named(name) = &p.ty {
+                if !opaque_types.contains(name.as_str()) {
+                    let binding_ty = &p.name;
+                    if p.optional {
+                        deser_lines.push(format!(
+                            "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
+                        ));
+                    } else {
+                        deser_lines.push(format!(
+                            "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
+                        ));
+                    }
                 }
             }
         }
@@ -1124,10 +1135,12 @@ fn gen_function(
         format!("{}\n    ", deser_lines.join("\n    "))
     };
 
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
-
-    let body = if can_delegate {
-        let call_args = generators::gen_call_args(&func.params, opaque_types);
+    let body = if can_delegate || serde_recoverable {
+        let call_args = if serde_recoverable {
+            generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
+        } else {
+            generators::gen_call_args(&func.params, opaque_types)
+        };
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
             if path.starts_with(core_import) {
@@ -1190,7 +1203,7 @@ fn gen_function(
         gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
     };
     // Add #[allow(unused_variables)] to functions with unimplemented bodies to suppress warnings for unused params
-    let allow_attr = if !can_delegate {
+    let allow_attr = if !can_delegate && !serde_recoverable {
         "#[allow(unused_variables)]\n"
     } else {
         ""
@@ -1200,6 +1213,79 @@ fn gen_function(
          {deser_preamble}{body}\n}}",
         func.name
     )
+}
+
+/// Returns true if a non-delegatable Magnus function/method can be recovered via serde
+/// JSON-roundtrip on its params: every Named non-opaque param can be deserialized from a
+/// String, and every sanitized Vec<String> param has `original_type` set.  Requires the
+/// function to return Result (or be async, which wraps in Result via Runtime::new()) so the
+/// generated `?` operator works.
+fn magnus_serde_recoverable(func: &FunctionDef, opaque_types: &AHashSet<String>) -> bool {
+    if func.error_type.is_none() && !func.is_async {
+        return false;
+    }
+    if !alef_codegen::shared::is_delegatable_return(&func.return_type) {
+        return false;
+    }
+    func.params.iter().all(|p| {
+        // Sanitized Vec<String> originally Vec<tuple>: recoverable via JSON-decode-each.
+        if p.sanitized {
+            return p.original_type.is_some()
+                && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
+        }
+        match &p.ty {
+            // Named non-opaque: serde JSON-roundtrip handles both ref and non-ref cases.
+            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => true,
+            // Otherwise must be plain delegatable (no Named ref blockers since they're handled
+            // above).
+            _ => alef_codegen::shared::is_delegatable_param(&p.ty, opaque_types),
+        }
+    })
+}
+
+/// Generate Magnus serde let-bindings that produce `{name}_core: core::Type` so the shared
+/// `gen_call_args_with_let_bindings` can emit `&{name}_core` for is_ref Named params.
+fn magnus_serde_let_bindings(
+    params: &[alef_core::ir::ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> Vec<String> {
+    let err = "magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string())";
+    let mut out = Vec::new();
+    for p in params {
+        match &p.ty {
+            TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
+                if p.optional {
+                    out.push(format!(
+                        "let {n}_core: Option<{core_import}::{name}> = {n}.as_deref().filter(|s| *s != \"nil\").map(|s| serde_json::from_str::<{core_import}::{name}>(s).map_err(|e| {err})).transpose()?;",
+                        n = p.name,
+                    ));
+                } else {
+                    out.push(format!(
+                        "let {n}_core: {core_import}::{name} = serde_json::from_str(&{n}).map_err(|e| {err})?;",
+                        n = p.name,
+                    ));
+                }
+            }
+            TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() =>
+            {
+                if p.optional {
+                    out.push(format!(
+                        "let {n}_core: Option<Vec<_>> = {n}.map(|strs| strs.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| {err})).collect::<Result<Vec<_>, _>>()).transpose()?;",
+                        n = p.name,
+                    ));
+                } else {
+                    out.push(format!(
+                        "let {n}_core: Vec<_> = {n}.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| {err})).collect::<Result<Vec<_>, _>>()?;",
+                        n = p.name,
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// Generate an async free function binding for Magnus (block on runtime).
@@ -1224,20 +1310,27 @@ fn gen_async_function(
     // function itself has no error type.
     let return_annotation = mapper.wrap_return(&return_type, true);
 
-    // Generate serde_magnus deserialization preamble for non-opaque Named params
+    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
+    let serde_recoverable = !can_delegate && magnus_serde_recoverable(func, opaque_types);
+
+    // Generate serde_magnus deserialization preamble for non-opaque Named params.
     let mut deser_lines = Vec::new();
-    for p in &func.params {
-        if let TypeRef::Named(name) = &p.ty {
-            if !opaque_types.contains(name.as_str()) {
-                let binding_ty = &p.name;
-                if p.optional {
-                    deser_lines.push(format!(
-                        "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
-                    ));
-                } else {
-                    deser_lines.push(format!(
-                        "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
-                    ));
+    if serde_recoverable {
+        deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import));
+    } else {
+        for p in &func.params {
+            if let TypeRef::Named(name) = &p.ty {
+                if !opaque_types.contains(name.as_str()) {
+                    let binding_ty = &p.name;
+                    if p.optional {
+                        deser_lines.push(format!(
+                            "let {binding_ty}: Option<{name}> = {binding_ty}.as_deref().filter(|s| *s != \"nil\").map(|s| {{ let core: {core_import}::{name} = serde_json::from_str(s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Ok::<_, magnus::Error>(core.into()) }}).transpose()?;"
+                        ));
+                    } else {
+                        deser_lines.push(format!(
+                            "let {binding_ty}: {name} = {{ let core: {core_import}::{name} = serde_json::from_str(&{binding_ty}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; core.into() }};"
+                        ));
+                    }
                 }
             }
         }
@@ -1248,10 +1341,12 @@ fn gen_async_function(
         format!("{}\n    ", deser_lines.join("\n    "))
     };
 
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
-
-    let body = if can_delegate {
-        let call_args = generators::gen_call_args(&func.params, opaque_types);
+    let body = if can_delegate || serde_recoverable {
+        let call_args = if serde_recoverable {
+            generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
+        } else {
+            generators::gen_call_args(&func.params, opaque_types)
+        };
         let core_fn_path = {
             let path = func.rust_path.replace('-', "_");
             if path.starts_with(core_import) {
@@ -1292,7 +1387,7 @@ fn gen_async_function(
         )
     };
     // Add #[allow(unused_variables)] to functions with unimplemented bodies to suppress warnings for unused params
-    let allow_attr = if !can_delegate {
+    let allow_attr = if !can_delegate && !serde_recoverable {
         "#[allow(unused_variables)]\n"
     } else {
         ""

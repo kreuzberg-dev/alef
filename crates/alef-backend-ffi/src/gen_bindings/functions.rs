@@ -5,6 +5,20 @@ use alef_codegen::conversions::core_type_path;
 use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 
+/// Returns true when a sanitized function/method can be auto-recovered via JSON-roundtrip:
+/// every sanitized param is a `Vec<String>` with `original_type` set (i.e. originally a
+/// `Vec<tuple>`).  In that case the FFI param is a `*const c_char` JSON array and the
+/// existing `Vec` conversion path produces `let items_rs = serde_json::from_str(...)?` whose
+/// element type is inferred from the core call.
+fn sanitized_params_recoverable(params: &[ParamDef]) -> bool {
+    params.iter().all(|p| {
+        if !p.sanitized {
+            return true;
+        }
+        p.original_type.is_some() && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
+    })
+}
+
 use crate::type_map::{c_param_type_with_paths, c_return_type_with_paths, is_passthrough_return, is_void_return};
 
 use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value};
@@ -117,8 +131,10 @@ pub(super) fn gen_method_wrapper(
         ret_type = ret_type.replace("Self", &qualified);
     }
 
-    // Check if this method will be unimplemented before building params
-    let will_be_unimplemented = method.sanitized;
+    // Check if this method will be unimplemented before building params.
+    // Sanitized methods with recoverable params (Vec<String> originally Vec<tuple>) are
+    // re-routed through the standard JSON-roundtrip Vec conversion below.
+    let will_be_unimplemented = method.sanitized && !sanitized_params_recoverable(&method.params);
 
     // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();
@@ -509,8 +525,10 @@ pub(super) fn gen_free_function(
         c_return_type_with_paths(&func.return_type, core_import, path_map).into_owned()
     };
 
-    // Check if this function will be unimplemented before building params
-    let will_be_unimplemented = func.sanitized;
+    // Check if this function will be unimplemented before building params.
+    // Sanitized funcs with recoverable params (Vec<String> originally Vec<tuple>) are
+    // re-routed through the standard JSON-roundtrip Vec conversion below.
+    let will_be_unimplemented = func.sanitized && !sanitized_params_recoverable(&func.params);
 
     // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();
