@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-04-27
+
+A patch release fixing the publish pipeline. v0.9.0 (and prior releases since `alef-publish` was added) failed to publish `alef-cli` to crates.io because `alef-publish` was missing from the publish workflow's crate list — `alef-cli` declares `alef-publish = "^X.Y.Z"` and crates.io still served `alef-publish 0.7.2`, so the upload of `alef-cli` errored with `failed to select a version for the requirement alef-publish = "^0.9.0"`. The 19 other workspace crates published cleanly each time; only `alef-cli` (the binary used by `cargo install` / `cargo binstall`) was affected. v0.9.0 was rescued by publishing `alef-publish` and `alef-cli` manually with `cargo publish`; v0.9.1 makes the workflow self-sufficient.
+
+### Fixed
+
+- **`alef-publish` was missing from the Publish workflow's crate list**: `.github/workflows/publish.yaml` listed 20 crates but not `alef-publish`, so the workflow never uploaded it to crates.io. `alef-cli`'s dependency on `alef-publish ^X.Y.Z` therefore failed to resolve at publish time. The crate is now listed in dependency order (after `alef-scaffold`, before the backends), matching the rest of the workspace.
+
 ## [0.9.0] - 2026-04-27
 
 A major fix release eliminating ~40 generated "Not implemented" stubs across the PHP, Ruby, C FFI, and R backends. Every batch extraction API (`batch_extract_file_sync`, `batch_extract_bytes_sync`, plus async variants), `extract_file`/`extract_file_sync`, and most of the Ruby gem's surface previously failed at runtime with error code 99. Five distinct generator bugs collapsed into a single class of bad output. Also makes `alef verify` input-deterministic so downstream formatters can reformat generated content freely without breaking verify, and exposes the canonical input-hash recipe via `alef_core::hash::compute_generation_hash`.
