@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-04-27
+
+A patch hardening the C# upgrade default introduced in v0.8.5. The original `$(ls ... || find ... || echo …)` chain didn't actually skip when no project file existed — `ls foo/*.csproj 2>/dev/null` always exits 0 with empty stdout, so the `||` fallbacks never triggered and `dotnet outdated` ran with no path argument and errored out at the repo root.
+
+### Fixed
+
+- **C# upgrade falls through and fails when no `.csproj` exists**: alef-core's `update_defaults.rs` C# precondition now requires BOTH `dotnet` AND a discoverable `.sln`/`.csproj` under the output dir (depth 3). When no project exists, the upgrade is skipped (precondition warning) instead of erroring out. The command itself is simplified to just `find … | head -1`, which the precondition has already validated returns a path.
+
 ## [0.8.5] - 2026-04-27
 
 A patch fixing two `alef update --latest` (`task upgrade`) failures observed across all four consumer repos.

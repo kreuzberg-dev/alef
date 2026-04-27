@@ -110,16 +110,22 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             ))),
         },
         Language::Csharp => UpdateConfig {
-            precondition: Some(require_tool("dotnet")),
+            // Require BOTH dotnet and an actual project file under output_dir, otherwise the
+            // upgrade is skipped (with the precondition warning) instead of erroring out with
+            // "directory does not contain any solutions or projects". `dotnet outdated` cannot
+            // operate without a project, and consumers without a populated `packages/csharp/`
+            // shouldn't fail the whole `task upgrade` pipeline.
+            precondition: Some(format!(
+                "command -v dotnet >/dev/null 2>&1 && [ -n \"$(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)\" ]"
+            )),
             before: None,
-            // `dotnet outdated` requires either a .sln/.csproj path or a directory containing
-            // one. Consumers typically nest csproj files under packages/csharp/<project>/, so
-            // shell out to find a top-level project file or fall back to the first one found.
+            // Resolve the first .sln/.csproj under output_dir (depth 3). The precondition
+            // guarantees one exists.
             update: Some(StringOrVec::Single(format!(
-                "dotnet outdated --upgrade $(ls {output_dir}/*.sln {output_dir}/*.csproj 2>/dev/null | head -1 || find {output_dir} -maxdepth 3 -name '*.sln' -o -name '*.csproj' 2>/dev/null | head -1 || echo {output_dir})"
+                "dotnet outdated --upgrade $(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)"
             ))),
             upgrade: Some(StringOrVec::Single(format!(
-                "dotnet outdated --upgrade --version-lock major $(ls {output_dir}/*.sln {output_dir}/*.csproj 2>/dev/null | head -1 || find {output_dir} -maxdepth 3 -name '*.sln' -o -name '*.csproj' 2>/dev/null | head -1 || echo {output_dir})"
+                "dotnet outdated --upgrade --version-lock major $(find {output_dir} -maxdepth 3 \\( -name '*.sln' -o -name '*.csproj' \\) 2>/dev/null | head -1)"
             ))),
         },
         Language::Elixir => UpdateConfig {
@@ -299,6 +305,19 @@ mod tests {
         // since `dotnet outdated` errors when the dir contains no top-level project file.
         assert!(update.contains("find packages/csharp"), "update should locate csproj");
         assert!(upgrade.contains("find packages/csharp"), "upgrade should locate csproj");
+    }
+
+    #[test]
+    fn csharp_precondition_requires_project_file() {
+        let c = cfg(Language::Csharp, "packages/csharp");
+        let pre = c.precondition.unwrap();
+        // Precondition must check for an actual .sln/.csproj so consumers without a populated
+        // packages/csharp/ skip cleanly instead of failing the whole upgrade pipeline.
+        assert!(
+            pre.contains("find packages/csharp"),
+            "precondition should search for project file"
+        );
+        assert!(pre.contains("dotnet"), "precondition should still require dotnet CLI");
     }
 
     #[test]
