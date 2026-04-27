@@ -3,6 +3,7 @@ use alef_core::ir::{EnumDef, TypeDef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
+use crate::ident::dart_safe_ident;
 use crate::type_map::DartMapper;
 
 use super::render_type::render_type;
@@ -26,7 +27,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
         } else {
             render_type(&field.ty, imports)
         };
-        let name = field.name.to_lower_camel_case();
+        let name = dart_safe_ident(&field.name.to_lower_camel_case());
         if !field.doc.is_empty() {
             for line in field.doc.lines() {
                 out.push_str("  /// ");
@@ -38,7 +39,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
     }
     // Constructor
     if ty.fields.len() == 1 {
-        let name = ty.fields[0].name.to_lower_camel_case();
+        let name = dart_safe_ident(&ty.fields[0].name.to_lower_camel_case());
         let ty_str = if ty.fields[0].optional {
             format!("{}?", render_type(&ty.fields[0].ty, imports))
         } else {
@@ -49,7 +50,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
     } else {
         out.push_str(&format!("  {}({{\n", ty.name));
         for field in &ty.fields {
-            let name = field.name.to_lower_camel_case();
+            let name = dart_safe_ident(&field.name.to_lower_camel_case());
             out.push_str(&format!("    required this.{name},\n"));
         }
         out.push_str("  });\n");
@@ -77,7 +78,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                     out.push('\n');
                 }
             }
-            let vname = variant.name.to_lower_camel_case();
+            let vname = dart_safe_ident(&variant.name.to_lower_camel_case());
             let semicolon = if idx + 1 == count { ";" } else { "," };
             out.push_str(&format!("  {vname}{semicolon}\n"));
         }
@@ -96,30 +97,18 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                 out.push_str(&format!("final class {} extends {} {{}}\n", variant.name, en.name));
             } else {
                 out.push_str(&format!("final class {} extends {} {{\n", variant.name, en.name));
-                for (idx, f) in variant.fields.iter().enumerate() {
+                for f in variant.fields.iter() {
                     let ty_str = DartMapper.map_type(&f.ty);
-                    let fname = if f.name.is_empty() {
-                        format!("field{idx}")
-                    } else {
-                        f.name.to_lower_camel_case()
-                    };
+                    let fname = dart_safe_ident(&f.name.to_lower_camel_case());
                     out.push_str(&format!("  final {ty_str} {fname};\n"));
                 }
                 if variant.fields.len() == 1 {
-                    let fname = if variant.fields[0].name.is_empty() {
-                        "field0".to_string()
-                    } else {
-                        variant.fields[0].name.to_lower_camel_case()
-                    };
+                    let fname = dart_safe_ident(&variant.fields[0].name.to_lower_camel_case());
                     out.push_str(&format!("  {}(this.{fname});\n", variant.name));
                 } else {
                     out.push_str(&format!("  {}({{\n", variant.name));
-                    for (idx, f) in variant.fields.iter().enumerate() {
-                        let fname = if f.name.is_empty() {
-                            format!("field{idx}")
-                        } else {
-                            f.name.to_lower_camel_case()
-                        };
+                    for f in variant.fields.iter() {
+                        let fname = dart_safe_ident(&f.name.to_lower_camel_case());
                         out.push_str(&format!("    required this.{fname},\n"));
                     }
                     out.push_str("  });\n");

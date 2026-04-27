@@ -11,6 +11,7 @@
 mod gen_bindings;
 pub(crate) mod gen_ffi;
 pub(crate) mod gen_rust_crate;
+pub(crate) mod ident;
 mod type_map;
 
 pub use gen_bindings::DartBackend;

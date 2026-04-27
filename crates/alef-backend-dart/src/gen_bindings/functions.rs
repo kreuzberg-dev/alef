@@ -2,6 +2,8 @@ use alef_core::ir::{FunctionDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
+use crate::ident::dart_safe_ident;
+
 use super::render_type::{format_param, render_type};
 
 pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>) {
@@ -16,9 +18,13 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         out.push_str(&format!("  /// throws {error_ty} on failure\n"));
     }
 
-    let fn_name = f.name.to_lower_camel_case();
+    let fn_name = dart_safe_ident(&f.name.to_lower_camel_case());
     let params: Vec<String> = f.params.iter().map(|p| format_param(p, imports)).collect();
-    let call_args: Vec<String> = f.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
+    let call_args: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| dart_safe_ident(&p.name.to_lower_camel_case()))
+        .collect();
     let call_args_str = call_args.join(", ");
 
     if f.is_async {

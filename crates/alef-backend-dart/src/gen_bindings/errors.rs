@@ -2,7 +2,19 @@ use alef_core::ir::ErrorDef;
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
+use crate::ident::dart_safe_ident;
+
 use super::render_type::render_type;
+
+/// Escape a string for use inside a Dart single-quoted string literal.
+///
+/// Dart single-quoted strings interpret `\`, `'`, and `$` specially:
+/// - `\` introduces an escape sequence → must be doubled.
+/// - `'` terminates the literal → must be escaped as `\'`.
+/// - `$` introduces string interpolation → must be escaped as `\$`.
+fn escape_dart_string_literal(s: &str) -> String {
+    s.replace('\\', r"\\").replace('\'', r"\'").replace('$', r"\$")
+}
 
 pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !error.doc.is_empty() {
@@ -24,7 +36,8 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
             }
         }
         if variant.is_unit {
-            let msg = variant.message_template.as_deref().unwrap_or(&variant.name);
+            let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
+            let msg = escape_dart_string_literal(raw_msg);
             out.push_str(&format!("final class {} implements {} {{\n", variant.name, error.name));
             out.push_str(&format!("  @override\n  String get message => '{msg}';\n"));
             out.push_str(&format!("  const {}();\n", variant.name));
@@ -33,19 +46,20 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
             out.push_str(&format!("final class {} implements {} {{\n", variant.name, error.name));
             for f in &variant.fields {
                 let ty_str = render_type(&f.ty, imports);
-                let fname = f.name.to_lower_camel_case();
+                let fname = dart_safe_ident(&f.name.to_lower_camel_case());
                 out.push_str(&format!("  final {ty_str} {fname};\n"));
             }
-            let msg = variant.message_template.as_deref().unwrap_or(&variant.name);
+            let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
+            let msg = escape_dart_string_literal(raw_msg);
             out.push_str("  @override\n");
             out.push_str(&format!("  String get message => '{msg}';\n"));
             if variant.fields.len() == 1 {
-                let fname = variant.fields[0].name.to_lower_camel_case();
+                let fname = dart_safe_ident(&variant.fields[0].name.to_lower_camel_case());
                 out.push_str(&format!("  {}(this.{fname});\n", variant.name));
             } else {
                 out.push_str(&format!("  {}({{\n", variant.name));
                 for f in &variant.fields {
-                    let fname = f.name.to_lower_camel_case();
+                    let fname = dart_safe_ident(&f.name.to_lower_camel_case());
                     out.push_str(&format!("    required this.{fname},\n"));
                 }
                 out.push_str("  });\n");
