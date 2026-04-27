@@ -4,12 +4,18 @@
 //! Trait bridge extern blocks live in `trait_bridge.rs`.
 
 use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
+use crate::gen_rust_crate::wrappers::is_unbridgeable_getter;
 use alef_core::ir::{EnumDef, FunctionDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
 use heck::{ToLowerCamelCase, ToSnakeCase};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-pub(crate) fn emit_extern_block_for_type(ty: &TypeDef, exclude_fields: &HashSet<String>) -> String {
+pub(crate) fn emit_extern_block_for_type(
+    ty: &TypeDef,
+    exclude_fields: &HashSet<String>,
+    type_paths: &HashMap<String, String>,
+    no_serde_names: &HashSet<&str>,
+) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
     block.push_str(&format!("        type {};\n", ty.name));
@@ -65,10 +71,18 @@ pub(crate) fn emit_extern_block_for_type(ty: &TypeDef, exclude_fields: &HashSet<
         ));
     }
 
-    // Getters — excluded fields still get a getter declaration (the impl emits unimplemented!()).
+    // Getters — skip declaration entirely for fields whose impl would have to be
+    // `unimplemented!()` (excluded via config, or Vec inner type that cannot be
+    // bridged). Skipping here keeps the swift-bridge surface free of callable
+    // functions that panic at runtime; the matching `wrappers.rs` skips the impl
+    // for the same fields.
+    //
     // Escape Swift keywords so e.g. `fn extension(&self)` becomes `fn extension_(&self)` —
-    // matches the impl block in wrappers.rs.
+    // matches the impl block in `wrappers.rs`.
     for field in &ty.fields {
+        if is_unbridgeable_getter(ty, field, exclude_fields, type_paths, no_serde_names) {
+            continue;
+        }
         let bridge_ty = bridge_type(&field.ty);
         let bridge_ty = if field.optional && !needs_json_bridge(&field.ty) {
             format!("Option<{bridge_ty}>")

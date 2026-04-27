@@ -92,7 +92,11 @@ fn emit_lib_rs(
     }
 
     let type_paths = build_type_path_lookup_for_source(api, source_crate_name);
-    for f in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
+    for f in api.functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(&f.name))
+        .filter(|f| !has_unbridgeable_param(f))
+    {
         content.push('\n');
         emit_bridge_fn(&mut content, f, source_crate_name, &type_paths);
     }
@@ -121,4 +125,28 @@ fn emit_lib_rs(
 
 fn dart_module_name(crate_name: &str) -> String {
     crate_name.replace('-', "_")
+}
+
+/// Returns true if `f` has any param the Dart bridge cannot reconstruct.
+///
+/// Currently the only such case is `Vec<(Vec<u8>, …)>` — a tuple-of-bytes
+/// container whose IR-flattened form (`Vec<String>`) cannot be losslessly
+/// converted back into `Vec<(Vec<u8>, T)>`. Skipping the function entirely
+/// at the bridge surface is preferred over emitting a panicking shim.
+fn has_unbridgeable_param(f: &alef_core::ir::FunctionDef) -> bool {
+    for p in &f.params {
+        let Some(orig) = p.original_type.as_deref() else {
+            continue;
+        };
+        let stripped_orig = orig.replace(' ', "");
+        // IR format for a tuple-vec param after sanitization:
+        //   Vec(Named("(Vec<u8>, T, …)"))
+        // (the `original_type` records the tuple shape; the real `ty` is `Vec<String>`).
+        // Round-tripping `Vec<u8>` through a JSON string is lossy, so skip emission
+        // entirely rather than emit a panicking shim.
+        if stripped_orig.starts_with("Vec(Named(\"(Vec<u8>,") {
+            return true;
+        }
+    }
+    false
 }
