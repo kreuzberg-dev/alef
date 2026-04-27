@@ -65,22 +65,51 @@ pub fn escape_js_template(s: &str) -> String {
     s.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$")
 }
 
+/// Returns `true` if the string must use a Go interpreted (double-quoted) literal
+/// rather than a raw (backtick) literal.
+///
+/// Go raw string literals cannot contain backtick characters or NUL bytes, and
+/// `\r` inside a raw string is passed through as a literal CR which gofmt rejects.
+fn go_needs_quoted(s: &str) -> bool {
+    s.contains('`') || s.bytes().any(|b| b == 0 || b == b'\r')
+}
+
 /// Format a string as a Go string literal (backtick or quoted).
+///
+/// Prefers backtick raw literals for readability, but falls back to double-quoted
+/// interpreted literals when the string contains characters that raw literals
+/// cannot represent: backtick `` ` ``, NUL (`\x00`), or carriage return (`\r`).
 pub fn go_string_literal(s: &str) -> String {
-    if !s.contains('`') {
-        format!("`{s}`")
-    } else {
+    if go_needs_quoted(s) {
         format!("\"{}\"", escape_go(s))
+    } else {
+        format!("`{s}`")
     }
 }
 
 /// Escape a string for embedding in a Go double-quoted string.
+///
+/// Handles all characters that cannot appear literally in a Go interpreted string:
+/// `\\`, `"`, `\n`, `\r`, `\t`, and NUL (`\x00`). Other non-printable bytes are
+/// emitted as `\xNN` hex escape sequences.
 pub fn escape_go(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\\""),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            0 => out.push_str("\\x00"),
+            // Other control characters or non-ASCII bytes: hex escape.
+            b if b < 0x20 || b == 0x7f => {
+                out.push_str(&format!("\\x{b:02x}"));
+            }
+            _ => out.push(b as char),
+        }
+    }
+    out
 }
 
 /// Escape a string for embedding in a Java string literal.
@@ -263,4 +292,71 @@ pub fn escape_zig(s: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Go raw string literals (backticks) cannot contain NUL bytes — gofmt rejects them.
+    /// Strings with NUL must fall back to a double-quoted interpreted literal with `\x00`.
+    #[test]
+    fn go_string_literal_nul_bytes_use_quoted_form() {
+        let s = "Hello\x00World";
+        let lit = go_string_literal(s);
+        // Must not contain a raw NUL byte
+        assert!(
+            !lit.as_bytes().contains(&0u8),
+            "go_string_literal emitted a NUL byte — gofmt would reject this: {lit:?}"
+        );
+        // Must be a double-quoted string, not a backtick raw string
+        assert!(
+            lit.starts_with('"'),
+            "expected double-quoted string for NUL input, got: {lit:?}"
+        );
+        // The NUL must be represented as \\x00
+        assert!(
+            lit.contains("\\x00"),
+            "expected \\x00 escape sequence for NUL byte, got: {lit:?}"
+        );
+    }
+
+    /// Strings with carriage return must also use the double-quoted form
+    /// because Go raw strings cannot represent `\r`.
+    #[test]
+    fn go_string_literal_carriage_return_uses_quoted_form() {
+        let s = "line1\r\nline2";
+        let lit = go_string_literal(s);
+        assert!(
+            !lit.as_bytes().contains(&b'\r'),
+            "go_string_literal emitted a literal CR — gofmt would reject this: {lit:?}"
+        );
+        assert!(
+            lit.starts_with('"'),
+            "expected double-quoted string for CR input, got: {lit:?}"
+        );
+    }
+
+    /// Strings with only printable chars and no backtick should still use the
+    /// readable backtick form.
+    #[test]
+    fn go_string_literal_plain_string_uses_backtick() {
+        let s = "Hello World\nwith newline";
+        let lit = go_string_literal(s);
+        assert!(
+            lit.starts_with('`'),
+            "expected backtick form for plain string, got: {lit:?}"
+        );
+    }
+
+    /// Strings that contain a backtick must fall back to double-quoted form.
+    #[test]
+    fn go_string_literal_backtick_in_string_uses_quoted_form() {
+        let s = "has `backtick`";
+        let lit = go_string_literal(s);
+        assert!(
+            lit.starts_with('"'),
+            "expected double-quoted form when string contains backtick, got: {lit:?}"
+        );
+    }
 }

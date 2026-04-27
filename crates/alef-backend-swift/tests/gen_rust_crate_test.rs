@@ -875,7 +875,11 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
 }
 
 #[test]
-fn cargo_toml_does_not_include_serde_json() {
+fn cargo_toml_includes_serde_json_dep() {
+    // serde_json is always required: the generated lib.rs may emit
+    // `::serde_json::to_value(...)` / `::serde_json::from_value(...)` for types
+    // that carry `has_serde: true` with Vec/Primitive fields (Codable propagation).
+    // Without the dep the generated crate fails to compile with E0433.
     let api = ApiSurface {
         crate_name: "my-lib".into(),
         version: "0.1.0".into(),
@@ -889,8 +893,74 @@ fn cargo_toml_does_not_include_serde_json() {
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
     assert!(
-        !cargo.content.contains("serde_json"),
-        "Cargo.toml must not list serde_json (unused dep); got:\n{}",
+        cargo.content.contains("serde_json"),
+        "Cargo.toml must list serde_json (required for Codable propagation); got:\n{}",
+        cargo.content
+    );
+}
+
+#[test]
+fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
+    // Specifically reproduce the kreuzberg bug: a type with has_serde=true and a
+    // Vec field causes the generator to emit ::serde_json::to_value calls in the
+    // wrapper impl, but the dep was missing from Cargo.toml → E0433 compile error.
+    let serde_type = TypeDef {
+        name: "DeviceInfo".to_string(),
+        rust_path: "demo::DeviceInfo".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "device_id".to_string(),
+            ty: TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U8))),
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true, // triggers ::serde_json::to_value path in wrappers.rs
+        super_traits: vec![],
+    };
+
+    let api = ApiSurface {
+        crate_name: "my-lib".into(),
+        version: "0.1.0".into(),
+        types: vec![serde_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // The lib.rs must emit the serde_json call for this case.
+    assert!(
+        lib.content.contains("serde_json"),
+        "lib.rs should emit serde_json calls for has_serde type with Vec field; got:\n{}",
+        lib.content
+    );
+    // The Cargo.toml must declare the dep so the crate compiles.
+    assert!(
+        cargo.content.contains("serde_json"),
+        "Cargo.toml must list serde_json when lib.rs emits serde_json calls; got:\n{}",
         cargo.content
     );
 }

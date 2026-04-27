@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.10.1] - 2026-04-27
+## [0.10.2] - 2026-04-27
+
+A patch release fixing four codegen and pipeline bugs surfaced by a clean regenerate of the five downstream polyglot repos against v0.10.1.
+
+### Fixed
+
+- **Swift binding `Cargo.toml` was missing `serde_json`** even though the generated `lib.rs` emitted `::serde_json::to_value(...)` / `::serde_json::from_value(...)` calls for `Codable` propagation, breaking compilation with ~1k+ `E0433: cannot find serde_json in the crate root` errors. The Swift backend now always includes `serde_json = "1"` in the binding crate's `[dependencies]`.
+- **Dart binding `Cargo.toml` listed an unused `anyhow = "1"`** — the Dart trait-bridge codegen returns `source_crate::Result<T>` directly and never imports anyhow, so `cargo machete` rejected the crate. The Dart backend's `extra_deps` no longer emits anyhow.
+- **Go e2e codegen emitted fixture strings containing NUL bytes inside raw string literals** (`` `…\0…` ``), which `gofmt` rejects with `illegal character NUL`. Affected ~50 generated test files in repos with NUL-bearing fixture data. The `go_string_literal` helper now switches to interpreted (double-quoted) form whenever a string contains characters Go raw strings cannot represent (NUL, `\r`, or backtick), and emits `\xNN` hex escapes for any ASCII control byte.
+- **e2e generated files drifted from their embedded `alef:hash` after `prek run --all-files`** because `alef e2e generate` skipped trailing-newline / trailing-whitespace normalization and didn't run a Rust or Python formatter on standalone e2e manifests by default. Three coupled fixes:
+  - `pipeline::write_scaffold_files_with_overwrite` now runs every emitted file through `normalize_content` (ensure exactly one trailing newline, strip trailing whitespace per line) before hash finalization, matching what `prek`'s `end-of-file-fixer` and `trailing-whitespace` hooks would have done.
+  - `alef-e2e::format::run_formatters` now falls back to a built-in default formatter set (`cargo fmt` inside `e2e/rust/`, `ruff format` on `e2e/python/`) when `[e2e].format` is unconfigured, instead of silently no-oping.
+  - `pipeline::sync_versions` now invokes `finalize_hashes` on every version-synced file (e.g. `version.rb`) so the embedded `alef:hash` line stays consistent with the rewritten content.
+
+
 
 A patch release reworking `alef verify` to be **idempotent across alef versions** and bundling six small generator/scaffold fixes that landed since v0.10.0. The verify hash no longer encodes the alef CLI version or `alef.toml`; it is now a per-file fingerprint derived purely from the rust sources and the on-disk file content, so a green `alef verify` stays green after upgrading the alef CLI as long as nothing else changed.
 

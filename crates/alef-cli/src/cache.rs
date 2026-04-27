@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 const CACHE_DIR: &str = ".alef";
 
 /// Compute the per-run sources hash that drives both the IR cache and the
-/// embedded `alef:hash:` value. Pure function of the rust source files (paths
-/// + content); independent of `alef.toml` and the alef CLI version, so
-/// `alef verify` is idempotent across alef upgrades.
+/// embedded `alef:hash:` value. Pure function of the rust source files
+/// (paths + content); independent of `alef.toml` and the alef CLI version, so
+/// that `alef verify` is idempotent across alef upgrades.
 pub fn sources_hash(sources: &[PathBuf]) -> anyhow::Result<String> {
     Ok(alef_core::hash::compute_sources_hash(sources)?)
 }

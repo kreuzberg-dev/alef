@@ -33,15 +33,15 @@ pub(crate) fn emit_cargo_toml(
         format!(", features = [{list}]")
     };
 
-    // Trait bridge impl methods use tokio::runtime::Handle::current().block_on(...),
-    // anyhow for error conversion, and async-trait for async trait impls.
-    // Add these dependencies only when trait bridges are configured and emitted.
+    // Trait bridge impl methods use tokio::runtime::Handle::current().block_on(...) and
+    // async-trait for async trait impls. Add these only when trait bridges are configured.
+    // Note: anyhow is NOT included — bridge impls use source_crate::Result directly.
     let has_trait_bridges = config.trait_bridges.iter().any(|b| {
         !b.exclude_languages.iter().any(|l| l == "dart")
             && api.types.iter().any(|t| t.name == b.trait_name && t.is_trait)
     });
     let extra_deps = if has_trait_bridges {
-        "tokio = { version = \"1\", features = [\"rt\"] }\nanyhow = \"1\"\nasync-trait = \"0.1\"\n"
+        "tokio = { version = \"1\", features = [\"rt\"] }\nasync-trait = \"0.1\"\n"
     } else {
         ""
     };

@@ -311,7 +311,8 @@ pub fn write_scaffold_files_with_overwrite(
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create directory {}", parent.display()))?;
         }
-        std::fs::write(&full_path, &file.content)
+        let normalized = normalize_content(&full_path, &file.content);
+        std::fs::write(&full_path, &normalized)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         count += 1;
         debug!("  wrote: {}", full_path.display());
@@ -365,5 +366,68 @@ pub fn format_rust_content(content: &str) -> String {
             debug!("rustfmt process error: {e}");
             content.to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod write_scaffold_normalize_tests {
+    use super::*;
+    use alef_core::backend::GeneratedFile;
+    use std::path::PathBuf;
+
+    fn make_file(name: &str, content: &str) -> GeneratedFile {
+        GeneratedFile {
+            path: PathBuf::from(name),
+            content: content.to_owned(),
+            generated_header: false,
+        }
+    }
+
+    /// `write_scaffold_files_with_overwrite` must strip trailing whitespace and
+    /// ensure a single trailing newline — matching what prek's
+    /// `end-of-file-fixer` and `trailing-whitespace` hooks would do.
+    #[test]
+    fn test_scaffold_write_normalizes_trailing_whitespace_and_newline() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+
+        let content = "line one   \nline two\n\n";
+        let files = vec![make_file("out.py", content)];
+        write_scaffold_files_with_overwrite(&files, base, true).expect("write ok");
+
+        let written = std::fs::read_to_string(base.join("out.py")).expect("read ok");
+        assert_eq!(
+            written, "line one\nline two\n",
+            "trailing whitespace must be stripped and single newline ensured"
+        );
+    }
+
+    #[test]
+    fn test_scaffold_write_adds_missing_trailing_newline() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+
+        let files = vec![make_file("out.gleam", "pub fn main() {}")];
+        write_scaffold_files_with_overwrite(&files, base, true).expect("write ok");
+
+        let written = std::fs::read_to_string(base.join("out.gleam")).expect("read ok");
+        assert!(
+            written.ends_with('\n'),
+            "file must end with newline, got: {:?}",
+            written
+        );
+    }
+
+    #[test]
+    fn test_scaffold_write_does_not_add_double_trailing_newline() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+
+        let files = vec![make_file("out.zig", "const x = 1;\n")];
+        write_scaffold_files_with_overwrite(&files, base, true).expect("write ok");
+
+        let written = std::fs::read_to_string(base.join("out.zig")).expect("read ok");
+        assert!(!written.ends_with("\n\n"), "must not have double trailing newline");
+        assert!(written.ends_with('\n'));
     }
 }

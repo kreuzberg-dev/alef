@@ -665,6 +665,70 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
 }
 
 #[test]
+fn cargo_toml_does_not_include_anyhow_without_trait_bridges() {
+    // Regression: anyhow was hardcoded in extra_deps even when no trait bridges are
+    // configured, causing cargo-machete to fail on the generated Dart binding crate.
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let cargo = find_file(&files, "packages/dart/rust/Cargo.toml").expect("Cargo.toml not found");
+
+    assert!(
+        !cargo.contains("anyhow"),
+        "Cargo.toml must not list anyhow when no trait bridges are configured (unused dep); got:\n{cargo}"
+    );
+}
+
+#[test]
+fn cargo_toml_does_not_include_anyhow_with_trait_bridges() {
+    // Regression: anyhow was included in extra_deps alongside tokio and async-trait when
+    // trait bridges are configured, but lib.rs never imports or uses anyhow — the bridge
+    // impl uses source_crate::Result directly. cargo-machete fails on this unused dep.
+    let trait_def = make_trait(
+        "OcrBackend",
+        "demo_crate::OcrBackend",
+        vec![make_method(
+            "extract_text",
+            vec![make_param("data", TypeRef::Bytes)],
+            TypeRef::String,
+            false,
+        )],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+    let config = make_config_with_bridge("OcrBackend");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let cargo = find_file(&files, "packages/dart/rust/Cargo.toml").expect("Cargo.toml not found");
+
+    assert!(
+        !cargo.contains("anyhow"),
+        "Cargo.toml must not list anyhow even with trait bridges (lib.rs never uses it); got:\n{cargo}"
+    );
+    // tokio and async-trait ARE legitimately used by trait bridges
+    assert!(
+        cargo.contains("tokio"),
+        "Cargo.toml must list tokio for trait bridges: {cargo}"
+    );
+    assert!(
+        cargo.contains("async-trait"),
+        "Cargo.toml must list async-trait for trait bridges: {cargo}"
+    );
+}
+
+#[test]
 fn cargo_toml_does_not_include_serde_json() {
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
