@@ -165,6 +165,7 @@ fn test_basic_generation() {
             doc: "Extract text".to_string(),
             cfg: None,
             sanitized: false,
+            return_sanitized: false,
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
