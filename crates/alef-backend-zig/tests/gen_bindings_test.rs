@@ -468,6 +468,7 @@ fn enum_emits_zig_enum_or_union() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };

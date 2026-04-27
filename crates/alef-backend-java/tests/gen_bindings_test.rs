@@ -199,6 +199,7 @@ fn test_basic_generation() {
             doc: "Processing mode".to_string(),
             cfg: None,
             is_copy: false,
+            has_serde: false,
             serde_tag: None,
             serde_rename_all: None,
         }],
@@ -734,6 +735,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
                 },
             ],
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![ErrorDef {
             name: "Error".to_string(),

@@ -173,6 +173,7 @@ fn simple_enum_def() -> EnumDef {
         doc: "Output format options.".to_string(),
         cfg: None,
         is_copy: false,
+        has_serde: false,
         serde_tag: None,
         serde_rename_all: None,
     }
@@ -2298,6 +2299,7 @@ fn test_enum_has_data_variants_true_when_fields_present() {
         doc: String::new(),
         cfg: None,
         is_copy: false,
+        has_serde: false,
         serde_tag: None,
         serde_rename_all: None,
     };
@@ -2324,6 +2326,7 @@ fn test_gen_enum_with_single_variant_uses_discriminant_zero() {
         doc: String::new(),
         cfg: None,
         is_copy: false,
+        has_serde: false,
         serde_tag: None,
         serde_rename_all: None,
     };
@@ -2405,6 +2408,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
         doc: String::new(),
         cfg: None,
         is_copy: false,
+        has_serde: false,
         serde_tag: None,
         serde_rename_all: None,
     };
@@ -2455,6 +2459,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_renames_python_keywords() {
         doc: String::new(),
         cfg: None,
         is_copy: false,
+        has_serde: false,
         serde_tag: None,
         serde_rename_all: None,
     };
@@ -2495,6 +2500,7 @@ fn test_gen_enum_without_pyclass_does_not_rename_python_keywords() {
         doc: String::new(),
         cfg: None,
         is_copy: false,
+        has_serde: false,
         serde_tag: None,
         serde_rename_all: None,
     };

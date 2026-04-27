@@ -295,6 +295,7 @@ fn enum_emits_custom_type() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };
@@ -404,6 +405,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
             serde_rename_all: None,
 
             is_copy: false,
+            has_serde: false,
         }],
         errors: vec![],
     };
