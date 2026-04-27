@@ -37,7 +37,7 @@ pub(crate) fn wrap_bare_urls(text: &str) -> String {
 /// - Converts bare `` [`Foo`] `` → `` `Foo` ``
 /// - Converts `# Errors` / `# Returns` headings to bold inline text
 /// - Converts `Foo::bar()` Rust path syntax to `Foo.bar()` in prose
-pub(crate) fn clean_doc(doc: &str, lang: Language) -> String {
+pub fn clean_doc(doc: &str, lang: Language) -> String {
     if doc.is_empty() {
         return String::new();
     }

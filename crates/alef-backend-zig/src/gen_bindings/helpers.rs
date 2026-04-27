@@ -1,4 +1,10 @@
+//! Helper functions for Zig code generation.
+//!
+//! Provides utilities for FFI introspection and documentation emission.
+
 use alef_codegen::c_consumer;
+use alef_core::config::Language;
+use alef_docs::clean_doc;
 
 /// Emit the two standard helpers every generated file needs:
 ///
@@ -39,4 +45,15 @@ pub(crate) fn emit_helpers(prefix: &str, out: &mut String) {
     out.push_str("    if (fields.len == 0) unreachable;\n");
     out.push_str("    return @field(E, fields[0].name);\n");
     out.push_str("}\n");
+}
+
+/// Emit cleaned Zig documentation for a declaration.
+///
+/// Cleans Rust-specific doc strings and formats as Zig doc comments (/// ...).
+pub(crate) fn emit_cleaned_zig_doc(out: &mut String, doc: &str, indent: &str) {
+    if doc.is_empty() {
+        return;
+    }
+    let cleaned = clean_doc(doc, Language::Zig);
+    alef_codegen::doc_emission::emit_zig_doc(out, &cleaned, indent);
 }
