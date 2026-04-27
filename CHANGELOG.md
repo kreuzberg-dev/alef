@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-04-27
+
+A patch release fixing `alef e2e generate` so it only emits test projects for languages the consumer has actually scaffolded.
+
+### Fixed
+
+- **`alef e2e generate` emitted test projects for every supported backend** when neither `--lang` nor `[e2e].languages` was set, including languages with no scaffolded binding (e.g. `gleam`, `kotlin`, `dart`, `swift`, `zig`, `brew`). The resulting `e2e/<lang>/` directories couldn't compile because the package they reference doesn't exist. The default now mirrors `alef generate` / `alef scaffold`: derive the e2e language list from the top-level `[languages]` array, mapping `Language::Ffi` → the `c` e2e harness and always including `rust` for the source-crate suite. Generators without a matching `Language` variant (`brew`) require explicit opt-in via `[e2e].languages`.
+
+  Migration: after upgrading, run `alef e2e generate` once, then manually delete any stale `e2e/<lang>/` directories for languages you never scaffolded — the cleanup pass only revisits dirs the current run touched, so untouched stale dirs from prior runs are not auto-removed.
+
+### Added
+
+- **`alef_e2e::default_e2e_languages(&[Language])`** — the public helper that maps the scaffolded language list to e2e generator names. Exposed so consumers and downstream tooling can resolve the same default the CLI uses.
+
 ## [0.10.2] - 2026-04-27
 
 A patch release fixing four codegen and pipeline bugs surfaced by a clean regenerate of the five downstream polyglot repos against v0.10.1.

@@ -14,7 +14,7 @@ pub mod scaffold;
 pub mod validate;
 
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::{AlefConfig, Language};
 use alef_core::config::e2e::DependencyMode;
 use anyhow::{Context, Result};
 use config::E2eConfig;
@@ -22,6 +22,30 @@ use fixture::{group_fixtures, load_fixtures};
 use std::path::Path;
 use tracing::{info, warn};
 use validate::Severity;
+
+/// Map the top-level `[languages]` list (the scaffolded bindings) to the
+/// e2e generator names registered in [`codegen::all_generators`].
+///
+/// `Language::Ffi` maps to the `c` generator (the FFI binding's e2e harness
+/// is the C test runner). `Language::Rust` is always appended because rust is
+/// the source language and the rust e2e suite exercises the core crate.
+///
+/// Generators that don't have a corresponding `Language` variant (e.g.
+/// `brew`) are intentionally excluded — they require an explicit opt-in via
+/// `[e2e].languages` in alef.toml.
+pub fn default_e2e_languages(scaffolded: &[Language]) -> Vec<String> {
+    let mut names: Vec<String> = scaffolded
+        .iter()
+        .map(|l| match l {
+            Language::Ffi => "c".to_string(),
+            other => other.to_string(),
+        })
+        .collect();
+    if !names.iter().any(|n| n == "rust") {
+        names.push("rust".to_string());
+    }
+    names
+}
 
 /// Generate e2e test projects from fixtures.
 ///
@@ -38,8 +62,28 @@ pub fn generate_e2e(
 
     info!("Loaded {} fixture(s) from {}", fixtures.len(), e2e_config.fixtures);
 
-    // Run semantic validation and emit warnings (don't block generation)
-    let diagnostics = validate::validate_fixtures_semantic(&fixtures, e2e_config, &e2e_config.languages);
+    // Resolution order for which language generators to run:
+    //   1. Explicit `--lang` filter from the CLI (highest priority).
+    //   2. `[e2e].languages` from alef.toml when set.
+    //   3. The top-level `[languages]` list mapped to e2e generator names —
+    //      so e2e tests are only generated for actually scaffolded bindings,
+    //      never for backends the consumer hasn't opted into.
+    //
+    // The legacy `all_generators()` fallback is removed; emitting tests for
+    // languages without a matching binding produces broken e2e dirs that
+    // cannot compile.
+    let resolved_languages: Vec<String> = if let Some(langs) = languages {
+        langs.to_vec()
+    } else if !e2e_config.languages.is_empty() {
+        e2e_config.languages.clone()
+    } else {
+        default_e2e_languages(&alef_config.languages)
+    };
+
+    // Run semantic validation against the resolved language set so the
+    // empty-category check warns about the same languages we're about to
+    // generate for.
+    let diagnostics = validate::validate_fixtures_semantic(&fixtures, e2e_config, &resolved_languages);
     for diag in &diagnostics {
         match diag.severity {
             Severity::Error => warn!("{}: {}", diag.file, diag.message),
@@ -62,13 +106,7 @@ pub fn generate_e2e(
             all_groups
         };
 
-    let generators = if let Some(langs) = languages {
-        codegen::generators_for(langs)
-    } else if !e2e_config.languages.is_empty() {
-        codegen::generators_for(&e2e_config.languages)
-    } else {
-        codegen::all_generators()
-    };
+    let generators = codegen::generators_for(&resolved_languages);
 
     let mut all_files = Vec::new();
     for generator in &generators {
