@@ -4,7 +4,7 @@ use crate::config::E2eConfig;
 use crate::escape::{go_string_literal, sanitize_filename};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
-use alef_codegen::naming::go_param_name;
+use alef_codegen::naming::{go_param_name, to_go_name};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -288,10 +288,12 @@ fn render_test_function(
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let lang = "go";
     let overrides = call_config.overrides.get(lang);
-    let function_name = overrides
-        .and_then(|o| o.function.as_ref())
-        .cloned()
-        .unwrap_or_else(|| call_config.function.clone());
+    let function_name = to_go_name(
+        overrides
+            .and_then(|o| o.function.as_ref())
+            .map(String::as_str)
+            .unwrap_or(&call_config.function),
+    );
     let result_var = &call_config.result_var;
     let args = &call_config.args;
 
@@ -1345,4 +1347,76 @@ fn template_to_sprintf(template: &str) -> (String, Vec<String>) {
 fn method_to_camel(snake: &str) -> String {
     use heck::ToUpperCamelCase;
     snake.to_upper_camel_case()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{CallConfig, E2eConfig};
+    use crate::field_access::FieldResolver;
+    use crate::fixture::{Assertion, Fixture};
+
+    fn make_fixture(id: &str) -> Fixture {
+        Fixture {
+            id: id.to_string(),
+            category: None,
+            description: "test fixture".to_string(),
+            tags: vec![],
+            skip: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![Assertion {
+                assertion_type: "not_error".to_string(),
+                field: None,
+                value: None,
+                values: None,
+                method: None,
+                args: None,
+                check: None,
+            }],
+            visitor: None,
+        }
+    }
+
+    /// snake_case function names in `[e2e.call]` must be routed through `to_go_name`
+    /// so the emitted Go call uses the idiomatic CamelCase (e.g. `CleanExtractedText`
+    /// instead of `clean_extracted_text`).
+    #[test]
+    fn test_go_method_name_uses_go_casing() {
+        let e2e_config = E2eConfig {
+            call: CallConfig {
+                function: "clean_extracted_text".to_string(),
+                module: "github.com/example/mylib".to_string(),
+                result_var: "result".to_string(),
+                r#async: false,
+                path: None,
+                method: None,
+                args: vec![],
+                overrides: std::collections::HashMap::new(),
+            },
+            ..E2eConfig::default()
+        };
+
+        let fixture = make_fixture("basic_text");
+        let resolver = FieldResolver::new(
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        );
+        let mut out = String::new();
+        render_test_function(&mut out, &fixture, "kreuzberg", &resolver, &e2e_config);
+
+        assert!(
+            out.contains("kreuzberg.CleanExtractedText("),
+            "expected Go-cased method name 'CleanExtractedText', got:\n{out}"
+        );
+        assert!(
+            !out.contains("kreuzberg.clean_extracted_text("),
+            "must not emit raw snake_case method name, got:\n{out}"
+        );
+    }
 }
