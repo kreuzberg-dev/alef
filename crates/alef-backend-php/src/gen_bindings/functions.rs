@@ -1,6 +1,7 @@
 use crate::type_map::PhpMapper;
 use ahash::AHashSet;
 use alef_adapters::AdapterBodies;
+use alef_codegen::doc_emission;
 use alef_codegen::generators;
 use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
@@ -283,27 +284,32 @@ pub(crate) fn gen_instance_method(
         return String::new();
     };
 
+    let mut out = String::new();
+    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ");
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n"
     } else {
         ""
     };
     let ret_sig = return_type_sig(&return_annotation);
+    out.push_str("    ");
+    out.push_str(trait_allow);
     if params_str.is_empty() {
-        format!(
-            "{trait_allow}pub fn {}(&self){ret_sig} {{\n    \
+        out.push_str(&format!(
+            "pub fn {}(&self){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
-        )
+        ));
     } else {
-        format!(
-            "{trait_allow}pub fn {}(&self, {params_str}){ret_sig} {{\n    \
+        out.push_str(&format!(
+            "pub fn {}(&self, {params_str}){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
-        )
+        ));
     }
+    out
 }
 
 /// Generate an instance method binding for a non-opaque struct (uses gen_lossy_binding_to_core_fields).
@@ -478,27 +484,32 @@ pub(crate) fn gen_static_method(
         return String::new();
     };
 
+    let mut out = String::new();
+    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ");
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n"
     } else {
         ""
     };
     let ret_sig = return_type_sig(&return_annotation);
+    out.push_str("    ");
+    out.push_str(trait_allow);
     if params.is_empty() {
-        format!(
-            "{trait_allow}pub fn {}(){ret_sig} {{\n    \
+        out.push_str(&format!(
+            "pub fn {}(){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
-        )
+        ));
     } else {
-        format!(
-            "{trait_allow}pub fn {}({params}){ret_sig} {{\n    \
+        out.push_str(&format!(
+            "pub fn {}({params}){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
-        )
+        ));
     }
+    out
 }
 
 /// Generate a free function binding as a static method body (no `#[php_function]` attribute).
@@ -523,22 +534,25 @@ pub(crate) fn gen_function_as_static_method(
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
+    let mut out = String::new();
+    doc_emission::emit_phpdoc(&mut out, &func.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
-        format!(
-            "pub fn {}(){ret_sig} {{\n    \
+        out.push_str(&format!(
+            "    pub fn {}(){ret_sig} {{\n    \
              {body}\n\
              }}",
             func.name
-        )
+        ));
     } else {
-        format!(
-            "pub fn {}({params}){ret_sig} {{\n    \
+        out.push_str(&format!(
+            "    pub fn {}({params}){ret_sig} {{\n    \
              {body}\n\
              }}",
             func.name
-        )
+        ));
     }
+    out
 }
 
 /// Shared body generation for sync free functions.
@@ -677,22 +691,25 @@ pub(crate) fn gen_async_function_as_static_method(
     let return_type = mapper.map_type(&func.return_type);
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
+    let mut out = String::new();
+    doc_emission::emit_phpdoc(&mut out, &func.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
-        format!(
-            "pub fn {}_async(){ret_sig} {{\n    \
+        out.push_str(&format!(
+            "    pub fn {}_async(){ret_sig} {{\n    \
              {body}\n\
              }}",
             func.name
-        )
+        ));
     } else {
-        format!(
-            "pub fn {}_async({params}){ret_sig} {{\n    \
+        out.push_str(&format!(
+            "    pub fn {}_async({params}){ret_sig} {{\n    \
              {body}\n\
              }}",
             func.name
-        )
+        ));
     }
+    out
 }
 
 /// Shared body generation for async free functions (block_on variant).
@@ -796,22 +813,26 @@ pub(crate) fn gen_async_instance_method(
         return String::new();
     };
 
+    let mut out = String::new();
+    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
+    out.push_str("    ");
     if params.is_empty() {
-        format!(
+        out.push_str(&format!(
             "pub fn {}_async(&self){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
-        )
+        ));
     } else {
-        format!(
+        out.push_str(&format!(
             "pub fn {}_async(&self, {params}){ret_sig} {{\n    \
              {body}\n\
              }}",
             method.name
-        )
+        ));
     }
+    out
 }
 
 /// Generate an async static method binding for PHP (block on runtime).
