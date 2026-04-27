@@ -307,6 +307,9 @@ fn main() -> Result<()> {
             let api = pipeline::extract(&config, config_path, clean)?;
             let files = pipeline::generate(&api, &config, &languages, clean)?;
             let base_dir = std::env::current_dir()?;
+            // Single input-deterministic hash for this generate run. Every alef-headered
+            // file gets this same hash; alef verify recomputes it from the same inputs.
+            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
 
             // Collect all files generated in this run for cleanup pass
             let mut current_gen_paths = std::collections::HashSet::new();
@@ -325,12 +328,15 @@ fn main() -> Result<()> {
                     current_gen_paths.insert(base_dir.join(&file.path));
                 }
 
+                // Per-language up-to-date short-circuit. Cache key is the (path, file
+                // content) of what we'd write; if every file matches the stored cache,
+                // skip writing this language. This is independent of the embedded
+                // alef:hash header (which is the input-deterministic generation hash).
                 let hashes: Vec<(String, String)> = lang_files
                     .iter()
                     .map(|f| {
                         let normalized = pipeline::normalize_content(&f.path, &f.content);
-                        let content_hash = hash::hash_content(&normalized);
-                        let final_content = hash::inject_hash_line(&normalized, &content_hash);
+                        let final_content = hash::inject_hash_line(&normalized, &generation_hash);
                         (
                             base_dir.join(&f.path).display().to_string(),
                             cache::hash_content(&final_content),
@@ -348,7 +354,7 @@ fn main() -> Result<()> {
 
                 // Write all files for this language and store updated hashes.
                 let single = vec![(*lang, lang_files.clone())];
-                let written = pipeline::write_files(&single, &base_dir)?;
+                let written = pipeline::write_files(&single, &base_dir, &generation_hash)?;
                 total_written += written;
                 any_written = true;
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
@@ -358,7 +364,7 @@ fn main() -> Result<()> {
             if config.generate.public_api {
                 let public_api_files = pipeline::generate_public_api(&api, &config, &languages)?;
                 if !public_api_files.is_empty() {
-                    let api_count = pipeline::write_files(&public_api_files, &base_dir)?;
+                    let api_count = pipeline::write_files(&public_api_files, &base_dir, &generation_hash)?;
                     eprintln!("Generated {api_count} public API files");
 
                     // Track public API files for cleanup
@@ -390,7 +396,7 @@ fn main() -> Result<()> {
                     !stub_hashes.is_empty() && stub_hashes.iter().all(|(p, h)| stored_stubs.get(p) == Some(h));
 
                 if !stubs_match || clean {
-                    let stub_count = pipeline::write_files(&stub_files, &base_dir)?;
+                    let stub_count = pipeline::write_files(&stub_files, &base_dir, &generation_hash)?;
                     eprintln!("Generated {stub_count} type stub files");
                     any_written = true;
                     let _ = cache::write_generation_hashes("stubs", &stub_hashes);
@@ -457,6 +463,7 @@ fn main() -> Result<()> {
             let api = pipeline::extract(&config, config_path, false)?;
             let files = pipeline::generate_stubs(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
+            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
 
             // Compute content hashes and compare against stored values; write
             // only when something has actually changed.
@@ -480,7 +487,7 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            let count = pipeline::write_files(&files, &base_dir)?;
+            let count = pipeline::write_files(&files, &base_dir, &generation_hash)?;
             let _ = cache::write_generation_hashes("stubs", &hashes);
             println!("Generated {count} stub files");
             Ok(())
@@ -499,7 +506,8 @@ fn main() -> Result<()> {
             eprintln!("Generating scaffolding for: {}", format_languages(&languages));
             let files = pipeline::scaffold(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
-            let count = pipeline::write_scaffold_files(&files, &base_dir)?;
+            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
+            let count = pipeline::write_scaffold_files(&files, &base_dir, &generation_hash)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
             cache::write_stage_hash("scaffold", &stage_hash, &output_paths)?;
             println!("Generated {count} scaffold files");
@@ -519,7 +527,8 @@ fn main() -> Result<()> {
             eprintln!("Generating READMEs for: {}", format_languages(&languages));
             let files = pipeline::readme(&api, &config, &languages)?;
             let base_dir = std::env::current_dir()?;
-            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
+            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
+            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true, &generation_hash)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
             cache::write_stage_hash("readme", &stage_hash, &output_paths)?;
             println!("Generated {count} README files");
@@ -540,7 +549,8 @@ fn main() -> Result<()> {
             eprintln!("Generating API docs for: {}", format_languages(&languages));
             let files = alef_docs::generate_docs(&api, &config, &languages, &output)?;
             let base_dir = std::env::current_dir()?;
-            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
+            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
+            let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true, &generation_hash)?;
             let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
             cache::write_stage_hash("docs", &stage_hash, &output_paths)?;
             println!("Generated {count} API doc files");
@@ -623,61 +633,35 @@ fn main() -> Result<()> {
         }
         Commands::Verify {
             exit_code,
-            compile,
-            lint,
-            lang,
+            compile: _,
+            lint: _,
+            lang: _,
         } => {
+            // alef verify is **input-deterministic**: it computes the same generation
+            // hash that `alef generate` embedded into every alef-headered file
+            // (blake3 of sorted rust sources + alef.toml + alef version) and compares
+            // it against the `alef:hash:<hex>` line in each generated file.
+            //
+            // Verify never regenerates outputs and never reads any file body — only
+            // header lines. Downstream formatters (rustfmt, rubocop, dotnet format,
+            // spotless, biome, mix format, php-cs-fixer, …) can reformat alef-
+            // generated content freely without breaking verify; only changes to the
+            // generation inputs (Rust source, alef.toml, alef version) invalidate
+            // the embedded hash.
+            //
+            // The legacy `--compile` / `--lint` / `--lang` flags are accepted but
+            // ignored; the canonical generated-code check no longer regenerates per
+            // language and so cannot scope its check that way. Run `alef build` /
+            // `alef lint` / `alef test` for those concerns.
             let config = load_config(config_path)?;
-            let languages = resolve_languages(&config, lang.as_deref())?;
-            eprintln!("Verifying bindings for: {}", format_languages(&languages));
-            if compile {
-                eprintln!("  (with compilation check)");
-            }
-            if lint {
-                eprintln!("  (with lint check)");
-            }
-
-            // Regenerate everything in-memory once — shared across all checks.
-            let api = pipeline::extract(&config, config_path, false)?;
+            eprintln!("Verifying alef-generated files (input-hash mode)");
             let base_dir = std::env::current_dir()?;
+            let expected_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
 
-            let mut all_stale: Vec<String> = Vec::new();
+            let stale = verify_walk(&base_dir, &expected_hash)?;
 
-            // Verify by regenerating in-memory, normalizing (same as write_files),
-            // hashing, then comparing against the hash embedded in the on-disk
-            // file header.  No external cache needed — the file is its own proof.
-            let bindings = pipeline::generate(&api, &config, &languages, true)?;
-            for (lang, lang_files) in &bindings {
-                let lang_str = lang.to_string();
-                for f in lang_files {
-                    let full_path = base_dir.join(&f.path);
-                    let normalized = pipeline::normalize_content(&f.path, &f.content);
-                    let expected_hash = alef_core::hash::hash_content(&normalized);
-                    verify_file(&full_path, &expected_hash, &lang_str, &mut all_stale);
-                }
-            }
-
-            // Verify stubs the same way.
-            let stubs = pipeline::generate_stubs(&api, &config, &languages)?;
-            for (_, stub_files) in &stubs {
-                for f in stub_files {
-                    let full_path = base_dir.join(&f.path);
-                    let normalized = pipeline::normalize_content(&f.path, &f.content);
-                    let expected_hash = alef_core::hash::hash_content(&normalized);
-                    verify_file(&full_path, &expected_hash, "stubs", &mut all_stale);
-                }
-            }
-
-            // Verify READMEs the same way.
-            let readmes = pipeline::readme(&api, &config, &languages)?;
-            for f in &readmes {
-                let full_path = base_dir.join(&f.path);
-                let normalized = pipeline::normalize_content(&f.path, &f.content);
-                let expected_hash = alef_core::hash::hash_content(&normalized);
-                verify_file(&full_path, &expected_hash, "readme", &mut all_stale);
-            }
-
-            // Also verify version consistency across all package manifests
+            // Version consistency check still runs — it doesn't depend on the
+            // generation hash; it compares manifest versions to Cargo.toml.
             let version_mismatches = pipeline::verify_versions(&config)?;
             let has_version_issues = !version_mismatches.is_empty();
             if has_version_issues {
@@ -687,16 +671,16 @@ fn main() -> Result<()> {
                 }
             }
 
-            if all_stale.is_empty() && !has_version_issues {
+            if stale.is_empty() && !has_version_issues {
                 println!("All bindings and versions are up to date.");
             } else {
-                if !all_stale.is_empty() {
+                if !stale.is_empty() {
                     println!("Stale bindings detected:");
-                    for s in &all_stale {
+                    for s in &stale {
                         println!("  {s}");
                     }
                 }
-                if exit_code && (!all_stale.is_empty() || has_version_issues) {
+                if exit_code {
                     process::exit(1);
                 }
             }
@@ -735,6 +719,7 @@ fn main() -> Result<()> {
 
             let api = pipeline::extract(&config, config_path, clean)?;
             let base_dir = std::env::current_dir()?;
+            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
 
             // Collect all files generated in this run for cleanup pass
             let mut current_gen_paths = std::collections::HashSet::new();
@@ -772,7 +757,7 @@ fn main() -> Result<()> {
                 }
 
                 let single = vec![(*lang, lang_files.clone())];
-                binding_count += pipeline::write_files(&single, &base_dir)?;
+                binding_count += pipeline::write_files(&single, &base_dir, &generation_hash)?;
                 let _ = cache::write_generation_hashes(&lang_str, &hashes);
             }
 
@@ -795,7 +780,7 @@ fn main() -> Result<()> {
                 !stub_hashes.is_empty() && stub_hashes.iter().all(|(p, h)| stored_stubs.get(p) == Some(h));
 
             let stub_count = if !stubs_match || clean {
-                let count = pipeline::write_files(&stubs, &base_dir)?;
+                let count = pipeline::write_files(&stubs, &base_dir, &generation_hash)?;
                 let _ = cache::write_generation_hashes("stubs", &stub_hashes);
                 count
             } else {
@@ -816,7 +801,7 @@ fn main() -> Result<()> {
             if config.generate.public_api {
                 let public_api_files = pipeline::generate_public_api(&api, &config, &languages)?;
                 if !public_api_files.is_empty() {
-                    api_count = pipeline::write_files(&public_api_files, &base_dir)?;
+                    api_count = pipeline::write_files(&public_api_files, &base_dir, &generation_hash)?;
 
                     // Track public API files for cleanup
                     for (_, files) in &public_api_files {
@@ -829,14 +814,15 @@ fn main() -> Result<()> {
 
             eprintln!("Generating scaffolding...");
             let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
-            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
+            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir, &generation_hash)?;
             for file in &scaffold_files {
                 current_gen_paths.insert(base_dir.join(&file.path));
             }
 
             eprintln!("Generating READMEs...");
             let readme_files = pipeline::readme(&api, &config, &languages)?;
-            let readme_count = pipeline::write_scaffold_files_with_overwrite(&readme_files, &base_dir, clean)?;
+            let readme_count =
+                pipeline::write_scaffold_files_with_overwrite(&readme_files, &base_dir, clean, &generation_hash)?;
             for file in &readme_files {
                 current_gen_paths.insert(base_dir.join(&file.path));
             }
@@ -846,7 +832,7 @@ fn main() -> Result<()> {
             if let Some(e2e_config) = &config.e2e {
                 eprintln!("Generating e2e test suites...");
                 let files = alef_e2e::generate_e2e(&config, e2e_config, None)?;
-                e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean)?;
+                e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean, &generation_hash)?;
                 alef_e2e::format::run_formatters(&files, e2e_config);
                 for file in &files {
                     current_gen_paths.insert(base_dir.join(&file.path));
@@ -858,7 +844,8 @@ fn main() -> Result<()> {
             let docs_api = pipeline::extract(&config, config_path, false)?;
             let doc_languages = resolve_doc_languages(&config, None)?;
             let doc_files = alef_docs::generate_docs(&docs_api, &config, &doc_languages, "docs/reference")?;
-            let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
+            let doc_count =
+                pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean, &generation_hash)?;
             for file in &doc_files {
                 current_gen_paths.insert(base_dir.join(&file.path));
             }
@@ -917,6 +904,7 @@ fn main() -> Result<()> {
 
             // Extract API surface
             let api = pipeline::extract(&config, config_path, false)?;
+            let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
 
             // Generate bindings
             eprintln!("  Generating bindings...");
@@ -924,13 +912,13 @@ fn main() -> Result<()> {
             let mut binding_count: usize = 0;
             for (lang_key, lang_files) in &bindings {
                 let single = vec![(*lang_key, lang_files.clone())];
-                binding_count += pipeline::write_files(&single, &base_dir)?;
+                binding_count += pipeline::write_files(&single, &base_dir, &generation_hash)?;
             }
 
             // Scaffold package manifests and lint configs
             eprintln!("  Generating scaffolding...");
             let scaffold_files = pipeline::scaffold(&api, &config, &languages)?;
-            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir)?;
+            let scaffold_count = pipeline::write_scaffold_files(&scaffold_files, &base_dir, &generation_hash)?;
 
             // Format generated code (best-effort).
             eprintln!("  Formatting...");
@@ -972,7 +960,9 @@ fn main() -> Result<()> {
                     let languages = lang.as_deref();
                     let files = alef_e2e::generate_e2e(&config, e2e_ref, languages)?;
                     let base_dir = std::env::current_dir()?;
-                    let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
+                    let generation_hash = cache::generation_hash(&config.crate_config.sources, config_path)?;
+                    let count =
+                        pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true, &generation_hash)?;
 
                     // Run per-language formatters
                     alef_e2e::format::run_formatters(&files, e2e_ref);
@@ -1191,35 +1181,95 @@ fn format_languages(languages: &[alef_core::config::Language]) -> String {
     languages.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(", ")
 }
 
-/// Check a single generated file against its expected content hash.
+/// Walk the consumer's repo from `base_dir`, find every alef-headered file, and
+/// return the list of stale ones (where the embedded `alef:hash` doesn't match
+/// `expected_hash`).
 ///
-/// Reads the on-disk file and compares its embedded `alef:hash:` line against
-/// `expected_hash` (computed from freshly generated + normalized content).
-///
-/// alef writes the hash into the header at generation time, so verification is
-/// purely a hash comparison — `alef verify` never inspects the file body.  This
-/// makes it formatting-agnostic: any external formatter (cargo fmt, php-cs-fixer,
-/// rubocop, ruff, biome, etc.) can rewrite the body without breaking verify, as
-/// long as the hash header line survives.
-///
-/// A file without an embedded hash is treated as user-owned (scaffold-once) and
-/// is skipped — alef never claims ownership of files it didn't tag.
-fn verify_file(path: &std::path::Path, expected_hash: &str, label: &str, stale: &mut Vec<String>) {
-    let disk_content = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(_) => {
-            stale.push(format!("[{label}] {} (missing)", path.display()));
-            return;
+/// Skips obvious build/cache directories (`target/`, `node_modules/`, `_build/`,
+/// `.alef/`, `parsers/`, `dist/`, `vendor/`, `.git/`) so verify stays fast on
+/// large repos. Only inspects the first ~10 lines of each candidate file via
+/// [`alef_core::hash::extract_hash`]; files without the marker are skipped
+/// silently — those are user-owned (scaffold-once Cargo.toml templates,
+/// composer.json, gemspec, package.json, lockfiles, etc.) and alef has no claim.
+fn verify_walk(base_dir: &std::path::Path, expected_hash: &str) -> anyhow::Result<Vec<String>> {
+    const SKIP_DIRS: &[&str] = &[
+        ".git",
+        ".alef",
+        "target",
+        "node_modules",
+        "_build",
+        "deps",
+        "parsers",
+        "dist",
+        "dist-node",
+        "vendor",
+        ".venv",
+        ".cache",
+        ".remote-cache",
+        "__pycache__",
+        "build",
+        "tmp",
+        "out",
+        ".idea",
+        ".vscode",
+    ];
+
+    // Only scan files alef plausibly emits. The check is cheap (extension
+    // match + read-first-10-lines), but constraining the set keeps the walk
+    // O(generated files) instead of O(every file in the repo).
+    const SCAN_EXTENSIONS: &[&str] = &[
+        "rs", "py", "pyi", "ts", "tsx", "js", "mjs", "cjs", "rb", "rbs", "php", "phpstub", "go", "java", "cs", "ex",
+        "exs", "R", "r", "toml", "json", "md", "h", "c", "yaml", "yml",
+    ];
+
+    let mut stale: Vec<String> = Vec::new();
+    let mut stack: Vec<std::path::PathBuf> = vec![base_dir.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            if file_type.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if SKIP_DIRS.contains(&name) || name.starts_with('.') {
+                    continue;
+                }
+                stack.push(path);
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let ext_ok = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| SCAN_EXTENSIONS.iter().any(|allowed| allowed.eq_ignore_ascii_case(e)))
+                .unwrap_or(false);
+            if !ext_ok {
+                continue;
+            }
+            // Read just enough to find the hash header (first ~10 lines).
+            // `extract_hash` already caps at 10 lines internally.
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let Some(disk_hash) = alef_core::hash::extract_hash(&content) else {
+                continue;
+            };
+            if disk_hash != expected_hash {
+                stale.push(path.display().to_string());
+            }
         }
-    };
-
-    let Some(disk_hash) = alef_core::hash::extract_hash(&disk_content) else {
-        // No alef hash on disk — file is either user-owned scaffold or was
-        // hand-edited to remove the marker. Either way, alef has no claim.
-        return;
-    };
-
-    if disk_hash != expected_hash {
-        stale.push(format!("[{label}] {}", path.display()));
     }
+
+    stale.sort();
+    Ok(stale)
 }

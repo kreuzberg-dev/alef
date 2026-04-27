@@ -72,8 +72,8 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
         ensure_gitignore(parent, config);
     }
 
-    let source_hash = cache::compute_source_hash(&config.crate_config.sources, config_path)
-        .context("failed to compute source hash")?;
+    let source_hash = cache::generation_hash(&config.crate_config.sources, config_path)
+        .context("failed to compute generation hash")?;
 
     if !clean && cache::is_ir_cached(&source_hash) {
         info!("Using cached IR");
