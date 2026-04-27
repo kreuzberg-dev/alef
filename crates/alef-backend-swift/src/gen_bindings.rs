@@ -10,71 +10,83 @@ use std::path::PathBuf;
 use crate::gen_rust_crate;
 use crate::type_map::SwiftMapper;
 
-/// Checks if a type reference contains any Named types (struct/enum references).
-/// Used to determine if conversion from RustBridge types is needed.
-/// Non-Codable types (typealiases to RustBridge.X) don't need conversion.
-fn should_convert_return(ty: &TypeRef, non_codable_types: &std::collections::HashSet<&str>) -> bool {
+/// Checks if a return value needs unwrapping from a RustBridge primitive container
+/// to its idiomatic Swift counterpart (RustString → String, RustVec<UInt8> → Data,
+/// RustVec<RustString> → [String], RustVec<T> → [T]).
+fn should_convert_return(_ty: &TypeRef, _non_codable_types: &std::collections::HashSet<&str>) -> bool {
+    // Now that all Named types are typealiases to RustBridge.X, the only return
+    // values that need conversion are primitive containers (RustString, RustVec)
+    // that swift-bridge wraps differently than the idiomatic Swift mapping.
+    //
+    // We could narrow this further by inspecting `_ty`, but `wrap_value_conversion`
+    // already returns `expr` unchanged for types that don't need wrapping.
+    true
+}
+
+/// Checks if an argument needs conversion from idiomatic Swift to a RustBridge primitive.
+/// Currently the only such case is `Data → RustVec<UInt8>` (swift-bridge accepts
+/// `[UInt8]` natively but not `Data`).
+fn arg_needs_conversion(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Bytes)
+}
+
+/// Builds the Swift expression that converts an argument from idiomatic Swift to
+/// the RustBridge type expected at the bridge call site. Returns the original
+/// expression unchanged if no conversion is needed.
+fn wrap_arg_for_rustbridge(ty: &TypeRef, expr: &str) -> String {
     match ty {
-        TypeRef::Named(name) => !non_codable_types.contains(name.as_str()),
-        TypeRef::Optional(inner) => {
-            matches!(inner.as_ref(), TypeRef::Named(n) if !non_codable_types.contains(n.as_str()))
-        }
-        _ => is_container_of_named(ty, non_codable_types),
+        // RustVec<UInt8> accepts an array of bytes at the swift-bridge boundary.
+        // `Array(data)` is the cheapest way to coerce a `Data` to `[UInt8]`.
+        TypeRef::Bytes => format!("Array({expr})"),
+        _ => expr.to_string(),
     }
 }
 
-/// Recursively checks if a type is a container (Vec, Optional, etc.) of Named types
-/// that need conversion (i.e., not non-Codable typealiases).
-fn is_container_of_named(ty: &TypeRef, non_codable_types: &std::collections::HashSet<&str>) -> bool {
-    match ty {
-        TypeRef::Vec(inner) => {
-            matches!(inner.as_ref(), TypeRef::Named(n) if !non_codable_types.contains(n.as_str()))
-                || is_container_of_named(inner, non_codable_types)
-        }
-        TypeRef::Optional(inner) => {
-            matches!(inner.as_ref(), TypeRef::Named(n) if !non_codable_types.contains(n.as_str()))
-                || is_container_of_named(inner, non_codable_types)
-        }
-        TypeRef::Map(k, v) => {
-            is_container_of_named(k, non_codable_types) || is_container_of_named(v, non_codable_types)
-        }
-        _ => false,
-    }
-}
-
-/// Builds a Swift expression that converts a value from RustBridge type to the idiomatic wrapper type.
-/// For example: `Data(rustVal: value)` or `[String](rustVal: value)`.
-/// For non-Codable types (which are typealiases to RustBridge.X), returns the expression unchanged.
+/// Builds a Swift expression that converts a value from a RustBridge type to the
+/// idiomatic Swift counterpart.
+///
+/// Conversion table (left = bridge type, right = Swift wrapper signature type):
+/// - `RustString → String`              : `expr.toString()`
+/// - `RustVec<UInt8> → Data`            : `Data(expr)` (RustVec is Sequence)
+/// - `RustVec<RustString> → [String]`   : `expr.map { $0.toString() }`
+/// - `RustVec<RustVec<UInt8>> → [Data]` : `expr.map { Data($0) }`
+/// - `RustVec<T> → [T]`  (T typealias)  : `Array(expr)`
+/// - `Optional<T> → T?`                 : `.map { ... }` recursion
+///
+/// All Named types are typealiases to `RustBridge.X` (see emit_enum / emit_struct),
+/// so no wrapper-type construction is emitted for them — pass-through suffices.
 fn wrap_value_conversion(
     ty: &TypeRef,
     expr: &str,
-    mapper: &SwiftMapper,
-    non_codable_types: &std::collections::HashSet<&str>,
+    _mapper: &SwiftMapper,
+    _non_codable_types: &std::collections::HashSet<&str>,
 ) -> String {
     match ty {
-        TypeRef::Named(name) => {
-            if non_codable_types.contains(name.as_str()) {
-                // Non-Codable type is a typealias to RustBridge.X — no conversion needed
+        // Non-Codable typealias to RustBridge.X — no conversion needed.
+        TypeRef::Named(_) => expr.to_string(),
+
+        TypeRef::String => format!("{expr}.toString()"),
+        TypeRef::Bytes => format!("Data({expr})"),
+
+        TypeRef::Optional(inner) => {
+            let inner_conversion = wrap_value_conversion(inner, "val", _mapper, _non_codable_types);
+            // Skip the `.map` when the inner conversion is already a no-op.
+            if inner_conversion == "val" {
                 expr.to_string()
             } else {
-                format!("{}(rustVal: {})", name, expr)
+                format!("{expr}.map {{ val in {inner_conversion} }}")
             }
         }
-        TypeRef::Optional(inner) => {
-            let inner_conversion = wrap_value_conversion(inner, "val", mapper, non_codable_types);
-            format!("{}.map {{ val in {} }}", expr, inner_conversion)
-        }
+
         TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Named(name) => {
-                if non_codable_types.contains(name.as_str()) {
-                    // Non-Codable type in Vec — no conversion needed
-                    expr.to_string()
-                } else {
-                    format!("{}.map {{ {}(rustVal: $0) }}", expr, name)
-                }
-            }
-            _ => expr.to_string(),
+            TypeRef::String => format!("{expr}.map {{ $0.toString() }}"),
+            TypeRef::Bytes => format!("{expr}.map {{ Data($0) }}"),
+            TypeRef::Named(_) => format!("Array({expr})"),
+            _ => format!("Array({expr})"),
         },
+
+        // Primitives (Bool/Int/etc.), Unit, Map, Path, Char, Json, Duration —
+        // either bridge as-is or are not currently exercised at the wrapper layer.
         _ => expr.to_string(),
     }
 }
@@ -372,12 +384,20 @@ fn emit_function(
         params.join(", "),
     ));
 
-    // Build the call expression: forward each parameter by name.
+    // Build the call expression: forward each parameter by name, applying any
+    // primitive conversion that swift-bridge requires (e.g., `Data → [UInt8]`).
     let bridge_func = format!("RustBridge.{func_name}");
     let call_args: Vec<String> = f
         .params
         .iter()
-        .map(|p| swift_ident(&p.name.to_lower_camel_case()))
+        .map(|p| {
+            let name = swift_ident(&p.name.to_lower_camel_case());
+            if arg_needs_conversion(&p.ty) {
+                wrap_arg_for_rustbridge(&p.ty, &name)
+            } else {
+                name
+            }
+        })
         .collect();
     let call_expr = format!("{bridge_func}({})", call_args.join(", "));
 
