@@ -42,20 +42,14 @@ pub(super) fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &A
             }
             TypeRef::Bytes => format!("&{}", p.name),
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-            TypeRef::Vec(inner) => {
+            TypeRef::Vec(_) => {
                 if p.is_ref {
-                    // Vec<String> binds to either &[String] or &[&str] in the core API. We
-                    // can't disambiguate from the IR, so emit a conversion that produces a
-                    // `Vec<&str>` and pass `&...` — accepted by both signatures via deref
-                    // coercion when possible.
-                    if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                        format!(
-                            "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
-                            p.name
-                        )
-                    } else {
-                        format!("&{}", p.name)
-                    }
+                    // `&Vec<T>` derefs to `&[T]`, which is the common case in kreuzberg
+                    // core (e.g., `&[String]`). Functions that want `&[&str]` can be
+                    // handled by an opt-in conversion in a future change — emitting the
+                    // unconditional `iter().map(String::as_str).collect::<Vec<&str>>()`
+                    // converted in the wrong direction for any `&[String]` signature.
+                    format!("&{}", p.name)
                 } else {
                     p.name.to_string()
                 }
@@ -190,22 +184,14 @@ pub(super) fn gen_nif_function(
                     }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(inner) => {
+                    TypeRef::Vec(_) => {
                         if p.is_ref {
-                            // Vec<String>/Vec<Char>: core may expect &[&str] which doesn't
-                            // coerce from &Vec<String>; build a Vec<&str> slice ref instead.
-                            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                                format!(
-                                    "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
-                                    p.name
-                                )
-                            } else {
-                                format!("&{}", p.name)
-                            }
+                            // &Vec<T> derefs to &[T] which matches kreuzberg core in all known sites.
+                            format!("&{}", p.name)
                         } else {
                             p.name.to_string()
                         }
-                    }
+                        }
                     _ => p.name.clone(),
                 }
             })
@@ -299,16 +285,16 @@ pub(super) fn gen_nif_function(
                     }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(inner) => {
+                    TypeRef::Vec(_) => {
                         if p.is_ref {
-                            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                                format!(
-                                    "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
-                                    p.name
-                                )
-                            } else {
-                                format!("&{}", p.name)
-                            }
+                            // `&Vec<T>` derefs to `&[T]`, which is what kreuzberg core
+                            // takes for every Vec param we've encountered so far. Rustler
+                            // previously force-converted `Vec<String>` to `Vec<&str>` —
+                            // that broke the `&[String]` callers (batch_reduce_tokens,
+                            // chunk_texts_batch). If a future core fn wants `&[&str]`,
+                            // handle it via an explicit conversion override at the call
+                            // site rather than re-introducing the lossy default.
+                            format!("&{}", p.name)
                         } else {
                             p.name.to_string()
                         }
@@ -463,16 +449,16 @@ pub(super) fn gen_nif_async_function(
                     }
                     TypeRef::Bytes => format!("&{}", p.name),
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
-                    TypeRef::Vec(inner) => {
+                    TypeRef::Vec(_) => {
                         if p.is_ref {
-                            if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) {
-                                format!(
-                                    "&{}.iter().map(std::string::String::as_str).collect::<Vec<_>>()",
-                                    p.name
-                                )
-                            } else {
-                                format!("&{}", p.name)
-                            }
+                            // `&Vec<T>` derefs to `&[T]`, which is what kreuzberg core
+                            // takes for every Vec param we've encountered so far. Rustler
+                            // previously force-converted `Vec<String>` to `Vec<&str>` —
+                            // that broke the `&[String]` callers (batch_reduce_tokens,
+                            // chunk_texts_batch). If a future core fn wants `&[&str]`,
+                            // handle it via an explicit conversion override at the call
+                            // site rather than re-introducing the lossy default.
+                            format!("&{}", p.name)
                         } else {
                             p.name.to_string()
                         }
