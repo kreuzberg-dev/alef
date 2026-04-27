@@ -213,27 +213,48 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
 
         let args_str = call_args.join(", ");
 
+        // Pick a capture name for the success branch that won't collide with method
+        // params. Methods can have a param literally called `result`; using that as
+        // the unwrap binding shadows the outer scope (zig 0.16+ flags this).
+        let ok_binding = if method.params.iter().any(|p| p.name == "value") {
+            "ok_value"
+        } else {
+            "value"
+        };
+
         if method.error_type.is_some() {
             // Fallible method: call returns error union, write out_result/out_error
             let has_result_out = !matches!(method.return_type, TypeRef::Unit);
             out.push_str(&format!(
-                "                if (self.{method_snake}({args_str})) |result| {{\n"
+                "                if (self.{method_snake}({args_str})) |{ok_binding}| {{\n"
             ));
+            // Write result via out_result pointer — for complex types this is unreachable.
+            // `unreachable` diverges, so any code after it (including `return 0;`) would
+            // be flagged "unreachable code" by zig 0.16+; only emit the trailing return
+            // when the success path actually flows through.
+            let mut success_path_diverges = false;
             if has_result_out {
-                // Write result via out_result pointer — for complex types this is unreachable
                 match &method.return_type {
                     TypeRef::Primitive(_) | TypeRef::Unit => {
-                        out.push_str("                    if (out_result) |ptr| ptr.* = result;\n");
+                        out.push_str(&format!(
+                            "                    if (out_result) |ptr| ptr.* = {ok_binding};\n"
+                        ));
                     }
                     _ => {
                         // String/Bytes/complex: cannot safely convert without allocator context
-                        out.push_str(
-                            "                    _ = result; _ = out_result; unreachable; // complex return: implement manually\n",
-                        );
+                        out.push_str(&format!(
+                            "                    _ = {ok_binding}; _ = out_result; unreachable; // complex return: implement manually\n"
+                        ));
+                        success_path_diverges = true;
                     }
                 }
+            } else {
+                // Unit return on success — discard the captured Void to silence unused-variable.
+                out.push_str(&format!("                    _ = {ok_binding};\n"));
             }
-            out.push_str("                    return 0;\n");
+            if !success_path_diverges {
+                out.push_str("                    return 0;\n");
+            }
             out.push_str("                } else |err| {\n");
             out.push_str("                    _ = err;\n");
             out.push_str(
@@ -242,6 +263,13 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
             out.push_str("                    return 1;\n");
             out.push_str("                }\n");
         } else {
+            // Infallible non-Unit methods get an `out_result` param "for uniformity"
+            // (see vtable_c_params), but the body returns the value directly via the
+            // function return type — so the param is unused. Discard it so zig 0.16+
+            // doesn't flag "unused function parameter".
+            if !matches!(method.return_type, TypeRef::Unit) {
+                out.push_str("                _ = out_result;\n");
+            }
             match &method.return_type {
                 TypeRef::Unit => {
                     out.push_str(&format!("                self.{method_snake}({args_str});\n"));
