@@ -10,6 +10,7 @@
 use alef_core::ir::{EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::collections::BTreeSet;
 
+use super::helpers::emit_cleaned_kdoc;
 use super::shared::{kotlin_field_name, to_lower_camel, to_screaming_snake};
 use crate::type_map::KotlinMapper;
 use alef_codegen::type_mapper::TypeMapper;
@@ -19,13 +20,7 @@ use alef_codegen::type_mapper::TypeMapper;
 // ---------------------------------------------------------------------------
 
 pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
-    if !ty.doc.is_empty() {
-        for line in ty.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_kdoc(out, &ty.doc, "");
     if ty.fields.is_empty() {
         out.push_str(&format!("class {} {{}}\n", ty.name));
         return;
@@ -41,13 +36,7 @@ pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &m
 }
 
 pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
-    if !en.doc.is_empty() {
-        for line in en.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_kdoc(out, &en.doc, "");
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
     if all_unit {
         out.push_str(&format!("enum class {} {{\n", en.name));
@@ -82,13 +71,7 @@ pub(crate) fn emit_error_type_with_imports(
     out: &mut String,
     imports: &mut BTreeSet<String>,
 ) {
-    if !error.doc.is_empty() {
-        for line in error.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_kdoc(out, &error.doc, "");
     out.push_str(&format!(
         "sealed class {}(message: String) : Exception(message) {{\n",
         error.name
@@ -130,13 +113,7 @@ pub(crate) fn emit_function(
     imports: &mut BTreeSet<String>,
     _java_package: &str,
 ) {
-    if !f.doc.is_empty() {
-        for line in f.doc.lines() {
-            out.push_str("    /// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_kdoc(out, &f.doc, "    ");
     let params: Vec<String> = f.params.iter().map(|p| format_param_with_imports(p, imports)).collect();
     let return_ty = kotlin_type_with_string_imports(&f.return_type, false, imports);
     let async_kw = if f.is_async { "suspend " } else { "" };

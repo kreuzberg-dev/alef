@@ -4,14 +4,10 @@ use alef_core::ir::{EnumDef, TypeDef, TypeRef};
 
 use crate::type_map::ZigMapper;
 
+use super::helpers::emit_cleaned_zig_doc;
+
 pub(crate) fn emit_type(ty: &TypeDef, out: &mut String) {
-    if !ty.doc.is_empty() {
-        for line in ty.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_zig_doc(out, &ty.doc, "");
     out.push_str(&format!("pub const {} = struct {{\n", ty.name));
     for field in &ty.fields {
         let ty_str = zig_field_type(&field.ty, field.optional);
@@ -21,13 +17,7 @@ pub(crate) fn emit_type(ty: &TypeDef, out: &mut String) {
 }
 
 pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
-    if !en.doc.is_empty() {
-        for line in en.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_zig_doc(out, &en.doc, "");
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
     if all_unit {
         out.push_str(&format!("pub const {} = enum {{\n", en.name));

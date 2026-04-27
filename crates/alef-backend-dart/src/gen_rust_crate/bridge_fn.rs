@@ -1,6 +1,7 @@
 use alef_core::ir::{FunctionDef, TypeRef};
 
 use super::conversions::{dart_call_arg, frb_rust_type_inner, frb_rust_type_with_source, primitive_name};
+use super::helpers::emit_cleaned_dartdoc;
 
 pub(crate) fn emit_bridge_fn(
     out: &mut String,
@@ -8,6 +9,8 @@ pub(crate) fn emit_bridge_fn(
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
 ) {
+    emit_cleaned_dartdoc(out, &f.doc, "");
+
     // FRB v2: ordinary public functions need no annotation. A bare `#[frb]`
     // with no arguments is rejected by the macro. Don't emit it.
     let fn_name = &f.name;

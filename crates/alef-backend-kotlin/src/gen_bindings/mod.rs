@@ -3,6 +3,7 @@
 //! The `KotlinBackend` struct implements [`Backend`] and dispatches to the
 //! appropriate target-specific emitter based on the configured [`KotlinTarget`].
 
+mod helpers;
 mod object_wrapper;
 mod shared;
 mod traits;
