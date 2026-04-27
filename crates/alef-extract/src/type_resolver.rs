@@ -170,7 +170,7 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
         "char" => TypeRef::Char,
 
         // Path types
-        "PathBuf" => TypeRef::Path,
+        "PathBuf" | "Path" => TypeRef::Path,
 
         // Bytes
         "Bytes" => TypeRef::Bytes,
@@ -457,6 +457,9 @@ mod tests {
     fn test_path_types() {
         assert_eq!(resolve_type(&parse_type("PathBuf")), TypeRef::Path);
         assert_eq!(resolve_type(&parse_type("&Path")), TypeRef::Path);
+        assert_eq!(resolve_type(&parse_type("Path")), TypeRef::Path);
+        assert_eq!(resolve_type(&parse_type("impl AsRef<Path>")), TypeRef::Path);
+        assert_eq!(resolve_type(&parse_type("impl AsRef<PathBuf>")), TypeRef::Path);
     }
 
     #[test]

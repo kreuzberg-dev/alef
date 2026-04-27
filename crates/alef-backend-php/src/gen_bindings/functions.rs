@@ -61,6 +61,16 @@ fn has_ref_named_params(params: &[alef_core::ir::ParamDef], opaque_types: &AHash
         .any(|p| p.is_ref && matches!(&p.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
 }
 
+/// Returns true if any param is a sanitized Vec<String> (originally Vec<tuple>) with
+/// `original_type` recorded — meaning we can deserialize each item back to the tuple type.
+fn has_sanitized_recoverable(params: &[alef_core::ir::ParamDef]) -> bool {
+    params.iter().any(|p| {
+        p.sanitized
+            && p.original_type.is_some()
+            && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
+    })
+}
+
 /// Generate serde-based let bindings for Named (non-opaque) params that have `is_ref=true`.
 /// These replace the `.clone().into()` bindings when no `From` impl is available.
 /// The round-trip works because PHP binding types derive `Serialize` and core types derive
@@ -156,6 +166,25 @@ fn gen_php_serde_let_bindings(
                             )
                             .ok();
                         }
+                    }
+                } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
+                    // Sanitized Vec<tuple>: binding accepts Vec<String> (each item JSON-encoded
+                    // tuple). Deserialize each element into the original tuple type so the core
+                    // function can be called with its native signature.
+                    if p.optional {
+                        writeln!(
+                            out,
+                            "let {n}_core: Option<Vec<_>> = {n}.map(|strs| strs.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))).collect::<Result<Vec<_>, _>>()).transpose()?;",
+                            n = p.name,
+                        )
+                        .ok();
+                    } else {
+                        writeln!(
+                            out,
+                            "let {n}_core: Vec<_> = {n}.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))).collect::<Result<Vec<_>, _>>()?;",
+                            n = p.name,
+                        )
+                        .ok();
                     }
                 } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
                     writeln!(
@@ -601,16 +630,20 @@ fn gen_function_body(
                 )
             )
         }
-    } else if func.sanitized {
-        // Sanitized functions cannot be auto-delegated — emit a safe error return value.
+    } else if func.sanitized
+        && !has_sanitized_recoverable(&func.params)
+        && !(has_serde && func.error_type.is_some() && has_ref_named_params(&func.params, opaque_types))
+    {
+        // Sanitized functions cannot be auto-delegated AND we have no recoverable serde path —
+        // emit a safe error return value.
         gen_stub_return(&func.return_type, true, &func.name)
     } else {
-        // Not auto-delegatable: use serde round-trip for Named params with is_ref=true when
-        // serde is available AND the function returns Result (avoids the missing From<BindingType>
-        // for core type compile error). Functions that don't return Result can't use ? operators,
-        // so we fall back to .clone().into().
-        let let_bindings = if has_serde && func.error_type.is_some() && has_ref_named_params(&func.params, opaque_types)
-        {
+        // Not auto-delegatable: use serde round-trip for Named params with is_ref=true and for
+        // sanitized Vec<tuple> params (decoded as Vec<String>). The serde path requires the
+        // function to return Result (uses `?` operator).
+        let needs_serde = func.error_type.is_some()
+            && (has_ref_named_params(&func.params, opaque_types) || has_sanitized_recoverable(&func.params));
+        let let_bindings = if has_serde && needs_serde {
             gen_php_serde_let_bindings(&func.params, opaque_types, core_import)
         } else {
             gen_php_named_let_bindings(&func.params, opaque_types, core_import)
@@ -705,8 +738,14 @@ fn gen_async_function_body(
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
-    if can_delegate {
-        let let_bindings = gen_php_named_let_bindings(&func.params, opaque_types, core_import);
+    let needs_serde = func.error_type.is_some()
+        && (has_ref_named_params(&func.params, opaque_types) || has_sanitized_recoverable(&func.params));
+    if can_delegate || needs_serde {
+        let let_bindings = if needs_serde && !can_delegate {
+            gen_php_serde_let_bindings(&func.params, opaque_types, core_import)
+        } else {
+            gen_php_named_let_bindings(&func.params, opaque_types, core_import)
+        };
         let raw_call_args = gen_php_call_args_with_let_bindings(&func.params, opaque_types);
         let call_args = apply_bridge_none_substitutions(&raw_call_args, func, &bridge_names);
         let core_fn_path = {
@@ -744,7 +783,7 @@ fn gen_async_function_body(
             )
         }
     } else {
-        // Cannot auto-delegate — return error stub
+        // Cannot auto-delegate and no serde recovery path — return error stub
         gen_stub_return(&func.return_type, true, &func.name)
     }
 }

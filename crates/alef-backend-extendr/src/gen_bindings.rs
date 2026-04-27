@@ -26,7 +26,7 @@ impl ExtendrBackend {
             signature_prefix: "",
             signature_suffix: "",
             core_import,
-            async_pattern: AsyncPattern::None,
+            async_pattern: AsyncPattern::TokioBlockOn,
             has_serde: true,
             type_name_prefix: "",
             option_duration_on_defaults: false,
@@ -73,7 +73,8 @@ impl Backend for ExtendrBackend {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            supports_async: false,
+            // R is single-threaded; async funcs are blocked on a per-call tokio runtime.
+            supports_async: true,
             supports_classes: true,
             supports_enums: true,
             supports_option: true,
