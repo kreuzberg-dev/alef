@@ -915,3 +915,186 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
         "doc comment should show example class: {content}"
     );
 }
+
+// ── Bug regression: reserved Dart keyword `default` as enum variant name ────
+
+#[test]
+fn enum_variant_named_default_is_escaped() {
+    // Regression for: HtmlTheme::Default emitting bare `default` which is a
+    // Dart reserved keyword, causing a parse error.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "HtmlTheme".into(),
+            rust_path: "demo::HtmlTheme".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Default".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+                EnumVariant {
+                    name: "Dark".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: false,
+        }],
+        errors: vec![],
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    // `default` must be escaped to `default_`; bare `default` is a Dart reserved word.
+    assert!(
+        content.contains("default_"),
+        "reserved keyword `default` must be escaped to `default_`: {content}"
+    );
+    assert!(
+        !content.contains("  default,") && !content.contains("  default;"),
+        "bare `default` identifier must not appear as enum variant: {content}"
+    );
+}
+
+// ── Bug regression: numeric field name `0` from tuple-variant index ─────────
+
+#[test]
+fn tuple_variant_with_numeric_field_name_is_escaped() {
+    // Regression for: FormatMetadata::Pdf(PdfMetadata) emitting `final String 0;`
+    // when the IR uses the string "0" as the tuple-field name.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "FormatMetadata".into(),
+            rust_path: "demo::FormatMetadata".into(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Pdf".into(),
+                // Tuple-variant: the IR represents the unnamed field with name "0".
+                fields: vec![make_field("0", TypeRef::String, false)],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+                is_tuple: true,
+            }],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_rename_all: None,
+            is_copy: false,
+            has_serde: false,
+        }],
+        errors: vec![],
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    // The field must be renamed to `field0`, not bare `0`.
+    assert!(
+        content.contains("final String field0;"),
+        "numeric field name `0` must be renamed to `field0`: {content}"
+    );
+    assert!(
+        content.contains("Pdf(this.field0);"),
+        "constructor must use `field0`: {content}"
+    );
+    assert!(
+        !content.contains("final String 0;"),
+        "bare numeric identifier `0` must not appear: {content}"
+    );
+}
+
+#[test]
+fn error_message_template_escapes_single_quotes() {
+    // Thiserror templates like "Plugin error in '{plugin_name}': {message}" contain literal
+    // single-quotes that must be escaped as \' when emitted inside a Dart single-quoted string.
+    // Also verify that backslashes are escaped and $ is escaped (not treated as interpolation).
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "PluginError".into(),
+            rust_path: "demo::PluginError".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                ErrorVariant {
+                    name: "Plugin".into(),
+                    message_template: Some("Plugin error in '{plugin_name}': {message}".into()),
+                    fields: vec![
+                        make_field("plugin_name", TypeRef::String, false),
+                        make_field("message", TypeRef::String, false),
+                    ],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+                ErrorVariant {
+                    name: "WithBackslash".into(),
+                    message_template: Some("Path C:\\Users\\{name}".into()),
+                    fields: vec![make_field("name", TypeRef::String, false)],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+                ErrorVariant {
+                    name: "WithDollar".into(),
+                    message_template: Some("Cost: ${amount}".into()),
+                    fields: vec![make_field("amount", TypeRef::Primitive(PrimitiveType::I32), false)],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+            ],
+            doc: String::new(),
+        }],
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // Single quotes must be escaped with backslash inside the dart string literal.
+    assert!(
+        content.contains(r"String get message => 'Plugin error in \'{plugin_name}\': {message}';"),
+        "single quotes in template must be escaped as \\': {content}"
+    );
+    // Unescaped single quote must not appear inside the string literal.
+    assert!(
+        !content.contains("=> 'Plugin error in '{plugin_name}'"),
+        "unescaped single quote must not appear: {content}"
+    );
+    // Backslashes must be doubled.
+    assert!(
+        content.contains(r"String get message => 'Path C:\\Users\\{name}';"),
+        "backslashes in template must be escaped as \\\\: {content}"
+    );
+    // Dollar signs must be escaped so Dart doesn't treat them as string interpolation.
+    assert!(
+        content.contains(r"String get message => 'Cost: \${amount}';"),
+        "dollar signs in template must be escaped as \\$: {content}"
+    );
+}

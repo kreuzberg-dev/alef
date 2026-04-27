@@ -3,6 +3,7 @@ use alef_core::ir::{ParamDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
+use crate::ident::dart_safe_ident;
 use crate::type_map::DartMapper;
 
 pub(super) fn render_type(ty: &TypeRef, imports: &mut BTreeSet<String>) -> String {
@@ -30,5 +31,5 @@ pub(super) fn format_param(p: &ParamDef, imports: &mut BTreeSet<String>) -> Stri
     } else {
         render_type(&p.ty, imports)
     };
-    format!("{ty_str} {}", p.name.to_lower_camel_case())
+    format!("{ty_str} {}", dart_safe_ident(&p.name.to_lower_camel_case()))
 }
