@@ -334,7 +334,7 @@ pub mod precommit {
     pub const GITFLUFF_REV: &str = "v0.7.10";
 
     // renovate: datasource=github-tags packageName=pre-commit/pre-commit-hooks
-    pub const PRE_COMMIT_HOOKS_REV: &str = "v0.7.10";
+    pub const PRE_COMMIT_HOOKS_REV: &str = "v6.0.0";
 
     // renovate: datasource=github-tags packageName=tox-dev/pyproject-fmt
     pub const PYPROJECT_FMT_REV: &str = "v2.21.1";
@@ -355,7 +355,7 @@ pub mod precommit {
     pub const RUMDL_REV: &str = "v0.1.81";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
-    pub const TYPOS_REV: &str = "v0.7.10";
+    pub const TYPOS_REV: &str = "v1.45.2";
 
     // alef rev: managed by sync-versions hook, no renovate marker
     pub const ALEF_REV: &str = "v0.10.4";
