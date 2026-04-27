@@ -1694,7 +1694,30 @@ fn dts_type(ty: &TypeRef, prefix: &str) -> String {
 
 /// Render a list of parameters as a TypeScript parameter string for `.d.ts`.
 fn dts_params(params: &[ParamDef], prefix: &str) -> String {
-    params
+    // TypeScript requires optional parameters to come after all required parameters (TS1016).
+    // If the Rust source has optional params followed by required params (e.g., `lang: Option<&str>`,
+    // `code: &str`), we must reorder: required first, then optional, preserving relative order within
+    // each group.
+    let mut required: Vec<&ParamDef> = Vec::new();
+    let mut optional: Vec<&ParamDef> = Vec::new();
+    for p in params {
+        if p.optional {
+            optional.push(p);
+        } else {
+            required.push(p);
+        }
+    }
+    // If no reordering is needed (already ordered), use original order to avoid churn.
+    let ordered: Vec<&ParamDef> = if params
+        .iter()
+        .zip(required.iter().chain(optional.iter()))
+        .all(|(a, b)| std::ptr::eq(a as *const ParamDef, *b as *const ParamDef))
+    {
+        params.iter().collect()
+    } else {
+        required.into_iter().chain(optional).collect()
+    };
+    ordered
         .iter()
         .map(|p| {
             let js_name = to_node_name(&p.name);
@@ -2148,4 +2171,65 @@ fn tagged_enum_binding_struct_fields<'a>(
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::{ParamDef, TypeRef};
+
+    fn make_param(name: &str, optional: bool) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty: TypeRef::String,
+            optional,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    /// TypeScript TS1016: required parameter must not follow optional parameter.
+    /// A visitor method like `visit_code_block(ctx, lang?: Option<str>, code: str)`
+    /// must be reordered to `visit_code_block(ctx, code, lang?)` in the `.d.ts`.
+    #[test]
+    fn dts_params_reorders_required_after_optional() {
+        let params = vec![
+            make_param("ctx", false),
+            make_param("lang", true),
+            make_param("code", false),
+        ];
+        let result = dts_params(&params, "Js");
+        // Required params (ctx, code) must precede optional param (lang)
+        let ctx_pos = result.find("ctx:").expect("ctx not found");
+        let code_pos = result.find("code:").expect("code not found");
+        let lang_pos = result.find("lang?:").expect("lang? not found");
+        assert!(ctx_pos < lang_pos, "ctx should come before lang?: {result}");
+        assert!(code_pos < lang_pos, "code should come before lang?: {result}");
+    }
+
+    /// When params are already in valid order (all required before all optional),
+    /// the output must be unchanged — no unnecessary reordering.
+    #[test]
+    fn dts_params_preserves_already_valid_order() {
+        let params = vec![
+            make_param("ctx", false),
+            make_param("code", false),
+            make_param("lang", true),
+        ];
+        let result = dts_params(&params, "Js");
+        assert_eq!(result, "ctx: string, code: string, lang?: string | undefined | null");
+    }
+
+    /// All-required params: order must be preserved exactly.
+    #[test]
+    fn dts_params_all_required_preserves_order() {
+        let params = vec![make_param("a", false), make_param("b", false), make_param("c", false)];
+        let result = dts_params(&params, "Js");
+        assert_eq!(result, "a: string, b: string, c: string");
+    }
 }
