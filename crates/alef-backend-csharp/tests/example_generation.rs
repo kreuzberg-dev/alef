@@ -96,6 +96,7 @@ fn test_generated_code_example() {
             doc: "Extract text from a file synchronously".to_string(),
             cfg: None,
             sanitized: false,
+            return_sanitized: false,
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,

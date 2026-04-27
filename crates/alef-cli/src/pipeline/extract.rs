@@ -310,6 +310,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
         }
         if sanitize_type_ref(&mut func.return_type, &known_types, &known_enums) {
             func_sanitized = true;
+            func.return_sanitized = true;
         }
         if func_sanitized {
             func.sanitized = true;

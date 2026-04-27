@@ -580,6 +580,7 @@ mod tests {
             doc: String::new(),
             cfg: None,
             sanitized: false,
+            return_sanitized: false,
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,

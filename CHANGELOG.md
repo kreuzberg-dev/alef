@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-04-27
+
+A major fix release eliminating ~40 generated "Not implemented" stubs across the PHP, Ruby, C FFI, and R backends. Every batch extraction API (`batch_extract_file_sync`, `batch_extract_bytes_sync`, plus async variants), `extract_file`/`extract_file_sync`, and most of the Ruby gem's surface previously failed at runtime with error code 99. Five distinct generator bugs collapsed into a single class of bad output. Also makes `alef verify` input-deterministic so downstream formatters can reformat generated content freely without breaking verify, and exposes the canonical input-hash recipe via `alef_core::hash::compute_generation_hash`.
+
 ### Changed
 
 - **`alef verify` is now input-deterministic**. The embedded `alef:hash:<hex>` line in every generated file is no longer a per-file hash of the normalised generated content; it is a single fingerprint of the **inputs** that produced the run:
@@ -29,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Magnus (Ruby) backend stubbed every extraction function**: the shared `can_auto_delegate_function` rejected functions with a non-opaque Named ref param (e.g. `&ExtractionConfig`), so `extract_bytes`, `extract_bytes_sync`, and 19 other functions emitted "Not implemented" stubs even though the existing deser-preamble could handle them. `alef-backend-magnus` now adds a magnus-specific `magnus_serde_recoverable` gate that allows JSON-roundtrip on Named non-opaque params and on sanitized `Vec<String>` (originally `Vec<tuple>`), and uses `gen_call_args_with_let_bindings` so the call site borrows `&{name}_core` correctly.
 - **C FFI backend stubbed all functions with sanitized params**: `alef-backend-ffi` set `will_be_unimplemented = func.sanitized` and bailed out before parameter conversion, even though the existing `Vec` JSON deserialization path could handle `Vec<String>` params with type inference at the call site. The FFI now exempts sanitized functions from the unimplemented bail-out when every sanitized param is a recoverable `Vec<String>` (with `original_type` set), routing them through the standard JSON-roundtrip Vec conversion. Affects `kreuzberg_batch_extract_*` and other tuple-batch FFI exports consumed by the Go, Java, and C# bindings.
 - **R (extendr) backend panicked with `todo!("async not supported by backend")` for every async function**: extendr was configured with `AsyncPattern::None`. R is single-threaded but async functions are still callable from R via a per-call tokio runtime. The backend now uses `AsyncPattern::TokioBlockOn` and reports `supports_async: true`, generating `tokio::runtime::Runtime::new()?.block_on(...)` wrappers like the other sync-on-async backends.
+
+### Known limitations
+
+- Functions whose return type is a Named struct from outside the API surface (e.g. `get_preset` returning `&'static EmbeddingPreset`) are still stubbed: alef has no way to know whether the core type derives `Serialize`, so it can't safely JSON-roundtrip the value back to the binding side. The new `return_sanitized` IR field is laid down for a future fix.
 
 ## [0.8.7] - 2026-04-27
 

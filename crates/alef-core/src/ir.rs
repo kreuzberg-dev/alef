@@ -199,6 +199,11 @@ pub struct FunctionDef {
     /// True if any param or return type was sanitized during unknown type resolution.
     #[serde(default)]
     pub sanitized: bool,
+    /// True if the return type was sanitized (Named replaced with String).  When true,
+    /// the binding-side return type is wider than the actual core return — codegen must
+    /// JSON-serialize the core value rather than treating it as the binding type.
+    #[serde(default)]
+    pub return_sanitized: bool,
     /// True if the core function returns a reference (`&T`, `Option<&T>`, etc.).
     /// Used by code generators to insert `.clone()` before type conversion.
     #[serde(default)]

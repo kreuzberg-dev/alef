@@ -50,6 +50,7 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
         doc,
         cfg,
         sanitized,
+        return_sanitized: false,
         returns_ref,
         returns_cow,
         return_newtype_wrapper: None,
