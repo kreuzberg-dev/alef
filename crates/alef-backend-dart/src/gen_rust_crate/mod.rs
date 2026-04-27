@@ -7,6 +7,7 @@ use alef_core::ir::ApiSurface;
 mod bridge_fn;
 mod cargo;
 mod conversions;
+mod helpers;
 mod mirror;
 mod trait_bridge;
 mod trait_types;

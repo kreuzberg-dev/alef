@@ -4,6 +4,7 @@ use alef_core::ir::ApiSurface;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+mod helpers;
 mod nif_external;
 mod trait_bridge;
 mod variant_collision;

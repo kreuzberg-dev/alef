@@ -4,16 +4,11 @@ use std::collections::BTreeSet;
 
 use crate::type_map::GleamMapper;
 
+use super::helpers::emit_cleaned_gleam_doc;
 use super::variant_collision::variant_constructor_name;
 
 pub(crate) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<&'static str>) {
-    if !ty.doc.is_empty() {
-        for line in ty.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_gleam_doc(out, &ty.doc, "");
     if ty.fields.is_empty() {
         // Opaque or unit-like — emit a phantom external type
         out.push_str(&format!("pub type {} {{\n  {}\n}}\n", ty.name, ty.name));
@@ -58,13 +53,7 @@ pub(crate) fn emit_enum(
     out: &mut String,
     imports: &mut BTreeSet<&'static str>,
 ) {
-    if !en.doc.is_empty() {
-        for line in en.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_gleam_doc(out, &en.doc, "");
     out.push_str(&format!("pub type {} {{\n", en.name));
     for variant in &en.variants {
         let ctor = variant_constructor_name(&en.name, &variant.name, collisions);
@@ -85,13 +74,7 @@ pub(crate) fn emit_error_type(
     out: &mut String,
     imports: &mut BTreeSet<&'static str>,
 ) {
-    if !err.doc.is_empty() {
-        for line in err.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_gleam_doc(out, &err.doc, "");
     out.push_str(&format!("pub type {} {{\n", err.name));
     for variant in &err.variants {
         let ctor = variant_constructor_name(&err.name, &variant.name, collisions);
@@ -113,13 +96,7 @@ pub(crate) fn emit_function(
     out: &mut String,
     imports: &mut BTreeSet<&'static str>,
 ) {
-    if !f.doc.is_empty() {
-        for line in f.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_gleam_doc(out, &f.doc, "");
     use heck::ToSnakeCase;
     out.push_str(&format!("@external(erlang, \"{nif_module}\", \"{}\")\n", f.name));
     out.push_str(&format!("pub fn {}(", f.name.to_snake_case()));

@@ -1,6 +1,7 @@
 use alef_core::ir::{FunctionDef, ParamDef, TypeRef};
 
 use super::errors::resolve_zig_error_type;
+use super::helpers::emit_cleaned_zig_doc;
 use super::types::zig_field_type;
 
 pub(crate) fn emit_function(
@@ -10,13 +11,7 @@ pub(crate) fn emit_function(
     top_level_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
-    if !f.doc.is_empty() {
-        for line in f.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    emit_cleaned_zig_doc(out, &f.doc, "");
 
     // Rename param names that would shadow a top-level decl (Zig 0.16+ rejects
     // shadowing of file-scope identifiers by function parameters).
