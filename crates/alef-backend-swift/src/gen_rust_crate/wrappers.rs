@@ -10,10 +10,64 @@
 use crate::gen_rust_crate::default_construction::{emit_default_construction_body, emit_direct_field_inits};
 use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
 use alef_codegen::generators::type_paths::resolve_type_path;
-use alef_core::ir::{CoreWrapper, TypeDef, TypeRef};
+use alef_core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
+
+/// Returns true when the wrapper getter for `field` cannot be safely bridged
+/// to swift-bridge — i.e. the only viable impl would be `unimplemented!()`.
+///
+/// Used by `extern_block::emit_extern_block_for_type` to skip the extern
+/// declaration *and* by `wrappers::emit_getters` to skip the impl. Keeping
+/// these in lockstep means the swift-bridge surface never contains a callable
+/// function whose body would panic at runtime.
+///
+/// Three cases qualify:
+/// 1. Explicitly excluded fields (`[swift].exclude_fields` config).
+/// 2. JSON-bridged container with inner Named that is excluded from codegen
+///    or marked as non-serde — round-trip cannot reconstruct the type.
+/// 3. `Vec<Named>` field on a non-serde struct — IR cannot guarantee the
+///    Named wrapper matches the actual Rust field type (different type may
+///    appear in Rust source vs IR).
+pub(crate) fn is_unbridgeable_getter(
+    ty: &TypeDef,
+    field: &FieldDef,
+    exclude_fields: &HashSet<String>,
+    type_paths: &HashMap<String, String>,
+    no_serde_names: &HashSet<&str>,
+) -> bool {
+    let name = field.name.to_snake_case();
+    let field_key = format!("{}.{}", ty.name, name);
+    if exclude_fields.contains(&field_key) {
+        return true;
+    }
+    if needs_json_bridge(&field.ty) {
+        let inner_named = match &field.ty {
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::Named(n) => Some(n.as_str()),
+                _ => None,
+            },
+            TypeRef::Named(n) => Some(n.as_str()),
+            _ => None,
+        };
+        if let Some(n) = inner_named {
+            if !type_paths.contains_key(n) || no_serde_names.contains(n) {
+                return true;
+            }
+        }
+    }
+    if let TypeRef::Vec(inner) = &field.ty {
+        // Vec<non-Primitive, non-Bytes> on a non-serde struct cannot survive the
+        // bridge: there's no JSON round-trip available, and the IR may have
+        // sanitized the inner type away from its real Rust source counterpart.
+        // This covers Vec<String>, Vec<Path>, Vec<Named>, Vec<Vec<…>>, etc.
+        if !ty.has_serde && !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes) {
+            return true;
+        }
+    }
+    false
+}
 
 pub(crate) fn emit_type_wrapper(
     ty: &TypeDef,
@@ -145,48 +199,16 @@ fn emit_getters(
         // reserved keywords (extension, subscript, etc.) so the generated Swift
         // accessor is valid. Body still uses `name` for source-struct field access.
         let getter_name = swift_ident(&name);
-        // Explicitly excluded fields: emit an unimplemented getter that compiles
-        // but panics at runtime if called.
-        let field_key = format!("{}.{}", ty.name, name);
-        if exclude_fields.contains(&field_key) {
+        // Skip impl entirely for fields whose getter is unbridgeable. The matching
+        // `extern_block::emit_extern_block_for_type` skips the extern declaration
+        // for the same fields, so the swift-bridge surface stays consistent.
+        if is_unbridgeable_getter(ty, field, exclude_fields, type_paths, no_serde_names) {
             out.push_str(&format!(
-                "    // alef: excluded field `{name}` — actual type is not serializable\n"
-            ));
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::std::unimplemented!(\"{name}: excluded field\") }}\n"
+                "    // alef: skipped getter `{name}` — type cannot be bridged through swift-bridge\n"
             ));
             continue;
         }
-        // Emit unimplemented getter when inner Named type lacks serde.
-        let excluded_inner_named: Option<&str> = if needs_json_bridge(&field.ty) {
-            match &field.ty {
-                TypeRef::Optional(inner) | TypeRef::Vec(inner) => match inner.as_ref() {
-                    TypeRef::Named(n)
-                        if !type_paths.contains_key(n.as_str())
-                            || no_serde_names.contains(n.as_str()) =>
-                    {
-                        Some(n.as_str())
-                    }
-                    _ => None,
-                },
-                TypeRef::Named(n)
-                    if !type_paths.contains_key(n.as_str()) || no_serde_names.contains(n.as_str()) =>
-                {
-                    Some(n.as_str())
-                }
-                _ => None,
-            }
-        } else {
-            None
-        };
-        if let Some(excluded) = excluded_inner_named {
-            out.push_str(&format!(
-                "    // alef: skipped — field `{name}` contains `{excluded}` which is excluded from codegen\n"
-            ));
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::std::unimplemented!(\"{name}: {excluded} is not bridgeable\") }}\n"
-            ));
-        } else if needs_json_bridge(&field.ty) {
+        if needs_json_bridge(&field.ty) {
             out.push_str(&format!(
                 "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ serde_json::to_string(&self.0.{name}).expect(\"serializable {name}\") }}\n"
             ));
@@ -327,11 +349,11 @@ fn emit_vec_getter(
                 ));
             }
         } else {
+            // Unreachable: `is_unbridgeable_getter` filters this case out before
+            // `emit_vec_getter` is called, so non-serde Vec<Named> never lands here.
+            // Emit a comment for visibility if the filter ever drifts out of sync.
             out.push_str(&format!(
-                "    // alef: skipped — Vec field `{name}` may have different actual type in non-serde struct\n"
-            ));
-            out.push_str(&format!(
-                "    pub fn {getter_name}(&self) -> {bridge_ty_owned} {{ ::std::unimplemented!(\"{name}: Vec field type mismatch in non-serde struct\") }}\n"
+                "    // alef: unreachable — Vec field `{name}` should have been skipped by is_unbridgeable_getter\n"
             ));
         }
     } else {
