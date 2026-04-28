@@ -1,6 +1,0 @@
-# incremental-approach
-# Content-Hash: blake3:4201d64d66bc5c6c9ef43c71c4854a7cc0b92326f1f8f1c0b82c6de6d62e0361
-
-**Priority:** medium
-
-Start with the smallest viable change, verify it works, then extend. Avoid generating large blocks of speculative code. Build iteratively: implement one piece, test, then move to the next. When uncertain about an approach, prototype the critical part first before committing to the full implementation.

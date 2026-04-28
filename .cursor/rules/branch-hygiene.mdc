@@ -1,7 +1,0 @@
-# branch-hygiene
-# Content-Hash: blake3:148fe21613b3963972234c072fe1d2037fb6edae33bc2881e4d539454a245925
-
-**Priority:** medium
-
-# Branch Hygiene
-Use descriptive branch names. Keep branches short-lived. Delete merged branches. Rebase or merge from main regularly to avoid drift.

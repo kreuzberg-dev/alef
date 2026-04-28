@@ -1,6 +1,0 @@
-# batch-operations
-# Content-Hash: blake3:cd4a906365024acbba5b791957984856ad8c2fc6f22070ad5221b8d3e9442bed
-
-**Priority:** medium
-
-Group related file reads and writes into single operations. Combine independent tool calls in parallel rather than sequentially. When making multiple edits to the same file, batch them into one edit operation. Prefer multi-file search tools over individual file reads when exploring.

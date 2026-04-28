@@ -93,38 +93,58 @@ pub struct ExtraParams {
 
 // ---- HTTP helper ----
 
-/// Build a configured ureq agent with a 30-second timeout.
+/// Build a configured ureq agent with a 30-second global timeout.
 fn build_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout(Duration::from_secs(30)).build()
+    ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
+        .new_agent()
+}
+
+/// Map a ureq v3 error to the boolean "exists" semantic. Returns `Ok(false)` on
+/// 404, `Ok(true)` on any 2xx, and propagates other failures.
+fn classify(result: std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error>) -> Result<HttpOutcome> {
+    match result {
+        Ok(resp) => Ok(HttpOutcome::Ok(resp)),
+        Err(ureq::Error::StatusCode(404)) => Ok(HttpOutcome::NotFound),
+        Err(e) => Err(anyhow::anyhow!("HTTP request failed: {e}")),
+    }
+}
+
+enum HttpOutcome {
+    Ok(ureq::http::Response<ureq::Body>),
+    NotFound,
 }
 
 /// GET `url` and return true if the response is 2xx, false if 404, error otherwise.
 fn http_get_ok(url: &str) -> Result<bool> {
     let agent = build_agent();
-    match agent.get(url).set("User-Agent", "alef-publish/1.0").call() {
-        Ok(_) => Ok(true),
-        Err(ureq::Error::Status(404, _)) => Ok(false),
-        Err(e) => Err(anyhow::anyhow!("HTTP GET {url}: {e}")),
+    let response = agent.get(url).header("User-Agent", "alef-publish/1.0").call();
+    match classify(response).with_context(|| format!("HTTP GET {url}"))? {
+        HttpOutcome::Ok(_) => Ok(true),
+        HttpOutcome::NotFound => Ok(false),
     }
 }
 
 /// GET `url`, parse the response as JSON. Returns None on 404.
 fn http_get_json(url: &str) -> Result<Option<serde_json::Value>> {
     let agent = build_agent();
-    match agent
+    let response = agent
         .get(url)
-        .set("User-Agent", "alef-publish/1.0")
-        .set("Accept", "application/json")
-        .call()
-    {
-        Ok(resp) => {
-            let text = resp.into_string().with_context(|| format!("reading body from {url}"))?;
+        .header("User-Agent", "alef-publish/1.0")
+        .header("Accept", "application/json")
+        .call();
+    match classify(response).with_context(|| format!("HTTP GET {url}"))? {
+        HttpOutcome::Ok(resp) => {
+            let text = resp
+                .into_body()
+                .read_to_string()
+                .with_context(|| format!("reading body from {url}"))?;
             let val: serde_json::Value =
                 serde_json::from_str(&text).with_context(|| format!("parsing JSON from {url}"))?;
             Ok(Some(val))
         }
-        Err(ureq::Error::Status(404, _)) => Ok(None),
-        Err(e) => Err(anyhow::anyhow!("HTTP GET {url}: {e}")),
+        HttpOutcome::NotFound => Ok(None),
     }
 }
 
@@ -143,15 +163,14 @@ fn check_npm(package: &str, version: &str) -> Result<bool> {
 fn check_cratesio(package: &str, version: &str) -> Result<bool> {
     let url = format!("https://crates.io/api/v1/crates/{package}/{version}");
     let agent = build_agent();
-    match agent
+    let response = agent
         .get(&url)
         // crates.io requires a descriptive User-Agent.
-        .set("User-Agent", "alef-publish/1.0 (https://github.com/kreuzberg-dev/alef)")
-        .call()
-    {
-        Ok(_) => Ok(true),
-        Err(ureq::Error::Status(404, _)) => Ok(false),
-        Err(e) => Err(anyhow::anyhow!("HTTP GET {url}: {e}")),
+        .header("User-Agent", "alef-publish/1.0 (https://github.com/kreuzberg-dev/alef)")
+        .call();
+    match classify(response).with_context(|| format!("HTTP GET {url}"))? {
+        HttpOutcome::Ok(_) => Ok(true),
+        HttpOutcome::NotFound => Ok(false),
     }
 }
 
@@ -237,15 +256,14 @@ fn check_github_release(package: &str, version: &str, repo: Option<&str>) -> Res
     };
     let url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
     let agent = build_agent();
-    match agent
+    let response = agent
         .get(&url)
-        .set("User-Agent", "alef-publish/1.0")
-        .set("Accept", "application/vnd.github+json")
-        .call()
-    {
-        Ok(_) => Ok(true),
-        Err(ureq::Error::Status(404, _)) => Ok(false),
-        Err(e) => Err(anyhow::anyhow!("GitHub API GET {url}: {e}")),
+        .header("User-Agent", "alef-publish/1.0")
+        .header("Accept", "application/vnd.github+json")
+        .call();
+    match classify(response).with_context(|| format!("GitHub API GET {url}"))? {
+        HttpOutcome::Ok(_) => Ok(true),
+        HttpOutcome::NotFound => Ok(false),
     }
 }
 

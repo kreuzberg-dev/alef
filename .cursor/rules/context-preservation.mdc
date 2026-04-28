@@ -1,6 +1,0 @@
-# context-preservation
-# Content-Hash: blake3:70c4f6f21cd58f3d0f971cfeaced49b0a23b02c0c886ba5bbfa61d2b92cbadb2
-
-**Priority:** medium
-
-Record key findings (file paths, function signatures, patterns discovered) before they scroll out of context. Summarize investigation results before acting on them. When working on multi-step tasks, note intermediate decisions and their rationale to avoid re-deriving them later.

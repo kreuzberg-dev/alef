@@ -1,6 +1,0 @@
-# readability-first
-# Content-Hash: blake3:f1a322c5ace386318cfcc9e9143e985b854b1fb712831e781cfe01e872698bf6
-
-**Priority:** high
-
-Max 120 character line width. Prefer explicit code over clever tricks — if it needs a comment to explain what it does, rewrite it. No abbreviations in public API names (`context` not `ctx` in public signatures, `repository` not `repo`). Keep functions short and focused on a single responsibility.

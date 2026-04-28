@@ -1,7 +1,0 @@
-# minimal-changes
-# Content-Hash: blake3:cd9539c365671861c82108c0c186d085bfaa1b4d89853cf31db69a7d2c66a07c
-
-**Priority:** high
-
-# Minimal Changes
-Make the smallest change that achieves the goal. Avoid unnecessary refactoring, reformatting, or scope creep. Don't fix what isn't broken.

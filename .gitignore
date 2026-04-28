@@ -19,7 +19,6 @@ GEMINI.md
 .agents/
 
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
-.agents/
 .claude/
 .codex/
 .cursor/
@@ -29,5 +28,4 @@ GEMINI.md
 .github/skills/
 AGENTS.md
 CLAUDE.md
-GEMINI.md
 # END ai-rulez
