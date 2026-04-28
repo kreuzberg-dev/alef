@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-04-28
+
+A patch release that ships v0.11.3's content plus a fix for alef's own publish pipeline. v0.11.3 tagged but never produced binaries because validate-versions aborted on a half-empty `alef.toml`.
+
+### Fixed
+
+- **`alef.toml` in this repo now carries the minimal `[crate]` section and `languages = []` that `load_config` requires.** `alef validate versions` (run by the publish workflow's pre-flight) was failing with `missing field crate`, causing the whole publish run to skip without ever building binaries. Without a `[crate]` table the parser refuses the file even though the subcommand only needs the canonical version from `Cargo.toml`. v0.11.0 through v0.11.3 all share this issue — none of those tags has binary assets on the release page; v0.11.4 is the first installable build of the v0.11.x line.
+
 ## [0.11.3] - 2026-04-28
 
 A patch release that turns alef.toml's `version` field into a real lifecycle pin: writes are stamped on every successful generate, and a config pointing to a future alef now refuses to run instead of silently producing stale output.
