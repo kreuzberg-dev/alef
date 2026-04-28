@@ -161,13 +161,16 @@ void main() {{
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/dart
     steps:
       - uses: actions/checkout@v4
       - name: Set up Dart
@@ -175,11 +178,11 @@ jobs:
         with:
           sdk: stable
       - name: Get Dart dependencies
-        run: dart pub get --working-dir=packages/dart
+        run: dart pub get
       - name: Analyze Dart code
-        run: dart analyze packages/dart
+        run: dart analyze
       - name: Run tests
-        run: dart test --working-dir=packages/dart
+        run: dart test
 "#
     .to_string();
 

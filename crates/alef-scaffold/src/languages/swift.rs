@@ -265,23 +265,26 @@ struct Demo {{
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: packages/swift
     steps:
       - uses: actions/checkout@v4
       - name: Set up Swift
-        uses: actions/setup-swift@v4
+        uses: swift-actions/setup-swift@v2
         with:
-          swift-version: '5.9'
+          swift-version: "5.10"
       - name: Build Swift package
-        run: swift build --package-path packages/swift
+        run: swift build
       - name: Run tests
-        run: swift test --package-path packages/swift
+        run: swift test
 "#
     .to_string();
 
