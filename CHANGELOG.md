@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scaffolded GitHub workflows for Swift, Dart, Gleam, Kotlin, and Zig were broken on first run.** The Swift workflow referenced `actions/setup-swift@v4`, which doesn't exist (the working action is `swift-actions/setup-swift@v2`). The Dart, Gleam, Kotlin, and Zig workflows passed unsupported flags to the per-language CLIs (`--working-dir`, `--project-path`, `--directory`) instead of `cd`-ing into the package directory. All five workflow templates now use `defaults.run.working-directory: packages/<lang>` and let each CLI run from its own root, and Swift uses `swift-actions/setup-swift@v2`.
+
 ## [0.10.4] - 2026-04-27
 
 A patch release fixing three orchestration / e2e-codegen bugs that surfaced during a clean `alef all --clean` regenerate of every downstream polyglot repo: standalone e2e Rust crates were getting absorbed into parent workspaces, the orchestrated `alef all` skipped the language-default formatter pass, and the Rust visitor codegen was producing unparsable trait-impl blocks.

@@ -103,28 +103,27 @@ pub fn main() {{
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/gleam
     steps:
       - uses: actions/checkout@v4
       - name: Set up BEAM (Erlang/Elixir)
         uses: erlef/setup-beam@v1
         with:
-          otp-version: '27'
-          gleam-version: '1.4'
-      - name: Set up Gleam
-        uses: gleam-lang/setup-gleam@v1
-        with:
-          gleam-version: '1.4'
+          otp-version: "27"
+          gleam-version: "1.4"
       - name: Build Gleam project
-        run: gleam build --working-dir=packages/gleam
+        run: gleam build
       - name: Run tests
-        run: gleam test --working-dir=packages/gleam
+        run: gleam test
 "#
     .to_string();
 

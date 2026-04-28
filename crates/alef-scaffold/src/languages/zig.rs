@@ -130,13 +130,16 @@ Add to your `build.zig.zon`:
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/zig
     steps:
       - uses: actions/checkout@v4
       - name: Set up Zig
@@ -144,9 +147,9 @@ jobs:
         with:
           version: 0.13.0
       - name: Build Zig project
-        run: zig build --directory packages/zig
+        run: zig build
       - name: Run tests
-        run: zig build test --directory packages/zig
+        run: zig build test
 "#
     .to_string();
 

@@ -172,24 +172,29 @@ object {module}Sample {{
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/kotlin
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          java-version: "21"
+          distribution: temurin
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
       - name: Run Gradle build
-        run: gradle build --project-path packages/kotlin
+        run: gradle build
       - name: Run Gradle tests
-        run: gradle test --project-path packages/kotlin
+        run: gradle test
 "#
     .to_string();
 
