@@ -164,7 +164,7 @@ pub mod packagist {
 
 pub mod maven {
     // renovate: datasource=maven depName=org.junit.jupiter:junit-jupiter
-    pub const JUNIT: &str = "5.14.4";
+    pub const JUNIT: &str = "6.0.3";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-compiler-plugin
     pub const MAVEN_COMPILER_PLUGIN: &str = "3.15.0";
@@ -259,13 +259,13 @@ pub mod maven {
 
 pub mod nuget {
     // renovate: datasource=nuget depName=Microsoft.NET.Test.Sdk
-    pub const MICROSOFT_NET_TEST_SDK: &str = "17.14.1";
+    pub const MICROSOFT_NET_TEST_SDK: &str = "18.4.0";
 
     // renovate: datasource=nuget depName=xunit
     pub const XUNIT: &str = "2.9.3";
 
     // renovate: datasource=nuget depName=xunit.runner.visualstudio
-    pub const XUNIT_RUNNER_VISUALSTUDIO: &str = "2.8.2";
+    pub const XUNIT_RUNNER_VISUALSTUDIO: &str = "3.1.5";
 }
 
 pub mod hex {
@@ -334,7 +334,7 @@ pub mod precommit {
     pub const GITFLUFF_REV: &str = "v0.8.0";
 
     // renovate: datasource=github-tags packageName=pre-commit/pre-commit-hooks
-    pub const PRE_COMMIT_HOOKS_REV: &str = "v0.9.5";
+    pub const PRE_COMMIT_HOOKS_REV: &str = "v6.0.0";
 
     // renovate: datasource=github-tags packageName=tox-dev/pyproject-fmt
     pub const PYPROJECT_FMT_REV: &str = "v2.21.1";
@@ -355,8 +355,8 @@ pub mod precommit {
     pub const RUMDL_REV: &str = "v0.1.83";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
-    pub const TYPOS_REV: &str = "v0.7.10";
+    pub const TYPOS_REV: &str = "v1.45.2";
 
     // alef rev: managed by sync-versions hook, no renovate marker
-    pub const ALEF_REV: &str = "v0.11.1";
+    pub const ALEF_REV: &str = "v0.11.2";
 }

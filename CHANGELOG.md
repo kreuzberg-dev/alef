@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-04-28
+
+A patch release fixing the alef self-publish bootstrap and rolling up several major dependency upgrades.
+
+### Fixed
+
+- **`alef`'s own publish workflow no longer races against itself.** The `prepare`, `validate-versions`, and `check-registry` jobs use the alef-backed composite actions, which previously defaulted `alef-version: latest` — install-alef would resolve that to the just-bumped `alef.toml` pin (the very version being published) and try to download a binary that didn't exist yet (it's built later in the same run). All four alef-side action calls now pass `alef-version: main` so install-alef builds from source via `cargo install --git --locked`. Costs ~2-3 min per job but breaks the chicken-and-egg loop.
+
+### Changed
+
+- **`alef check-registry` ported to ureq v3.** The previous v2 API (`AgentBuilder`, `RequestBuilder::set`, `Error::Status(404, _)`, `Response::into_string`) was rewritten to the v3 equivalents (`Agent::config_builder().new_agent()`, `RequestBuilder::header`, `Error::StatusCode(404)`, `Response::into_body().read_to_string()`).
+
+### Bumped (template_versions)
+
+- `JUNIT` 5.14.4 → 6.0.3 (Maven scaffold templates)
+- `MICROSOFT_NET_TEST_SDK` 17.14.1 → 18.4.0
+- `XUNIT_RUNNER_VISUALSTUDIO` 2.8.2 → 3.1.5
+- `PRE_COMMIT_HOOKS_REV` v0.9.5 → v6.0.0
+- `TYPOS_REV` v0.7.10 → v1.45.2
+- Plus auto-merged Renovate PRs landed since v0.11.1: `criterion` 0.7 → 0.8, `extendr-api` 0.8 → 0.9, `microsoft.net.test.sdk` 17.12.0 → 17.14.1, JVM tooling pins, pre-commit hook revisions.
+
 ## [0.11.1] - 2026-04-28
 
 A patch release fixing path discovery and version-extraction edge cases in the new `alef validate versions` subcommand surfaced when running it against kreuzberg's repo layout.
