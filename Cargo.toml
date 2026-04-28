@@ -87,4 +87,4 @@ toml_edit = "0.25"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 tracing-test = "0.2"
-ureq = { version = "2", features = ["json"] }
+ureq = { version = "3", features = ["json"] }
