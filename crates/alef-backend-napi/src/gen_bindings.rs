@@ -201,12 +201,14 @@ impl Backend for NapiBackend {
             if exclude_functions.contains(&func.name) {
                 continue;
             }
-            // Skip sanitized functions — they cannot be auto-delegated and emitting a stub
-            // would expose a broken placeholder in the public API.
-            if func.sanitized {
+            let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+            // Skip sanitized functions when there's no trait bridge that can replace the
+            // sanitized parameter — such functions cannot be auto-delegated. Functions
+            // whose only "sanitized" param is a configured trait_bridge param (e.g.
+            // Option<VisitorHandle> in html-to-markdown) are emitted via gen_bridge_function.
+            if func.sanitized && bridge_param.is_none() {
                 continue;
             }
-            let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(
                     func,
