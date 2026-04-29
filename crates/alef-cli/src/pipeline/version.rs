@@ -279,21 +279,18 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
 
     let version = read_version(&config.crate_config.version_from)?;
 
-    // Warm-path short-circuit: when bump is None and the canonical version is
-    // identical to the value we synced last time, every downstream manifest
-    // is already correct (unless someone hand-edited one — in which case
-    // `alef verify` and the next bump will catch it). Skip the entire
-    // glob+regex+stat pass; on kreuzberg this is dozens of file reads per
-    // warm run that produce no work.
+    // Always do the manifest scan. The previous warm-path short-circuit
+    // checked `.alef/last_synced_version` and returned early when the
+    // canonical version matched, which silently masked real drift:
+    // a manifest hand-edited to the wrong version, a newly-added manifest
+    // file (e.g. `e2e/rust/Cargo.toml` introduced after the last sync), or
+    // a stale `alef:hash:` line all looked the same as "already synced"
+    // because the cache key was only the version string. CI runs without
+    // the cache, so it produced a different result and the alef-sync-versions
+    // hook failed for downstream consumers. The scan is fast (sub-second
+    // on kreuzberg-sized repos) and the work is idempotent when nothing
+    // is actually stale.
     let last_path = std::path::Path::new(".alef").join("last_synced_version");
-    if bump.is_none() {
-        if let Ok(prev) = std::fs::read_to_string(&last_path) {
-            if prev.trim() == version {
-                debug!("Versions in sync with last run ({version}) — skipping sync pass");
-                return Ok(());
-            }
-        }
-    }
     info!("Syncing version {version}");
 
     let mut updated = vec![];

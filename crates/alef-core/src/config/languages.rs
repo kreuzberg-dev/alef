@@ -562,6 +562,12 @@ pub struct ZigConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CSharpConfig {
     pub namespace: Option<String>,
+    /// NuGet `<PackageId>` to publish under. When unset, falls back to `namespace`.
+    /// Use this when the published artifact id must differ from the C# `RootNamespace` —
+    /// e.g. when the unprefixed name is owned by a third party on nuget.org and
+    /// you publish under a vendor-prefixed id like `KreuzbergDev.<Lib>`.
+    #[serde(default)]
+    pub package_id: Option<String>,
     pub target_framework: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,

@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let namespace = config.csharp_namespace();
+    let package_id = config.csharp_package_id();
     let version = &api.version;
 
     let target_framework = config
@@ -27,7 +28,7 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
   <PropertyGroup>
     <TargetFramework>{target_framework}</TargetFramework>
     <RootNamespace>{namespace}</RootNamespace>
-    <PackageId>{namespace}</PackageId>
+    <PackageId>{package_id}</PackageId>
     <Version>{version}</Version>
     <Description>{description}</Description>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -44,6 +45,7 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
 "#,
         target_framework = target_framework,
         namespace = namespace,
+        package_id = package_id,
         version = version,
         description = meta.description,
         repository = meta.repository,
