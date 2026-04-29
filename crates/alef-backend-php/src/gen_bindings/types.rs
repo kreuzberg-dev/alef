@@ -33,6 +33,17 @@ fn is_php_prop_scalar_with_enums(ty: &TypeRef, enum_names: &AHashSet<String>) ->
     }
 }
 
+/// Returns `true` if the PHP-mapped type is `Copy`, meaning `.clone()` can be omitted.
+/// Primitives (bool, integers, floats) are Copy.  Option<Primitive> is also Copy.
+/// String, Named structs, Vec, Map are NOT Copy.
+fn is_php_copy_type(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Primitive(_) => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Primitive(_)),
+        _ => false,
+    }
+}
+
 /// Generate ext-php-rs methods for an opaque struct (delegates to self.inner).
 pub(crate) fn gen_opaque_struct_methods(
     typ: &TypeDef,
@@ -458,9 +469,14 @@ pub(crate) fn gen_flat_data_enum_methods(enum_def: &EnumDef, mapper: &PhpMapper)
                 let mapped = mapper.map_type(&field.ty).to_string();
                 // Getter returns Option<T> for every variant field (all are optional in flat struct).
                 let field_ty = format!("Option<{mapped}>");
-                let getter_body = format!(
-                    "#[php(getter)]\npub fn get_{flat_name}(&self) -> {field_ty} {{\n    self.{flat_name}.clone()\n}}",
-                );
+                // For Copy types (Option<primitive>), omit `.clone()` to avoid clone_on_copy.
+                let body_expr = if is_php_copy_type(&field.ty) {
+                    format!("self.{flat_name}")
+                } else {
+                    format!("self.{flat_name}.clone()")
+                };
+                let getter_body =
+                    format!("#[php(getter)]\npub fn get_{flat_name}(&self) -> {field_ty} {{\n    {body_expr}\n}}",);
                 impl_builder.add_method(&getter_body);
             }
         }
@@ -505,6 +521,18 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = &enum_def.name;
 
+    // Pre-compute the complete set of flat struct field names (excluding the tag discriminator).
+    // This lets us detect when a variant covers ALL fields so we can omit `..Default::default()`.
+    let all_flat_fields: std::collections::BTreeSet<String> = {
+        let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for variant in &enum_def.variants {
+            for (idx, _) in variant.fields.iter().enumerate() {
+                seen.insert(flat_field_name(variant, idx));
+            }
+        }
+        seen
+    };
+
     let mut out = String::new();
 
     // --- core → binding ---
@@ -518,11 +546,22 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     for variant in &enum_def.variants {
         let tag_val = variant_tag_value(variant, enum_def);
         if variant.fields.is_empty() {
-            writeln!(
-                out,
-                "            {core_path}::{name} => Self {{ {tag_field}_tag: \"{tag_val}\".to_string(), ..Default::default() }},",
-                name = variant.name,
-            ).ok();
+            // No variant fields: only the tag is set; all Option fields default to None.
+            // `..Default::default()` is only needed when the struct has other fields.
+            if all_flat_fields.is_empty() {
+                writeln!(
+                    out,
+                    "            {core_path}::{name} => Self {{ {tag_field}_tag: \"{tag_val}\".to_string() }},",
+                    name = variant.name,
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "            {core_path}::{name} => Self {{ {tag_field}_tag: \"{tag_val}\".to_string(), ..Default::default() }},",
+                    name = variant.name,
+                ).ok();
+            }
         } else {
             let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
             // Build destructuring pattern.
@@ -586,7 +625,15 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 let expr = flat_enum_core_to_binding_field_expr(f, &bound_var);
                 write!(out, " {flat_name}: {expr},").ok();
             }
-            writeln!(out, " ..Default::default() }},").ok();
+            // Omit `..Default::default()` when this variant's fields cover every flat struct
+            // field — the struct update would have no effect and triggers `clippy::needless_update`.
+            let variant_flat_names: std::collections::BTreeSet<String> =
+                (0..variant.fields.len()).map(|i| flat_field_name(variant, i)).collect();
+            if variant_flat_names == all_flat_fields {
+                writeln!(out, " }},").ok();
+            } else {
+                writeln!(out, " ..Default::default() }},").ok();
+            }
         }
     }
     writeln!(out, "        }}").ok();
@@ -721,6 +768,17 @@ fn flat_enum_core_to_binding_field_expr(f: &alef_core::ir::FieldDef, bound_var: 
                 wrap_some(format!("(*{bound_var}).into()"))
             }
         }
+        // Primitives that map to the same type in PHP (all except u64/usize/isize which map
+        // to i64) and String: binding type == core type, no conversion needed.
+        TypeRef::Primitive(_) | TypeRef::String => {
+            if f.optional {
+                // Core field is Option<T>, binding field is Option<T>: pass through directly.
+                bound_var.to_string()
+            } else {
+                // Core field is T, binding field is Option<T>: wrap in Some.
+                wrap_some(bound_var.to_string())
+            }
+        }
         _ => {
             if f.optional {
                 format!("{bound_var}.map(Into::into)")
@@ -769,6 +827,16 @@ fn flat_enum_binding_to_core_field_expr(f: &alef_core::ir::FieldDef, flat_name: 
                 format!("val.{flat_name}.map(|v| v as {core_ty})")
             } else {
                 format!("val.{flat_name}.map(|v| v as {core_ty}).unwrap_or_default()")
+            }
+        }
+        // Primitives that map to the same type in PHP (all except u64/usize/isize) and
+        // String: binding type == core type, no conversion needed.
+        TypeRef::Primitive(_) | TypeRef::String => {
+            // Binding field is Option<T>; unwrap for non-optional core fields.
+            if f.optional {
+                format!("val.{flat_name}")
+            } else {
+                format!("val.{flat_name}.unwrap_or_default()")
             }
         }
         _ => {
