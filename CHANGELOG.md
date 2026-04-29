@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.11] - 2026-04-29
+
+A patch release that adds a `returns_result: bool` field to e2e `[CallConfig]` so the Rust generator can skip the `.expect("should succeed")` unwrap for native non-Result-returning calls.
+
+### Added
+
+- **`[e2e.calls.<name>] returns_result = false`** lets fixture authors mark a call whose Rust function signature returns `T` directly (e.g. `String`, `Vec<u8>`, `bool`, a hash) rather than `Result<T, _>`. The Rust code generator now binds the value with no unwrap when this is set; previous behavior always emitted `.expect("should succeed")`, which failed to compile against any non-Result function. Defaults to `true` to preserve existing behavior.
+
 ## [0.11.10] - 2026-04-29
 
 A patch release that fixes the NAPI/Node backend so functions whose only sanitized parameter is a configured `[[trait_bridges]]` param (e.g. `Option<VisitorHandle>`) are emitted via the bridge instead of being silently skipped.

@@ -232,10 +232,20 @@ pub struct CallConfig {
     /// Per-language overrides for module/function/etc.
     #[serde(default)]
     pub overrides: HashMap<String, CallOverride>,
+    /// Whether the function returns `Result<T, E>` in its native binding.
+    /// Defaults to `true`. When `false`, generators that distinguish Result-returning
+    /// from non-Result-returning calls (currently Rust) will skip the
+    /// `.expect("should succeed")` unwrap and bind the raw return value directly.
+    #[serde(default = "default_returns_result")]
+    pub returns_result: bool,
 }
 
 fn default_result_var() -> String {
     "result".to_string()
+}
+
+fn default_returns_result() -> bool {
+    true
 }
 
 /// Maps a fixture input field to a function argument.

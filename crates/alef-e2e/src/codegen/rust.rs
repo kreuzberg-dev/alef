@@ -512,8 +512,13 @@ fn render_test_function(
             )
         });
 
-    if only_emptiness_checks {
-        // Option-returning: don't unwrap, emit is_none/is_some checks directly
+    let unwrap_suffix = if call_config.returns_result {
+        ".expect(\"should succeed\")"
+    } else {
+        ""
+    };
+    if only_emptiness_checks || !call_config.returns_result {
+        // Option-returning or non-Result-returning: bind raw value, no unwrap.
         let _ = writeln!(
             out,
             "    let {result_binding} = {function_name}({args_str}){await_suffix};"
@@ -521,7 +526,7 @@ fn render_test_function(
     } else if has_not_error || !fixture.assertions.is_empty() {
         let _ = writeln!(
             out,
-            "    let {result_binding} = {function_name}({args_str}){await_suffix}.expect(\"should succeed\");"
+            "    let {result_binding} = {function_name}({args_str}){await_suffix}{unwrap_suffix};"
         );
     } else {
         let _ = writeln!(
