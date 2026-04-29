@@ -71,14 +71,14 @@ impl E2eCodegen for JavaCodegen {
             generated_header: false,
         });
 
-        // Generate test files per category.
-        let test_base = output_base
-            .join("src")
-            .join("test")
-            .join("java")
-            .join("dev")
-            .join("kreuzberg")
-            .join("e2e");
+        // Generate test files per category. Path mirrors the configured Java
+        // package — `dev.spikard` becomes `dev/spikard`, etc. — so the package
+        // declaration in each test file matches its filesystem location.
+        let mut test_base = output_base.join("src").join("test").join("java");
+        for segment in java_group_id.split('.') {
+            test_base = test_base.join(segment);
+        }
+        let test_base = test_base.join("e2e");
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
@@ -106,6 +106,7 @@ impl E2eCodegen for JavaCodegen {
                 &active,
                 &class_name,
                 &function_name,
+                &java_group_id,
                 result_var,
                 &e2e_config.call.args,
                 options_type.as_deref(),
@@ -175,7 +176,7 @@ fn render_pom_xml(
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>dev.kreuzberg</groupId>
+    <groupId>{java_group_id}</groupId>
     <artifactId>{artifact_id}</artifactId>
     <version>0.1.0</version>
 
@@ -252,6 +253,7 @@ fn render_test_file(
     fixtures: &[&Fixture],
     class_name: &str,
     function_name: &str,
+    java_group_id: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
@@ -273,7 +275,7 @@ fn render_test_file(
         ("", class_name)
     };
 
-    let _ = writeln!(out, "package dev.kreuzberg.e2e;");
+    let _ = writeln!(out, "package {java_group_id}.e2e;");
     let _ = writeln!(out);
 
     // Check if any fixture uses a json_object arg with options_type (needs ObjectMapper).

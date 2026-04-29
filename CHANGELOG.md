@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Java/Kotlin e2e codegen now respects `[java].package` and `[kotlin].package`.** Previously the e2e generators hardcoded `dev.kreuzberg` in three places: the pom.xml `<groupId>`, the test-file `package` declarations, and the generated filesystem path (`src/test/{java,kotlin}/dev/kreuzberg/e2e/...`). Projects whose Java/Kotlin package config used a different group id (e.g. spikard's `dev.spikard`) ended up with package declarations that disagreed with their filesystem location, breaking compilation. The generators now use `alef_config.java_group_id()` / `alef_config.kotlin_package()` consistently — pom.xml `<groupId>`, gradle `group =`, the `package` line, and the path segments all derive from the configured value.
+
 ## [0.11.18] - 2026-04-29
 
 A patch release that fixes Javadoc emission so HTML inside backticks survives the Eclipse-formatter Spotless pipeline.

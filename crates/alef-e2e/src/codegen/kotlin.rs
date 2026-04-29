@@ -71,22 +71,23 @@ impl E2eCodegen for KotlinE2eCodegen {
             .and_then(|p| p.version.as_ref())
             .cloned()
             .unwrap_or_else(|| "0.1.0".to_string());
+        let kotlin_pkg_id = alef_config.kotlin_package();
 
         // Generate build.gradle.kts.
         files.push(GeneratedFile {
             path: output_base.join("build.gradle.kts"),
-            content: render_build_gradle(&pkg_name, &kotlin_version, e2e_config.dep_mode),
+            content: render_build_gradle(&pkg_name, &kotlin_pkg_id, &kotlin_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
-        // Generate test files per category.
-        let test_base = output_base
-            .join("src")
-            .join("test")
-            .join("kotlin")
-            .join("dev")
-            .join("kreuzberg")
-            .join("e2e");
+        // Generate test files per category. Path mirrors the configured Kotlin
+        // package so the package declaration in each test file matches its
+        // filesystem location.
+        let mut test_base = output_base.join("src").join("test").join("kotlin");
+        for segment in kotlin_pkg_id.split('.') {
+            test_base = test_base.join(segment);
+        }
+        let test_base = test_base.join("e2e");
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
@@ -114,6 +115,7 @@ impl E2eCodegen for KotlinE2eCodegen {
                 &active,
                 &class_name,
                 &function_name,
+                &kotlin_pkg_id,
                 result_var,
                 &e2e_config.call.args,
                 options_type.as_deref(),
@@ -141,7 +143,12 @@ impl E2eCodegen for KotlinE2eCodegen {
 // Rendering
 // ---------------------------------------------------------------------------
 
-fn render_build_gradle(pkg_name: &str, pkg_version: &str, dep_mode: crate::config::DependencyMode) -> String {
+fn render_build_gradle(
+    pkg_name: &str,
+    kotlin_pkg_id: &str,
+    pkg_version: &str,
+    dep_mode: crate::config::DependencyMode,
+) -> String {
     let dep_block = match dep_mode {
         crate::config::DependencyMode::Registry => {
             format!(r#"    testImplementation("{pkg_name}:{pkg_version}")"#)
@@ -163,7 +170,7 @@ plugins {{
     kotlin("jvm") version "{kotlin_plugin}"
 }}
 
-group = "dev.kreuzberg"
+group = "{kotlin_pkg_id}"
 version = "0.1.0"
 
 java {{
@@ -203,6 +210,7 @@ fn render_test_file(
     fixtures: &[&Fixture],
     class_name: &str,
     function_name: &str,
+    kotlin_pkg_id: &str,
     result_var: &str,
     args: &[crate::config::ArgMapping],
     options_type: Option<&str>,
@@ -224,7 +232,7 @@ fn render_test_file(
         ("", class_name)
     };
 
-    let _ = writeln!(out, "package dev.kreuzberg.e2e");
+    let _ = writeln!(out, "package {kotlin_pkg_id}.e2e");
     let _ = writeln!(out);
 
     // Check if any fixture uses a json_object arg with options_type (needs ObjectMapper).
