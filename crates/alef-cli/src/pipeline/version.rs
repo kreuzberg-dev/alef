@@ -246,6 +246,22 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
     }
 
     let version = read_version(&config.crate_config.version_from)?;
+
+    // Warm-path short-circuit: when bump is None and the canonical version is
+    // identical to the value we synced last time, every downstream manifest
+    // is already correct (unless someone hand-edited one — in which case
+    // `alef verify` and the next bump will catch it). Skip the entire
+    // glob+regex+stat pass; on kreuzberg this is dozens of file reads per
+    // warm run that produce no work.
+    let last_path = std::path::Path::new(".alef").join("last_synced_version");
+    if bump.is_none() {
+        if let Ok(prev) = std::fs::read_to_string(&last_path) {
+            if prev.trim() == version {
+                debug!("Versions in sync with last run ({version}) — skipping sync pass");
+                return Ok(());
+            }
+        }
+    }
     info!("Syncing version {version}");
 
     let mut updated = vec![];
@@ -604,6 +620,11 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
         info!("Rebuilding FFI ({ffi_crate}) to refresh C headers...");
         let _ = run_command(&format!("cargo build -p {ffi_crate}"));
     }
+
+    // Stamp the last-synced version so the next warm run can skip the entire
+    // glob+regex pass without re-stat'ing every manifest.
+    let _ = std::fs::create_dir_all(".alef");
+    let _ = std::fs::write(&last_path, &version);
 
     // If no manifest actually changed, nothing else needs refreshing — the
     // generated README/docs/binding hashes still match. This is the warm-path
