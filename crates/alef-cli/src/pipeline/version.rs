@@ -662,10 +662,26 @@ fn regenerate_readmes(config: &AlefConfig, config_path: &std::path::Path) -> any
     Ok(count)
 }
 
-/// Replace version pattern in content. Returns Some(new_content) if replaced, None if pattern not found.
+/// Replace version pattern in content. Returns `Some(new_content)` only when
+/// the regex match exists *and* the captured version string actually differs
+/// from the target. This is the idempotency guard against:
+///   1. backend codegen that emits a manifest with the right value but in a
+///      slightly different syntactic form (e.g. Magnus emits `VERSION =
+///      "4.10.0.pre.rc.9"` while the regex's replacement template uses
+///      single-quotes); without this guard the two paths ping-pong and every
+///      warm `alef generate` rewrites the manifest, triggers README regen,
+///      and looks like real drift to downstream tooling.
+///   2. trivial round-trips where new content == old content despite the
+///      regex matching.
 fn replace_version_pattern(content: &str, pattern: &str, version: &str) -> Option<String> {
     let regex = regex::Regex::new(pattern).ok()?;
-    if !regex.is_match(content) {
+    let captures = regex.captures(content)?;
+    let matched = captures.get(0)?.as_str();
+    // Extract the version literal (text between the first pair of quotes or
+    // angle/colon delimiters) and short-circuit when it already equals the
+    // target. This way `VERSION = "x"` and `VERSION = 'x'` both count as
+    // "already in sync" when x matches, regardless of quote style.
+    if matched_version_equals(matched, version) {
         return None;
     }
 
@@ -686,7 +702,47 @@ fn replace_version_pattern(content: &str, pattern: &str, version: &str) -> Optio
         _ => return None,
     };
 
-    Some(regex.replace(content, replacement.as_str()).to_string())
+    let new_content = regex.replace(content, replacement.as_str()).to_string();
+    if new_content == content {
+        return None;
+    }
+    Some(new_content)
+}
+
+/// Extract the version-literal substring from a regex match string and decide
+/// whether it already equals `target`. The match string is something like
+/// `VERSION = "1.2.3"`, `version = "1.2.3"`, `<version>1.2.3</version>`,
+/// `Version: 1.2.3`. We look for the first chunk after the delimiter and
+/// compare it to `target`; quote style is irrelevant.
+fn matched_version_equals(matched: &str, target: &str) -> bool {
+    extract_version_literal(matched).is_some_and(|v| v == target)
+}
+
+fn extract_version_literal(matched: &str) -> Option<&str> {
+    // Try paired-quote form first ("..." or '...').
+    if let Some(start) = matched.find(['"', '\'']) {
+        let quote = matched.as_bytes()[start];
+        let rest = &matched[start + 1..];
+        if let Some(end) = rest.find(quote as char) {
+            return Some(&rest[..end]);
+        }
+    }
+    // Try angle-bracket form (<version>...</version> or <Version>...</Version>).
+    if let Some(close) = matched.find('>') {
+        let rest = &matched[close + 1..];
+        if let Some(end) = rest.find('<') {
+            return Some(&rest[..end]);
+        }
+    }
+    // Try colon-delimited form (`Version: 1.2.3`).
+    if let Some(colon) = matched.find(':') {
+        return Some(matched[colon + 1..].trim());
+    }
+    // Try `=` delimited unquoted form.
+    if let Some(eq) = matched.find('=') {
+        return Some(matched[eq + 1..].trim());
+    }
+    None
 }
 
 #[cfg(test)]
