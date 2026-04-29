@@ -278,6 +278,23 @@ pub fn derive_go_module_from_repo(repo_url: &str) -> Option<String> {
     Some(module)
 }
 
+/// Extract the org segment from a repository URL.
+///
+/// Recognises `https?://<host>/<org>/<rest>` and returns `<org>` verbatim
+/// (no case or punctuation transformation). Returns `None` when the URL is
+/// missing a host or org segment.
+///
+/// Examples:
+/// - `https://github.com/kreuzberg-dev/kreuzberg` → `Some("kreuzberg-dev")`
+/// - `https://github.com/`                       → `None`
+pub fn derive_repo_org(repo_url: &str) -> Option<String> {
+    let after_scheme = repo_url.split_once("://").map(|(_, rest)| rest).unwrap_or(repo_url);
+    let mut parts = after_scheme.split('/').filter(|s| !s.is_empty());
+    let _host = parts.next()?;
+    let org = parts.next()?;
+    Some(org.to_string())
+}
+
 #[cfg(test)]
 mod derive_reverse_dns_tests {
     use super::derive_reverse_dns_package;
@@ -1168,6 +1185,20 @@ impl AlefConfig {
                 use heck::ToPascalCase;
                 self.crate_config.name.to_pascal_case()
             })
+    }
+
+    /// Get the NuGet `<PackageId>` to publish under. Defaults to `csharp_namespace()`
+    /// when `[csharp].package_id` is unset. Use a separate id when the
+    /// unprefixed name is owned by a third party on nuget.org and the
+    /// project must publish under a vendor-prefixed coordinate (e.g.
+    /// `KreuzbergDev.HtmlToMarkdown`) while keeping the in-code namespace
+    /// short.
+    pub fn csharp_package_id(&self) -> String {
+        self.csharp
+            .as_ref()
+            .and_then(|c| c.package_id.as_ref())
+            .cloned()
+            .unwrap_or_else(|| self.csharp_namespace())
     }
 
     /// Get the directory name of the core crate (derived from sources or falling back to name).
