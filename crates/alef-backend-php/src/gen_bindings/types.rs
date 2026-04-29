@@ -706,7 +706,7 @@ fn flat_enum_core_to_binding_field_expr(f: &alef_core::ir::FieldDef, bound_var: 
                 wrap_some(format!("{bound_var}.to_string_lossy().into_owned()"))
             }
         }
-        TypeRef::Primitive(p) if matches!(p, PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::Isize) => {
+        TypeRef::Primitive(PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::Isize) => {
             if f.optional {
                 format!("{bound_var}.map(|v| v as i64)")
             } else {
@@ -758,7 +758,7 @@ fn flat_enum_binding_to_core_field_expr(f: &alef_core::ir::FieldDef, flat_name: 
                 format!("val.{flat_name}.map(std::path::PathBuf::from).unwrap_or_default()")
             }
         }
-        TypeRef::Primitive(p) if matches!(p, PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::Isize) => {
+        TypeRef::Primitive(p @ (PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::Isize)) => {
             let core_ty = match p {
                 PrimitiveType::Usize => "usize",
                 PrimitiveType::U64 => "u64",
