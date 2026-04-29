@@ -233,7 +233,7 @@ pub mod maven {
     pub const JSPECIFY: &str = "1.0.0";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON: &str = "2.21.2";
+    pub const JACKSON: &str = "2.21.3";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
     pub const JACKSON_E2E: &str = "2.18.2";
