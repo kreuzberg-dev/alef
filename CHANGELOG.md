@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.15] - 2026-04-29
+
+PHP backend: fix codegen errors in tagged data enum `From` impls.
+
+### Fixed
+
+- **PHP flat data enum `From` impls now handle all field kinds correctly.** `gen_flat_data_enum_from_impls` previously emitted `.into()` unconditionally for every variant field, which compiled only when `From<BindingType>` happened to exist. Four cases were missing:
+  - **`sanitized: true` fields** (e.g. `TableGrid`, `ImageMetadata`, `PdfMetadata`, `ProcessResult`, `[(u32,u32);4]`): now emits `None` / `Default::default()` instead of trying to convert an opaque or complex core type through a String.
+  - **`is_boxed: true` fields** (e.g. `FormatMetadata::Docx(Box<DocxMetadata>)`, `::Html(Box<HtmlMetadata>)`): now wraps the core→binding result in `Some((*val).into())` and the binding→core result in `Box::new(...)`.
+  - **`TypeRef::Path` fields** (e.g. `ChunkSizing::Tokenizer { cache_dir: Option<PathBuf> }`): now uses `PathBuf::from(s)` for binding→core and `.to_string_lossy().into_owned()` for core→binding instead of `.into()` (no `From<PathBuf> for String` exists).
+  - **`TypeRef::Primitive(Usize | U64 | Isize)` fields** (e.g. `EmbeddingModelType::Custom { dimensions: usize }`): now emits `v as usize` / `v as i64` explicit casts instead of `.into()` (no `From<i64> for usize` exists).
+  - Struct variant destructuring patterns for sanitized fields now use `field: _field` syntax (not `_field` alone) to satisfy the Rust struct-pattern completeness requirement.
+
 ## [0.11.14] - 2026-04-29
 
 CLI ergonomics, generation performance, and live output for long-running commands. Warm `alef generate` on a 16-language consumer (kreuzberg) drops from ~14s to ~1s.
