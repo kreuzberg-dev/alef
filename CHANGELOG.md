@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.9] - 2026-04-29
+
+A patch release that fixes the PHP backend's lowering of tagged enums with **tuple variants** holding distinct types.
+
+### Fixed
+
+- **PHP backend now gives each tuple variant of a tagged enum its own distinct field instead of collapsing them all to a shared `_0` field.** Previously `pub enum Message { System(SystemMessage), User(UserMessage), … }` lowered to a single `_0: Option<SystemMessage>` (the first variant's type) and the From impls then tried to assign `UserMessage`/`AssistantMessage`/etc to that one field, producing N trait-bound errors per non-first variant. Single-field tuple variants now use the variant's snake_case name as the field name (`system: Option<SystemMessage>`, `user: Option<UserMessage>`, …); multi-field tuple variants get `{variant}_0`, `{variant}_1`, …. Struct variants are unchanged.
+
 ## [0.11.8] - 2026-04-29
 
 A patch release that fixes the PHP and Rustler/Elixir backends to preserve struct-variant fields when lowering tagged enums, plus two smaller release-pipeline fixes.
