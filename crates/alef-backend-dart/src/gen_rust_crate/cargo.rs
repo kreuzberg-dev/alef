@@ -40,11 +40,34 @@ pub(crate) fn emit_cargo_toml(
         !b.exclude_languages.iter().any(|l| l == "dart")
             && api.types.iter().any(|t| t.name == b.trait_name && t.is_trait)
     });
-    let extra_deps = if has_trait_bridges {
+    let trait_bridge_deps = if has_trait_bridges {
         "tokio = { version = \"1\", features = [\"rt\"] }\nasync-trait = \"0.1\"\n"
     } else {
         ""
     };
+
+    // Merge [crate.extra_dependencies] from alef.toml — required for multi-crate
+    // workspaces where the bindings codegen emits qualified paths from sibling
+    // crates (e.g. spikard_graphql::QueryOnlyConfig). The umbrella crate is
+    // already listed above; these are the additional sibling crates.
+    let workspace_extra = config.extra_deps_for_language(alef_core::config::extras::Language::Dart);
+    let mut workspace_dep_lines: Vec<String> = workspace_extra
+        .iter()
+        .map(|(name, value)| {
+            if let Some(s) = value.as_str() {
+                format!("{name} = \"{s}\"")
+            } else {
+                format!("{name} = {value}")
+            }
+        })
+        .collect();
+    workspace_dep_lines.sort();
+    let workspace_deps_block = if workspace_dep_lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", workspace_dep_lines.join("\n"))
+    };
+    let extra_deps = format!("{trait_bridge_deps}{workspace_deps_block}");
 
     let license = config
         .scaffold

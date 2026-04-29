@@ -53,6 +53,11 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &AlefConfig) -> anyhow::Res
         r#"{pkg_header}
 repository = "{repository}"
 
+[package.metadata.cargo-machete]
+# tokio is pulled in for its runtime/macros at link time but the generated
+# FFI source never `use`s it directly — cargo-machete would otherwise flag it.
+ignored = ["tokio"]
+
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
