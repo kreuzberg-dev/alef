@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use ahash::AHashMap;
 use alef_core::ir::{CoreWrapper, EnumVariant, FieldDef, TypeRef};
-use quote::ToTokens;
 use syn;
 
 use crate::type_resolver;
@@ -49,13 +48,95 @@ pub(crate) fn has_derive(attrs: &[syn::Attribute], derive_name: &str) -> bool {
         } else if attr.path().is_ident("cfg_attr") {
             // Check cfg_attr for conditional derives, e.g.:
             // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-            let tokens = attr.meta.to_token_stream().to_string();
-            if tokens.contains("derive") && tokens.contains(derive_name) {
+            // #[cfg_attr(any(feature = "x", test), derive(thiserror::Error))]
+            //
+            // Walk with parse_nested_meta: the first element is the condition (skipped),
+            // subsequent elements are the attributes to apply. We look for `derive(...)` and
+            // check each path inside it via path.is_ident(derive_name) (last segment).
+            if cfg_attr_has_derive_name(attr, derive_name) {
                 return true;
             }
         }
     }
     false
+}
+
+/// Walk a `cfg_attr(condition, derive(Foo, Bar))` attribute structurally and check whether
+/// the inner derive list contains a path whose last segment matches `derive_name`.
+///
+/// Parses the raw token stream inside `cfg_attr(...)` via `syn::Meta` — the condition is
+/// consumed as one `Meta` item (handles bare idents, `key = "val"`, and nested calls like
+/// `any(...)`/`all(...)`), then the remaining items are inspected for `derive(...)`.
+/// No `to_token_stream().to_string()` allocation.
+fn cfg_attr_has_derive_name(attr: &syn::Attribute, derive_name: &str) -> bool {
+    cfg_attr_walk_derives(attr, |path| {
+        path.is_ident(derive_name) || path.segments.last().is_some_and(|seg| seg.ident == derive_name)
+    })
+}
+
+/// Walk a `cfg_attr(condition, derive(Foo::Bar))` attribute structurally and check whether
+/// the inner derive list contains a path whose segments exactly match `segments`.
+///
+/// Same parsing strategy as [`cfg_attr_has_derive_name`].
+fn cfg_attr_has_derive_path(attr: &syn::Attribute, segments: &[&str]) -> bool {
+    cfg_attr_walk_derives(attr, |path| {
+        path.segments.len() == segments.len()
+            && path
+                .segments
+                .iter()
+                .zip(segments.iter())
+                .all(|(seg, expected)| seg.ident == *expected)
+    })
+}
+
+/// Core helper: parse a `cfg_attr(condition, ...)` token stream and call `predicate` on every
+/// path inside any `derive(...)` list found after the condition.
+///
+/// The condition is skipped by parsing it as a `syn::Meta` (which correctly handles bare
+/// idents, `feature = "x"`, `any(...)`, `all(...)`, `not(...)`, and combinations). A comma
+/// is then consumed, and the remaining attribute metas are iterated.
+fn cfg_attr_walk_derives(attr: &syn::Attribute, mut predicate: impl FnMut(&syn::Path) -> bool) -> bool {
+    let meta_list = match attr.meta.require_list() {
+        Ok(list) => list,
+        Err(_) => return false,
+    };
+
+    use syn::parse::ParseStream;
+    use syn::Token;
+
+    let mut found = false;
+    let parse_fn = |input: ParseStream<'_>| -> syn::Result<()> {
+        // Skip the cfg condition — parse it as a Meta so nested parens (any/all/not) are consumed.
+        let _condition: syn::Meta = input.parse()?;
+
+        // Consume the comma separating condition from the attribute list.
+        let _: Token![,] = input.parse()?;
+
+        // Iterate the remaining attribute metas.
+        while !input.is_empty() {
+            let attr_meta: syn::Meta = input.parse()?;
+            if let syn::Meta::List(list) = &attr_meta {
+                if list.path.is_ident("derive") {
+                    let inner_paths = list.parse_args_with(
+                        syn::punctuated::Punctuated::<syn::Path, Token![,]>::parse_terminated,
+                    )?;
+                    for path in &inner_paths {
+                        if predicate(path) {
+                            found = true;
+                        }
+                    }
+                }
+            }
+            // Consume trailing comma between multiple conditional attributes (rare but valid).
+            if input.peek(Token![,]) {
+                let _: Token![,] = input.parse()?;
+            }
+        }
+        Ok(())
+    };
+
+    let _ = syn::parse::Parser::parse2(parse_fn, meta_list.tokens.clone());
+    found
 }
 
 /// Extract the condition string from a `#[cfg(...)]` attribute, if present.
@@ -461,8 +542,10 @@ pub(crate) fn has_derive_path(attrs: &[syn::Attribute], segments: &[&str]) -> bo
         } else if attr.path().is_ident("cfg_attr") {
             // Check cfg_attr for conditional derives, e.g.:
             // #[cfg_attr(feature = "serde", derive(thiserror::Error))]
-            let tokens = attr.meta.to_token_stream().to_string();
-            if tokens.contains("derive") && segments.iter().all(|seg| tokens.contains(seg)) {
+            // #[cfg_attr(any(feature = "x", test), derive(thiserror::Error))]
+            //
+            // Structured walk — no to_token_stream().to_string() allocation.
+            if cfg_attr_has_derive_path(attr, segments) {
                 return true;
             }
         }
@@ -585,5 +668,128 @@ fn collect_reexport_leaves(module: &str, tree: &syn::UseTree, map: &mut AHashMap
                 collect_reexport_leaves(module, item, map);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{has_derive, has_derive_path};
+
+    fn parse_attrs(input: &str) -> Vec<syn::Attribute> {
+        // Wrap the attribute in a dummy struct so syn can parse it.
+        let item: syn::ItemStruct = syn::parse_str(&format!("{input} struct _Dummy;")).unwrap();
+        item.attrs
+    }
+
+    // --- has_derive ---
+
+    #[test]
+    fn test_has_derive_bare_positive() {
+        let attrs = parse_attrs("#[derive(Debug, Clone)]");
+        assert!(has_derive(&attrs, "Debug"));
+        assert!(has_derive(&attrs, "Clone"));
+    }
+
+    #[test]
+    fn test_has_derive_bare_negative() {
+        let attrs = parse_attrs("#[derive(Debug)]");
+        assert!(!has_derive(&attrs, "Clone"));
+    }
+
+    #[test]
+    fn test_has_derive_cfg_attr_simple() {
+        // #[cfg_attr(feature = "x", derive(Foo))]
+        let attrs = parse_attrs(r#"#[cfg_attr(feature = "x", derive(Foo))]"#);
+        assert!(has_derive(&attrs, "Foo"));
+        assert!(!has_derive(&attrs, "Bar"));
+    }
+
+    #[test]
+    fn test_has_derive_cfg_attr_multi_derive() {
+        // multiple derives inside cfg_attr
+        let attrs = parse_attrs(r#"#[cfg_attr(feature = "x", derive(Foo, Bar, Baz))]"#);
+        assert!(has_derive(&attrs, "Foo"));
+        assert!(has_derive(&attrs, "Bar"));
+        assert!(has_derive(&attrs, "Baz"));
+        assert!(!has_derive(&attrs, "Qux"));
+    }
+
+    #[test]
+    fn test_has_derive_cfg_attr_any_condition() {
+        // #[cfg_attr(any(feature = "x", test), derive(thiserror::Error))]
+        let attrs = parse_attrs(r#"#[cfg_attr(any(feature = "x", test), derive(thiserror::Error))]"#);
+        // Last segment of thiserror::Error is "Error"
+        assert!(has_derive(&attrs, "Error"));
+        assert!(!has_derive(&attrs, "thiserror"));
+    }
+
+    #[test]
+    fn test_has_derive_cfg_attr_qualified_path_last_segment() {
+        // serde::Serialize — last segment is "Serialize"
+        let attrs = parse_attrs(r#"#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]"#);
+        assert!(has_derive(&attrs, "Serialize"));
+        assert!(has_derive(&attrs, "Deserialize"));
+        assert!(!has_derive(&attrs, "serde"));
+    }
+
+    #[test]
+    fn test_has_derive_cfg_attr_negative_no_derive() {
+        // cfg_attr with a non-derive inner attribute
+        let attrs = parse_attrs(r#"#[cfg_attr(feature = "x", serde(rename_all = "camelCase"))]"#);
+        assert!(!has_derive(&attrs, "Serialize"));
+    }
+
+    // --- has_derive_path ---
+
+    #[test]
+    fn test_has_derive_path_bare_single_segment() {
+        let attrs = parse_attrs("#[derive(Debug)]");
+        assert!(has_derive_path(&attrs, &["Debug"]));
+        assert!(!has_derive_path(&attrs, &["Clone"]));
+    }
+
+    #[test]
+    fn test_has_derive_path_bare_multi_segment() {
+        let attrs = parse_attrs("#[derive(thiserror::Error)]");
+        assert!(has_derive_path(&attrs, &["thiserror", "Error"]));
+        assert!(!has_derive_path(&attrs, &["Error"]));
+        assert!(!has_derive_path(&attrs, &["thiserror"]));
+    }
+
+    #[test]
+    fn test_has_derive_path_cfg_attr_simple() {
+        let attrs = parse_attrs(r#"#[cfg_attr(feature = "x", derive(Foo))]"#);
+        assert!(has_derive_path(&attrs, &["Foo"]));
+        assert!(!has_derive_path(&attrs, &["Bar"]));
+    }
+
+    #[test]
+    fn test_has_derive_path_cfg_attr_multi_segment() {
+        // #[cfg_attr(feature = "x", derive(thiserror::Error))]
+        let attrs = parse_attrs(r#"#[cfg_attr(feature = "x", derive(thiserror::Error))]"#);
+        assert!(has_derive_path(&attrs, &["thiserror", "Error"]));
+        assert!(!has_derive_path(&attrs, &["Error"]));
+    }
+
+    #[test]
+    fn test_has_derive_path_cfg_attr_any_condition() {
+        let attrs = parse_attrs(r#"#[cfg_attr(any(feature = "x", test), derive(thiserror::Error))]"#);
+        assert!(has_derive_path(&attrs, &["thiserror", "Error"]));
+        assert!(!has_derive_path(&attrs, &["thiserror"]));
+        assert!(!has_derive_path(&attrs, &["Error"]));
+    }
+
+    #[test]
+    fn test_has_derive_path_cfg_attr_negative() {
+        let attrs = parse_attrs(r#"#[cfg_attr(feature = "x", serde(rename_all = "camelCase"))]"#);
+        assert!(!has_derive_path(&attrs, &["serde"]));
+        assert!(!has_derive_path(&attrs, &["rename_all"]));
+    }
+
+    #[test]
+    fn test_has_derive_path_empty_attrs() {
+        let attrs: Vec<syn::Attribute> = vec![];
+        assert!(!has_derive(&attrs, "Debug"));
+        assert!(!has_derive_path(&attrs, &["Debug"]));
     }
 }
