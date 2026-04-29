@@ -264,8 +264,6 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_cbindgen_toml(prefix: &str, api: &alef_core::ir::ApiSurface) -> String {
-    use heck::ToPascalCase;
-
     let prefix_upper = prefix.to_uppercase();
 
     // Collect all type names that appear in the API surface and need forward
@@ -274,13 +272,18 @@ pub(super) fn gen_cbindgen_toml(prefix: &str, api: &alef_core::ir::ApiSurface) -
     let mut type_names: Vec<String> = api
         .types
         .iter()
-        .map(|t| format!("{prefix_upper}{}", t.name.to_pascal_case()))
+        // Use the IR type name verbatim (it already comes from Rust source as
+        // PascalCase). `to_pascal_case` mangles names containing all-caps
+        // abbreviations: e.g. `GraphQLError` becomes `GraphQlError`, which
+        // disagrees with cbindgen's emit (`SPIKARDGraphQLError`) and breaks the
+        // C consumer build.
+        .map(|t| format!("{prefix_upper}{}", t.name))
         .collect();
 
     // Include enum types as well — they may appear as opaque handles in
     // function signatures when used across module boundaries.
     for e in &api.enums {
-        let c_name = format!("{prefix_upper}{}", e.name.to_pascal_case());
+        let c_name = format!("{prefix_upper}{}", e.name);
         if !type_names.contains(&c_name) {
             type_names.push(c_name);
         }
