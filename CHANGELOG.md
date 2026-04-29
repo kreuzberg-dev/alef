@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.10] - 2026-04-29
+
+A patch release that fixes the NAPI/Node backend so functions whose only sanitized parameter is a configured `[[trait_bridges]]` param (e.g. `Option<VisitorHandle>`) are emitted via the bridge instead of being silently skipped.
+
+### Fixed
+
+- **NAPI backend now emits top-level functions that take a configured trait-bridge parameter, even when the function is marked sanitized.** Previously the sanitized check ran before `find_bridge_param`, so html-to-markdown's top-level `convert(html, options, Option<VisitorHandle>)` was dropped from the Node binding, causing downstream `import { convert }` to fail at TypeScript compile time. The check now skips a function only when it's sanitized AND no trait-bridge param applies — matching how the PyO3 backend already handles this case (which is why Python had `convert` and Node didn't).
+
 ## [0.11.9] - 2026-04-29
 
 A patch release that fixes the PHP backend's lowering of tagged enums with **tuple variants** holding distinct types.
