@@ -253,6 +253,31 @@ fn derive_reverse_dns_package(repo_url: &str) -> Option<String> {
     Some(pkg)
 }
 
+/// Derive a Go module path from a repository URL.
+///
+/// Strips the `https?://` scheme and any trailing slash. Returns `None` when
+/// the URL has no host or no path segment beyond the host.
+///
+/// Examples:
+/// - `https://github.com/kreuzberg-dev/kreuzberg` → `Some("github.com/kreuzberg-dev/kreuzberg")`
+/// - `https://github.com/foo/bar/` → `Some("github.com/foo/bar")`
+/// - `https://github.com/` → `None`
+fn derive_go_module_from_repo(repo_url: &str) -> Option<String> {
+    let after_scheme = repo_url.split_once("://").map(|(_, rest)| rest).unwrap_or(repo_url);
+    let trimmed = after_scheme.trim_end_matches('/');
+    let mut parts = trimmed.split('/');
+    let host = parts.next().filter(|s| !s.is_empty())?;
+    let org = parts.next().filter(|s| !s.is_empty())?;
+    let repo_segment = parts.next().filter(|s| !s.is_empty());
+
+    let mut module = format!("{host}/{org}");
+    if let Some(repo) = repo_segment {
+        module.push('/');
+        module.push_str(repo);
+    }
+    Some(module)
+}
+
 #[cfg(test)]
 mod derive_reverse_dns_tests {
     use super::derive_reverse_dns_package;
@@ -887,13 +912,33 @@ impl AlefConfig {
             .unwrap_or_else(|| self.crate_config.name.replace('-', "_"))
     }
 
-    /// Get the Go module path.
+    /// Get the Go module path, returning an error when neither `[go].module`
+    /// nor a derivable repository URL is configured.
+    ///
+    /// Resolution order:
+    /// 1. `[go].module`
+    /// 2. Derived from `[scaffold] repository` / `[e2e.registry] github_repo`
+    ///    by stripping the `https://` scheme (so `https://github.com/foo/bar`
+    ///    becomes `github.com/foo/bar`).
+    pub fn try_go_module(&self) -> Result<String, String> {
+        if let Some(module) = self.go.as_ref().and_then(|g| g.module.as_ref()) {
+            return Ok(module.clone());
+        }
+        if let Ok(repo) = self.try_github_repo() {
+            if let Some(module) = derive_go_module_from_repo(&repo) {
+                return Ok(module);
+            }
+        }
+        Err(format!(
+            "no Go module configured — set `[go] module = \"...\"` or `[scaffold] repository = \"https://<host>/<org>/...\"` for crate `{}`",
+            self.crate_config.name
+        ))
+    }
+
+    /// Get the Go module path with a vendor-neutral placeholder fallback.
     pub fn go_module(&self) -> String {
-        self.go
-            .as_ref()
-            .and_then(|g| g.module.as_ref())
-            .cloned()
-            .unwrap_or_else(|| format!("github.com/kreuzberg-dev/{}", self.crate_config.name))
+        self.try_go_module()
+            .unwrap_or_else(|_| format!("example.invalid/{}", self.crate_config.name))
     }
 
     /// Get the GitHub repository URL, returning an error when no source has it set.

@@ -67,7 +67,7 @@ impl GoBackend {
         module_path
             .split('/')
             .next_back()
-            .unwrap_or("kreuzberg")
+            .unwrap_or("binding")
             .replace('-', "")
             .to_lowercase()
     }
