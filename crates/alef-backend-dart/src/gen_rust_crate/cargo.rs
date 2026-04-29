@@ -75,12 +75,32 @@ pub(crate) fn emit_cargo_toml(
         .and_then(|s| s.license.as_deref())
         .unwrap_or("MIT");
 
+    // Build the cargo-machete ignored list: the umbrella crate plus every sibling
+    // crate from [crate.extra_dependencies]. flutter_rust_bridge resolves types
+    // across all of them, but the generated Rust wrapper only `use`s a subset —
+    // cargo-machete would otherwise flag the rest.
+    let mut machete_ignored: Vec<String> = std::iter::once(source_crate_name.to_string())
+        .chain(workspace_extra.keys().cloned())
+        .collect();
+    machete_ignored.sort();
+    machete_ignored.dedup();
+    let machete_ignored_list = machete_ignored
+        .iter()
+        .map(|n| format!("\"{n}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+
     let content = format!(
         r#"[package]
 name = "{crate_name}-dart"
 version = "{version}"
 edition = "2024"
 license = "{license}"
+
+[package.metadata.cargo-machete]
+# Umbrella + sibling crates are pulled in so flutter_rust_bridge can resolve
+# every referenced type, but the generated Rust wrapper only `use`s a subset.
+ignored = [{machete_ignored_list}]
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
