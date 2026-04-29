@@ -96,19 +96,34 @@ fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &str) -> anyh
 /// Convert a semver pre-release version to PEP 440 format for Python/PyPI.
 /// e.g., "0.1.0-rc.1" → "0.1.0rc1", "0.1.0-alpha.2" → "0.1.0a2", "0.1.0-beta.3" → "0.1.0b3"
 /// Non-pre-release versions are returned unchanged.
+///
+/// Single-pass implementation: builds the result into one pre-allocated
+/// `String` instead of chaining five `.replace()` calls (each of which
+/// allocates a new intermediate `String`).
 fn to_pep440(version: &str) -> String {
-    if let Some((base, pre)) = version.split_once('-') {
-        let pep = pre
-            .replace("alpha.", "a")
-            .replace("alpha", "a")
-            .replace("beta.", "b")
-            .replace("beta", "b")
-            .replace("rc.", "rc")
-            .replace('.', "");
-        format!("{base}{pep}")
+    let Some((base, pre)) = version.split_once('-') else {
+        return version.to_string();
+    };
+    let mut out = String::with_capacity(base.len() + pre.len());
+    out.push_str(base);
+    let pre_norm = if let Some(rest) = pre.strip_prefix("alpha.").or_else(|| pre.strip_prefix("alpha")) {
+        out.push('a');
+        rest
+    } else if let Some(rest) = pre.strip_prefix("beta.").or_else(|| pre.strip_prefix("beta")) {
+        out.push('b');
+        rest
+    } else if let Some(rest) = pre.strip_prefix("rc.").or_else(|| pre.strip_prefix("rc")) {
+        out.push_str("rc");
+        rest
     } else {
-        version.to_string()
+        pre
+    };
+    for c in pre_norm.chars() {
+        if c != '.' {
+            out.push(c);
+        }
     }
+    out
 }
 
 use alef_core::version::to_rubygems_prerelease;
@@ -787,6 +802,38 @@ fn extract_version_literal(matched: &str) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::pipeline::generate;
+
+    #[test]
+    fn to_pep440_no_prerelease_passthrough() {
+        assert_eq!(to_pep440("1.2.3"), "1.2.3");
+        assert_eq!(to_pep440("0.1.0"), "0.1.0");
+    }
+
+    #[test]
+    fn to_pep440_rc_prerelease() {
+        assert_eq!(to_pep440("0.1.0-rc.1"), "0.1.0rc1");
+        assert_eq!(to_pep440("4.10.0-rc.9"), "4.10.0rc9");
+    }
+
+    #[test]
+    fn to_pep440_alpha_beta_prerelease() {
+        assert_eq!(to_pep440("1.0.0-alpha.2"), "1.0.0a2");
+        assert_eq!(to_pep440("1.0.0-beta.3"), "1.0.0b3");
+    }
+
+    #[test]
+    fn to_pep440_strips_internal_dots() {
+        assert_eq!(to_pep440("0.1.0-rc.1.2"), "0.1.0rc12");
+    }
+
+    #[test]
+    fn matched_version_equals_treats_quote_style_uniformly() {
+        assert!(matched_version_equals("VERSION = '1.0.0'", "1.0.0"));
+        assert!(matched_version_equals("VERSION = \"1.0.0\"", "1.0.0"));
+        assert!(!matched_version_equals("VERSION = '1.0.0'", "2.0.0"));
+        assert!(matched_version_equals("<version>1.0.0</version>", "1.0.0"));
+        assert!(matched_version_equals("Version: 1.0.0", "1.0.0"));
+    }
 
     #[test]
     fn test_replace_version_pattern_ruby_version() {

@@ -1,29 +1,33 @@
+use ahash::AHashMap;
 use alef_core::ir::ApiSurface;
+use std::collections::HashSet;
 
 /// Build the set of variant names that collide across enums, error types, and top-level types.
 ///
 /// Gleam requires constructor names to be unique module-wide. Any variant name
 /// that appears more than once across enums + error types, or that matches an
 /// existing top-level type name, must be prefixed with the parent type name.
-pub(crate) fn build_collision_set(api: &ApiSurface) -> std::collections::HashSet<String> {
-    let mut variant_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+pub(crate) fn build_collision_set(api: &ApiSurface) -> HashSet<String> {
+    // Use ahash + &str keys so the count map skips per-variant String clones.
+    let mut variant_counts: AHashMap<&str, usize> = AHashMap::new();
     for en in &api.enums {
         for v in &en.variants {
-            *variant_counts.entry(v.name.clone()).or_insert(0) += 1;
+            *variant_counts.entry(v.name.as_str()).or_insert(0) += 1;
         }
     }
     for err in &api.errors {
         for v in &err.variants {
-            *variant_counts.entry(v.name.clone()).or_insert(0) += 1;
+            *variant_counts.entry(v.name.as_str()).or_insert(0) += 1;
         }
     }
-    // Also flag variants whose name collides with an existing top-level type.
     for ty in &api.types {
-        *variant_counts.entry(ty.name.clone()).or_insert(0) += 1;
+        *variant_counts.entry(ty.name.as_str()).or_insert(0) += 1;
     }
+    // Allocate the owned String only for the small subset of names that
+    // actually collide.
     variant_counts
         .into_iter()
-        .filter_map(|(n, c)| if c > 1 { Some(n) } else { None })
+        .filter_map(|(n, c)| if c > 1 { Some(n.to_string()) } else { None })
         .collect()
 }
 

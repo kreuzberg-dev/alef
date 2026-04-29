@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+ahash = { workspace = true }
 alef-codegen = { workspace = true }
 alef-core = { workspace = true }
 alef-docs = { workspace = true }

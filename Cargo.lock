@@ -92,6 +92,7 @@ dependencies = [
 name = "alef-backend-gleam"
 version = "0.11.14"
 dependencies = [
+ "ahash",
  "alef-codegen",
  "alef-core",
  "alef-docs",
