@@ -9,7 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Python e2e codegen no longer triggers ruff `F401` on `import pytest`.** When `e2e.call.async = true` (or any test in the file is async/skipped/has error assertions), the python e2e generator emits `import pytest` at module level. Pytest is needed for `pytest.fixture` / `pytest.mark.*` decorators, but ruff's `F401` rule strips the import when no symbol is statically referenced in the file body — which then causes `alef verify` to fail on subsequent runs because the file's hash no longer matches the generated content. The import is now suppressed with `# noqa: F401`.
+- **Python e2e codegen no longer triggers ruff `F401` on `import pytest`.**
+
+## [0.11.17] - 2026-04-29
+
+PHP backend: fix flat-enum codegen to emit correct code instead of no-op conversions.
+
+### Fixed
+
+- **PHP flat-enum `From` impls no longer emit no-op `.into()` for primitive and `String` fields.** `flat_enum_core_to_binding_field_expr` and `flat_enum_binding_to_core_field_expr` previously fell through to `.map(Into::into)` / `.into()` for all types not explicitly handled. For primitives (`u8`, `u16`, `u32`, `i32`, `bool`, `f32`, `f64`, etc.) and `String`, the PHP binding type equals the core type, so `Into::into` is a no-op and triggered `clippy::useless_conversion`. Both functions now emit direct assignment for these same-type cases.
+- **PHP flat-enum getter methods no longer call `.clone()` on `Copy` types.** Getters for `Option<u32>`, `Option<u8>`, `Option<bool>`, `Option<i64>` etc. previously always emitted `self.field.clone()`, which triggered `clippy::clone_on_copy`. Getters for Copy fields (`is_php_copy_type` helper: `Primitive` and `Option<Primitive>`) now emit `self.field` directly.
+- **PHP flat-enum `From` impls no longer emit `..Default::default()` when all struct fields are covered.** When a variant's explicit field assignments already cover every field in the flat struct, the trailing `..Default::default()` is redundant and triggered `clippy::needless_update`. The codegen now pre-computes the complete set of flat field names and omits the struct update when the variant sets all of them. When `e2e.call.async = true` (or any test in the file is async/skipped/has error assertions), the python e2e generator emits `import pytest` at module level. Pytest is needed for `pytest.fixture` / `pytest.mark.*` decorators, but ruff's `F401` rule strips the import when no symbol is statically referenced in the file body — which then causes `alef verify` to fail on subsequent runs because the file's hash no longer matches the generated content. The import is now suppressed with `# noqa: F401`.
 
 ## [0.11.16] - 2026-04-29
 
