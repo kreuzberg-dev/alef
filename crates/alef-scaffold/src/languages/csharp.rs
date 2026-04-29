@@ -38,7 +38,7 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="../../../LICENSE" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
     <None Include="runtimes/**" Pack="true" PackagePath="runtimes/" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

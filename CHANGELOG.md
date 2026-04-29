@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.23] - 2026-04-30
+
+### Fixed
+
+- **C# csproj `<None Include="../../../LICENSE" />` had three `../` segments; flat csproj layout (`packages/csharp/<Namespace>.csproj`) only needs two to reach the repo root.** With three `../` segments, `dotnet pack` resolved the LICENSE path to one directory *above* the repo and bailed with `error NU5019: File not found`. The csproj is scaffold-once so existing repos keep their hand-fixed value, but new scaffolds now emit `../../LICENSE`. (`crates/alef-scaffold/src/languages/csharp.rs`)
+
 ## [0.11.22] - 2026-04-29
 
 ### Fixed
