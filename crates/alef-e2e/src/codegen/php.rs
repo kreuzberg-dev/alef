@@ -98,7 +98,12 @@ impl E2eCodegen for PhpCodegen {
         // fixed "kreuzberg" string.
         let e2e_vendor = pkg_name.split('/').next().unwrap_or(&pkg_name).to_string();
         let e2e_pkg_name = format!("{e2e_vendor}/e2e-php");
-        let e2e_autoload_ns = format!("{}\\E2e\\\\", alef_config.php_autoload_namespace());
+        // PSR-4 autoload keys appear inside a JSON document, so each PHP
+        // namespace separator must be JSON-escaped (`\` → `\\`). The trailing
+        // pair represents the PHP-mandated trailing `\` (which itself escapes
+        // to `\\` in JSON).
+        let php_namespace_escaped = alef_config.php_autoload_namespace().replace('\\', "\\\\");
+        let e2e_autoload_ns = format!("{php_namespace_escaped}\\\\E2e\\\\");
 
         // Generate composer.json.
         files.push(GeneratedFile {
