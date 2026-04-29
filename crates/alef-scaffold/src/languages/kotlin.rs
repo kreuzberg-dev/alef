@@ -143,29 +143,24 @@ gradle test
         license = meta.license,
     );
 
+    // ktlint's `filename` rule requires a file with a single top-level
+    // declaration to match the declaration name, so the object is named
+    // `Sample` (matching `Sample.kt`) rather than including the project name.
     let sample_kotlin = format!(
         r#"package {package}.sample
 
 // Sample usage of the generated Kotlin bindings.
 // Replace with your actual API calls after code generation.
 
-object {module}Sample {{
+object Sample {{
     @JvmStatic
     fun main(args: Array<String>) {{
-        println("Sample: {module} bindings loaded successfully")
+        println("Sample: {project_name} bindings loaded successfully")
     }}
 }}
 "#,
         package = kotlin_package,
-        module = project_name
-            .chars()
-            .enumerate()
-            .map(|(i, c)| if i == 0 {
-                c.to_uppercase().to_string()
-            } else {
-                c.to_string()
-            })
-            .collect::<String>(),
+        project_name = project_name,
     );
 
     let github_workflow = r#"name: Kotlin

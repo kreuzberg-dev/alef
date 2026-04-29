@@ -724,11 +724,32 @@ fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &MethodDef) -> St
 
     out.push_str(&format!(" {}(", cs_name));
 
-    if method.params.is_empty() {
+    // Non-static methods take the receiver as the first FFI parameter (the
+    // generated extern "C" fn signature is `fn (this: *const T, ...)`). Prepend
+    // an `IntPtr handle` here so the P/Invoke signature matches; without this
+    // the C# wrapper falls one argument short and the runtime throws
+    // EntryPointNotFoundException / the C# compiler rejects the call site.
+    let has_receiver = !method.is_static && method.receiver.is_some();
+
+    if !has_receiver && method.params.is_empty() {
         out.push_str(");\n\n");
     } else {
         out.push('\n');
-        for (i, param) in method.params.iter().enumerate() {
+        let total = if has_receiver {
+            method.params.len() + 1
+        } else {
+            method.params.len()
+        };
+        let mut idx = 0usize;
+        if has_receiver {
+            out.push_str("        IntPtr handle");
+            if total > 1 {
+                out.push(',');
+            }
+            out.push('\n');
+            idx += 1;
+        }
+        for param in method.params.iter() {
             out.push_str("        ");
             let pinvoke_ty = pinvoke_param_type(&param.ty);
             if pinvoke_ty == "string" {
@@ -737,10 +758,11 @@ fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &MethodDef) -> St
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&format!("{pinvoke_ty} {param_name}"));
 
-            if i < method.params.len() - 1 {
+            if idx < total - 1 {
                 out.push(',');
             }
             out.push('\n');
+            idx += 1;
         }
         out.push_str("    );\n\n");
     }
@@ -1290,6 +1312,17 @@ fn gen_wrapper_method(
     out.push_str(&format!(" {method_cs_name}"));
     out.push('(');
 
+    // Non-static methods need a `handle` parameter that the wrapper threads to
+    // the native receiver. Without this, the public method has no way to refer
+    // to the instance and calls NativeMethods.{Method}() one argument short.
+    let has_receiver = !method.is_static && method.receiver.is_some();
+    if has_receiver {
+        out.push_str("IntPtr handle");
+        if !visible_params.is_empty() {
+            out.push_str(", ");
+        }
+    }
+
     // Parameters (bridge params stripped from public signature)
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
@@ -1341,18 +1374,33 @@ fn gen_wrapper_method(
 
         out.push_str(&format!("NativeMethods.{}(", cs_native_name));
 
-        if visible_params.is_empty() {
+        if !has_receiver && visible_params.is_empty() {
             out.push_str(");\n");
         } else {
             out.push('\n');
-            for (i, param) in visible_params.iter().enumerate() {
-                let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-                out.push_str(&format!("                {arg}"));
-                if i < visible_params.len() - 1 {
+            let total = if has_receiver {
+                visible_params.len() + 1
+            } else {
+                visible_params.len()
+            };
+            let mut idx = 0usize;
+            if has_receiver {
+                out.push_str("                handle");
+                if total > 1 {
                     out.push(',');
                 }
                 out.push('\n');
+                idx += 1;
+            }
+            for param in visible_params.iter() {
+                let param_name = param.name.to_lower_camel_case();
+                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                out.push_str(&format!("                {arg}"));
+                if idx < total - 1 {
+                    out.push(',');
+                }
+                out.push('\n');
+                idx += 1;
             }
             out.push_str("            );\n");
         }
@@ -1376,18 +1424,33 @@ fn gen_wrapper_method(
 
         out.push_str(&format!("NativeMethods.{}(", cs_native_name));
 
-        if visible_params.is_empty() {
+        if !has_receiver && visible_params.is_empty() {
             out.push_str(");\n");
         } else {
             out.push('\n');
-            for (i, param) in visible_params.iter().enumerate() {
-                let param_name = param.name.to_lower_camel_case();
-                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-                out.push_str(&format!("            {arg}"));
-                if i < visible_params.len() - 1 {
+            let total = if has_receiver {
+                visible_params.len() + 1
+            } else {
+                visible_params.len()
+            };
+            let mut idx = 0usize;
+            if has_receiver {
+                out.push_str("            handle");
+                if total > 1 {
                     out.push(',');
                 }
                 out.push('\n');
+                idx += 1;
+            }
+            for param in visible_params.iter() {
+                let param_name = param.name.to_lower_camel_case();
+                let arg = native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
+                out.push_str(&format!("            {arg}"));
+                if idx < total - 1 {
+                    out.push(',');
+                }
+                out.push('\n');
+                idx += 1;
             }
             out.push_str("        );\n");
         }

@@ -57,9 +57,15 @@ pub(super) fn emit_typealiases(
         body.push('\n');
     }
 
+    // Error types are aliased with the `Exception` suffix to mirror the Java
+    // facade's class name and to avoid collision with a same-named non-error
+    // struct in `api.types` (e.g. an error variant `Foo` may coexist with a
+    // struct `Foo` in the same surface). Without the suffix, Kotlin emits two
+    // `typealias Foo` declarations and `compileKotlin` fails with
+    // "Redeclaration:".
     for error in &api.errors {
         body.push_str(&format!(
-            "typealias {} = {java_package}.{}Exception\n",
+            "typealias {}Exception = {java_package}.{}Exception\n",
             error.name, error.name
         ));
     }

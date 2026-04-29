@@ -346,9 +346,10 @@ fn unit_error_variant_emits_sealed_class() {
 
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    // Errors alias the Java exception type; Java owns the actual exception class.
+    // Errors alias the Java exception type with the `Exception` suffix to avoid
+    // collision with same-named non-error structs in `api.types`.
     assert!(
-        content.contains("typealias ApiError = dev.kreuzberg.ApiErrorException"),
+        content.contains("typealias ApiErrorException = dev.kreuzberg.ApiErrorException"),
         "missing error typealias: {content}"
     );
 }
@@ -381,7 +382,7 @@ fn error_variant_with_fields_emits_data_class() {
     let files = KotlinBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("typealias ParseError = dev.kreuzberg.ParseErrorException"),
+        content.contains("typealias ParseErrorException = dev.kreuzberg.ParseErrorException"),
         "missing error typealias: {content}"
     );
 }
