@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.21] - 2026-04-29
+
+### Fixed
+
+- **Rustler NIF instance-method calls no longer trip `noop_method_call` under `clippy -D warnings`.** `gen_bindings/functions.rs` emitted `resource.inner.as_ref().clone().method(...)` for opaque instance methods. `Arc::as_ref()` returns `&T`; `.clone()` then resolves to `<&T as Clone>::clone` (a pointless reference-clone returning another `&T`), and the lint flagged every emitted NIF call site under `-D warnings`. tree-sitter-language-pack's Elixir NIF builds failed across all 3 platforms (linux-x86_64, linux-aarch64, macos-arm64) with dozens of `error: call to .clone() on a reference in this situation does nothing` at every generated method. The emission now uses `(*resource.inner).clone().method(...)` — the `*` dereferences `Arc<T>` to `T`, so `.clone()` resolves to `<T as Clone>::clone` and produces an owned `T` the method can consume. Same fix applied to both the sync (`gen_nif_method`) and async (`gen_nif_async_method`) emission paths.
+
 ## [0.11.20] - 2026-04-29
 
 ### Fixed
