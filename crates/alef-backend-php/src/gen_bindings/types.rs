@@ -358,6 +358,28 @@ pub(crate) fn is_tagged_data_enum(enum_def: &EnumDef) -> bool {
     enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty())
 }
 
+/// Compute the flat struct field name for a single field of a variant.
+///
+/// For tuple variants (fields named `_0`, `_1`, …), the flat field name is derived from
+/// the variant name to avoid collisions when multiple variants each have a positional `_0`:
+/// - Single-field tuple variant `Foo(_0)` → `foo`
+/// - Multi-field tuple variant `Foo(_0, _1)` → `foo_0`, `foo_1`
+///
+/// For struct variants (named fields), the field's own name is used unchanged.
+fn flat_field_name(variant: &EnumVariant, field_index: usize) -> String {
+    use heck::ToSnakeCase as _;
+    if alef_codegen::conversions::is_tuple_variant(&variant.fields) {
+        let base = variant.name.to_snake_case();
+        if variant.fields.len() == 1 {
+            base
+        } else {
+            format!("{base}_{field_index}")
+        }
+    } else {
+        variant.fields[field_index].name.clone()
+    }
+}
+
 /// Generate a flat `#[php_class]` struct for a tagged data enum.
 ///
 /// The struct unions all variant fields as `Option<T>` plus a string discriminator named
@@ -384,20 +406,23 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
     writeln!(out, "    #[serde(rename = \"{tag_field}\")]").ok();
     writeln!(out, "    pub {tag_field}_tag: String,").ok();
 
-    // Collect all unique fields across variants, all made Optional.
-    // Note: field.optional (bool) indicates `Option<T>` at the Rust level; the
-    // ty itself is the inner type (e.g. TypeRef::String for Option<String>).
+    // Collect all unique flat fields across variants, all made Optional.
+    // For tuple variants each positional field gets a per-variant name so that
+    // `System(_0: SystemMessage)` and `User(_0: UserMessage)` produce distinct
+    // fields `system: Option<SystemMessage>` and `user: Option<UserMessage>`.
+    // For struct variants the original field name is used (shared across variants).
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for variant in &enum_def.variants {
-        for field in &variant.fields {
-            if seen.insert(field.name.clone()) {
+        for (idx, field) in variant.fields.iter().enumerate() {
+            let flat_name = flat_field_name(variant, idx);
+            if seen.insert(flat_name.clone()) {
                 let mapped = mapper.map_type(&field.ty).to_string();
                 // All variant fields become Option in the flat struct. If the core
                 // field is already optional (field.optional == true), the mapped type
                 // is the inner type and we still wrap it in Option.
                 let field_ty = format!("Option<{mapped}>");
                 writeln!(out, "    #[serde(skip_serializing_if = \"Option::is_none\")]").ok();
-                writeln!(out, "    pub {}: {field_ty},", field.name).ok();
+                writeln!(out, "    pub {flat_name}: {field_ty},").ok();
             }
         }
     }
@@ -427,14 +452,14 @@ pub(crate) fn gen_flat_data_enum_methods(enum_def: &EnumDef, mapper: &PhpMapper)
 
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for variant in &enum_def.variants {
-        for field in &variant.fields {
-            if seen.insert(field.name.clone()) {
+        for (idx, field) in variant.fields.iter().enumerate() {
+            let flat_name = flat_field_name(variant, idx);
+            if seen.insert(flat_name.clone()) {
                 let mapped = mapper.map_type(&field.ty).to_string();
                 // Getter returns Option<T> for every variant field (all are optional in flat struct).
                 let field_ty = format!("Option<{mapped}>");
                 let getter_body = format!(
-                    "#[php(getter)]\npub fn get_{name}(&self) -> {field_ty} {{\n    self.{name}.clone()\n}}",
-                    name = field.name,
+                    "#[php(getter)]\npub fn get_{flat_name}(&self) -> {field_ty} {{\n    self.{flat_name}.clone()\n}}",
                 );
                 impl_builder.add_method(&getter_body);
             }
@@ -494,24 +519,34 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 name = variant.name,
             ).ok();
         } else {
+            let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
+            // For tuple variants we bind the positional fields by their IR names (_0, _1, …)
+            // in the pattern, but assign them to per-variant flat field names.
+            // For struct variants we bind and assign using the original field name.
             let field_names: Vec<&str> = variant.fields.iter().map(|f| f.name.as_str()).collect();
             let pattern = field_names.join(", ");
-            write!(
-                out,
-                "            {core_path}::{}{{ {pattern} }} => Self {{",
-                variant.name
-            )
-            .ok();
+            if is_tuple {
+                write!(out, "            {core_path}::{}({pattern}) => Self {{", variant.name).ok();
+            } else {
+                write!(
+                    out,
+                    "            {core_path}::{}{{ {pattern} }} => Self {{",
+                    variant.name
+                )
+                .ok();
+            }
             write!(out, " {tag_field}_tag: \"{tag_val}\".to_string(),").ok();
-            for f in &variant.fields {
+            for (idx, f) in variant.fields.iter().enumerate() {
+                let flat_name = flat_field_name(variant, idx);
+                // For tuple variants: binding variable name is the IR name (e.g. `_0`).
+                // For struct variants: same as the flat name.
+                let bound_name = &f.name;
                 // f.optional == true means the core field is Option<T>; the binding struct
                 // field is always Option<T> for flat data enums.
                 if f.optional {
-                    // Core field is Option<T>: keep as Option, map inner value via Into.
-                    write!(out, " {name}: {name}.map(Into::into),", name = f.name).ok();
+                    write!(out, " {flat_name}: {bound_name}.map(Into::into),").ok();
                 } else {
-                    // Core field is T: wrap in Some and convert via Into.
-                    write!(out, " {name}: Some({name}.into()),", name = f.name).ok();
+                    write!(out, " {flat_name}: Some({bound_name}.into()),").ok();
                 }
             }
             writeln!(out, " ..Default::default() }},").ok();
@@ -535,28 +570,55 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
         if variant.fields.is_empty() {
             writeln!(out, "            \"{tag_val}\" => {core_path}::{},", variant.name).ok();
         } else {
-            write!(out, "            \"{tag_val}\" => {core_path}::{}{{", variant.name).ok();
-            for f in &variant.fields {
-                if f.optional {
-                    // Core field is Option<T>, binding field is Option<T>: direct assign.
-                    write!(out, " {name}: val.{name}.map(Into::into),", name = f.name).ok();
-                } else {
-                    // Core field is T, binding field is Option<T>: unwrap or default.
-                    write!(
-                        out,
-                        " {name}: val.{name}.map(Into::into).unwrap_or_default(),",
-                        name = f.name
-                    )
-                    .ok();
-                }
+            let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
+            if is_tuple {
+                write!(out, "            \"{tag_val}\" => {core_path}::{}(", variant.name).ok();
+            } else {
+                write!(out, "            \"{tag_val}\" => {core_path}::{}{{", variant.name).ok();
             }
-            writeln!(out, " }},").ok();
+            if is_tuple {
+                // Tuple variant: positional syntax uses `, ` separators, no trailing comma per element.
+                let mut first = true;
+                for (idx, f) in variant.fields.iter().enumerate() {
+                    let flat_name = flat_field_name(variant, idx);
+                    if !first {
+                        write!(out, ",").ok();
+                    }
+                    first = false;
+                    if f.optional {
+                        write!(out, " val.{flat_name}.map(Into::into)").ok();
+                    } else {
+                        write!(out, " val.{flat_name}.map(Into::into).unwrap_or_default()").ok();
+                    }
+                }
+                writeln!(out, " ),").ok();
+            } else {
+                // Struct variant: each field write includes its own trailing comma.
+                for (idx, f) in variant.fields.iter().enumerate() {
+                    let flat_name = flat_field_name(variant, idx);
+                    if f.optional {
+                        write!(out, " {flat_name}: val.{flat_name}.map(Into::into),").ok();
+                    } else {
+                        write!(
+                            out,
+                            " {flat_name}: val.{flat_name}.map(Into::into).unwrap_or_default(),"
+                        )
+                        .ok();
+                    }
+                }
+                writeln!(out, " }},").ok();
+            }
         }
     }
     // Fallback to first variant (with all fields defaulted) for unrecognised tags.
     if let Some(first) = enum_def.variants.first() {
         if first.fields.is_empty() {
             writeln!(out, "            _ => {core_path}::{},", first.name).ok();
+        } else if alef_codegen::conversions::is_tuple_variant(&first.fields) {
+            write!(out, "            _ => {core_path}::{}(", first.name).ok();
+            let parts: Vec<&str> = first.fields.iter().map(|_| "Default::default()").collect();
+            write!(out, " {}", parts.join(", ")).ok();
+            writeln!(out, " ),").ok();
         } else {
             write!(out, "            _ => {core_path}::{}{{", first.name).ok();
             for f in &first.fields {
