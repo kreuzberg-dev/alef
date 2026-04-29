@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.22] - 2026-04-29
+
+### Fixed
+
+- **Rustler NIF emission for `&self` opaque methods no longer requires `T: Clone`.** The 0.11.21 fix replaced `resource.inner.as_ref().clone().method(...)` with `(*resource.inner).clone().method(...)` to silence `noop_method_call`, but that pattern requires the underlying opaque type to implement `Clone` — and many real opaque types (e.g. tree-sitter-language-pack's `DownloadManager`) intentionally don't, since they wrap non-cloneable resources like dynamic-library handles. Compilation failed with `error[E0599]: no method named clone found for struct DownloadManager` across every emitted opaque-method call. The emit is now `ReceiverKind`-aware: `ReceiverKind::Ref` produces `resource.inner.method(...)` (Arc<T> derefs to &T, no clone needed); `ReceiverKind::RefMut` and `ReceiverKind::Owned` keep `(*resource.inner).clone().method(...)` (still requires `T: Clone`, but those receiver kinds are uncommon for opaque types and callers can use `[<lang>] exclude_functions` if the type isn't cloneable). Same fix applied to the sync (`gen_nif_method`) and async (`gen_nif_async_method`) call paths.
+
 ## [0.11.21] - 2026-04-29
 
 ### Fixed

@@ -4,7 +4,7 @@ use ahash::AHashSet;
 use alef_codegen::doc_emission;
 use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
+use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeRef};
 
 /// Build call argument expressions for Rustler opaque method (receiver is `resource`).
 pub(super) fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
@@ -556,7 +556,17 @@ pub(super) fn gen_nif_method(
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
         let core_call = if is_opaque && method.receiver.is_some() {
-            format!("(*resource.inner).clone().{}({})", method.name, call_args)
+            // For &self: Arc<T> derefs to T, no clone needed (and avoids the
+            // noop_method_call lint that the previous as_ref().clone() tripped).
+            // For &mut self / self: clone the inner T to get an owned value the
+            // method can consume — requires T: Clone (callers needing non-Clone
+            // opaque types with mutating methods should configure exclude_methods).
+            match method.receiver.as_ref().expect("receiver checked") {
+                ReceiverKind::Ref => format!("resource.inner.{}({})", method.name, call_args),
+                ReceiverKind::RefMut | ReceiverKind::Owned => {
+                    format!("(*resource.inner).clone().{}({})", method.name, call_args)
+                }
+            }
         } else if is_opaque {
             // Static method on opaque type: call directly on the inner core type
             let inner_ty = format!("{core_import}::{struct_name}");
@@ -694,7 +704,17 @@ pub(super) fn gen_nif_async_method(
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
         let core_call = if is_opaque && method.receiver.is_some() {
-            format!("(*resource.inner).clone().{}({})", method.name, call_args)
+            // For &self: Arc<T> derefs to T, no clone needed (and avoids the
+            // noop_method_call lint that the previous as_ref().clone() tripped).
+            // For &mut self / self: clone the inner T to get an owned value the
+            // method can consume — requires T: Clone (callers needing non-Clone
+            // opaque types with mutating methods should configure exclude_methods).
+            match method.receiver.as_ref().expect("receiver checked") {
+                ReceiverKind::Ref => format!("resource.inner.{}({})", method.name, call_args),
+                ReceiverKind::RefMut | ReceiverKind::Owned => {
+                    format!("(*resource.inner).clone().{}({})", method.name, call_args)
+                }
+            }
         } else if is_opaque {
             // Static method on opaque type: call directly on the inner core type
             let inner_ty = format!("{core_import}::{struct_name}");
