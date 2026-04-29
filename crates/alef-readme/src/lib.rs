@@ -528,9 +528,19 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
         Language::Php => {
             let ext = config.php_extension_name();
             let example_body = format!("// {example_pointer}");
+            // Composer requires a `<vendor>/<package>` form. Derive the vendor
+            // from the configured repository URL; fall back to the crate name
+            // (which produces `<crate>/<crate>` — recognizably wrong without
+            // smuggling a specific organization's name).
+            let vendor = config
+                .try_github_repo()
+                .ok()
+                .as_deref()
+                .and_then(alef_core::config::derive_repo_org)
+                .unwrap_or_else(|| name.clone());
             (
                 "PHP",
-                format!("```bash\ncomposer require {name}\n```"),
+                format!("```bash\ncomposer require {vendor}/{name}\n```"),
                 format!("```php\n<?php\n\nuse {ext};\n\n{example_body}\n```"),
                 "php",
             )

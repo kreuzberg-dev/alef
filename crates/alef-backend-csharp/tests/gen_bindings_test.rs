@@ -186,6 +186,7 @@ fn test_basic_generation() {
         swift: None,
         csharp: Some(CSharpConfig {
             namespace: Some("Kreuzberg".to_string()),
+            package_id: None,
             target_framework: None,
             features: None,
             serde_rename_all: None,
@@ -352,6 +353,7 @@ fn test_namespace_resolution() {
         swift: None,
         csharp: Some(CSharpConfig {
             namespace: Some("MyCompany.MyLib".to_string()),
+            package_id: None,
             target_framework: None,
             features: None,
             serde_rename_all: None,
@@ -1013,6 +1015,7 @@ fn minimal_csharp_config(crate_name: &str) -> AlefConfig {
         java: None,
         csharp: Some(CSharpConfig {
             namespace: Some("Test".to_string()),
+            package_id: None,
             target_framework: None,
             features: None,
             serde_rename_all: None,

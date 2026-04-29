@@ -70,7 +70,17 @@ impl E2eCodegen for PhpCodegen {
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| format!("kreuzberg/{}", call.module.replace('_', "-")));
+            .unwrap_or_else(|| {
+                // Derive `<org>/<module>` from the configured repository URL —
+                // alef is vendor-neutral, so we don't fall back to a fixed org.
+                let org = alef_config
+                    .try_github_repo()
+                    .ok()
+                    .as_deref()
+                    .and_then(alef_core::config::derive_repo_org)
+                    .unwrap_or_else(|| alef_config.crate_config.name.clone());
+                format!("{org}/{}", call.module.replace('_', "-"))
+            });
         let pkg_path = php_pkg
             .as_ref()
             .and_then(|p| p.path.as_ref())
@@ -82,10 +92,25 @@ impl E2eCodegen for PhpCodegen {
             .cloned()
             .unwrap_or_else(|| "0.1.0".to_string());
 
+        // Derive the e2e composer project metadata from the consumer-binding
+        // pkg_name (`<vendor>/<crate>`) and the configured PHP autoload
+        // namespace — alef is vendor-neutral, so we don't fall back to a
+        // fixed "kreuzberg" string.
+        let e2e_vendor = pkg_name.split('/').next().unwrap_or(&pkg_name).to_string();
+        let e2e_pkg_name = format!("{e2e_vendor}/e2e-php");
+        let e2e_autoload_ns = format!("{}\\E2e\\\\", alef_config.php_autoload_namespace());
+
         // Generate composer.json.
         files.push(GeneratedFile {
             path: output_base.join("composer.json"),
-            content: render_composer_json(&pkg_name, &pkg_path, &pkg_version, e2e_config.dep_mode),
+            content: render_composer_json(
+                &e2e_pkg_name,
+                &e2e_autoload_ns,
+                &pkg_name,
+                &pkg_path,
+                &pkg_version,
+                e2e_config.dep_mode,
+            ),
             generated_header: false,
         });
 
@@ -159,6 +184,8 @@ impl E2eCodegen for PhpCodegen {
 // ---------------------------------------------------------------------------
 
 fn render_composer_json(
+    e2e_pkg_name: &str,
+    e2e_autoload_ns: &str,
     pkg_name: &str,
     _pkg_path: &str,
     pkg_version: &str,
@@ -190,13 +217,13 @@ fn render_composer_json(
 
     format!(
         r#"{{
-  "name": "kreuzberg/e2e-php",
+  "name": "{e2e_pkg_name}",
   "description": "E2e tests for PHP bindings",
   "type": "project",
 {require_section}
   "autoload-dev": {{
     "psr-4": {{
-      "Kreuzberg\\E2e\\": "tests/"
+      "{e2e_autoload_ns}": "tests/"
     }}
   }}
 }}

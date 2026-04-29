@@ -66,10 +66,21 @@ impl E2eCodegen for SwiftE2eCodegen {
         // The Swift module name: UpperCamelCase of the package name.
         let module_name = pkg_name.as_str();
 
+        // Resolve the registry URL: derive from the configured repository when
+        // available (with a `.git` suffix per SwiftPM convention). Falls back
+        // to a vendor-neutral placeholder when no repo is configured.
+        let registry_url = alef_config
+            .try_github_repo()
+            .map(|repo| {
+                let base = repo.trim_end_matches('/').trim_end_matches(".git");
+                format!("{base}.git")
+            })
+            .unwrap_or_else(|_| format!("https://example.invalid/{module_name}.git"));
+
         // Generate Package.swift.
         files.push(GeneratedFile {
             path: output_base.join("Package.swift"),
-            content: render_package_swift(module_name, &pkg_path, &pkg_version, e2e_config.dep_mode),
+            content: render_package_swift(module_name, &registry_url, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
@@ -131,6 +142,7 @@ impl E2eCodegen for SwiftE2eCodegen {
 
 fn render_package_swift(
     module_name: &str,
+    registry_url: &str,
     pkg_path: &str,
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
@@ -139,15 +151,12 @@ fn render_package_swift(
 
     let dep_block = match dep_mode {
         crate::config::DependencyMode::Registry => {
-            format!(
-                r#"        .package(url: "https://github.com/kreuzberg-dev/{module_name}.git", from: "{pkg_version}")"#
-            )
+            format!(r#"        .package(url: "{registry_url}", from: "{pkg_version}")"#)
         }
         crate::config::DependencyMode::Local => {
             format!(r#"        .package(path: "{pkg_path}")"#)
         }
     };
-
     // SwiftPM platform enums use the major version only (.v13, .v14, ...);
     // strip patch components to match the scaffold's `Package.swift`.
     let min_macos_major = min_macos.split('.').next().unwrap_or(min_macos);

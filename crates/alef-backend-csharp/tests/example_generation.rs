@@ -182,6 +182,7 @@ fn test_generated_code_example() {
         swift: None,
         csharp: Some(CSharpConfig {
             namespace: Some("Kreuzberg".to_string()),
+            package_id: None,
             target_framework: None,
             features: None,
             serde_rename_all: None,
