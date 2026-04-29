@@ -499,6 +499,7 @@ fn apply_rename_all(name: &str, strategy: &str) -> String {
 /// Generate `From<core::DataEnum> for PhpDataEnum` and `From<PhpDataEnum> for core::DataEnum`
 /// for a tagged data enum lowered to a flat PHP class.
 pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &str) -> String {
+    use alef_core::ir::{PrimitiveType, TypeRef};
     use std::fmt::Write as _;
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
@@ -507,6 +508,10 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     let mut out = String::new();
 
     // --- core → binding ---
+    // Converts a core enum value to the flat PHP binding struct.
+    // Destructuring patterns for boxed fields use the raw IR name (e.g. `_0`);
+    // sanitized fields are excluded from the pattern (bound with `_`-prefixed name),
+    // Path fields are converted via `to_string_lossy()`, Usize/U64/Isize are cast to i64.
     writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();
     writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
     writeln!(out, "        match val {{").ok();
@@ -520,11 +525,41 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             ).ok();
         } else {
             let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
-            // For tuple variants we bind the positional fields by their IR names (_0, _1, …)
-            // in the pattern, but assign them to per-variant flat field names.
-            // For struct variants we bind and assign using the original field name.
-            let field_names: Vec<&str> = variant.fields.iter().map(|f| f.name.as_str()).collect();
-            let pattern = field_names.join(", ");
+            // Build destructuring pattern.
+            // - Tuple variants: positional names (IR names like `_0`, `_1`); sanitized fields
+            //   use a discard binding with a leading underscore prefix (e.g. `__0`).
+            // - Struct variants: `field` or `field: _field` for sanitized fields (the `_` prefix
+            //   suppresses the "unused variable" warning while keeping Rust happy that the field
+            //   is mentioned in the pattern — `_field` can't be used in the pattern directly for
+            //   struct variants).
+            let pattern = if is_tuple {
+                let names: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        if f.sanitized {
+                            format!("_{}", f.name)
+                        } else {
+                            f.name.clone()
+                        }
+                    })
+                    .collect();
+                names.join(", ")
+            } else {
+                let bindings: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        if f.sanitized {
+                            // `field_name: _field_name` — Rust ignores the value but accepts the pattern.
+                            format!("{}: _{}", f.name, f.name)
+                        } else {
+                            f.name.clone()
+                        }
+                    })
+                    .collect();
+                bindings.join(", ")
+            };
             if is_tuple {
                 write!(out, "            {core_path}::{}({pattern}) => Self {{", variant.name).ok();
             } else {
@@ -538,16 +573,18 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             write!(out, " {tag_field}_tag: \"{tag_val}\".to_string(),").ok();
             for (idx, f) in variant.fields.iter().enumerate() {
                 let flat_name = flat_field_name(variant, idx);
-                // For tuple variants: binding variable name is the IR name (e.g. `_0`).
-                // For struct variants: same as the flat name.
-                let bound_name = &f.name;
-                // f.optional == true means the core field is Option<T>; the binding struct
-                // field is always Option<T> for flat data enums.
-                if f.optional {
-                    write!(out, " {flat_name}: {bound_name}.map(Into::into),").ok();
+                // The destructuring variable name:
+                // - tuple variants: sanitized fields use `_`-prefixed IR name.
+                // - struct variants: sanitized fields use `_`-prefixed field name (from pattern above).
+                // - non-sanitized: use the plain field name.
+                let bound_var = if f.sanitized {
+                    format!("_{}", f.name)
                 } else {
-                    write!(out, " {flat_name}: Some({bound_name}.into()),").ok();
-                }
+                    f.name.clone()
+                };
+                // f.optional means the core field is Option<T>; binding is always Option<T>.
+                let expr = flat_enum_core_to_binding_field_expr(f, &bound_var);
+                write!(out, " {flat_name}: {expr},").ok();
             }
             writeln!(out, " ..Default::default() }},").ok();
         }
@@ -577,34 +614,21 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 write!(out, "            \"{tag_val}\" => {core_path}::{}{{", variant.name).ok();
             }
             if is_tuple {
-                // Tuple variant: positional syntax uses `, ` separators, no trailing comma per element.
-                let mut first = true;
-                for (idx, f) in variant.fields.iter().enumerate() {
-                    let flat_name = flat_field_name(variant, idx);
-                    if !first {
-                        write!(out, ",").ok();
-                    }
-                    first = false;
-                    if f.optional {
-                        write!(out, " val.{flat_name}.map(Into::into)").ok();
-                    } else {
-                        write!(out, " val.{flat_name}.map(Into::into).unwrap_or_default()").ok();
-                    }
-                }
+                // Tuple variant: positional syntax uses `, ` separators.
+                let exprs: Vec<String> = variant
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, f)| flat_enum_binding_to_core_field_expr(f, &flat_field_name(variant, idx)))
+                    .collect();
+                write!(out, " {}", exprs.join(", ")).ok();
                 writeln!(out, " ),").ok();
             } else {
-                // Struct variant: each field write includes its own trailing comma.
+                // Struct variant: `field_name: <expr>,` for each field.
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let flat_name = flat_field_name(variant, idx);
-                    if f.optional {
-                        write!(out, " {flat_name}: val.{flat_name}.map(Into::into),").ok();
-                    } else {
-                        write!(
-                            out,
-                            " {flat_name}: val.{flat_name}.map(Into::into).unwrap_or_default(),"
-                        )
-                        .ok();
-                    }
+                    let expr = flat_enum_binding_to_core_field_expr(f, &flat_name);
+                    write!(out, " {flat_name}: {expr},").ok();
                 }
                 writeln!(out, " }},").ok();
             }
@@ -616,13 +640,28 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             writeln!(out, "            _ => {core_path}::{},", first.name).ok();
         } else if alef_codegen::conversions::is_tuple_variant(&first.fields) {
             write!(out, "            _ => {core_path}::{}(", first.name).ok();
-            let parts: Vec<&str> = first.fields.iter().map(|_| "Default::default()").collect();
+            let parts: Vec<String> = first
+                .fields
+                .iter()
+                .map(|f| {
+                    if f.is_boxed {
+                        "Box::new(Default::default())".to_string()
+                    } else {
+                        "Default::default()".to_string()
+                    }
+                })
+                .collect();
             write!(out, " {}", parts.join(", ")).ok();
             writeln!(out, " ),").ok();
         } else {
             write!(out, "            _ => {core_path}::{}{{", first.name).ok();
             for f in &first.fields {
-                write!(out, " {name}: Default::default(),", name = f.name).ok();
+                let default_expr = if f.is_boxed {
+                    format!("{name}: Box::new(Default::default()),", name = f.name)
+                } else {
+                    format!("{name}: Default::default(),", name = f.name)
+                };
+                write!(out, " {default_expr}").ok();
             }
             writeln!(out, " }},").ok();
         }
@@ -631,5 +670,115 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     writeln!(out, "    }}").ok();
     writeln!(out, "}}").ok();
 
+    // Suppress the unused import warning that would appear when TypeRef/PrimitiveType
+    // are only referenced inside the helper closures above (Rust may not see the use).
+    let _ = TypeRef::Unit;
+    let _ = PrimitiveType::Bool;
+
     out
+}
+
+/// Build the expression for a single flat-enum variant field when converting core → binding.
+/// The binding struct field is always `Option<MappedType>` for flat data enums.
+///
+/// - Sanitized fields cannot be converted (the core type is unknown/complex); emit `None`.
+/// - `is_boxed` fields: unbox with `*` before converting.
+/// - `TypeRef::Path`: convert via `to_string_lossy().into_owned()`.
+/// - `TypeRef::Primitive(Usize | U64 | Isize)`: cast to `i64` (PHP's integer representation).
+/// - Everything else: use `.into()` / `.map(Into::into)`.
+fn flat_enum_core_to_binding_field_expr(f: &alef_core::ir::FieldDef, bound_var: &str) -> String {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+
+    if f.sanitized {
+        // Sanitized fields have an unknown/complex core type; we can't produce a PHP value.
+        return "None".to_string();
+    }
+
+    // Helper: produce `Some(<inner>)` from a raw owned expression.
+    let wrap_some = |inner: String| -> String { format!("Some({inner})") };
+
+    match &f.ty {
+        TypeRef::Path => {
+            // PathBuf → String via to_string_lossy
+            if f.optional {
+                format!("{bound_var}.map(|p| p.to_string_lossy().into_owned())")
+            } else {
+                wrap_some(format!("{bound_var}.to_string_lossy().into_owned()"))
+            }
+        }
+        TypeRef::Primitive(p) if matches!(p, PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::Isize) => {
+            if f.optional {
+                format!("{bound_var}.map(|v| v as i64)")
+            } else {
+                wrap_some(format!("{bound_var} as i64"))
+            }
+        }
+        TypeRef::Named(_) if f.is_boxed => {
+            // Boxed Named: unbox then convert.
+            if f.optional {
+                format!("{bound_var}.map(|v| (*v).into())")
+            } else {
+                wrap_some(format!("(*{bound_var}).into()"))
+            }
+        }
+        _ => {
+            if f.optional {
+                format!("{bound_var}.map(Into::into)")
+            } else {
+                wrap_some(format!("{bound_var}.into()"))
+            }
+        }
+    }
+}
+
+/// Build the expression for a single flat-enum variant field when converting binding → core.
+/// The binding struct field is always `Option<MappedType>`; the core field may be non-optional.
+///
+/// - Sanitized fields: emit `Default::default()` (cannot round-trip through PHP).
+/// - `is_boxed` fields: wrap the result in `Box::new(...)`.
+/// - `TypeRef::Path`: convert `String → PathBuf` via `PathBuf::from`.
+/// - `TypeRef::Primitive(Usize | U64 | Isize)`: cast `i64 → usize/u64/isize`.
+/// - Everything else: `.into()` / `.map(Into::into)`.
+fn flat_enum_binding_to_core_field_expr(f: &alef_core::ir::FieldDef, flat_name: &str) -> String {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+
+    if f.sanitized {
+        return if f.is_boxed {
+            "Box::new(Default::default())".to_string()
+        } else {
+            "Default::default()".to_string()
+        };
+    }
+
+    let expr = match &f.ty {
+        TypeRef::Path => {
+            if f.optional {
+                format!("val.{flat_name}.map(std::path::PathBuf::from)")
+            } else {
+                format!("val.{flat_name}.map(std::path::PathBuf::from).unwrap_or_default()")
+            }
+        }
+        TypeRef::Primitive(p) if matches!(p, PrimitiveType::Usize | PrimitiveType::U64 | PrimitiveType::Isize) => {
+            let core_ty = match p {
+                PrimitiveType::Usize => "usize",
+                PrimitiveType::U64 => "u64",
+                PrimitiveType::Isize => "isize",
+                _ => unreachable!(),
+            };
+            if f.optional {
+                format!("val.{flat_name}.map(|v| v as {core_ty})")
+            } else {
+                format!("val.{flat_name}.map(|v| v as {core_ty}).unwrap_or_default()")
+            }
+        }
+        _ => {
+            if f.optional {
+                format!("val.{flat_name}.map(Into::into)")
+            } else {
+                format!("val.{flat_name}.map(Into::into).unwrap_or_default()")
+            }
+        }
+    };
+
+    if f.is_boxed { format!("Box::new({expr})") } else { expr }
 }

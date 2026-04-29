@@ -1881,6 +1881,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {deps_block}
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = {{ version = "0.3", features = ["wasm_js"] }}
 "#,
         header = header,
         core_crate_dir = core_crate_dir,

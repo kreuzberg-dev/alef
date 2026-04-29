@@ -24,8 +24,8 @@ pub fn sources_hash(sources: &[PathBuf]) -> anyhow::Result<String> {
     let mut current: Vec<(String, u64, u64)> = Vec::with_capacity(sorted.len());
     let mut all_match = !memo.entries.is_empty() && memo.aggregate.is_some();
     for source in &sorted {
-        let metadata = fs::metadata(source)
-            .map_err(|e| anyhow::anyhow!("failed to stat source {}: {e}", source.display()))?;
+        let metadata =
+            fs::metadata(source).map_err(|e| anyhow::anyhow!("failed to stat source {}: {e}", source.display()))?;
         let mtime_nanos = metadata
             .modified()
             .ok()

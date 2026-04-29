@@ -274,7 +274,10 @@ pub fn format_generated(
             if *lang == Language::Java
                 && let Some(pom) = detect_spotless_pom(base_dir, &spec.work_dir)
             {
-                debug!("  [java] spotless detected at {}, using mvn spotless:apply", pom.display());
+                debug!(
+                    "  [java] spotless detected at {}, using mvn spotless:apply",
+                    pom.display()
+                );
                 FormatterSpec {
                     commands: vec![FormatterCommand {
                         command: "mvn".to_owned(),

@@ -14,7 +14,7 @@ CLI ergonomics, generation performance, and live output for long-running command
 ### Added
 
 - **Standard CLI affordances.** `alef --version` (and `-V`) prints the binary version. New global flags `--verbose` / `-v` (repeatable: `-v` info, `-vv` debug, `-vvv` trace), `--quiet` / `-q` (errors only), and `--no-color` (disable ANSI in log output). Tracing now defaults to `info`-level output on stderr — previously the CLI was effectively silent unless `RUST_LOG` was set, which meant users had no signal during long-running commands.
-- **Live streamed output for long-running commands.** `alef setup`, `alef update`, `alef update --latest`, `alef lint`, `alef fmt`, `alef test`, and `alef clean` now stream stdout/stderr to the terminal in real time, line-prefixed with `[<lang>] ` when multiple languages run in parallel. Previously output was captured and only re-emitted via `tracing::info!` after the command finished — producing a multi-minute blackout for `pnpm install` / `bundle install` / `cargo update`. Failures are now also surfaced via an explicit `✗ <command> failed: <lang> — <error>` summary line on stderr.
+- **Live streamed output for long-running commands.** `alef setup`, `alef update`, `alef update --latest`, `alef lint`, `alef fmt`, `alef test`, and `alef clean` now stream stdout/stderr to the terminal in real time, line-prefixed with `[<lang>]` when multiple languages run in parallel. Previously output was captured and only re-emitted via `tracing::info!` after the command finished — producing a multi-minute blackout for `pnpm install` / `bundle install` / `cargo update`. Failures are now also surfaced via an explicit `✗ <command> failed: <lang> — <error>` summary line on stderr.
 
 ### Changed
 

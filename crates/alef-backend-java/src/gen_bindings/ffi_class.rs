@@ -803,8 +803,8 @@ mod tests {
         // The previously-duplicated JSON-deserialize line must NOT appear at
         // the call site any more (it now lives only in the helper, which is
         // emitted by gen_helper_methods at the bottom of the class).
-        assert!(
-            !out.contains("createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<")
-        );
+        assert!(!out.contains(
+            "createObjectMapper().readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<"
+        ));
     }
 }

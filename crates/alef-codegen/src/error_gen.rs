@@ -538,8 +538,13 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
         package
     ));
     if !error.doc.is_empty() {
-        let doc = error.doc.trim_end_matches('.');
-        base.push_str(&format!("/** {}. */\n", doc));
+        // Multi-line Rust doc strings must be emitted as a proper Javadoc
+        // block (one `* ` per line) — not as `/** <doc>. */` with embedded
+        // newlines, which forces spotless to reformat and leaves trailing
+        // whitespace on the blank-line `* ` rows. The blank-line case emits
+        // ` *\n` (no trailing space), so prek's `trailing-whitespace` hook
+        // and `alef-verify`'s embedded hash agree.
+        crate::doc_emission::emit_javadoc(&mut base, &error.doc, "");
     }
     base.push_str(&format!("public class {} extends Exception {{\n", base_name));
     base.push_str(&format!(
@@ -562,8 +567,7 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
             package
         ));
         if !variant.doc.is_empty() {
-            let doc = variant.doc.trim_end_matches('.');
-            content.push_str(&format!("/** {}. */\n", doc));
+            crate::doc_emission::emit_javadoc(&mut content, &variant.doc, "");
         }
         content.push_str(&format!("public class {} extends {} {{\n", class_name, base_name));
         content.push_str(&format!(

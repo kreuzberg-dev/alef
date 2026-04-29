@@ -120,14 +120,15 @@ pub fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
     out.push_str(indent);
     out.push_str("/**\n");
     for line in doc.lines() {
-        if line.is_empty() {
+        let escaped = escape_javadoc_line(line);
+        let trimmed = escaped.trim_end();
+        if trimmed.is_empty() {
             out.push_str(indent);
             out.push_str(" *\n");
         } else {
-            let escaped = escape_javadoc_line(line);
             out.push_str(indent);
             out.push_str(" * ");
-            out.push_str(&escaped);
+            out.push_str(trimmed);
             out.push('\n');
         }
     }
@@ -144,13 +145,14 @@ pub fn emit_kdoc(out: &mut String, doc: &str, indent: &str) {
     out.push_str(indent);
     out.push_str("/**\n");
     for line in doc.lines() {
-        if line.is_empty() {
+        let trimmed = line.trim_end();
+        if trimmed.is_empty() {
             out.push_str(indent);
             out.push_str(" *\n");
         } else {
             out.push_str(indent);
             out.push_str(" * ");
-            out.push_str(line);
+            out.push_str(trimmed);
             out.push('\n');
         }
     }

@@ -149,11 +149,16 @@ pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
     }
     writeln!(out, "{indent}/**").ok();
     for line in doc.lines() {
-        if line.is_empty() {
+        // trim_end() ensures lines that are whitespace-only or escape to
+        // empty don't emit ` * \n` (trailing space) — that would conflict
+        // with the prek `trailing-whitespace` hook downstream and break the
+        // `alef-verify` hash on regenerate.
+        let escaped = escape_javadoc_line(line);
+        let trimmed = escaped.trim_end();
+        if trimmed.is_empty() {
             writeln!(out, "{indent} *").ok();
         } else {
-            let escaped = escape_javadoc_line(line);
-            writeln!(out, "{indent} * {escaped}").ok();
+            writeln!(out, "{indent} * {trimmed}").ok();
         }
     }
     writeln!(out, "{indent} */").ok();

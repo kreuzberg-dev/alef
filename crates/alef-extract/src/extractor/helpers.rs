@@ -101,8 +101,8 @@ fn cfg_attr_walk_derives(attr: &syn::Attribute, mut predicate: impl FnMut(&syn::
         Err(_) => return false,
     };
 
-    use syn::parse::ParseStream;
     use syn::Token;
+    use syn::parse::ParseStream;
 
     let mut found = false;
     let parse_fn = |input: ParseStream<'_>| -> syn::Result<()> {
@@ -117,9 +117,8 @@ fn cfg_attr_walk_derives(attr: &syn::Attribute, mut predicate: impl FnMut(&syn::
             let attr_meta: syn::Meta = input.parse()?;
             if let syn::Meta::List(list) = &attr_meta {
                 if list.path.is_ident("derive") {
-                    let inner_paths = list.parse_args_with(
-                        syn::punctuated::Punctuated::<syn::Path, Token![,]>::parse_terminated,
-                    )?;
+                    let inner_paths =
+                        list.parse_args_with(syn::punctuated::Punctuated::<syn::Path, Token![,]>::parse_terminated)?;
                     for path in &inner_paths {
                         if predicate(path) {
                             found = true;

@@ -58,14 +58,16 @@ pub(crate) fn gen_record_type(
         }
         fields_joined.push_str(&decl);
 
-        field_entries.push(FieldEntry { decl, doc: f.doc.clone() });
+        field_entries.push(FieldEntry {
+            decl,
+            doc: f.doc.clone(),
+        });
     }
 
     // Build the single-line form to check length and scan for imports.
     // Doc strings are intentionally excluded from this check so the threshold
     // stays stable regardless of documentation presence.
-    let single_line_len =
-        "public record ".len() + typ.name.len() + 1 + fields_joined.len() + ") { }".len();
+    let single_line_len = "public record ".len() + typ.name.len() + 1 + fields_joined.len() + ") { }".len();
 
     // Build the actual record declaration, splitting across lines if too long.
     let mut record_block = String::new();

@@ -235,7 +235,7 @@ alef update --latest
 alef update --lang rust --latest
 ```
 
-Output is streamed live to the terminal, prefixed with `[<lang>] ` when multiple languages run in parallel. Failures surface as `✗ update failed: <lang> — <error>`.
+Output is streamed live to the terminal, prefixed with `[<lang>]` when multiple languages run in parallel. Failures surface as `✗ update failed: <lang> — <error>`.
 
 ---
 
@@ -252,7 +252,7 @@ alef setup
 alef setup --lang python,node
 ```
 
-Output is streamed live to the terminal, prefixed with `[<lang>] ` when multiple languages run in parallel — installers like `pnpm install`, `bundle install`, and `uv sync` print progress immediately instead of buffering until the command exits. Failures surface as `✗ setup failed: <lang> — <error>`.
+Output is streamed live to the terminal, prefixed with `[<lang>]` when multiple languages run in parallel — installers like `pnpm install`, `bundle install`, and `uv sync` print progress immediately instead of buffering until the command exits. Failures surface as `✗ setup failed: <lang> — <error>`.
 
 ---
 

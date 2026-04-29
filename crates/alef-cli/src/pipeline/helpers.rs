@@ -29,9 +29,7 @@ pub(crate) fn run_command_streamed(cmd: &str, label: Option<&str>) -> anyhow::Re
     command.args(["-c", cmd]);
 
     let Some(prefix) = label else {
-        let status = command
-            .status()
-            .with_context(|| format!("failed to spawn: {cmd}"))?;
+        let status = command.status().with_context(|| format!("failed to spawn: {cmd}"))?;
         if !status.success() {
             anyhow::bail!("Command failed: {cmd}");
         }
