@@ -407,7 +407,10 @@ fn gen_go_file(
         writeln!(out, "// Trait bridge trampolines (exported to C)\n").ok();
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
-                let pascal = trait_def.name.to_pascal_case();
+                // IR type names are already PascalCase from Rust source. Avoid
+                // ToPascalCase here — it mangles all-caps acronyms (GraphQL ->
+                // GraphQl) and disagrees with cbindgen's emitted C type name.
+                let pascal = trait_def.name.clone();
                 // Trait method trampolines
                 for method in &trait_def.methods {
                     let export_name = format!("go{}{}", pascal, method.name.to_pascal_case());
@@ -784,8 +787,10 @@ fn gen_opaque_type(typ: &TypeDef, ffi_prefix: &str) -> String {
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
-    // Free method
-    let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name.to_pascal_case());
+    // Free method. typ.name is already PascalCase from Rust IR; ToPascalCase
+    // would mangle all-caps acronyms (GraphQL -> GraphQl) and disagree with
+    // cbindgen's actual C type name.
+    let c_type = format!("{}{}", ffi_prefix.to_uppercase(), typ.name);
     writeln!(out, "// Free releases the resources held by this handle.").ok();
     writeln!(out, "func (h *{}) Free() {{", go_name).ok();
     writeln!(out, "\tif h.ptr != nil {{").ok();
@@ -1249,7 +1254,7 @@ fn gen_method_wrapper(
             let c_receiver = format!(
                 "(*C.{}{})(unsafe.Pointer({}.ptr))",
                 ffi_prefix.to_uppercase(),
-                typ.name.to_pascal_case(),
+                typ.name,
                 receiver_name
             );
             if c_params.is_empty() {
@@ -1482,7 +1487,7 @@ fn gen_param_to_c(
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {
                 // Opaque types are pointer wrappers — cast the raw pointer to the C type.
-                let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name.to_pascal_case());
+                let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name);
                 writeln!(
                     out,
                     "\t{c_name} := (*C.{c_type})(unsafe.Pointer({param}.ptr))",
@@ -1552,7 +1557,7 @@ fn gen_param_to_c(
                 }
                 TypeRef::Named(name) if opaque_names.contains(name.as_str()) => {
                     // Optional opaque type: cast the raw pointer to the C type or pass nil.
-                    let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name.to_pascal_case());
+                    let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name);
                     writeln!(
                         out,
                         "\tvar {c_name} *C.{c_type}\n\tif {param} != nil {{\n\t\t\
@@ -1709,7 +1714,9 @@ fn primitive_max_sentinel(prim: &alef_core::ir::PrimitiveType) -> &'static str {
 /// Get a type name suitable for a function suffix (e.g., unmarshalFoo).
 fn type_name(ty: &TypeRef) -> String {
     match ty {
-        TypeRef::Named(n) => n.to_pascal_case(),
+        // IR Named types are already PascalCase from Rust source. Avoid
+        // ToPascalCase to preserve all-caps acronyms (GraphQL, JSON, HTTP).
+        TypeRef::Named(n) => n.clone(),
         TypeRef::String | TypeRef::Char => "String".to_string(),
         TypeRef::Bytes => "Bytes".to_string(),
         TypeRef::Optional(inner) => type_name(inner),
@@ -1772,9 +1779,11 @@ fn go_return_expr_inner(
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {
                 // Opaque types: wrap the raw C pointer in the Go handle struct.
+                // IR name is already PascalCase from Rust; preserve all-caps
+                // acronyms (GraphQLError stays GraphQLError, not GraphQlError).
                 format!(
                     "&{go_type}{{ptr: unsafe.Pointer({var_name})}}",
-                    go_type = name.to_pascal_case(),
+                    go_type = name,
                     var_name = var_name,
                 )
             } else {
@@ -1789,7 +1798,7 @@ fn go_return_expr_inner(
                      \tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{ return nil }}\n\
                      \treturn &result\n\
                      }}()",
-                    go_type = name.to_pascal_case(),
+                    go_type = name,
                     ffi_prefix = ffi_prefix,
                     type_snake = type_snake,
                     var_name = var_name,
