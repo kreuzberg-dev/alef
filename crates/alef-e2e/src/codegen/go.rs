@@ -1396,6 +1396,7 @@ mod tests {
                 method: None,
                 args: vec![],
                 overrides: std::collections::HashMap::new(),
+                returns_result: true,
             },
             ..E2eConfig::default()
         };

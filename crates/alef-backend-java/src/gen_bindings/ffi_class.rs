@@ -272,10 +272,15 @@ pub(crate) fn gen_sync_function_method(
         )
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        if is_optional_return {
-            writeln!(out, "            return Optional.of(str);").ok();
+        let return_expr = if matches!(dispatch_return_type, TypeRef::Path) {
+            "java.nio.file.Path.of(str)"
         } else {
-            writeln!(out, "            return str;").ok();
+            "str"
+        };
+        if is_optional_return {
+            writeln!(out, "            return Optional.of({});", return_expr).ok();
+        } else {
+            writeln!(out, "            return {};", return_expr).ok();
         }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
@@ -709,6 +714,49 @@ mod tests {
         assert!(out.contains("return str;"));
         assert!(!out.contains("Optional.empty()"));
         assert!(!out.contains("Optional.of(str)"));
+    }
+
+    #[test]
+    fn test_path_return_wraps_with_path_of() {
+        let func = create_test_function("cache_dir", TypeRef::Path);
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+        );
+
+        assert!(out.contains("return java.nio.file.Path.of(str);"));
+        assert!(!out.contains("return str;"));
+    }
+
+    #[test]
+    fn test_optional_path_return_wraps_with_path_of() {
+        let func = create_test_function("maybe_cache_dir", TypeRef::Optional(Box::new(TypeRef::Path)));
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "test",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+        );
+
+        assert!(out.contains("return Optional.of(java.nio.file.Path.of(str));"));
     }
 
     #[test]

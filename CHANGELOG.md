@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.12] - 2026-04-29
+
+A patch release that fixes the Java backend so functions returning `PathBuf` emit a properly-typed `java.nio.file.Path` value instead of a raw `String`.
+
+### Fixed
+
+- **Java backend now wraps FFI string returns with `java.nio.file.Path.of(str)` when the declared return type is `Path`.** Previously, methods like `cacheDir()` were declared to return `java.nio.file.Path` but the body returned the raw `String` result of the FFI call, causing `javac` to reject the generated code with "incompatible types". Both `Path` and `Optional<Path>` are now handled correctly.
+
 ## [0.11.11] - 2026-04-29
 
 A patch release that adds a `returns_result: bool` field to e2e `[CallConfig]` so the Rust generator can skip the `.expect("should succeed")` unwrap for native non-Result-returning calls.
