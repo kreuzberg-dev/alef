@@ -381,4 +381,26 @@ mod tests {
             "items: val.items.map(|v| v.into_iter().map(Into::into).collect())"
         );
     }
+
+    #[test]
+    fn test_field_conversion_to_core_option_map_named_applies_per_value_into() {
+        // Bug A1 regression: Option<Map<K, Named>> must apply per-value .into() so that
+        // binding-side wrapper types (e.g. PyO3 / Magnus structs) are converted correctly.
+        let result = field_conversion_to_core(
+            "patterns",
+            &TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Named("ExtractionPattern".into())),
+            ),
+            true,
+        );
+        assert!(
+            result.contains("m.into_iter().map(|(k, v)| (k, v.into())).collect()"),
+            "expected per-value v.into() in optional Map<Named> conversion, got: {result}"
+        );
+        assert_eq!(
+            result,
+            "patterns: val.patterns.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())"
+        );
+    }
 }

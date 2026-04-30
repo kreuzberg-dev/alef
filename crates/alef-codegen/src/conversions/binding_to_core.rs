@@ -486,9 +486,15 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                     format!("{name}: val.{name}.into_iter().map(|(k, v)| ({k_expr}, {v_expr})).collect()")
                 }
             } else {
-                // No conversion needed — just collect for potential HashMap↔BTreeMap type change
+                // No conversion needed for keys/values — just collect for potential
+                // HashMap↔BTreeMap type change. Still apply per-value .into() when the value
+                // type is a Named wrapper that requires conversion (e.g. a binding-side newtype).
                 if optional {
-                    format!("{name}: val.{name}.map(|m| m.into_iter().collect())")
+                    if has_named_val {
+                        format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
+                    } else {
+                        format!("{name}: val.{name}.map(|m| m.into_iter().collect())")
+                    }
                 } else {
                     format!("{name}: val.{name}.into_iter().collect()")
                 }
