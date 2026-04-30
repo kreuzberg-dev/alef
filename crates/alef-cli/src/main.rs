@@ -57,9 +57,9 @@ enum Commands {
         /// Ignore cache, regenerate everything.
         #[arg(long)]
         clean: bool,
-        /// Run post-generation formatters on emitted files (off by default).
+        /// Skip post-generation formatters (formatters run by default).
         #[arg(long)]
-        format: bool,
+        no_format: bool,
     },
     /// Generate type stubs (.pyi, .rbs).
     Stubs {
@@ -180,9 +180,9 @@ enum Commands {
         /// Ignore cache.
         #[arg(long)]
         clean: bool,
-        /// Run post-generation formatters on emitted files (off by default).
+        /// Skip post-generation formatters (formatters run by default).
         #[arg(long)]
-        format: bool,
+        no_format: bool,
     },
     /// Initialize a new alef.toml config.
     Init {
@@ -412,7 +412,7 @@ fn main() -> Result<()> {
             println!("Wrote IR to {}", output.display());
             Ok(())
         }
-        Commands::Generate { lang, clean, format } => {
+        Commands::Generate { lang, clean, no_format } => {
             let config = load_config(config_path)?;
             version_pin::check_alef_toml_version(&config)?;
             let languages = resolve_languages(&config, lang.as_deref())?;
@@ -553,7 +553,7 @@ fn main() -> Result<()> {
                 }
             }
 
-            if any_written && format && !changed_languages.is_empty() {
+            if any_written && !no_format && !changed_languages.is_empty() {
                 eprintln!("Formatting generated files...");
                 pipeline::format_generated(&files, &config, &base_dir, Some(&changed_languages));
                 let changed_list: Vec<alef_core::config::Language> = changed_languages.iter().copied().collect();
@@ -842,7 +842,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Commands::All { clean, format } => {
+        Commands::All { clean, no_format } => {
             let config = load_config(config_path)?;
             version_pin::check_alef_toml_version(&config)?;
             let languages = resolve_languages(&config, None)?;
@@ -1019,8 +1019,8 @@ fn main() -> Result<()> {
                 }
             }
 
-            // Formatters are opt-in via `--format`. They are best-effort: a
-            // missing formatter or non-zero exit must not abort the pipeline.
+            // Formatters run by default. They are best-effort: a missing
+            // formatter or non-zero exit must not abort the pipeline.
             // Two passes when enabled:
             //  1. `format_generated` runs language-native defaults (cargo fmt,
             //     ruff format, mix format, biome format, etc.) on the freshly
@@ -1028,7 +1028,7 @@ fn main() -> Result<()> {
             //  2. `fmt_post_generate` runs any extra repo-configured
             //     `[lint.<lang>].format` commands (linters, custom passes).
             // Both are scoped to languages that actually regenerated this run.
-            if format && !changed_languages.is_empty() {
+            if !no_format && !changed_languages.is_empty() {
                 eprintln!("Formatting generated files...");
                 pipeline::format_generated(&bindings, &config, &base_dir, Some(&changed_languages));
 
