@@ -609,7 +609,7 @@ impl Backend for Pyo3Backend {
         });
 
         // 4. Generate __init__.py (re-exports)
-        let init_content = gen_init_py(api, &module_name, &api.version, &config.dto);
+        let init_content = gen_init_py(api, &module_name, &api.version, &config.dto, &config.trait_bridges);
         files.push(GeneratedFile {
             path: output_base.join("__init__.py"),
             content: init_content,
@@ -1655,14 +1655,17 @@ fn gen_api_py(
         }
 
         let return_type_str = crate::type_map::python_type(&func.return_type);
+        // Async pyo3 functions return a coroutine — the Python wrapper must be `async def`
+        // so that `result = await fn(...)` works correctly and type checkers see the right type.
+        let def_keyword = if func.is_async { "async def" } else { "def" };
         let has_builtin_param = sig_parts
             .iter()
             .any(|p| crate::gen_stubs::is_python_builtin_name(p.split(':').next().unwrap_or("").trim()));
-        let single_line = format!("def {}({}) -> {}:\n", func.name, sig_parts.join(", "), return_type_str);
+        let single_line = format!("{def_keyword} {}({}) -> {}:\n", func.name, sig_parts.join(", "), return_type_str);
         if single_line.len() <= 100 && !has_builtin_param {
             out.push_str(&single_line);
         } else {
-            out.push_str(&format!("def {}(\n", func.name));
+            out.push_str(&format!("{def_keyword} {}(\n", func.name));
             for param in &sig_parts {
                 let name = param.split(':').next().unwrap_or("").trim();
                 if crate::gen_stubs::is_python_builtin_name(name) {
@@ -1710,7 +1713,10 @@ fn gen_api_py(
         // We classify the param's type by unwrapping `Optional`/`Vec` layers down to the
         // leaf `Named` type. The classification determines whether a scalar conversion or
         // a list-comprehension conversion is generated.
-        let mut call_args = Vec::new();
+        // Each entry is (param_name, value_expr) — used to build keyword-argument calls so
+        // that the generated `_rust.fn(path=path, config=_rust_config, ...)` form is
+        // independent of the pyo3 signature parameter order.
+        let mut call_args: Vec<(String, String)> = Vec::new();
         let (req_params, opt_params): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !p.optional);
         for param in req_params.iter().chain(opt_params.iter()) {
             let class = classify_param_type(&param.ty);
@@ -1738,7 +1744,7 @@ fn gen_api_py(
                             ));
                         }
                     }
-                    call_args.push(var);
+                    call_args.push((pname.clone(), var));
                     continue;
                 }
                 // Data enum (tagged union): wrap with `_rust.<EnumName>(value)` if not already.
@@ -1753,17 +1759,32 @@ fn gen_api_py(
                     } else {
                         emit_param_conversion(&mut out, &var, pname, &scalar_expr, optional);
                     }
-                    call_args.push(var);
+                    call_args.push((pname.clone(), var));
                     continue;
                 }
             }
-            call_args.push(param.name.clone());
+            call_args.push((param.name.clone(), param.name.clone()));
         }
 
+        // Use keyword arguments so the call is independent of the pyo3 signature order.
+        // This ensures wrapper-side required/optional reordering doesn't misalign slots.
+        let kwargs: Vec<String> = call_args.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        // Async pyo3 functions return a coroutine that must be awaited by the Python caller.
+        let return_prefix = if func.is_async { "await " } else { "" };
         out.push_str(&format!(
-            "    return _rust.{}({})\n\n\n",
+            "    return {return_prefix}_rust.{}({})\n\n\n",
             func.name,
-            call_args.join(", ")
+            kwargs.join(", ")
+        ));
+    }
+
+    // Emit pass-through wrappers for trait-bridge registration functions.
+    // These functions are emitted as #[pyfunction] in the native Rust module but are not in
+    // api.functions — they must be re-exported via api.py so callers can use the public package
+    // path (e.g. `kreuzberg.register_ocr_backend`) rather than `kreuzberg._kreuzberg.register_ocr_backend`.
+    for register_fn in crate::trait_bridge::collect_bridge_register_fns(trait_bridges) {
+        out.push_str(&format!(
+            "def {register_fn}(backend: object) -> None:\n    \"\"\"Register a {register_fn} backend.\"\"\"\n    return _rust.{register_fn}(backend=backend)\n\n\n"
         ));
     }
 
@@ -1900,7 +1921,13 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
 
 /// Generate __init__.py — re-exports and version.
 /// Only exports user-facing types (not internal Update types or all enums).
-fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str, dto: &DtoConfig) -> String {
+fn gen_init_py(
+    api: &ApiSurface,
+    module_name: &str,
+    version: &str,
+    dto: &DtoConfig,
+    trait_bridges: &[alef_core::config::TraitBridgeConfig],
+) -> String {
     use alef_core::ir::TypeRef;
 
     let mut out = String::with_capacity(1024);
@@ -2012,10 +2039,15 @@ fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str, dto: &DtoConf
     let mut imports_from_options = Vec::new();
     let mut imports_from_exceptions = Vec::new();
 
-    // Import functions from api
-    if !api.functions.is_empty() {
+    // Import functions from api (regular functions + trait-bridge registration helpers).
+    // Trait-bridge register_* functions are emitted as pass-through wrappers in api.py but
+    // do not appear in api.functions — add them here so __init__.py re-exports them and they
+    // appear in __all__.
+    {
         let mut names: Vec<_> = api.functions.iter().map(|f| f.name.clone()).collect();
+        names.extend(crate::trait_bridge::collect_bridge_register_fns(trait_bridges));
         names.sort();
+        names.dedup();
         imports_from_api.extend(names);
     }
 
@@ -2103,6 +2135,9 @@ fn gen_init_py(api: &ApiSurface, module_name: &str, version: &str, dto: &DtoConf
     for f in &api.functions {
         all_items.push(f.name.clone());
     }
+    // Include trait-bridge registration helpers in __all__ — they are exported via api.py
+    // and must be discoverable from the package root.
+    all_items.extend(crate::trait_bridge::collect_bridge_register_fns(trait_bridges));
     all_items.extend(needed_enums);
     all_items.extend(imports_from_native.iter().cloned());
     all_items.extend(config_types);
