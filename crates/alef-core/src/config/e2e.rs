@@ -245,6 +245,9 @@ pub struct CallConfig {
     /// This is needed for functions like `validate_host` that return only `error` in Go.
     #[serde(default)]
     pub returns_void: bool,
+    /// skip_languages
+    #[serde(default)]
+    pub skip_languages: Vec<String>,
 }
 
 fn default_result_var() -> String {

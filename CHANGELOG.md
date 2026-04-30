@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.10] - 2026-04-30
+
+### Fixed
+
+- fix(core/version): add `to_r_version()` converting SemVer prereleases to CRAN-compatible four-component form.
+- fix(scaffold/r): generate `packages/r/src/Makevars`, `Makevars.in`, `Makevars.win.in`, and `src/entrypoint.c`.
+- fix(scaffold/r): change scaffolded `Cargo.toml` crate-type from `["cdylib"]` to `["staticlib", "lib"]`.
+- fix(scaffold/r): generate `packages/r/NAMESPACE` with `useDynLib` bootstrap.
+- fix(scaffold/r): use `to_r_version()` in `DESCRIPTION` `Version:` field.
+- fix(backend-extendr): `bridge_imports()` returns bare paths, not full `use` statements.
+- fix(cli/sync-versions): write CRAN-compatible version to `packages/r/DESCRIPTION`.
+- fix(cli/validate-versions): compare R DESCRIPTION against CRAN-compatible version.
+
 ## [0.12.9] - 2026-04-30
 
 ### Fixed

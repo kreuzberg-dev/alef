@@ -40,7 +40,13 @@ pub(super) fn gen_rustler_method_call_args(params: &[ParamDef], opaque_types: &A
                     format!("std::path::PathBuf::from({})", p.name)
                 }
             }
-            TypeRef::Bytes => format!("&{}", p.name),
+            TypeRef::Bytes => {
+                if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
             TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
             TypeRef::Vec(_) => {
                 if p.is_ref {
@@ -182,7 +188,9 @@ pub(super) fn gen_nif_function(
                             format!("std::path::PathBuf::from({})", p.name)
                         }
                     }
-                    TypeRef::Bytes => format!("&{}", p.name),
+                    TypeRef::Bytes => {
+                        if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
+                    }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(_) => {
                         if p.is_ref {
@@ -191,7 +199,7 @@ pub(super) fn gen_nif_function(
                         } else {
                             p.name.to_string()
                         }
-                        }
+                    }
                     _ => p.name.clone(),
                 }
             })
@@ -283,7 +291,9 @@ pub(super) fn gen_nif_function(
                             format!("std::path::PathBuf::from({})", p.name)
                         }
                     }
-                    TypeRef::Bytes => format!("&{}", p.name),
+                    TypeRef::Bytes => {
+                        if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
+                    }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(_) => {
                         if p.is_ref {
@@ -447,7 +457,9 @@ pub(super) fn gen_nif_async_function(
                             format!("std::path::PathBuf::from({})", p.name)
                         }
                     }
-                    TypeRef::Bytes => format!("&{}", p.name),
+                    TypeRef::Bytes => {
+                        if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
+                    }
                     TypeRef::Duration => format!("std::time::Duration::from_millis({})", p.name),
                     TypeRef::Vec(_) => {
                         if p.is_ref {

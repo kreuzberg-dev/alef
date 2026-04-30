@@ -703,7 +703,9 @@ fn gen_struct_methods(
         // where can_generate_default_impl is false we still need kwargs (too many params
         // for Magnus function! macro). The kwargs constructor handles this by using
         // the core type's Default impl via the core crate, not the binding struct's Default.
-        if typ.has_default {
+        // Magnus function! macro only supports arity -2..=15, so types with more than 15
+        // fields must also use the hash-based constructor even when has_default is false.
+        if typ.has_default || typ.fields.len() > 15 {
             let config_method = alef_codegen::config_gen::gen_magnus_kwargs_constructor(typ, &map_fn);
             impl_builder.add_method(&config_method);
         } else {
@@ -787,9 +789,15 @@ fn gen_instance_method(
             .all(|p| !p.sanitized && generators::is_simple_non_opaque_param(&p.ty))
         && shared::is_delegatable_return(&method.return_type);
 
+    let needs_mut_receiver = method.receiver == Some(ReceiverKind::RefMut);
+
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import, false);
+        let field_conversions = if needs_mut_receiver {
+            generators::gen_lossy_binding_to_core_fields_mut(typ, core_import, false)
+        } else {
+            generators::gen_lossy_binding_to_core_fields(typ, core_import, false)
+        };
         let core_call = format!("core_self.{}({})", method.name, call_args);
         let result_wrap = match &method.return_type {
             TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path => {
@@ -1117,8 +1125,9 @@ fn gen_function(
                 if !opaque_types.contains(name.as_str()) {
                     let binding_ty = &p.name;
                     if p.optional {
+                        // Parameter type is Option<magnus::Value>; unwrap before calling .is_nil()/.funcall().
                         deser_lines.push(format!(
-                            "let {binding_ty}: Option<{name}> = if {binding_ty}.is_nil() {{ None }} else {{ let s: String = {binding_ty}.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }};"
+                            "let {binding_ty}: Option<{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }}, _ => None }};"
                         ));
                     } else {
                         deser_lines.push(format!(
@@ -1256,8 +1265,9 @@ fn magnus_serde_let_bindings(
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
                 if p.optional {
+                    // Parameter type is Option<magnus::Value>; unwrap before calling .is_nil()/.funcall().
                     out.push(format!(
-                        "let {n}_core: Option<{core_import}::{name}> = if {n}.is_nil() {{ None }} else {{ let s: String = {n}.funcall(\"to_json\", ())?; Some(serde_json::from_str::<{core_import}::{name}>(&s).map_err(|e| {err})?) }};",
+                        "let {n}_core: Option<{core_import}::{name}> = match {n} {{ Some(_v) if !_v.is_nil() => Some({{ let s: String = _v.funcall(\"to_json\", ())?; serde_json::from_str::<{core_import}::{name}>(&s).map_err(|e| {err})? }}), _ => None }};",
                         n = p.name,
                     ));
                 } else {
@@ -1323,8 +1333,9 @@ fn gen_async_function(
                 if !opaque_types.contains(name.as_str()) {
                     let binding_ty = &p.name;
                     if p.optional {
+                        // Parameter type is Option<magnus::Value>; unwrap before calling .is_nil()/.funcall().
                         deser_lines.push(format!(
-                            "let {binding_ty}: Option<{name}> = if {binding_ty}.is_nil() {{ None }} else {{ let s: String = {binding_ty}.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }};"
+                            "let {binding_ty}: Option<{name}> = match {binding_ty} {{ Some(_v) if !_v.is_nil() => {{ let s: String = _v.funcall(\"to_json\", ())?; let core: {core_import}::{name} = serde_json::from_str(&s).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_type_error(), e.to_string()))?; Some(core.into()) }}, _ => None }};"
                         ));
                     } else {
                         deser_lines.push(format!(

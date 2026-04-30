@@ -778,6 +778,7 @@ fn build_args_and_setup(
     (setup_lines, parts.join(", "))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_assertion(
     out: &mut String,
     assertion: &Assertion,
@@ -1717,6 +1718,8 @@ mod tests {
                 args: vec![],
                 overrides: std::collections::HashMap::new(),
                 returns_result: true,
+                returns_void: false,
+                skip_languages: vec![],
             },
             ..E2eConfig::default()
         };

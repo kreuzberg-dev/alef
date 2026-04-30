@@ -302,7 +302,7 @@ fn render_test_file(
             // optional null value (MAPPER.readValue("{}", T.class) default).
             match val {
                 None | Some(serde_json::Value::Null) => arg.optional, // MAPPER default for optional null
-                Some(v) => !v.is_array(), // MAPPER.readValue for non-array objects
+                Some(v) => !v.is_array(),                             // MAPPER.readValue for non-array objects
             }
         })
     });
@@ -594,13 +594,23 @@ fn build_args_and_setup(
         let val = input.get(field);
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // Optional arg with no fixture value: skip entirely.
-                continue;
+                // Optional arg with no fixture value: emit positional null/default so the call
+                // has the right arity. For json_object optional args, deserialise an empty object
+                // so we get the right type rather than a raw null.
+                if arg.arg_type == "json_object" {
+                    if let Some(opts_type) = options_type {
+                        parts.push(format!("MAPPER.readValue(\"{{}}\", {opts_type}.class)"));
+                    } else {
+                        parts.push("null".to_string());
+                    }
+                } else {
+                    parts.push("null".to_string());
+                }
             }
             None | Some(serde_json::Value::Null) => {
                 // Required arg with no fixture value: pass a language-appropriate default.
                 let default_val = match arg.arg_type.as_str() {
-                    "string" => "\"\"".to_string(),
+                    "string" | "file_path" => "\"\"".to_string(),
                     "int" | "integer" => "0".to_string(),
                     "float" | "number" => "0.0d".to_string(),
                     "bool" | "boolean" => "false".to_string(),
@@ -609,15 +619,30 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
-                // For json_object args with options_type, use the pre-deserialized variable.
-                if arg.arg_type == "json_object" && options_type.is_some() {
-                    parts.push(arg.name.clone());
+                if arg.arg_type == "json_object" {
+                    // Array json_object args: emit inline Java list expression.
+                    if v.is_array() {
+                        parts.push(json_to_java(v));
+                        continue;
+                    }
+                    // Object json_object args with options_type: use pre-deserialized variable.
+                    if options_type.is_some() {
+                        parts.push(arg.name.clone());
+                        continue;
+                    }
+                    parts.push(json_to_java(v));
                     continue;
                 }
                 // bytes args must be passed as byte[], not String.
                 if arg.arg_type == "bytes" {
                     let val = json_to_java(v);
                     parts.push(format!("{val}.getBytes()"));
+                    continue;
+                }
+                // file_path args must be wrapped in java.nio.file.Path.of().
+                if arg.arg_type == "file_path" {
+                    let val = json_to_java(v);
+                    parts.push(format!("java.nio.file.Path.of({val})"));
                     continue;
                 }
                 parts.push(json_to_java(v));
@@ -637,6 +662,174 @@ fn render_assertion(
     result_is_simple: bool,
     enum_fields: &HashSet<String>,
 ) {
+    // Handle synthetic/virtual fields that are computed rather than direct record accessors.
+    if let Some(f) = &assertion.field {
+        match f.as_str() {
+            // ---- ExtractionResult chunk-level computed predicates ----
+            "chunks_have_content" => {
+                let pred = format!(
+                    "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.content() != null && !c.content().isBlank())"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "chunks_have_heading_context" => {
+                let pred = format!(
+                    "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.headingContext() != null)"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "chunks_have_embeddings" => {
+                let pred = format!(
+                    "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.embedding() != null && !c.embedding().isEmpty())"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "first_chunk_starts_with_heading" => {
+                let pred = format!(
+                    "{result_var}.chunks().orElse(java.util.List.of()).stream().findFirst().map(c -> c.headingContext() != null && !c.headingContext().isBlank()).orElse(false)"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- EmbedResponse virtual fields ----
+            "embedding_dimensions" => {
+                // Maps to the actual record accessor dimensions().
+                let expr = format!("{result_var}.dimensions()");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let java_val = json_to_java(val);
+                            let _ = writeln!(out, "        assertEquals({java_val}, {expr});");
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let java_val = json_to_java(val);
+                            let _ = writeln!(
+                                out,
+                                "        assertTrue({expr} > {java_val}, \"expected > {java_val}\");"
+                            );
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(out, "        // skipped: unsupported assertion on '{f}'");
+                    }
+                }
+                return;
+            }
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                // These are validation predicates that require iterating the embedding matrix.
+                // Emit inline Java predicates rather than calling non-existent methods.
+                let pred = match f.as_str() {
+                    "embeddings_valid" => {
+                        format!("{result_var}.embeddings().stream().allMatch(e -> e != null && !e.isEmpty())")
+                    }
+                    "embeddings_finite" => format!(
+                        "{result_var}.embeddings().stream().flatMap(java.util.Collection::stream).allMatch(Float::isFinite)"
+                    ),
+                    "embeddings_non_zero" => {
+                        format!("{result_var}.embeddings().stream().allMatch(e -> e.stream().anyMatch(v -> v != 0.0f))")
+                    }
+                    "embeddings_normalized" => format!(
+                        "{result_var}.embeddings().stream().allMatch(e -> {{ double n = e.stream().mapToDouble(v -> v * v).sum(); return Math.abs(n - 1.0) < 1e-3; }})"
+                    ),
+                    _ => unreachable!(),
+                };
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
+                    }
+                    _ => {
+                        let _ = writeln!(out, "        // skipped: unsupported assertion on '{f}'");
+                    }
+                }
+                return;
+            }
+            // ---- Fields not present on the Java ExtractionResult ----
+            "keywords" | "keywords_count" => {
+                let _ = writeln!(
+                    out,
+                    "        // skipped: field '{f}' not available on Java ExtractionResult"
+                );
+                return;
+            }
+            // ---- metadata not_empty / is_empty: Metadata is a required record, not Optional ----
+            "metadata" => {
+                match assertion.assertion_type.as_str() {
+                    "not_empty" | "is_empty" => {
+                        let negate = assertion.assertion_type == "not_empty";
+                        let method = if negate { "assertFalse" } else { "assertTrue" };
+                        let _ = writeln!(
+                            out,
+                            "        {method}({result_var}.metadata().content().isEmpty(), \"expected non-empty value\");"
+                        );
+                        return;
+                    }
+                    _ => {} // fall through to normal handling
+                }
+            }
+            _ => {}
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
@@ -661,10 +854,31 @@ fn render_assertion(
             Some(f) if !f.is_empty() => {
                 let accessor = field_resolver.accessor(f, "java", result_var);
                 let resolved = field_resolver.resolve(f);
-                // Unwrap Optional fields with .orElse("") for string comparisons.
+                // Unwrap Optional fields with a type-appropriate fallback.
                 // Map.get() returns nullable, not Optional, so skip .orElse() for map access.
                 if field_resolver.is_optional(resolved) && !field_resolver.has_map_access(f) {
-                    format!("{accessor}.orElse(\"\")")
+                    // Choose the right orElse fallback based on the assertion type and field type.
+                    match assertion.assertion_type.as_str() {
+                        // For not_empty / is_empty on Optional fields, return the raw Optional
+                        // so the assertion arms can call isPresent()/isEmpty().
+                        "not_empty" | "is_empty" => accessor,
+                        // For size/count assertions on Optional<List<T>> fields, use List.of() fallback.
+                        "count_min" | "count_equals" => {
+                            format!("{accessor}.orElse(java.util.List.of())")
+                        }
+                        // For numeric comparisons on Optional<Long/Integer> fields, use 0L.
+                        "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => {
+                            if field_resolver.is_array(resolved) {
+                                format!("{accessor}.orElse(java.util.List.of())")
+                            } else {
+                                format!("{accessor}.orElse(0L)")
+                            }
+                        }
+                        _ if field_resolver.is_array(resolved) => {
+                            format!("{accessor}.orElse(java.util.List.of())")
+                        }
+                        _ => format!("{accessor}.orElse(\"\")"),
+                    }
                 } else {
                     accessor
                 }
