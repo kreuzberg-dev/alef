@@ -16,6 +16,7 @@ mod swift;
 mod wasm;
 mod zig;
 
+pub use csharp::render_csharp_csproj;
 pub(crate) use csharp::scaffold_csharp;
 pub(crate) use dart::scaffold_dart;
 pub(crate) use elixir::{scaffold_elixir, scaffold_elixir_cargo};

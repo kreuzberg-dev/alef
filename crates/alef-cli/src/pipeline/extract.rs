@@ -483,9 +483,30 @@ fn dedup_api_surface(api: &mut ApiSurface) {
         });
     }
 
-    // Dedup functions by name (keep first)
-    let mut seen_fns: AHashSet<String> = AHashSet::new();
-    api.functions.retain(|f| seen_fns.insert(f.name.clone()));
+    // Dedup functions by name — prefer shorter rust_path (closer to crate root).
+    // This resolves C2: when the same function name exists at multiple definition
+    // sites (e.g. kreuzberg::utils::clean_extracted_text and
+    // kreuzberg::text::quality::clean_extracted_text), prefer the one re-exported
+    // nearest to the crate root, which is the one users call via module = kreuzberg.
+    {
+        let mut best: AHashMap<String, usize> = AHashMap::new();
+        for (i, f) in api.functions.iter().enumerate() {
+            best.entry(f.name.clone())
+                .and_modify(|prev_i| {
+                    if api.functions[i].rust_path.len() < api.functions[*prev_i].rust_path.len() {
+                        *prev_i = i;
+                    }
+                })
+                .or_insert(i);
+        }
+        let keep: AHashSet<usize> = best.values().copied().collect();
+        let mut idx = 0;
+        api.functions.retain(|_| {
+            let k = keep.contains(&idx);
+            idx += 1;
+            k
+        });
+    }
 
     // Dedup errors by name (keep first)
     let mut seen_errors: AHashSet<String> = AHashSet::new();
