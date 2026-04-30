@@ -214,8 +214,8 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
             TypeRef::Optional(Box::new(inner))
         }
 
-        // HashMap<K, V> / BTreeMap<K, V>
-        "HashMap" | "BTreeMap" => {
+        // HashMap<K, V> / BTreeMap<K, V> / AHashMap<K, V> / IndexMap<K, V> / FxHashMap<K, V>
+        "HashMap" | "BTreeMap" | "AHashMap" | "IndexMap" | "FxHashMap" => {
             let (k, v) = extract_two_generic_args(segment);
             TypeRef::Map(Box::new(k), Box::new(v))
         }
@@ -463,6 +463,36 @@ mod tests {
             TypeRef::Map(
                 Box::new(TypeRef::String),
                 Box::new(TypeRef::Primitive(PrimitiveType::U32))
+            )
+        );
+    }
+
+    #[test]
+    fn test_ahashmap_resolves_as_map() {
+        assert_eq!(
+            resolve_type(&parse_type("AHashMap<String, MyType>")),
+            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("MyType".into())))
+        );
+    }
+
+    #[test]
+    fn test_indexmap_resolves_as_map() {
+        assert_eq!(
+            resolve_type(&parse_type("IndexMap<String, u64>")),
+            TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Primitive(PrimitiveType::U64))
+            )
+        );
+    }
+
+    #[test]
+    fn test_fxhashmap_resolves_as_map() {
+        assert_eq!(
+            resolve_type(&parse_type("FxHashMap<String, bool>")),
+            TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Primitive(PrimitiveType::Bool))
             )
         );
     }
