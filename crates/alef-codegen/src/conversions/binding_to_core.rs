@@ -92,7 +92,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 continue;
             }
             let conversion = if optionalized && !field.optional {
-                gen_optionalized_field_to_core(&field.name, &field.ty, config)
+                gen_optionalized_field_to_core(&field.name, &field.ty, config, false)
             } else {
                 field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
             };
@@ -139,7 +139,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         } else if optionalized && !field.optional {
             // Field was wrapped in Option<T> for JS ergonomics but core expects T.
             // Use unwrap_or_default() for simple types, unwrap_or_default() + into for Named.
-            gen_optionalized_field_to_core(&field.name, &field.ty, config)
+            gen_optionalized_field_to_core(&field.name, &field.ty, config, false)
         } else {
             field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
         };
@@ -228,9 +228,16 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     out
 }
 
-/// Generate field conversion for a non-optional field that was optionalized
-/// (wrapped in Option<T>) in the binding struct for JS ergonomics.
-pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &ConversionConfig) -> String {
+/// Generate field conversion for a field that was optionalized (wrapped in `Option<T>`) in the
+/// binding struct for JS ergonomics (`optionalize_defaults`). When `field_is_ir_optional` is
+/// `true`, the field is genuinely `Option<T>` in the IR and the `Option` layer must be preserved
+/// in the output expression (use `.map(|m| …)` rather than `unwrap_or_default()`).
+pub(super) fn gen_optionalized_field_to_core(
+    name: &str,
+    ty: &TypeRef,
+    config: &ConversionConfig,
+    field_is_ir_optional: bool,
+) -> String {
     match ty {
         TypeRef::Json => {
             format!("{name}: val.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default()")
@@ -320,15 +327,29 @@ pub(super) fn gen_optionalized_field_to_core(name: &str, ty: &TypeRef, config: &
         TypeRef::Map(k, v) => {
             // Map with Named values need .into() conversion on each value.
             let has_named_val = matches!(v.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
+            let has_named_key = matches!(k.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n));
             let val_is_string_enum = matches!(v.as_ref(), TypeRef::Named(n)
                 if config.enum_string_names.as_ref().is_some_and(|names| names.contains(n)));
-            if val_is_string_enum {
+            if field_is_ir_optional {
+                // Genuinely optional field: preserve the Option layer using .map(|m| …).
+                if val_is_string_enum {
+                    format!(
+                        "{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, serde_json::from_str(&v).unwrap_or_default())).collect())"
+                    )
+                } else if has_named_val {
+                    format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
+                } else if has_named_key {
+                    format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), v)).collect())")
+                } else {
+                    format!("{name}: val.{name}.map(|m| m.into_iter().collect())")
+                }
+            } else if val_is_string_enum {
                 format!(
                     "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k, serde_json::from_str(&v).unwrap_or_default())).collect()"
                 )
             } else if has_named_val {
                 format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k, v.into())).collect()")
-            } else if matches!(k.as_ref(), TypeRef::Named(n) if !is_tuple_type_name(n)) {
+            } else if has_named_key {
                 format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k.into(), v)).collect()")
             } else {
                 format!("{name}: val.{name}.unwrap_or_default().into_iter().collect()")
