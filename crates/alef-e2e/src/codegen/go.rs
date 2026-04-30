@@ -121,7 +121,10 @@ fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str
     let _ = writeln!(out);
     let _ = writeln!(out, "go 1.26");
     let _ = writeln!(out);
-    let _ = writeln!(out, "require {go_module_path} {version}");
+    let _ = writeln!(out, "require (");
+    let _ = writeln!(out, "\t{go_module_path} {version}");
+    let _ = writeln!(out, "\tgithub.com/stretchr/testify v1.11.1");
+    let _ = writeln!(out, ")");
 
     if let Some(path) = replace_path {
         let _ = writeln!(out);
@@ -152,15 +155,52 @@ fn render_test_file(
         call_args.iter().any(|a| a.arg_type == "mock_url")
     });
 
-    // Determine if we need "encoding/json" (handle args with non-null config).
+    // Determine if we need "encoding/json" (handle args with non-null config,
+    // or json_object args that will be unmarshalled into a typed struct).
     let needs_json = fixtures.iter().any(|f| {
-        let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
-        call_args.iter().any(|a| a.arg_type == "handle") && {
+        let call = e2e_config.resolve_call(f.call.as_deref());
+        let call_args = &call.args;
+        // handle args with non-null config value
+        let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
             call_args.iter().filter(|a| a.arg_type == "handle").any(|a| {
-                let v = f.input.get(&a.field).unwrap_or(&serde_json::Value::Null);
+                let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
+                let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
                 !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
             })
-        }
+        };
+        // json_object args with options_type or array values (will use JSON unmarshal)
+        let go_override = call.overrides.get("go");
+        let opts_type = go_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get("go")
+                .and_then(|o| o.options_type.as_deref())
+        });
+        let has_json_obj = call_args.iter().any(|a| {
+            if a.arg_type != "json_object" {
+                return false;
+            }
+            let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
+            let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
+            if v.is_array() {
+                return true;
+            } // array → []string unmarshal
+            opts_type.is_some() && v.is_object() && !v.as_object().is_some_and(|o| o.is_empty())
+        });
+        has_handle || has_json_obj
+    });
+
+    // Determine if we need "encoding/base64" (bytes-type args decoded at runtime).
+    let needs_base64 = fixtures.iter().any(|f| {
+        let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
+        call_args.iter().any(|a| {
+            if a.arg_type != "bytes" {
+                return false;
+            }
+            let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
+            matches!(f.input.get(field), Some(serde_json::Value::String(_)))
+        })
     });
 
     // Determine if we need the "fmt" import (CustomTemplate visitor actions with placeholders).
@@ -186,7 +226,7 @@ fn render_test_file(
             } else {
                 matches!(
                     a.assertion_type.as_str(),
-                    "contains" | "contains_all" | "not_contains" | "starts_with" | "ends_with"
+                    "contains" | "contains_all" | "contains_any" | "not_contains" | "starts_with" | "ends_with"
                 )
             };
             let field_valid = a
@@ -226,6 +266,9 @@ fn render_test_file(
     let _ = writeln!(out, "package e2e_test");
     let _ = writeln!(out);
     let _ = writeln!(out, "import (");
+    if needs_base64 {
+        let _ = writeln!(out, "\t\"encoding/base64\"");
+    }
     if needs_json {
         let _ = writeln!(out, "\t\"encoding/json\"");
     }
@@ -297,9 +340,43 @@ fn render_test_function(
     let result_var = &call_config.result_var;
     let args = &call_config.args;
 
+    // Whether the function returns (value, error) or just (error) or just (value).
+    // Check Go override first, fall back to call-level returns_result.
+    let returns_result = overrides
+        .and_then(|o| o.returns_result)
+        .unwrap_or(call_config.returns_result);
+
+    // Whether the function returns only error (no value component), i.e. Result<(), E>.
+    // When returns_result=true and returns_void=true, Go emits `err :=` not `_, err :=`.
+    let returns_void = call_config.returns_void;
+
+    // result_is_simple: result is a scalar (*string, *bool, etc.) not a struct.
+    // Check Go override first, then Rust override as fallback.
+    let result_is_simple = overrides.map(|o| o.result_is_simple).unwrap_or_else(|| {
+        call_config
+            .overrides
+            .get("rust")
+            .map(|o| o.result_is_simple)
+            .unwrap_or(false)
+    });
+
+    // result_is_array: the simple result is a slice/array type (e.g., []string).
+    // Only relevant when result_is_simple is true.
+    let result_is_array = overrides.map(|o| o.result_is_array).unwrap_or(false);
+
+    // Per-call Go options_type, falling back to the default call's Go override.
+    let call_options_type = overrides.and_then(|o| o.options_type.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get("go")
+            .and_then(|o| o.options_type.as_deref())
+    });
+
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (mut setup_lines, args_str) = build_args_and_setup(&fixture.input, args, import_alias, e2e_config, &fixture.id);
+    let (mut setup_lines, args_str) =
+        build_args_and_setup(&fixture.input, args, import_alias, call_options_type, &fixture.id);
 
     // Build visitor if present — struct is at package level, just instantiate here.
     let mut visitor_arg = String::new();
@@ -323,7 +400,11 @@ fn render_test_function(
     }
 
     if expects_error {
-        let _ = writeln!(out, "\t_, err := {import_alias}.{function_name}({final_args})");
+        if returns_result && !returns_void {
+            let _ = writeln!(out, "\t_, err := {import_alias}.{function_name}({final_args})");
+        } else {
+            let _ = writeln!(out, "\terr := {import_alias}.{function_name}({final_args})");
+        }
         let _ = writeln!(out, "\tif err == nil {{");
         let _ = writeln!(out, "\t\tt.Errorf(\"expected an error, but call succeeded\")");
         let _ = writeln!(out, "\t}}");
@@ -348,20 +429,70 @@ fn render_test_function(
         }
     });
 
-    let result_binding = if has_usable_assertion {
-        result_var.to_string()
+    // For result_is_simple functions, the result variable IS the value (e.g. *string, *bool).
+    // We create a local `value` that dereferences it so assertions can use a plain type.
+    // For functions that return (value, error): emit `result, err :=`
+    // For functions that return only error: emit `err :=`
+    // For functions that return only a value (result_is_simple, no error): emit `result :=`
+    if !returns_result && result_is_simple {
+        // Function returns a single value, no error (e.g. *string, *bool).
+        let result_binding = if has_usable_assertion {
+            result_var.to_string()
+        } else {
+            "_".to_string()
+        };
+        // In Go, `_ :=` is invalid — must use `_ =` for the blank identifier.
+        let assign_op = if result_binding == "_" { "=" } else { ":=" };
+        let _ = writeln!(
+            out,
+            "\t{result_binding} {assign_op} {import_alias}.{function_name}({final_args})"
+        );
+        if has_usable_assertion && result_binding != "_" {
+            // Emit nil check and dereference for simple pointer results.
+            let _ = writeln!(out, "\tif {result_var} == nil {{");
+            let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
+            let _ = writeln!(out, "\t}}");
+            let _ = writeln!(out, "\tvalue := *{result_var}");
+        }
+    } else if !returns_result || returns_void {
+        // Function returns only error (either returns_result=false, or returns_result=true
+        // with returns_void=true meaning the Go function signature is `func(...) error`).
+        let _ = writeln!(out, "\terr := {import_alias}.{function_name}({final_args})");
+        let _ = writeln!(out, "\tif err != nil {{");
+        let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
+        let _ = writeln!(out, "\t}}");
+        // No result variable to use in assertions.
+        let _ = writeln!(out, "}}");
+        return;
     } else {
-        "_".to_string()
-    };
+        // returns_result = true, returns_void = false: function returns (value, error).
+        let result_binding = if has_usable_assertion {
+            result_var.to_string()
+        } else {
+            "_".to_string()
+        };
+        let _ = writeln!(
+            out,
+            "\t{result_binding}, err := {import_alias}.{function_name}({final_args})"
+        );
+        let _ = writeln!(out, "\tif err != nil {{");
+        let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
+        let _ = writeln!(out, "\t}}");
+        if result_is_simple && has_usable_assertion && result_binding != "_" {
+            // Emit nil check and dereference for simple pointer results.
+            let _ = writeln!(out, "\tif {result_var} == nil {{");
+            let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
+            let _ = writeln!(out, "\t}}");
+            let _ = writeln!(out, "\tvalue := *{result_var}");
+        }
+    }
 
-    // Normal call: check for error assertions first.
-    let _ = writeln!(
-        out,
-        "\t{result_binding}, err := {import_alias}.{function_name}({final_args})"
-    );
-    let _ = writeln!(out, "\tif err != nil {{");
-    let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
-    let _ = writeln!(out, "\t}}");
+    // For result_is_simple functions, assertions reference `value` (the dereferenced result).
+    let effective_result_var = if result_is_simple && has_usable_assertion {
+        "value".to_string()
+    } else {
+        result_var.to_string()
+    };
 
     // Collect optional fields referenced by assertions and emit nil-safe
     // dereference blocks so that assertions can use plain string locals.
@@ -373,15 +504,18 @@ fn render_test_function(
             if !f.is_empty() {
                 let resolved = field_resolver.resolve(f);
                 if field_resolver.is_optional(resolved) && !optional_locals.contains_key(f.as_str()) {
-                    // Only create deref locals for string-valued fields.
-                    // Detect by checking if the assertion value is a string.
+                    // Only create deref locals for string-valued fields that are NOT arrays.
+                    // Array fields (e.g., *[]string) must keep their pointer form so
+                    // render_assertion can emit strings.Join(*field, " ") rather than
+                    // treating them as plain strings.
                     let is_string_field = assertion.value.as_ref().is_some_and(|v| v.is_string());
-                    if !is_string_field {
-                        // Non-string optional fields (e.g., *uint64) are handled
-                        // by nil guards in render_assertion instead.
+                    let is_array_field = field_resolver.is_array(resolved);
+                    if !is_string_field || is_array_field {
+                        // Non-string optional fields (e.g., *uint64) and array optional
+                        // fields (e.g., *[]string) are handled by nil guards in render_assertion.
                         continue;
                     }
-                    let field_expr = field_resolver.accessor(f, "go", result_var);
+                    let field_expr = field_resolver.accessor(f, "go", &effective_result_var);
                     let local_var = go_param_name(&resolved.replace(['.', '[', ']'], "_"));
                     if field_resolver.has_map_access(f) {
                         // Go map access returns a value type (string), not a pointer.
@@ -411,7 +545,7 @@ fn render_test_function(
                     let prefix = parts[..i].join(".");
                     let resolved_prefix = field_resolver.resolve(&prefix);
                     if field_resolver.is_optional(resolved_prefix) {
-                        let accessor = field_resolver.accessor(&prefix, "go", result_var);
+                        let accessor = field_resolver.accessor(&prefix, "go", &effective_result_var);
                         guard_expr = Some(accessor);
                         break;
                     }
@@ -427,10 +561,12 @@ fn render_test_function(
                         render_assertion(
                             &mut nil_buf,
                             assertion,
-                            result_var,
+                            &effective_result_var,
                             import_alias,
                             field_resolver,
                             &optional_locals,
+                            result_is_simple,
+                            result_is_array,
                         );
                         for line in nil_buf.lines() {
                             let _ = writeln!(out, "\t{line}");
@@ -440,10 +576,12 @@ fn render_test_function(
                         render_assertion(
                             out,
                             assertion,
-                            result_var,
+                            &effective_result_var,
                             import_alias,
                             field_resolver,
                             &optional_locals,
+                            result_is_simple,
+                            result_is_array,
                         );
                     }
                     continue;
@@ -453,10 +591,12 @@ fn render_test_function(
         render_assertion(
             out,
             assertion,
-            result_var,
+            &effective_result_var,
             import_alias,
             field_resolver,
             &optional_locals,
+            result_is_simple,
+            result_is_array,
         );
     }
 
@@ -470,17 +610,14 @@ fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     import_alias: &str,
-    e2e_config: &crate::config::E2eConfig,
+    options_type: Option<&str>,
     fixture_id: &str,
 ) -> (Vec<String>, String) {
     use heck::ToUpperCamelCase;
 
     if args.is_empty() {
-        return (Vec::new(), json_to_go(input));
+        return (Vec::new(), String::new());
     }
-
-    let overrides = e2e_config.call.overrides.get("go");
-    let options_type = overrides.and_then(|o| o.options_type.as_deref());
 
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
@@ -524,40 +661,116 @@ fn build_args_and_setup(
 
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = input.get(field);
+
+        // Handle bytes type: fixture stores base64-encoded bytes.
+        // Emit a Go base64.StdEncoding.DecodeString call to decode at runtime.
+        if arg.arg_type == "bytes" {
+            let var_name = format!("{}Bytes", arg.name);
+            match val {
+                None | Some(serde_json::Value::Null) => {
+                    if arg.optional {
+                        parts.push("nil".to_string());
+                    } else {
+                        parts.push("[]byte{}".to_string());
+                    }
+                }
+                Some(serde_json::Value::String(s)) => {
+                    let go_b64 = go_string_literal(s);
+                    setup_lines.push(format!("{var_name}, _ := base64.StdEncoding.DecodeString({go_b64})"));
+                    parts.push(var_name);
+                }
+                Some(other) => {
+                    parts.push(format!("[]byte({})", json_to_go(other)));
+                }
+            }
+            continue;
+        }
+
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // Optional arg with no fixture value: skip entirely.
-                continue;
+                // Optional arg absent: emit Go zero/nil for the type.
+                match arg.arg_type.as_str() {
+                    "string" => {
+                        // Optional string in Go bindings is *string → nil.
+                        parts.push("nil".to_string());
+                    }
+                    "json_object" => {
+                        // Optional config struct → zero-value struct.
+                        if let Some(opts_type) = options_type {
+                            parts.push(format!("{import_alias}.{opts_type}{{}}"));
+                        } else {
+                            parts.push("nil".to_string());
+                        }
+                    }
+                    _ => {
+                        parts.push("nil".to_string());
+                    }
+                }
             }
             None | Some(serde_json::Value::Null) => {
                 // Required arg with no fixture value: pass a language-appropriate default.
                 let default_val = match arg.arg_type.as_str() {
                     "string" => "\"\"".to_string(),
-                    "int" | "integer" => "0".to_string(),
+                    "int" | "integer" | "i64" => "0".to_string(),
                     "float" | "number" => "0.0".to_string(),
                     "bool" | "boolean" => "false".to_string(),
+                    "json_object" => {
+                        if let Some(opts_type) = options_type {
+                            format!("{import_alias}.{opts_type}{{}}")
+                        } else {
+                            "nil".to_string()
+                        }
+                    }
                     _ => "nil".to_string(),
                 };
                 parts.push(default_val);
             }
             Some(v) => {
-                // For json_object args with options_type: construct using functional options.
-                if let (Some(opts_type), "json_object") = (options_type, arg.arg_type.as_str()) {
-                    if let Some(obj) = v.as_object() {
-                        let with_calls: Vec<String> = obj
-                            .iter()
-                            .map(|(k, vv)| {
-                                let func_name = format!("With{}{}", opts_type, k.to_upper_camel_case());
-                                let go_val = json_to_go(vv);
-                                format!("htmd.{func_name}({go_val})")
-                            })
-                            .collect();
-                        let new_fn = format!("New{opts_type}");
-                        parts.push(format!("htmd.{new_fn}({})", with_calls.join(", ")));
-                        continue;
+                match arg.arg_type.as_str() {
+                    "json_object" => {
+                        // JSON arrays unmarshal into []string (Go slices).
+                        // JSON objects with a known options_type unmarshal into that type.
+                        let is_array = v.is_array();
+                        let is_empty_obj = !is_array && v.is_object() && v.as_object().is_some_and(|o| o.is_empty());
+                        if is_empty_obj {
+                            if let Some(opts_type) = options_type {
+                                parts.push(format!("{import_alias}.{opts_type}{{}}"));
+                            } else {
+                                parts.push("nil".to_string());
+                            }
+                        } else if is_array {
+                            // Array type — unmarshal into []string (typical for paths/texts).
+                            let json_str = serde_json::to_string(v).unwrap_or_default();
+                            let go_literal = go_string_literal(&json_str);
+                            let var_name = &arg.name;
+                            setup_lines.push(format!(
+                                "var {var_name} []string\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
+                            ));
+                            parts.push(var_name.to_string());
+                        } else if let Some(opts_type) = options_type {
+                            // Object with known type — unmarshal into typed struct.
+                            let json_str = serde_json::to_string(v).unwrap_or_default();
+                            let go_literal = go_string_literal(&json_str);
+                            let var_name = &arg.name;
+                            setup_lines.push(format!(
+                                "var {var_name} {import_alias}.{opts_type}\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
+                            ));
+                            parts.push(var_name.to_string());
+                        } else {
+                            parts.push(json_to_go(v));
+                        }
+                    }
+                    "string" if arg.optional => {
+                        // Optional string in Go is *string — take address of a local.
+                        let var_name = format!("{}Val", arg.name);
+                        let go_val = json_to_go(v);
+                        setup_lines.push(format!("{var_name} := {go_val}"));
+                        parts.push(format!("&{var_name}"));
+                    }
+                    _ => {
+                        parts.push(json_to_go(v));
                     }
                 }
-                parts.push(json_to_go(v));
             }
         }
     }
@@ -572,25 +785,35 @@ fn render_assertion(
     import_alias: &str,
     field_resolver: &FieldResolver,
     optional_locals: &std::collections::HashMap<String, String>,
+    result_is_simple: bool,
+    result_is_array: bool,
 ) {
     // Skip assertions on fields that don't exist on the result type.
-    if let Some(f) = &assertion.field {
-        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "\t// skipped: field '{f}' not available on result type");
-            return;
+    // When result_is_simple, all field assertions operate on the scalar result directly.
+    if !result_is_simple {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+                let _ = writeln!(out, "\t// skipped: field '{f}' not available on result type");
+                return;
+            }
         }
     }
 
-    let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => {
-            // Use the local variable if the field was dereferenced above.
-            if let Some(local_var) = optional_locals.get(f.as_str()) {
-                local_var.clone()
-            } else {
-                field_resolver.accessor(f, "go", result_var)
+    let field_expr = if result_is_simple {
+        // The result IS the value — field access is irrelevant.
+        result_var.to_string()
+    } else {
+        match &assertion.field {
+            Some(f) if !f.is_empty() => {
+                // Use the local variable if the field was dereferenced above.
+                if let Some(local_var) = optional_locals.get(f.as_str()) {
+                    local_var.clone()
+                } else {
+                    field_resolver.accessor(f, "go", result_var)
+                }
             }
+            _ => result_var.to_string(),
         }
-        _ => result_var.to_string(),
     };
 
     // Check if the field (after resolution) is optional, which means it's a pointer in Go.
@@ -678,45 +901,90 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let go_val = json_to_go(expected);
-                let field_for_contains = if is_optional
-                    && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()))
-                {
+                // Determine the "string view" of the field expression.
+                // - *[]string → strings.Join(*field_expr, " ") for a nil-guarded check
+                // - *string → string(*field_expr)
+                // - string → string(field_expr) (or just field_expr for plain strings)
+                // - result_is_array (result_is_simple + array result) → strings.Join(field_expr, " ")
+                let resolved_field = assertion.field.as_deref().unwrap_or("");
+                let resolved_name = field_resolver.resolve(resolved_field);
+                let field_is_array = result_is_array || field_resolver.is_array(resolved_name);
+                let is_opt =
+                    is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
+                let field_for_contains = if is_opt && field_is_array {
+                    format!("strings.Join(*{field_expr}, \" \")")
+                } else if is_opt {
                     format!("string(*{field_expr})")
+                } else if field_is_array {
+                    format!("strings.Join({field_expr}, \" \")")
                 } else {
                     format!("string({field_expr})")
                 };
-                let _ = writeln!(out_ref, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
-                let _ = writeln!(
-                    out_ref,
-                    "\t\tt.Errorf(\"expected to contain %s, got %v\", {go_val}, {field_expr})"
-                );
-                let _ = writeln!(out_ref, "\t}}");
+                if is_opt {
+                    let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                    let _ = writeln!(out_ref, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
+                    let _ = writeln!(
+                        out_ref,
+                        "\t\tt.Errorf(\"expected to contain %s, got %v\", {go_val}, {field_expr})"
+                    );
+                    let _ = writeln!(out_ref, "\t}}");
+                    let _ = writeln!(out_ref, "\t}}");
+                } else {
+                    let _ = writeln!(out_ref, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
+                    let _ = writeln!(
+                        out_ref,
+                        "\t\tt.Errorf(\"expected to contain %s, got %v\", {go_val}, {field_expr})"
+                    );
+                    let _ = writeln!(out_ref, "\t}}");
+                }
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
+                let resolved_field = assertion.field.as_deref().unwrap_or("");
+                let resolved_name = field_resolver.resolve(resolved_field);
+                let field_is_array = result_is_array || field_resolver.is_array(resolved_name);
+                let is_opt =
+                    is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 for val in values {
                     let go_val = json_to_go(val);
-                    let field_for_contains = if is_optional
-                        && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()))
-                    {
+                    let field_for_contains = if is_opt && field_is_array {
+                        format!("strings.Join(*{field_expr}, \" \")")
+                    } else if is_opt {
                         format!("string(*{field_expr})")
+                    } else if field_is_array {
+                        format!("strings.Join({field_expr}, \" \")")
                     } else {
                         format!("string({field_expr})")
                     };
-                    let _ = writeln!(out_ref, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
-                    let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected to contain %s\", {go_val})");
-                    let _ = writeln!(out_ref, "\t}}");
+                    if is_opt {
+                        let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                        let _ = writeln!(out_ref, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
+                        let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected to contain %s\", {go_val})");
+                        let _ = writeln!(out_ref, "\t}}");
+                        let _ = writeln!(out_ref, "\t}}");
+                    } else {
+                        let _ = writeln!(out_ref, "\tif !strings.Contains({field_for_contains}, {go_val}) {{");
+                        let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected to contain %s\", {go_val})");
+                        let _ = writeln!(out_ref, "\t}}");
+                    }
                 }
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let go_val = json_to_go(expected);
-                let field_for_contains = if is_optional
-                    && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()))
-                {
+                let resolved_field = assertion.field.as_deref().unwrap_or("");
+                let resolved_name = field_resolver.resolve(resolved_field);
+                let field_is_array = result_is_array || field_resolver.is_array(resolved_name);
+                let is_opt =
+                    is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
+                let field_for_contains = if is_opt && field_is_array {
+                    format!("strings.Join(*{field_expr}, \" \")")
+                } else if is_opt {
                     format!("string(*{field_expr})")
+                } else if field_is_array {
+                    format!("strings.Join({field_expr}, \" \")")
                 } else {
                     format!("string({field_expr})")
                 };
@@ -729,7 +997,17 @@ fn render_assertion(
             }
         }
         "not_empty" => {
-            if is_optional {
+            // For optional struct pointers (not arrays), just check != nil.
+            // For optional slice/string pointers, check nil and len.
+            let field_is_array = {
+                let rf = assertion.field.as_deref().unwrap_or("");
+                let rn = field_resolver.resolve(rf);
+                field_resolver.is_array(rn)
+            };
+            if is_optional && !field_is_array {
+                // Struct pointer: non-empty means not nil.
+                let _ = writeln!(out_ref, "\tif {field_expr} == nil {{");
+            } else if is_optional {
                 let _ = writeln!(out_ref, "\tif {field_expr} == nil || len(*{field_expr}) == 0 {{");
             } else {
                 let _ = writeln!(out_ref, "\tif len({field_expr}) == 0 {{");
@@ -738,7 +1016,15 @@ fn render_assertion(
             let _ = writeln!(out_ref, "\t}}");
         }
         "is_empty" => {
-            if is_optional {
+            let field_is_array = {
+                let rf = assertion.field.as_deref().unwrap_or("");
+                let rn = field_resolver.resolve(rf);
+                field_resolver.is_array(rn)
+            };
+            if is_optional && !field_is_array {
+                // Struct pointer: empty means nil.
+                let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+            } else if is_optional {
                 let _ = writeln!(out_ref, "\tif {field_expr} != nil && len(*{field_expr}) != 0 {{");
             } else {
                 let _ = writeln!(out_ref, "\tif len({field_expr}) != 0 {{");
@@ -748,10 +1034,17 @@ fn render_assertion(
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
-                let field_for_contains = if is_optional
-                    && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()))
-                {
+                let resolved_field = assertion.field.as_deref().unwrap_or("");
+                let resolved_name = field_resolver.resolve(resolved_field);
+                let field_is_array = field_resolver.is_array(resolved_name);
+                let is_opt =
+                    is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
+                let field_for_contains = if is_opt && field_is_array {
+                    format!("strings.Join(*{field_expr}, \" \")")
+                } else if is_opt {
                     format!("*{field_expr}")
+                } else if field_is_array {
+                    format!("strings.Join({field_expr}, \" \")")
                 } else {
                     field_expr.clone()
                 };
@@ -778,14 +1071,31 @@ fn render_assertion(
                 let go_val = json_to_go(val);
                 // Use `< N+1` instead of `<= N` to avoid golangci-lint sloppyLen
                 // warning when N is 0 (len(x) <= 0 → len(x) < 1).
-                if let Some(n) = val.as_u64() {
+                // For optional (pointer) fields, dereference and guard with nil check.
+                if is_optional {
+                    let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                    if let Some(n) = val.as_u64() {
+                        let next = n + 1;
+                        let _ = writeln!(out_ref, "\t\tif {deref_field_expr} < {next} {{");
+                    } else {
+                        let _ = writeln!(out_ref, "\t\tif {deref_field_expr} <= {go_val} {{");
+                    }
+                    let _ = writeln!(
+                        out_ref,
+                        "\t\t\tt.Errorf(\"expected > {go_val}, got %v\", {deref_field_expr})"
+                    );
+                    let _ = writeln!(out_ref, "\t\t}}");
+                    let _ = writeln!(out_ref, "\t}}");
+                } else if let Some(n) = val.as_u64() {
                     let next = n + 1;
                     let _ = writeln!(out_ref, "\tif {field_expr} < {next} {{");
+                    let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected > {go_val}, got %v\", {field_expr})");
+                    let _ = writeln!(out_ref, "\t}}");
                 } else {
                     let _ = writeln!(out_ref, "\tif {field_expr} <= {go_val} {{");
+                    let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected > {go_val}, got %v\", {field_expr})");
+                    let _ = writeln!(out_ref, "\t}}");
                 }
-                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected > {go_val}, got %v\", {field_expr})");
-                let _ = writeln!(out_ref, "\t}}");
             }
         }
         "less_than" => {
@@ -805,6 +1115,16 @@ fn render_assertion(
                     let _ = writeln!(
                         out_ref,
                         "\t\t\tt.Errorf(\"expected >= {go_val}, got %v\", {field_expr})"
+                    );
+                    let _ = writeln!(out_ref, "\t\t}}");
+                    let _ = writeln!(out_ref, "\t}}");
+                } else if is_optional && !field_expr.starts_with("len(") {
+                    // Optional pointer field: nil-guard and dereference before comparison.
+                    let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                    let _ = writeln!(out_ref, "\t\tif {deref_field_expr} < {go_val} {{");
+                    let _ = writeln!(
+                        out_ref,
+                        "\t\t\tt.Errorf(\"expected >= {go_val}, got %v\", {deref_field_expr})"
                     );
                     let _ = writeln!(out_ref, "\t\t}}");
                     let _ = writeln!(out_ref, "\t}}");
