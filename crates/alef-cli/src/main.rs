@@ -955,6 +955,47 @@ fn main() -> Result<()> {
 
             let mut e2e_count = 0;
             if let Some(e2e_config) = &config.e2e {
+                // Validate that every call config's (module, function) pair is
+                // actually exported at the declared path in the IR. This catches
+                // C1 (unexported function) and C2 (wrong definition selected) early
+                // so codegen never emits an unresolvable use statement.
+                let all_calls = std::iter::once(("_default", &e2e_config.call))
+                    .chain(e2e_config.calls.iter().map(|(k, v)| (k.as_str(), v)));
+                for (call_name, call_config) in all_calls {
+                    if call_config.function.is_empty() || call_config.module.is_empty() {
+                        continue;
+                    }
+                    // Derive the Rust module path from the module field:
+                    // replace hyphens with underscores to match rust_path convention.
+                    let module_path = call_config.module.replace('-', "_");
+                    let function_name = &call_config.function;
+                    match alef_extract::validate_call_export(&api, &module_path, function_name) {
+                        alef_extract::ExportValidation::Ok => {}
+                        alef_extract::ExportValidation::NotFound { function } => {
+                            anyhow::bail!(
+                                "e2e call '{}': function '{}' was not found in the extracted API surface.                                  Check that it is declared pub and that its source file is listed in                                  [[crate.sources]] or [[crate.source_crates]].",
+                                call_name, function
+                            );
+                        }
+                        alef_extract::ExportValidation::WrongPath {
+                            function,
+                            declared_module,
+                            actual_paths,
+                        } => {
+                            let paths = actual_paths.join(", ");
+                            anyhow::bail!(
+                                "e2e call '{}': function '{}' is not exported at module path '{}'                                  — the Rust codegen would emit use {}::{};
+                                 Actual rust_path(s) found: {}
+                                 Fix: either add pub use <path>::{}; at the crate root,                                  or update module in [e2e.calls.{}] to the correct path.",
+                                call_name, function, declared_module,
+                                declared_module, function,
+                                paths,
+                                function, call_name
+                            );
+                        }
+                    }
+                }
+
                 eprintln!("Generating e2e test suites...");
                 let files = alef_e2e::generate_e2e(&config, e2e_config, None)?;
                 e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, clean)?;

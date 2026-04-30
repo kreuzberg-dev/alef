@@ -595,8 +595,8 @@ fn test_scaffold_csharp_csproj_at_package_root() {
     // Must be at packages/csharp/<Namespace>.csproj (package root), NOT inside the source subdir
     assert_eq!(
         csproj.path,
-        PathBuf::from("packages/csharp/MyLib.csproj"),
-        "csproj must be at the package root, not inside the source subdirectory"
+        PathBuf::from("packages/csharp/MyLib/MyLib.csproj"),
+        "csproj must be in the namespace subdirectory so runtimes/** glob aligns with FFI staging"
     );
     assert!(
         csproj.content.contains("Microsoft.NET.Sdk"),
@@ -617,6 +617,32 @@ fn test_scaffold_csharp_csproj_at_package_root() {
     assert!(
         !csproj.generated_header,
         "csproj must be scaffold-once (generated_header = false)"
+    );
+}
+
+#[test]
+fn test_render_csharp_csproj_runtimes_glob_is_relative() {
+    // Regression: the runtimes glob must NOT have a "../" prefix.
+    // The csproj lives at packages/csharp/<Namespace>/<Namespace>.csproj, so
+    // `runtimes/**` resolves to packages/csharp/<Namespace>/runtimes/ — the exact
+    // directory where alef-publish stages the FFI shared libraries.
+    let config = test_config();
+    let content = render_csharp_csproj(&config, "1.2.3");
+    assert!(
+        content.contains(r#"Include="runtimes/**""#),
+        "runtimes glob must be relative (no ../ prefix): {content}"
+    );
+    assert!(
+        !content.contains(r#"Include="../runtimes"#),
+        "runtimes glob must NOT have ../: {content}"
+    );
+    assert!(
+        content.contains(r#"Include="../../LICENSE""#),
+        "LICENSE path must be ../../LICENSE to reach workspace root: {content}"
+    );
+    assert!(
+        content.contains("<Version>1.2.3</Version>"),
+        "version must be substituted: {content}"
     );
 }
 

@@ -6,6 +6,8 @@ use alef_core::ir::ApiSurface;
 
 mod languages;
 
+pub use languages::render_csharp_csproj;
+
 /// Fields available via `[workspace.package]` inheritance detected from the root `Cargo.toml`.
 #[derive(Debug, Default)]
 #[allow(dead_code)]

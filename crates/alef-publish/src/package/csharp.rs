@@ -11,6 +11,7 @@
 use super::PackageArtifact;
 use crate::platform::RustTarget;
 use alef_core::config::AlefConfig;
+use alef_scaffold::render_csharp_csproj;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,25 +42,50 @@ pub fn package_csharp(
         .join("runtimes")
         .join(&rid)
         .join("native");
-    fs::create_dir_all(&runtimes_dir).with_context(|| format!("creating runtimes dir {}", runtimes_dir.display()))?;
+    fs::create_dir_all(&runtimes_dir)
+        .with_context(|| format!("creating runtimes dir {}", runtimes_dir.display()))?;
 
     let staged = runtimes_dir.join(&shared_lib);
-    fs::copy(&lib_src, &staged).with_context(|| format!("staging {} to {}", lib_src.display(), staged.display()))?;
+    fs::copy(&lib_src, &staged)
+        .with_context(|| format!("staging {} to {}", lib_src.display(), staged.display()))?;
 
     // Find the .csproj.
     let csproj = find_csproj(workspace_root, &pkg_dir_str, &namespace)?;
     let proj_dir = csproj.parent().context("csproj has no parent")?.to_path_buf();
 
-    // Run dotnet pack.
+    // Regenerate the csproj from the scaffold template before packing.
+    //
+    // This ensures the <None Include="runtimes/**"> glob always points at the
+    // directory where we just staged the FFI library, regardless of what is
+    // committed on disk.  The render is idempotent — if the file already
+    // matches the template output, the write is a no-op from dotnet's
+    // perspective.
+    let csproj_content = render_csharp_csproj(config, version);
+    fs::write(&csproj, &csproj_content)
+        .with_context(|| format!("regenerating csproj at {}", csproj.display()))?;
+    tracing::debug!(path = %csproj.display(), "regenerated csproj from scaffold template");
+
+    // Run dotnet pack from proj_dir.  Use only the filename (not a path) for
+    // the project arg so that MSBuild resolves it relative to the CWD we pass
+    // to the shell command.  Canonicalize output_dir so the relative
+    // workspace_root does not produce a doubly-relative path inside the shell.
+    let csproj_name = csproj
+        .file_name()
+        .context("csproj has no file name")?
+        .to_string_lossy()
+        .to_string();
+    let abs_output_dir = output_dir
+        .canonicalize()
+        .unwrap_or_else(|_| output_dir.to_path_buf());
     let cmd = format!(
         "dotnet pack {proj} --configuration Release -p:Version={version} --output {out}",
-        proj = csproj.display(),
-        out = output_dir.display()
+        proj = csproj_name,
+        out = abs_output_dir.display()
     );
     crate::run_shell_command_in(&cmd, &proj_dir)?;
 
     // Find the produced .nupkg.
-    let nupkg = find_nupkg(output_dir, &namespace, version)?;
+    let nupkg = find_nupkg(&abs_output_dir, &namespace, version)?;
     let nupkg_name = nupkg
         .file_name()
         .context("nupkg has no name")?

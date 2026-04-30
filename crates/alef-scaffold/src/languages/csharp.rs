@@ -4,11 +4,21 @@ use alef_core::config::AlefConfig;
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+/// Render just the `.csproj` XML content for the given config and version string.
+///
+/// The produced csproj is designed to live at
+/// `packages/csharp/<Namespace>/<Namespace>.csproj`, where:
+/// - `../../LICENSE` reaches the workspace root
+/// - `runtimes/**` matches `packages/csharp/<Namespace>/runtimes/` — the exact
+///   directory where `alef-publish` stages the FFI shared libraries
+///
+/// This is exposed as a `pub` function so `alef-publish` can regenerate the
+/// csproj before invoking `dotnet pack`, guaranteeing the glob paths are always
+/// in sync with the staging layout regardless of what is committed on disk.
+pub fn render_csharp_csproj(config: &AlefConfig, version: &str) -> String {
     let meta = scaffold_meta(config);
     let namespace = config.csharp_namespace();
     let package_id = config.csharp_package_id();
-    let version = &api.version;
 
     let target_framework = config
         .csharp
@@ -23,7 +33,7 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
         format!("    <Authors>{}</Authors>\n", escaped.join(";"))
     };
 
-    let content = format!(
+    format!(
         r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>{target_framework}</TargetFramework>
@@ -50,16 +60,22 @@ pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::
         description = meta.description,
         repository = meta.repository,
         authors = authors_csproj,
-    );
+    )
+}
+
+pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let namespace = config.csharp_namespace();
+    let content = render_csharp_csproj(config, &api.version);
 
     Ok(vec![
         GeneratedFile {
-            // Place the csproj at the package root (packages/csharp/<Namespace>.csproj)
-            // so that MSBuild's default Compile glob picks up the generated .cs files
-            // in the packages/csharp/<Namespace>/ subdirectory. This matches the layout
-            // expected by `dotnet format` / `dotnet build` invocations that reference
-            // the file by name (e.g. `dotnet format MyLib.csproj`).
-            path: PathBuf::from(format!("packages/csharp/{}.csproj", namespace)),
+            // Place the csproj under packages/csharp/<Namespace>/<Namespace>.csproj so
+            // the `runtimes/**` glob resolves to
+            // packages/csharp/<Namespace>/runtimes/ — the exact directory where
+            // alef-publish stages the FFI shared libraries.  `../../LICENSE` from that
+            // subdirectory reaches the workspace root.  alef-publish's find_csproj
+            // also looks here first, so no scanning fallback is needed.
+            path: PathBuf::from(format!("packages/csharp/{0}/{0}.csproj", namespace)),
             content,
             // Scaffold-once so consumers can extend metadata (deps, runtime
             // configs, package metadata) without alef stomping on it.
