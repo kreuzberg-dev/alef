@@ -841,6 +841,19 @@ fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config: &E2
 
     let status = mock.status;
 
+    // Render headers map as a Vec<(String, String)> literal for stable iteration order.
+    let mut header_entries: Vec<(&String, &String)> = mock.headers.iter().collect();
+    header_entries.sort_by(|a, b| a.0.cmp(b.0));
+    let render_headers = |out: &mut String| {
+        let _ = writeln!(out, "        headers: vec![");
+        for (name, value) in &header_entries {
+            let n = rust_raw_string(name);
+            let v = rust_raw_string(value);
+            let _ = writeln!(out, "            ({n}.to_string(), {v}.to_string()),");
+        }
+        let _ = writeln!(out, "        ],");
+    };
+
     if let Some(chunks) = &mock.stream_chunks {
         // Streaming SSE response.
         let _ = writeln!(out, "    let mock_route = MockRoute {{");
@@ -860,6 +873,7 @@ fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config: &E2
             let _ = writeln!(out, "            {chunk_str}.to_string(),");
         }
         let _ = writeln!(out, "        ],");
+        render_headers(out);
         let _ = writeln!(out, "    }};");
     } else {
         // Non-streaming JSON response.
@@ -876,6 +890,7 @@ fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config: &E2
         let _ = writeln!(out, "        status: {status},");
         let _ = writeln!(out, "        body: {body_str}.to_string(),");
         let _ = writeln!(out, "        stream_chunks: vec![],");
+        render_headers(out);
         let _ = writeln!(out, "    }};");
     }
 
@@ -883,7 +898,7 @@ fn render_mock_server_setup(out: &mut String, fixture: &Fixture, e2e_config: &E2
 }
 
 /// Generate the complete `mock_server.rs` module source.
-fn render_mock_server_module() -> String {
+pub fn render_mock_server_module() -> String {
     // This is parameterized Axum mock server code identical in structure to
     // liter-llm's mock_server.rs but without any project-specific imports.
     hash::header(CommentStyle::DoubleSlash)
@@ -915,6 +930,9 @@ pub struct MockRoute {
     /// Each entry becomes `data: <chunk>\n\n` in the response.
     /// A final `data: [DONE]\n\n` is always appended.
     pub stream_chunks: Vec<String>,
+    /// Response headers to apply (name, value) pairs.
+    /// Multiple entries with the same name produce multiple header lines.
+    pub headers: Vec<(String, String)>,
 }
 
 struct ServerState {
@@ -979,21 +997,22 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
                 }
                 sse.push_str("data: [DONE]\n\n");
 
-                return Response::builder()
+                let mut builder = Response::builder()
                     .status(status)
                     .header("content-type", "text/event-stream")
-                    .header("cache-control", "no-cache")
-                    .body(Body::from(sse))
-                    .unwrap()
-                    .into_response();
+                    .header("cache-control", "no-cache");
+                for (name, value) in &route.headers {
+                    builder = builder.header(name, value);
+                }
+                return builder.body(Body::from(sse)).unwrap().into_response();
             }
 
-            return Response::builder()
-                .status(status)
-                .header("content-type", "application/json")
-                .body(Body::from(route.body.clone()))
-                .unwrap()
-                .into_response();
+            let mut builder =
+                Response::builder().status(status).header("content-type", "application/json");
+            for (name, value) in &route.headers {
+                builder = builder.header(name, value);
+            }
+            return builder.body(Body::from(route.body.clone())).unwrap().into_response();
         }
     }
 
@@ -1018,7 +1037,7 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
 ///
 /// This binary is intended for cross-language e2e suites (WASM, Node) that
 /// spawn it as a child process and read the URL from its stdout.
-fn render_mock_server_binary() -> String {
+pub fn render_mock_server_binary() -> String {
     hash::header(CommentStyle::DoubleSlash)
         + r#"//
 // Standalone mock HTTP server binary for cross-language e2e tests.
@@ -1058,6 +1077,8 @@ struct MockResponse {
     body: Option<serde_json::Value>,
     #[serde(default)]
     stream_chunks: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1065,6 +1086,8 @@ struct HttpExpectedResponse {
     status_code: u16,
     #[serde(default)]
     body: Option<serde_json::Value>,
+    #[serde(default)]
+    headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1089,6 +1112,7 @@ impl Fixture {
                 status: mock.status,
                 body: mock.body.clone(),
                 stream_chunks: mock.stream_chunks.clone(),
+                headers: mock.headers.clone(),
             });
         }
         if let Some(http) = &self.http {
@@ -1096,6 +1120,7 @@ impl Fixture {
                 status: http.expected_response.status_code,
                 body: http.expected_response.body.clone(),
                 stream_chunks: None,
+                headers: http.expected_response.headers.clone(),
             });
         }
         None
@@ -1111,6 +1136,7 @@ struct MockRoute {
     status: u16,
     body: String,
     stream_chunks: Vec<String>,
+    headers: Vec<(String, String)>,
 }
 
 type RouteTable = Arc<HashMap<String, MockRoute>>;
@@ -1154,21 +1180,21 @@ fn serve_route(route: &MockRoute) -> Response {
         }
         sse.push_str("data: [DONE]\n\n");
 
-        return Response::builder()
+        let mut builder = Response::builder()
             .status(status)
             .header("content-type", "text/event-stream")
-            .header("cache-control", "no-cache")
-            .body(Body::from(sse))
-            .unwrap()
-            .into_response();
+            .header("cache-control", "no-cache");
+        for (name, value) in &route.headers {
+            builder = builder.header(name, value);
+        }
+        return builder.body(Body::from(sse)).unwrap().into_response();
     }
 
-    Response::builder()
-        .status(status)
-        .header("content-type", "application/json")
-        .body(Body::from(route.body.clone()))
-        .unwrap()
-        .into_response()
+    let mut builder = Response::builder().status(status).header("content-type", "application/json");
+    for (name, value) in &route.headers {
+        builder = builder.header(name, value);
+    }
+    builder.body(Body::from(route.body.clone())).unwrap().into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -1243,7 +1269,10 @@ fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
                             other => serde_json::to_string(&other).unwrap_or_default(),
                         })
                         .collect();
-                    routes.insert(route_path, MockRoute { status: mock.status, body, stream_chunks });
+                    let mut headers: Vec<(String, String)> =
+                        mock.headers.into_iter().collect();
+                    headers.sort_by(|a, b| a.0.cmp(&b.0));
+                    routes.insert(route_path, MockRoute { status: mock.status, body, stream_chunks, headers });
                 }
             }
         }
@@ -1306,6 +1335,33 @@ fn render_assertion(
     result_is_tree: bool,
     result_is_simple: bool,
 ) {
+    // Handle synthetic fields like chunks_have_content (derived assertions)
+    if let Some(f) = &assertion.field {
+        if f == "chunks_have_content" {
+            match assertion.assertion_type.as_str() {
+                "is_true" => {
+                    let _ = writeln!(
+                        out,
+                        "    assert!({result_var}.chunks.as_ref().is_some_and(|chunks| !chunks.is_empty() && chunks.iter().all(|c| !c.content.is_empty())), \"expected all chunks to have content\");"
+                    );
+                }
+                "is_false" => {
+                    let _ = writeln!(
+                        out,
+                        "    assert!({result_var}.chunks.as_ref().is_none() || {result_var}.chunks.as_ref().unwrap().iter().any(|c| c.content.is_empty()), \"expected some chunks to be empty\");"
+                    );
+                }
+                _ => {
+                    let _ = writeln!(
+                        out,
+                        "    // unsupported assertion type on synthetic field chunks_have_content"
+                    );
+                }
+            }
+            return;
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {

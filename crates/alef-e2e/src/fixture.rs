@@ -17,6 +17,10 @@ pub struct MockResponse {
     /// Each chunk is a JSON object sent as `data: <chunk>\n\n`.
     #[serde(default)]
     pub stream_chunks: Option<Vec<serde_json::Value>>,
+    /// Response headers to apply to the mock response.
+    /// Bridged from `http.expected_response.headers` for spikard-style fixtures.
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
 }
 
 /// Visitor specification for visitor pattern tests.
@@ -211,6 +215,7 @@ impl Fixture {
                 status: http.expected_response.status_code,
                 body: http.expected_response.body.clone(),
                 stream_chunks: None,
+                headers: http.expected_response.headers.clone(),
             });
         }
         None

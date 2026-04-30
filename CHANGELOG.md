@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e mock-server respects fixture `expected_response.headers`.** The alef-generated mock HTTP server (both the test-embedded `mock_server` module and the standalone `mock-server` binary used by cross-language e2e suites) now applies fixture-declared response headers to the served response. Previously, headers from `http.expected_response.headers` (spikard schema) and `mock_response.headers` (liter-llm schema) were silently dropped, causing consumer header assertions (CORS, request-id, auth challenge, compression, etc.) to come back as `null`. `MockResponse` gained a `headers: HashMap<String, String>` field, `Fixture::as_mock_response()` bridges headers from both schemas, and the mock-server route handlers iterate the map and apply each entry via `Response::builder().header(name, value)`. Repeated `.header()` calls preserve multi-value semantics for headers like `Set-Cookie`. (`crates/alef-e2e/src/fixture.rs`, `crates/alef-e2e/src/codegen/rust.rs`)
+
 - fix(extract): recognise `AHashMap`, `IndexMap`, and `FxHashMap` as map types in the type resolver (previously fell through to `TypeRef::Named`, causing every binding backend to emit a string/opaque type instead of a real map).
 
 ### Added
