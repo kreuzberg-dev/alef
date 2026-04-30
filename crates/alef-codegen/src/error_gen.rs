@@ -464,35 +464,70 @@ pub fn gen_ffi_error_codes(error: &ErrorDef) -> String {
 /// prefix is stripped to avoid the revive `exported` stutter lint error
 /// (e.g. `LiterLlmError` in package `literllm` → exported as `Error`).
 pub fn gen_go_error_types(error: &ErrorDef, pkg_name: &str) -> String {
-    let mut lines = Vec::new();
+    let sentinels = gen_go_sentinel_errors(std::slice::from_ref(error));
+    let structured = gen_go_error_struct(error, pkg_name);
+    format!("{}\n\n{}", sentinels, structured)
+}
 
-    // Sentinel errors — each var gets a doc comment so revive doesn't complain.
-    lines.push("var (".to_string());
-    for variant in &error.variants {
-        let err_name = format!("Err{}", variant.name);
-        let msg = variant_display_message(variant);
-        // Doc comment on the var itself (inside the var block) satisfies revive.
-        lines.push(format!("\t// {} is returned when {}.", err_name, msg));
-        lines.push(format!("\t{} = errors.New(\"{}\")", err_name, msg));
+/// Generate a single consolidated `var (...)` block of Go sentinel errors
+/// across multiple `ErrorDef`s.
+///
+/// When the same variant name appears in more than one `ErrorDef` (e.g. both
+/// `GraphQLError` and `SchemaError` define `ValidationError`), the colliding
+/// const names are disambiguated by prefixing with the parent error type's
+/// stripped base name. For example, `GraphQLError::ValidationError` and
+/// `SchemaError::ValidationError` become `ErrGraphQLValidationError` and
+/// `ErrSchemaValidationError`. Variant names that are unique across all
+/// errors are emitted as plain `Err{Variant}` consts.
+pub fn gen_go_sentinel_errors(errors: &[ErrorDef]) -> String {
+    if errors.is_empty() {
+        return String::new();
     }
-    lines.push(")\n".to_string());
+    let mut variant_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for err in errors {
+        for v in &err.variants {
+            *variant_counts.entry(v.name.as_str()).or_insert(0) += 1;
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut lines = Vec::new();
+    lines.push("var (".to_string());
+    for err in errors {
+        let parent_base = error_base_prefix(&err.name);
+        for variant in &err.variants {
+            let collides = variant_counts.get(variant.name.as_str()).copied().unwrap_or(0) > 1;
+            let const_name = if collides {
+                format!("Err{}{}", parent_base, variant.name)
+            } else {
+                format!("Err{}", variant.name)
+            };
+            if !seen.insert(const_name.clone()) {
+                continue;
+            }
+            let msg = variant_display_message(variant);
+            lines.push(format!("\t// {} is returned when {}.", const_name, msg));
+            lines.push(format!("\t{} = errors.New(\"{}\")", const_name, msg));
+        }
+    }
+    lines.push(")".to_string());
+    lines.join("\n")
+}
 
-    // Compute the Go type name, stripping any package-name prefix to avoid
-    // the revive stutter rule (e.g. `literllm.LiterLlmError` → `literllm.Error`).
+/// Generate the structured error type (struct + Error() method) for a single
+/// error definition. Sentinel errors are emitted separately by
+/// [`gen_go_sentinel_errors`].
+pub fn gen_go_error_struct(error: &ErrorDef, pkg_name: &str) -> String {
     let go_type_name = strip_package_prefix(&error.name, pkg_name);
-
-    // Structured error type
+    let mut lines = Vec::new();
     lines.push(format!("// {} is a structured error type.", go_type_name));
     lines.push(format!("type {} struct {{", go_type_name));
     lines.push("\tCode    string".to_string());
     lines.push("\tMessage string".to_string());
     lines.push("}\n".to_string());
-
     lines.push(format!(
         "func (e *{}) Error() string {{ return e.Message }}",
         go_type_name
     ));
-
     lines.join("\n")
 }
 

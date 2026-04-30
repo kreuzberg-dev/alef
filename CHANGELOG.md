@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Go backend: duplicate sentinel error declarations across multiple `ErrorDef`s.** When two error enums in the same crate shared variant names (e.g. `GraphQLError::ValidationError` and `SchemaError::ValidationError`), the Go binding emitted two top-level `var (...)` blocks each declaring `ErrValidationError`, breaking compilation with `redeclared in this block`. The Go backend now emits a single consolidated sentinel block; colliding variant names are disambiguated by qualifying with the parent error's stripped base name (`ErrGraphQLValidationError` and `ErrSchemaValidationError`). Unique variant names continue to use the unqualified `Err{Variant}` form. New public APIs `alef_codegen::error_gen::gen_go_sentinel_errors` and `gen_go_error_struct` allow callers to control sentinel/struct emission independently. (`crates/alef-codegen/src/error_gen.rs`, `crates/alef-backend-go/src/gen_bindings.rs`)
+
 - **Magnus backend: typed-options params now accept `magnus::Value`.** Functions/methods with `Option<Named>` (or `Named`) parameters previously generated a `Option<String>` ABI that forced Ruby callers to `Hash#to_json` explicitly — and any failure to do so raised `TypeError`. The binding now accepts `magnus::Value` and calls `to_json` internally before `serde_json` deserialization, so a plain Ruby Hash works directly. Closes the upstream regression in `kreuzberg-dev/html-to-markdown#334`.
 
 - **Phase 1: Rust e2e codegen A1/A3/A4/A5 fixes** — Eliminate `E0308 expected &T found &Option<_>`, `E0308 expected Vec<T> found &_`, and `E0277 trait bound` errors via correct optional handling, owned-param passing, slice-type annotation, and simple-return-type detection.

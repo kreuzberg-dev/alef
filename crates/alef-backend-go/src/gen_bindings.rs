@@ -427,14 +427,26 @@ fn gen_go_file(
         writeln!(out).ok();
     }
 
-    // Generate error types (sentinel errors + structured error type)
-    for error in &api.errors {
+    // Generate error types: a single consolidated sentinel `var (...)` block
+    // across all ErrorDefs (variant-name collisions are disambiguated by
+    // qualifying with the parent error's base name, e.g.
+    // `ErrGraphQLValidationError` vs `ErrSchemaValidationError`), followed by
+    // the per-error structured error struct + Error() method.
+    if !api.errors.is_empty() {
         writeln!(
             out,
             "{}\n",
-            alef_codegen::error_gen::gen_go_error_types(error, pkg_name)
+            alef_codegen::error_gen::gen_go_sentinel_errors(&api.errors)
         )
         .ok();
+        for error in &api.errors {
+            writeln!(
+                out,
+                "{}\n",
+                alef_codegen::error_gen::gen_go_error_struct(error, pkg_name)
+            )
+            .ok();
+        }
     }
 
     // When a visitor bridge is active, visitor.go defines NodeContext and VisitResult
