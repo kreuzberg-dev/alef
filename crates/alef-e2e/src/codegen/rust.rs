@@ -733,7 +733,10 @@ fn render_rust_arg(
         } else if arg_type == "bytes" {
             format!("{n}.as_deref().map(|v| v.as_slice())")
         } else {
-            format!("{n}.as_ref()")
+            // Owned numeric / bool / generic: pass the Option<T> by value.
+            // Function signature shape `Option<T>` matches without `.as_ref()`,
+            // which would produce `Option<&T>` and fail to coerce.
+            n.to_string()
         }
     };
     let expr = |n: &str| {
@@ -1758,9 +1761,27 @@ fn render_assertion(
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    if n <= 1 {
-                        // Clippy prefers !is_empty() over len() >= 1
-                        let base = field_access.strip_suffix(".len()").unwrap_or(&field_access);
+                    let opt_arr_field = assertion.field.as_ref().is_some_and(|f| {
+                        let resolved = field_resolver.resolve(f);
+                        let is_opt = !is_unwrapped && field_resolver.is_optional(resolved);
+                        let is_arr = field_resolver.is_array(resolved);
+                        is_opt && is_arr
+                    });
+                    let base = field_access.strip_suffix(".len()").unwrap_or(&field_access);
+                    if opt_arr_field {
+                        // Option<Vec<T>>: must be Some AND inner len >= n.
+                        if n <= 1 {
+                            let _ = writeln!(
+                                out,
+                                "    assert!({base}.as_ref().is_some_and(|v| !v.is_empty()), \"expected >= {n}\");"
+                            );
+                        } else {
+                            let _ = writeln!(
+                                out,
+                                "    assert!({base}.as_ref().is_some_and(|v| v.len() >= {n}), \"expected at least {n} elements\");"
+                            );
+                        }
+                    } else if n <= 1 {
                         let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected >= {n}\");");
                     } else {
                         let _ = writeln!(
@@ -1774,10 +1795,24 @@ fn render_assertion(
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "    assert_eq!({field_access}.len(), {n}, \"expected exactly {n} elements, got {{}}\", {field_access}.len());"
-                    );
+                    let opt_arr_field = assertion.field.as_ref().is_some_and(|f| {
+                        let resolved = field_resolver.resolve(f);
+                        let is_opt = !is_unwrapped && field_resolver.is_optional(resolved);
+                        let is_arr = field_resolver.is_array(resolved);
+                        is_opt && is_arr
+                    });
+                    let base = field_access.strip_suffix(".len()").unwrap_or(&field_access);
+                    if opt_arr_field {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({base}.as_ref().is_some_and(|v| v.len() == {n}), \"expected exactly {n} elements\");"
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "    assert_eq!({field_access}.len(), {n}, \"expected exactly {n} elements, got {{}}\", {field_access}.len());"
+                        );
+                    }
                 }
             }
         }
