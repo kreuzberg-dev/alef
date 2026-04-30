@@ -640,7 +640,9 @@ impl Backend for PhpBackend {
             "class {}Exception extends \\RuntimeException\n{{\n",
             class_name
         ));
-        content.push_str("    public function getErrorCode(): int { }\n");
+        content.push_str(
+            "    public function getErrorCode(): int { throw new \\RuntimeException('Not implemented.'); }\n",
+        );
         content.push_str("}\n\n");
 
         // Opaque handle classes
@@ -763,8 +765,14 @@ impl Backend for PhpBackend {
                     let nullable_prefix = if field.optional { "?" } else { "" };
                     content.push_str(&format!("    /** @return {}{} */\n", nullable_prefix, phpdoc));
                 }
+                let is_void_getter = return_type == "void";
+                let getter_body = if is_void_getter {
+                    "{ }".to_string()
+                } else {
+                    "{ throw new \\RuntimeException('Not implemented.'); }".to_string()
+                };
                 content.push_str(&format!(
-                    "    public function get{}(): {} {{ }}\n",
+                    "    public function get{}(): {} {getter_body}\n",
                     getter_name.to_pascal_case(),
                     return_type
                 ));
@@ -841,8 +849,14 @@ impl Backend for PhpBackend {
                 } else {
                     func.name.to_lower_camel_case()
                 };
+                let is_void_stub = return_type == "void";
+                let stub_body = if is_void_stub {
+                    "{ }".to_string()
+                } else {
+                    "{ throw new \\RuntimeException('Not implemented.'); }".to_string()
+                };
                 content.push_str(&format!(
-                    "    public static function {}({}): {} {{ }}\n",
+                    "    public static function {}({}): {} {stub_body}\n",
                     stub_method_name,
                     params.join(", "),
                     return_type
