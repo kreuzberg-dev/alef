@@ -126,7 +126,7 @@ fn to_pep440(version: &str) -> String {
     out
 }
 
-use alef_core::version::to_rubygems_prerelease;
+use alef_core::version::{to_r_version, to_rubygems_prerelease};
 
 /// Verify that all package manifest versions match the Cargo.toml source of truth.
 /// Returns a list of mismatches (empty = all consistent).
@@ -463,9 +463,10 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
         }
     }
 
-    // R: DESCRIPTION file
+    // R: DESCRIPTION file — CRAN rejects SemVer dash prereleases.
     if let Ok(content) = std::fs::read_to_string("packages/r/DESCRIPTION") {
-        if let Some(new_content) = replace_version_pattern(&content, r"Version:\s*[^\n]*", &version) {
+        let r_version = to_r_version(&version);
+        if let Some(new_content) = replace_version_pattern(&content, r"Version:\s*[^\n]*", &r_version) {
             std::fs::write("packages/r/DESCRIPTION", &new_content)?;
             updated.push("packages/r/DESCRIPTION".to_string());
         }

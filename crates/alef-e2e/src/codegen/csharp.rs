@@ -282,8 +282,29 @@ fn render_test_method(
     let is_async = effective_is_async;
     let args = call_config.args.as_slice();
 
-    let (mut setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, class_name, e2e_config, enum_fields, &fixture.id);
+    // Per-call overrides: result shape, void returns, extra trailing args.
+    let per_call_result_is_simple = cs_overrides.is_some_and(|o| o.result_is_simple);
+    let effective_result_is_simple = result_is_simple || per_call_result_is_simple;
+    let returns_void = call_config.returns_void;
+    let extra_args_slice: &[String] = cs_overrides.map_or(&[], |o| o.extra_args.as_slice());
+    // options_type: prefer per-call override, fall back to top-level csharp override.
+    let top_level_options_type = e2e_config
+        .call
+        .overrides
+        .get("csharp")
+        .and_then(|o| o.options_type.as_deref());
+    let effective_options_type = cs_overrides
+        .and_then(|o| o.options_type.as_deref())
+        .or(top_level_options_type);
+
+    let (mut setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        class_name,
+        effective_options_type,
+        enum_fields,
+        &fixture.id,
+    );
 
     // Build visitor if present and add to setup
     let mut visitor_arg = String::new();
@@ -291,10 +312,18 @@ fn render_test_method(
         visitor_arg = build_csharp_visitor(&mut setup_lines, visitor_spec);
     }
 
-    let final_args = if visitor_arg.is_empty() {
+    let args_with_visitor = if visitor_arg.is_empty() {
         args_str
     } else {
         format!("{args_str}, {visitor_arg}")
+    };
+
+    let final_args = if extra_args_slice.is_empty() {
+        args_with_visitor
+    } else if args_with_visitor.is_empty() {
+        extra_args_slice.join(", ")
+    } else {
+        format!("{args_with_visitor}, {}", extra_args_slice.join(", "))
     };
 
     let return_type = if is_async { "async Task" } else { "void" };
@@ -325,21 +354,24 @@ fn render_test_method(
         return;
     }
 
-    let _ = writeln!(
-        out,
-        "        var {result_var} = {await_kw}{class_name}.{function_name}({final_args});"
-    );
-
-    for assertion in &fixture.assertions {
-        render_assertion(
+    if returns_void {
+        let _ = writeln!(out, "        {await_kw}{class_name}.{function_name}({final_args});");
+    } else {
+        let _ = writeln!(
             out,
-            assertion,
-            result_var,
-            class_name,
-            exception_class,
-            field_resolver,
-            result_is_simple,
+            "        var {result_var} = {await_kw}{class_name}.{function_name}({final_args});"
         );
+        for assertion in &fixture.assertions {
+            render_assertion(
+                out,
+                assertion,
+                result_var,
+                class_name,
+                exception_class,
+                field_resolver,
+                effective_result_is_simple,
+            );
+        }
     }
 
     let _ = writeln!(out, "    }}");
@@ -352,16 +384,13 @@ fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     class_name: &str,
-    e2e_config: &E2eConfig,
-    enum_fields: &HashMap<String, String>,
+    options_type: Option<&str>,
+    _enum_fields: &HashMap<String, String>,
     fixture_id: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
-        return (Vec::new(), json_to_csharp(input));
+        return (Vec::new(), String::new());
     }
-
-    let overrides = e2e_config.call.overrides.get("csharp");
-    let options_type = overrides.and_then(|o| o.options_type.as_deref());
 
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
@@ -427,30 +456,23 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
-                // For json_object args with options_type, construct a typed C# object.
-                if let (Some(opts_type), "json_object") = (options_type, arg.arg_type.as_str()) {
-                    if let Some(obj) = v.as_object() {
-                        let props: Vec<String> = obj
-                            .iter()
-                            .map(|(k, vv)| {
-                                let pascal_key = k.to_upper_camel_case();
-                                // Check if this field maps to an enum type.
-                                let cs_val = if let Some(enum_type) = enum_fields.get(k) {
-                                    // Map string value to enum constant (PascalCase).
-                                    if let Some(s) = vv.as_str() {
-                                        let pascal_val = s.to_upper_camel_case();
-                                        format!("{enum_type}.{pascal_val}")
-                                    } else {
-                                        json_to_csharp(vv)
-                                    }
-                                } else {
-                                    json_to_csharp(vv)
-                                };
-                                format!("{pascal_key} = {cs_val}")
-                            })
-                            .collect();
-                        parts.push(format!("new {opts_type} {{ {} }}", props.join(", ")));
+                if arg.arg_type == "json_object" {
+                    // Array value: generate a typed List<T> based on element_type.
+                    if let Some(arr) = v.as_array() {
+                        parts.push(json_array_to_csharp_list(arr, arg.element_type.as_deref()));
                         continue;
+                    }
+                    // Object value with known type: deserialize via JsonSerializer so the
+                    // library's own [JsonPropertyName] annotations handle field name mapping.
+                    if let Some(opts_type) = options_type {
+                        if v.is_object() {
+                            let json_str = serde_json::to_string(v).unwrap_or_default();
+                            parts.push(format!(
+                                "JsonSerializer.Deserialize<{opts_type}>(\"{}\", ConfigOptions)!",
+                                escape_csharp(&json_str),
+                            ));
+                            continue;
+                        }
                     }
                 }
                 parts.push(json_to_csharp(v));
@@ -459,6 +481,37 @@ fn build_args_and_setup(
     }
 
     (setup_lines, parts.join(", "))
+}
+
+/// Convert a JSON array to a typed C# `List<T>` expression.
+///
+/// Mapping from `ArgMapping::element_type`:
+/// - `None` or any string type → `List<string>`
+/// - `"f32"` → `List<float>` with `(float)` casts
+/// - `"(String, String)"` → `List<List<string>>` for key-value pair arrays
+fn json_array_to_csharp_list(arr: &[serde_json::Value], element_type: Option<&str>) -> String {
+    match element_type {
+        Some("f32") => {
+            let items: Vec<String> = arr.iter().map(|v| format!("(float){}", json_to_csharp(v))).collect();
+            format!("new List<float>() {{ {} }}", items.join(", "))
+        }
+        Some("(String, String)") => {
+            let items: Vec<String> = arr
+                .iter()
+                .map(|v| {
+                    let strs: Vec<String> = v
+                        .as_array()
+                        .map_or_else(Vec::new, |a| a.iter().map(json_to_csharp).collect());
+                    format!("new List<string>() {{ {} }}", strs.join(", "))
+                })
+                .collect();
+            format!("new List<List<string>>() {{ {} }}", items.join(", "))
+        }
+        _ => {
+            let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
+            format!("new List<string>() {{ {} }}", items.join(", "))
+        }
+    }
 }
 
 fn render_assertion(
@@ -487,24 +540,17 @@ fn render_assertion(
         }
     };
 
-    // Determine whether the field resolves to an optional (nullable) type in C#.
-    let field_is_optional = assertion
-        .field
-        .as_deref()
-        .map(|f| field_resolver.is_optional(field_resolver.resolve(f)))
-        .unwrap_or(false);
-
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                // Only call .Trim() on string fields, not numeric or boolean ones.
                 if expected.is_string() {
+                    // Only call .Trim() on string fields.
                     let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr}.Trim());");
-                } else if expected.is_number() && field_is_optional {
-                    // Nullable numeric fields require an explicit cast of the expected
-                    // literal so that C# can resolve the overload (e.g. ulong?).
-                    let _ = writeln!(out, "        Assert.Equal((object?){cs_val}, (object?){field_expr});");
+                } else if expected.is_number() && !expected.as_f64().is_some_and(|f| f.fract() != 0.0) {
+                    // Integer values: use Assert.True(x == n) to avoid xUnit overload
+                    // resolution ambiguity (int vs uint vs long vs DateTime).
+                    let _ = writeln!(out, "        Assert.True({field_expr} == {cs_val});");
                 } else {
                     let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr});");
                 }

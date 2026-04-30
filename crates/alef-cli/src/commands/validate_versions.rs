@@ -10,7 +10,7 @@
 //! - `kreuzberg/scripts/publish/verify-cargo-version.sh`
 
 use alef_core::config::AlefConfig;
-use alef_core::version::to_rubygems_prerelease;
+use alef_core::version::{to_r_version, to_rubygems_prerelease};
 use anyhow::{Context, Result};
 use serde_json::json;
 use std::path::Path;
@@ -197,14 +197,15 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
         read_csproj_version,
     );
 
-    // R: DESCRIPTION `Version: ...`
+    // R: DESCRIPTION — compare against CRAN-compatible version.
     let r_dir = config.package_dir(alef_core::config::extras::Language::R);
-    push_check_if_exists(
+    push_check_with_transform(
         &mut checks,
         canonical,
         &format!("{r_dir}/DESCRIPTION"),
         workspace_root,
         read_description_version,
+        to_r_version,
     );
 
     // WASM: package.json (same reader as Node).

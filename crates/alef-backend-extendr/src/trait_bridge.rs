@@ -29,10 +29,9 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        vec![
-            "use extendr_api::prelude::*;".to_string(),
-            "use std::sync::Arc;".to_string(),
-        ]
+        // Return bare import paths (no `use` keyword, no trailing `;`).
+        // RustFileBuilder::add_import() wraps them as `use {path};`.
+        vec!["extendr_api::prelude::*".to_string(), "std::sync::Arc".to_string()]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
