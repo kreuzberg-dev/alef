@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(extract): recognise `AHashMap`, `IndexMap`, and `FxHashMap` as map types in the type resolver (previously fell through to `TypeRef::Named`, causing every binding backend to emit a string/opaque type instead of a real map).
+
 ### Added
 
 - **Blocker A: HTTP fixture mock-server support for spikard-style fixtures.** The e2e generator now emits the `mock-server` binary and per-language bootstrap code for projects whose fixtures use the `http.expected_response` schema (spikard shape), not just `mock_response` (liter-llm shape). Changes:

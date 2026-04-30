@@ -115,49 +115,58 @@ fn render_pyproject(
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
 ) -> String {
-    let dep_spec = match dep_mode {
-        crate::config::DependencyMode::Registry => {
+    // Generate in pyproject-fmt canonical form so the pre-commit hook is a no-op.
+    // pyproject-fmt sorts deps alphabetically, uses spaces inside brackets, dotted
+    // tool keys, and injects Python classifiers.
+    let (deps_line, uv_sources_block) = match dep_mode {
+        crate::config::DependencyMode::Registry => (
             format!(
-                "dependencies = [\"{pkg_name}{pkg_version}\", \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\"]\n"
-            )
-        }
-        crate::config::DependencyMode::Local => {
+                "dependencies = [ \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\", \"{pkg_name}{pkg_version}\" ]"
+            ),
+            String::new(),
+        ),
+        crate::config::DependencyMode::Local => (
             format!(
-                "dependencies = [\"{pkg_name}\", \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\"]\n\
-                 \n\
-                 [tool.uv.sources]\n\
-                 {pkg_name} = {{ workspace = true }}\n"
-            )
-        }
+                "dependencies = [ \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\", \"{pkg_name}\" ]"
+            ),
+            format!("\n[tool.uv]\nsources.{pkg_name} = {{ workspace = true }}\n"),
+        ),
     };
 
     format!(
         r#"[build-system]
 build-backend = "setuptools.build_meta"
-requires = ["setuptools>=68", "wheel"]
+requires = [ "setuptools>=68", "wheel" ]
 
 [project]
 name = "{pkg_name}-e2e-tests"
 version = "0.0.0"
 description = "End-to-end tests"
 requires-python = ">=3.10"
-{dep_spec}
+classifiers = [
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
+{deps_line}
+
 [tool.setuptools]
-packages = []
+packages = [  ]
+{uv_sources_block}
+[tool.ruff]
+lint.ignore = [ "PLR2004" ]
+lint.per-file-ignores."tests/**" = [ "B017", "PT011", "S101", "S108" ]
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_functions = "test_*"
-addopts = "-v --strict-markers --tb=short"
-timeout = 300
-
-[tool.ruff.lint]
-ignore = ["PLR2004"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S108", "PT011", "B017"]
+[tool.pytest]
+ini_options.asyncio_mode = "auto"
+ini_options.testpaths = [ "tests" ]
+ini_options.python_files = "test_*.py"
+ini_options.python_functions = "test_*"
+ini_options.addopts = "-v --strict-markers --tb=short"
+ini_options.timeout = 300
 "#
     )
 }
