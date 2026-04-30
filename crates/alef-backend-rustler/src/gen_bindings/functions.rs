@@ -555,13 +555,13 @@ pub(super) fn gen_nif_method(
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
-        let core_call = if is_opaque && method.receiver.is_some() {
+        let core_call = if let (true, Some(receiver)) = (is_opaque, method.receiver.as_ref()) {
             // For &self: Arc<T> derefs to T, no clone needed (and avoids the
             // noop_method_call lint that the previous as_ref().clone() tripped).
             // For &mut self / self: clone the inner T to get an owned value the
             // method can consume — requires T: Clone (callers needing non-Clone
             // opaque types with mutating methods should configure exclude_methods).
-            match method.receiver.as_ref().expect("receiver checked") {
+            match receiver {
                 ReceiverKind::Ref => format!("resource.inner.{}({})", method.name, call_args),
                 ReceiverKind::RefMut | ReceiverKind::Owned => {
                     format!("(*resource.inner).clone().{}({})", method.name, call_args)
@@ -703,13 +703,13 @@ pub(super) fn gen_nif_async_method(
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types);
-        let core_call = if is_opaque && method.receiver.is_some() {
+        let core_call = if let (true, Some(receiver)) = (is_opaque, method.receiver.as_ref()) {
             // For &self: Arc<T> derefs to T, no clone needed (and avoids the
             // noop_method_call lint that the previous as_ref().clone() tripped).
             // For &mut self / self: clone the inner T to get an owned value the
             // method can consume — requires T: Clone (callers needing non-Clone
             // opaque types with mutating methods should configure exclude_methods).
-            match method.receiver.as_ref().expect("receiver checked") {
+            match receiver {
                 ReceiverKind::Ref => format!("resource.inner.{}({})", method.name, call_args),
                 ReceiverKind::RefMut | ReceiverKind::Owned => {
                     format!("(*resource.inner).clone().{}({})", method.name, call_args)

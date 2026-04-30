@@ -973,8 +973,9 @@ fn main() -> Result<()> {
                         alef_extract::ExportValidation::Ok => {}
                         alef_extract::ExportValidation::NotFound { function } => {
                             anyhow::bail!(
-                                "e2e call '{}': function '{}' was not found in the extracted API surface.                                  Check that it is declared pub and that its source file is listed in                                  [[crate.sources]] or [[crate.source_crates]].",
-                                call_name, function
+                                "e2e call '{call_name}': function '{function}' was not found in the extracted API surface. \
+                                 Check that it is declared `pub` and that its source file is listed in \
+                                 [[crate.sources]] or [[crate.source_crates]]."
                             );
                         }
                         alef_extract::ExportValidation::WrongPath {
@@ -984,13 +985,11 @@ fn main() -> Result<()> {
                         } => {
                             let paths = actual_paths.join(", ");
                             anyhow::bail!(
-                                "e2e call '{}': function '{}' is not exported at module path '{}'                                  — the Rust codegen would emit use {}::{};
-                                 Actual rust_path(s) found: {}
-                                 Fix: either add pub use <path>::{}; at the crate root,                                  or update module in [e2e.calls.{}] to the correct path.",
-                                call_name, function, declared_module,
-                                declared_module, function,
-                                paths,
-                                function, call_name
+                                "e2e call '{call_name}': function '{function}' is not exported at module path \
+                                 '{declared_module}' -- the Rust codegen would emit `use {declared_module}::{function};`. \
+                                 Actual rust_path(s) found: {paths}. \
+                                 Fix: either add `pub use <path>::{function};` at the crate root, \
+                                 or update `module` in [e2e.calls.{call_name}] to the correct path."
                             );
                         }
                     }

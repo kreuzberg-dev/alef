@@ -408,6 +408,8 @@ fn render_test_function(
             } else {
                 None
             },
+            arg.owned,
+            arg.element_type.as_deref(),
         );
         for binding in &bindings {
             let _ = writeln!(out, "    {binding}");
@@ -435,6 +437,9 @@ fn render_test_function(
     let await_suffix = if is_async { ".await" } else { "" };
 
     let result_is_tree = call_config.result_var == "tree";
+    // When the rust override sets result_is_simple, the function returns a plain type
+    // (String, Vec<T>, etc.) — field-access assertions use the result var directly.
+    let result_is_simple = call_config.overrides.get("rust").is_some_and(|o| o.result_is_simple);
 
     if has_error_assertion {
         let _ = writeln!(out, "    let {result_var} = {function_name}({args_str}){await_suffix};");
@@ -450,6 +455,7 @@ fn render_test_function(
                 &[],
                 field_resolver,
                 result_is_tree,
+                result_is_simple,
             );
         }
         let _ = writeln!(out, "}}");
@@ -586,6 +592,7 @@ fn render_test_function(
             &unwrapped_fields,
             field_resolver,
             result_is_tree,
+            result_is_simple,
         );
     }
 
@@ -596,6 +603,7 @@ fn render_test_function(
 // Argument rendering
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn render_rust_arg(
     name: &str,
     value: &serde_json::Value,
@@ -604,6 +612,8 @@ fn render_rust_arg(
     module: &str,
     fixture_id: &str,
     mock_base_url: Option<&str>,
+    owned: bool,
+    element_type: Option<&str>,
 ) -> (Vec<String>, String) {
     if arg_type == "mock_url" {
         let lines = vec![format!(
@@ -643,7 +653,7 @@ fn render_rust_arg(
         return (lines, format!("&{name}"));
     }
     if arg_type == "json_object" {
-        return render_json_object_arg(name, value, optional, module);
+        return render_json_object_arg(name, value, optional, owned, element_type, module);
     }
     if value.is_null() && !optional {
         // Required arg with no fixture value: use a language-appropriate default.
@@ -701,16 +711,29 @@ fn render_rust_arg(
 /// Render a `json_object` argument: serialize the fixture JSON as a `serde_json::json!` literal
 /// and deserialize it through serde at runtime. Type inference from the function signature
 /// determines the concrete type, keeping the generator generic.
+///
+/// `owned` — when true the binding is passed by value (no leading `&`); use for `Vec<T>` params.
+/// `element_type` — when set, emits `Vec<element_type>` annotation to satisfy type inference for
+///   `&[T]` parameters where `serde_json::from_value` cannot resolve the unsized slice type.
 fn render_json_object_arg(
     name: &str,
     value: &serde_json::Value,
     optional: bool,
+    owned: bool,
+    element_type: Option<&str>,
     _module: &str,
 ) -> (Vec<String>, String) {
+    // Owned params (Vec<T>) are passed by value; ref params (most configs) use &.
+    let pass_by_ref = !owned;
+
     if value.is_null() && optional {
-        // Use Default::default() and pass by reference — Rust functions typically
-        // take &T not Option<T> for config params.
-        return (vec![format!("let {name} = Default::default();")], format!("&{name}"));
+        // Use Default::default() — Rust functions take &T (or T for owned), not Option<T>.
+        let expr = if pass_by_ref {
+            format!("&{name}")
+        } else {
+            name.to_string()
+        };
+        return (vec![format!("let {name} = Default::default();")], expr);
     }
 
     // Fixture keys are camelCase; the Rust ConversionOptions type uses snake_case serde.
@@ -720,15 +743,24 @@ fn render_json_object_arg(
     let json_literal = json_value_to_macro_literal(&normalized);
     let mut lines = Vec::new();
     lines.push(format!("let {name}_json = serde_json::json!({json_literal});"));
-    // Deserialize to a concrete type inferred from the function signature.
-    let deser_expr = format!("serde_json::from_value({name}_json).unwrap()");
-    if optional {
-        lines.push(format!("let {name} = Some({deser_expr});"));
-        (lines, format!("&{name}"))
+
+    // When an explicit element type is given, annotate with Vec<T> so that
+    // serde_json::from_value can infer the element type for &[T] parameters (A4 fix).
+    let deser_expr = if let Some(elem) = element_type {
+        format!("serde_json::from_value::<Vec<{elem}>>({name}_json).unwrap()")
     } else {
-        lines.push(format!("let {name} = {deser_expr};"));
-        (lines, format!("&{name}"))
-    }
+        format!("serde_json::from_value({name}_json).unwrap()")
+    };
+
+    // A1 fix: always deser as T (never wrap in Some()); optional non-null args target
+    // &T not &Option<T>. Pass as &T (ref) or T (owned) depending on the `owned` flag.
+    lines.push(format!("let {name} = {deser_expr};"));
+    let expr = if pass_by_ref {
+        format!("&{name}")
+    } else {
+        name.to_string()
+    };
+    (lines, expr)
 }
 
 /// Convert a `serde_json::Value` into a string suitable for the `serde_json::json!()` macro.
@@ -1226,6 +1258,7 @@ fn render_assertion(
     unwrapped_fields: &[(String, String)], // (fixture_field, local_var)
     field_resolver: &FieldResolver,
     result_is_tree: bool,
+    result_is_simple: bool,
 ) {
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
@@ -1237,12 +1270,17 @@ fn render_assertion(
 
     // Determine field access expression:
     // 1. If the field was unwrapped to a local var, use that local var name.
-    // 2. When the result is a Tree, map pseudo-field names to correct Rust expressions.
-    // 3. Otherwise, use the field resolver to generate the accessor.
+    // 2. When result_is_simple, the function returns a plain type (String etc.) — use result_var.
+    // 3. When the result is a Tree, map pseudo-field names to correct Rust expressions.
+    // 4. Otherwise, use the field resolver to generate the accessor.
     let field_access = match &assertion.field {
         Some(f) if !f.is_empty() => {
             if let Some((_, local_var)) = unwrapped_fields.iter().find(|(ff, _)| ff == f) {
                 local_var.clone()
+            } else if result_is_simple {
+                // Plain return type (String, Vec<T>, etc.) has no struct fields.
+                // Use the result variable directly so assertions operate on the value itself.
+                result_var.to_string()
             } else if result_is_tree {
                 // Tree is an opaque type — its "fields" are accessed via root_node() or
                 // free functions. Map known pseudo-field names to correct Rust expressions.
