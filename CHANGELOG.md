@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.9] - 2026-04-30
+
+### Fixed
+
+- fix(e2e/go): add `returns_void` field to `CallConfig` so functions returning only `error` (e.g. `validate_host`, `validate_port`, `validate_language_code`) emit `err := func()` instead of `_, err := func()` in generated Go tests.
+- fix(e2e/go): Go override `returns_result = true` now respected for `dedup_text` and similar functions returning `(value, error)`; previously the call-level default (`false`) overrode the per-language override.
+
+## [0.12.8] - 2026-04-30
+
+### Fixed
+
+## [0.12.7] - 2026-04-30
+
+### Fixed
+
+- fix(backend-rustler): `force_build` honors `Application.compile_env(:rustler_precompiled, [:force_build, :<app>], false)` in addition to env var + Mix.env() heuristics, so consumers can opt into source builds via mix config.
+- fix(extract): empty struct with `#[derive(Default, Serialize, Deserialize)]` is treated as a transparent NifMap data type rather than an opaque resource handle (e.g. `ExcelMetadata{}` is data, not a `ResourceArc`).
+- fix(scaffold/precommit): generated `.pre-commit-config.yaml` includes the shared `kreuzberg-dev/pre-commit-hooks` repo (shfmt/shellcheck/hadolint/textlint), tracked via the new `KREUZBERG_PRECOMMIT_HOOKS_REV` template version.
+- fix(e2e/java): per-fixture `options_type` overrides now collected for ObjectMapper imports/usage; previously only class-level options_type was honored, leaving overrides un-imported.
+- fix(backend-magnus): optional Ruby parameters typed as `Option<magnus::Value>` (not `magnus::Value`) — handler now matches `Some(_v) if !_v.is_nil()` before calling `.funcall(...)`, fixing a compile error when an optional struct arg is omitted.
+- fix(backend-pyo3): union alias types used directly in `options.py` runtime expressions (e.g. `FormatMetadata = str | ExcelMetadata | ...`) are now imported unconditionally instead of under `TYPE_CHECKING`. Because union alias RHS is evaluated at module load, all names must resolve at import time; previously the TYPE_CHECKING guard caused `NameError` for data-enum payload struct types not defined locally.
+- fix(codegen/core-to-binding): `Map<String, Json>` fields now emit `.to_string()` per-value conversions (same as `Map<String, String>`). Previously the map-value branch only matched `TypeRef::String`, so `serde_json::Value` values were not converted, causing a type mismatch in NAPI-RS and other backends.
+- fix(e2e/go): `go.mod` now includes `github.com/stretchr/testify` as a required dependency so generated Go test modules compile without a missing-import error.
+- fix(e2e/go): `bytes`-type args now decode from base64 at runtime via `base64.StdEncoding.DecodeString`; the `encoding/base64` import is emitted only when needed.
+- fix(e2e/go): optional `string` args are now passed as `*string` (address of a local) matching Go binding signatures that take pointer-to-string for nullable strings.
+- fix(e2e/go): functions that return only `error` (no result value) now emit `err := fn(...)` instead of `_, err := fn(...)`, fixing a compile error when the function signature is `func(...) error`.
+- fix(e2e/go): `result_is_simple` functions (returning `*string`, `*bool`, etc.) now dereference the pointer into a `value` local before assertions and emit a nil guard, rather than asserting directly on a pointer type.
+- fix(e2e/go): `greater_than` assertions on optional (pointer) fields now emit a nil guard before the comparison, preventing a nil-pointer dereference.
+- fix(e2e/go): `contains` assertions on optional array fields now use `strings.Join(*field_expr, " ")` instead of incorrectly dereferencing an array pointer as a string.
+- fix(e2e/go): `contains_any` is now recognized as a string-assertion type that requires the `strings` import.
+- fix(e2e/typescript): `package.json` local dependency now uses `file:<pkg_path>` instead of `workspace:*`, fixing resolution when the e2e package is not inside a pnpm workspace.
+- fix(e2e/typescript): options-type imports now collect all distinct types across all per-fixture call overrides, not only the default call's options type; each type is imported exactly once.
+- fix(e2e/typescript): `resolve_node_function_name` now converts snake_case function names to camelCase (NAPI-RS convention) when no explicit node override is set, eliminating `undefined is not a function` errors at runtime.
+- fix(e2e/typescript): optional config args with no fixture value now emit `{} as unknown as <OptionsType>` instead of being skipped, matching NAPI-RS binding signatures that require the config parameter.
+- fix(e2e/typescript): config `json_object` args are now cast via `as unknown as <T>` to suppress TS2352 type-overlap errors for partial config objects.
+- fix(e2e/typescript): `bytes`-type args now emit `Buffer.from("<b64>", "base64")` so base64 fixture values are decoded to `Uint8Array` at test time.
+- fix(e2e/typescript): `not_empty` assertions now handle array fields with `.length` checks and non-string struct fields with `!= null` presence checks, rather than emitting `.length` on every type unconditionally.
+- fix(e2e/core): `CallOverride` gains an `arg_order` field to allow per-language parameter reordering when a binding's function signature differs from the canonical `args` list order.
+- fix(e2e/escape): `escape_python` now escapes NUL (`\x00`) and other ASCII control characters (U+0001–U+001F) as `\xNN` sequences, preventing malformed Python string literals from non-printable fixture bytes.
+
 ## [0.12.6] - 2026-04-30
 
 ### Fixed

@@ -238,6 +238,13 @@ pub struct CallConfig {
     /// `.expect("should succeed")` unwrap and bind the raw return value directly.
     #[serde(default = "default_returns_result")]
     pub returns_result: bool,
+    /// Whether the function returns only an error/unit — i.e., `Result<(), E>`.
+    ///
+    /// When combined with `returns_result = true`, Go generators emit `err := func()`
+    /// (single return value) rather than `_, err := func()` (two return values).
+    /// This is needed for functions like `validate_host` that return only `error` in Go.
+    #[serde(default)]
+    pub returns_void: bool,
 }
 
 fn default_result_var() -> String {
@@ -325,6 +332,12 @@ pub struct CallOverride {
     /// (or equivalent field access) will use the result variable directly.
     #[serde(default)]
     pub result_is_simple: bool,
+    /// When `true` (and combined with `result_is_simple`), the simple result is
+    /// a slice/array type (e.g., `[]string` in Go, `Vec<String>` in Rust).
+    /// The Go generator uses `strings.Join(value, " ")` for `contains` assertions
+    /// instead of `string(value)`.
+    #[serde(default)]
+    pub result_is_array: bool,
     /// When `true`, the function returns `Vec<T>` rather than a single value.
     /// Field-path assertions are emitted as `.iter().all(|r| <accessor>)` so
     /// every element is checked. (Rust generator.)
@@ -452,6 +465,20 @@ pub struct CallOverride {
     /// If not set, defaults to the function name in PascalCase.
     #[serde(default)]
     pub result_type: Option<String>,
+    /// Override the argument order for this language binding.
+    ///
+    /// Lists argument names from `args` in the order they should be passed
+    /// to the target function. Useful when a language binding reorders parameters
+    /// relative to the canonical `args` list in `CallConfig`.
+    ///
+    /// E.g., if `args = [path, mime_type, config]` but the Node.js binding
+    /// takes `(path, config, mime_type?)`, specify:
+    /// ```toml
+    /// [e2e.call.overrides.node]
+    /// arg_order = ["path", "config", "mime_type"]
+    /// ```
+    #[serde(default)]
+    pub arg_order: Vec<String>,
 }
 
 /// Per-language package reference configuration.
