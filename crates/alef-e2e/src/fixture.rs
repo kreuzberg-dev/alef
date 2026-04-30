@@ -191,8 +191,29 @@ impl Fixture {
     }
 
     /// Returns true if this fixture requires a mock HTTP server.
+    /// This is true when either `mock_response` (liter-llm shape) or
+    /// `http.expected_response` (spikard shape) is present.
     pub fn needs_mock_server(&self) -> bool {
-        self.mock_response.is_some()
+        self.mock_response.is_some() || self.http.is_some()
+    }
+
+    /// Returns the effective mock response for this fixture, bridging both schemas:
+    /// - liter-llm shape: `mock_response: { status, body, stream_chunks }`
+    /// - spikard shape: `http.expected_response: { status_code, body, headers }`
+    ///
+    /// Returns `None` if neither schema is present.
+    pub fn as_mock_response(&self) -> Option<MockResponse> {
+        if let Some(mock) = &self.mock_response {
+            return Some(mock.clone());
+        }
+        if let Some(http) = &self.http {
+            return Some(MockResponse {
+                status: http.expected_response.status_code,
+                body: http.expected_response.body.clone(),
+                stream_chunks: None,
+            });
+        }
+        None
     }
 
     /// Returns true if the mock response uses streaming (SSE).

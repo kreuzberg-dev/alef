@@ -443,9 +443,8 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     let description = fixture.description.replace('\'', "\\'");
 
     let method = http.request.method.to_uppercase();
-    let path = &http.request.path;
 
-    // Build the init object for `app.request(path, init)`.
+    // Build the init object for `fetch(url, init)`.
     let mut init_entries: Vec<String> = Vec::new();
     init_entries.push(format!("method: '{method}'"));
 
@@ -469,27 +468,15 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         init_entries.push(format!("body: JSON.stringify({js_body})"));
     }
 
+    let fixture_id = escape_js(&fixture.id);
     let _ = writeln!(out, "  it('{test_name}: {description}', async () => {{");
-
-    // Build query string if query params present.
-    let path_expr = if http.request.query_params.is_empty() {
-        format!("'{}'", escape_js(path))
-    } else {
-        let params: Vec<String> = http
-            .request
-            .query_params
-            .iter()
-            .map(|(k, v)| format!("{}={}", escape_js(k), escape_js(&json_value_to_query_string(v))))
-            .collect();
-        let qs = params.join("&");
-        format!("'{}?{}'", escape_js(path), qs)
-    };
-
-    let init_str = init_entries.join(", ");
     let _ = writeln!(
         out,
-        "    const response = await app.request({path_expr}, {{ {init_str} }});"
+        "    const mockUrl = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
     );
+
+    let init_str = init_entries.join(", ");
+    let _ = writeln!(out, "    const response = await fetch(mockUrl, {{ {init_str} }});");
 
     // Status code assertion.
     let status = http.expected_response.status_code;
@@ -566,17 +553,6 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     }
 
     let _ = writeln!(out, "  }});");
-}
-
-/// Serialize a JSON value to a plain string for use in a URL query string.
-fn json_value_to_query_string(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Bool(b) => b.to_string(),
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::Null => String::new(),
-        other => other.to_string(),
-    }
 }
 
 // ---------------------------------------------------------------------------

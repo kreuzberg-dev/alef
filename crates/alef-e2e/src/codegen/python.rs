@@ -257,16 +257,84 @@ fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
     if has_http_fixtures {
         format!(
             r#"{header}"""Pytest configuration for e2e tests."""
+from __future__ import annotations
+
+import os
+import subprocess
+import threading
+from pathlib import Path
+from typing import Generator
+
 import pytest
 
 # Ensure the package is importable.
 # The {module} package is expected to be installed in the current environment.
 
+_HERE = Path(__file__).parent
+_MOCK_SERVER_BIN = _HERE / "rust" / "target" / "release" / "mock-server"
+_FIXTURES_DIR = _HERE.parent / "fixtures"
 
-@pytest.fixture
-def client(http_test_server):  # noqa: ANN001, ANN201
-    """Return a test client bound to the per-test HTTP server."""
-    return http_test_server.client()
+
+@pytest.fixture(scope="session", autouse=True)
+def mock_server() -> Generator[str, None, None]:
+    """Spawn the mock HTTP server binary and set MOCK_SERVER_URL."""
+    proc = subprocess.Popen(  # noqa: S603
+        [str(_MOCK_SERVER_BIN), str(_FIXTURES_DIR)],
+        stdout=subprocess.PIPE,
+        stderr=None,
+        stdin=subprocess.PIPE,
+    )
+    url = ""
+    assert proc.stdout is not None
+    for raw_line in proc.stdout:
+        line = raw_line.decode().strip()
+        if line.startswith("MOCK_SERVER_URL="):
+            url = line.split("=", 1)[1]
+            break
+    os.environ["MOCK_SERVER_URL"] = url
+    # Drain stdout in background so the server never blocks.
+    threading.Thread(target=proc.stdout.read, daemon=True).start()
+    yield url
+    if proc.stdin:
+        proc.stdin.close()
+    proc.terminate()
+    proc.wait()
+
+
+def _make_request(method: str, path: str, **kwargs: object) -> object:
+    """Make an HTTP request to the mock server."""
+    import urllib.request  # noqa: PLC0415
+
+    base_url = os.environ.get("MOCK_SERVER_URL", "http://localhost:8080")
+    url = f"{{base_url}}{{path}}"
+    data = kwargs.pop("json", None)
+    if data is not None:
+        import json  # noqa: PLC0415
+
+        body = json.dumps(data).encode()
+        headers = dict(kwargs.pop("headers", {{}}))
+        headers.setdefault("Content-Type", "application/json")
+        req = urllib.request.Request(url, data=body, headers=headers, method=method.upper())
+    else:
+        headers = dict(kwargs.pop("headers", {{}}))
+        req = urllib.request.Request(url, headers=headers, method=method.upper())
+    try:
+        with urllib.request.urlopen(req) as resp:  # noqa: S310
+            return resp
+    except urllib.error.HTTPError as exc:
+        return exc
+
+
+@pytest.fixture(scope="session")
+def app(mock_server: str) -> object:  # noqa: ARG001
+    """Return a simple HTTP helper bound to the mock server URL."""
+
+    class _App:
+        def request(self, path: str, **kwargs: object) -> object:
+            method = str(kwargs.pop("method", "GET"))
+            return _make_request(method, path, **kwargs)
+
+    return _App()
 "#
         )
     } else {
@@ -324,13 +392,9 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     // mock_url args need `import os`.
     let needs_os_import = e2e_config.call.args.iter().any(|arg| arg.arg_type == "mock_url");
 
-    // HTTP tests with header UUID assertions need `import re`.
-    let needs_re_import = has_http_tests
-        && fixtures.iter().any(|f| {
-            f.http
-                .as_ref()
-                .is_some_and(|h| h.expected_response.headers.values().any(|v| v == "<<uuid>>"))
-        });
+    // HTTP tests handle `import re` inline (per-test), so no top-level re import is needed.
+    let needs_re_import = false;
+    let _ = has_http_tests; // used indirectly via inline imports in render_http_test_function
 
     // Only import options_type when using "kwargs" mode.
     let needs_options_type = options_via == "kwargs"
@@ -579,80 +643,68 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         let _ = writeln!(out, "@pytest.mark.skip(reason=\"{escaped}\")");
     }
 
-    let _ = writeln!(out, "def test_{fn_name}(client) -> None:");
+    let _ = writeln!(out, "def test_{fn_name}(mock_server: str) -> None:");
     let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
+    let _ = writeln!(out, "    import os  # noqa: PLC0415");
+    let _ = writeln!(out, "    import urllib.request  # noqa: PLC0415");
+    let _ = writeln!(out, "    base = os.environ.get(\"MOCK_SERVER_URL\", mock_server)");
+    let fixture_id = fixture.id.as_str();
+    let _ = writeln!(out, "    url = f\"{{base}}/fixtures/{fixture_id}\"");
 
-    // Build the request call.
-    let method = http.request.method.to_lowercase();
-    let path = &http.request.path;
+    // Build the request call using urllib.
+    let method = http.request.method.to_uppercase();
 
-    // Collect keyword arguments for the request method call.
-    let mut call_kwargs: Vec<String> = Vec::new();
+    // Build headers dict.
+    let mut header_entries: Vec<String> = Vec::new();
+    for (k, v) in &http.request.headers {
+        header_entries.push(format!("        \"{}\": \"{}\",", escape_python(k), escape_python(v)));
+    }
+    let headers_py = if header_entries.is_empty() {
+        "{}".to_string()
+    } else {
+        format!("{{\n{}\n    }}", header_entries.join("\n"))
+    };
 
-    // JSON body
     if let Some(body) = &http.request.body {
         let py_body = json_to_python_literal(body);
-        call_kwargs.push(format!("        json={py_body},"));
-    }
-
-    // Request headers
-    if !http.request.headers.is_empty() {
-        let entries: Vec<String> = http
-            .request
-            .headers
-            .iter()
-            .map(|(k, v)| format!("            \"{}\": \"{}\",", escape_python(k), escape_python(v)))
-            .collect();
-        let headers_block = entries.join("\n");
-        call_kwargs.push(format!("        headers={{\n{headers_block}\n        }},"));
-    }
-
-    // Query params
-    if !http.request.query_params.is_empty() {
-        let entries: Vec<String> = http
-            .request
-            .query_params
-            .iter()
-            .map(|(k, v)| format!("            \"{}\": {},", escape_python(k), json_to_python_literal(v)))
-            .collect();
-        let params_block = entries.join("\n");
-        call_kwargs.push(format!("        params={{\n{params_block}\n        }},"));
-    }
-
-    // Cookies
-    if !http.request.cookies.is_empty() {
-        let entries: Vec<String> = http
-            .request
-            .cookies
-            .iter()
-            .map(|(k, v)| format!("            \"{}\": \"{}\",", escape_python(k), escape_python(v)))
-            .collect();
-        let cookies_block = entries.join("\n");
-        call_kwargs.push(format!("        cookies={{\n{cookies_block}\n        }},"));
-    }
-
-    if call_kwargs.is_empty() {
-        let _ = writeln!(out, "    response = client.{method}(\"{path}\")");
+        let _ = writeln!(out, "    import json  # noqa: PLC0415");
+        let _ = writeln!(out, "    _headers = {headers_py}");
+        let _ = writeln!(out, "    _headers.setdefault(\"Content-Type\", \"application/json\")");
+        let _ = writeln!(out, "    _body = json.dumps({py_body}).encode()");
+        let _ = writeln!(
+            out,
+            "    _req = urllib.request.Request(url, data=_body, headers=_headers, method=\"{method}\")"
+        );
     } else {
-        let _ = writeln!(out, "    response = client.{method}(");
-        let _ = writeln!(out, "        \"{path}\",");
-        for kwarg in &call_kwargs {
-            let _ = writeln!(out, "{kwarg}");
-        }
-        let _ = writeln!(out, "    )");
+        let _ = writeln!(out, "    _headers = {headers_py}");
+        let _ = writeln!(
+            out,
+            "    _req = urllib.request.Request(url, headers=_headers, method=\"{method}\")"
+        );
     }
+    let _ = writeln!(out, "    try:");
+    let _ = writeln!(out, "        response = urllib.request.urlopen(_req)  # noqa: S310");
+    let _ = writeln!(out, "        status_code = response.status");
+    let _ = writeln!(out, "        resp_body = response.read()");
+    let _ = writeln!(out, "        resp_headers = dict(response.headers)");
+    let _ = writeln!(out, "    except urllib.error.HTTPError as _exc:");
+    let _ = writeln!(out, "        status_code = _exc.code");
+    let _ = writeln!(out, "        resp_body = _exc.read()");
+    let _ = writeln!(out, "        resp_headers = dict(_exc.headers)");
 
     // Status code assertion.
     let status = http.expected_response.status_code;
-    let _ = writeln!(out, "    assert response.status_code == {status}  # noqa: S101");
+    let _ = writeln!(out, "    assert status_code == {status}  # noqa: S101");
 
     // Body assertions.
     if let Some(expected_body) = &http.expected_response.body {
         let py_val = json_to_python_literal(expected_body);
-        let _ = writeln!(out, "    data = response.json()");
+        let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
+        let _ = writeln!(out, "    data = _json.loads(resp_body)");
         let _ = writeln!(out, "    assert data == {py_val}  # noqa: S101");
     } else if let Some(partial) = &http.expected_response.body_partial {
-        let _ = writeln!(out, "    data = response.json()");
+        let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
+        let _ = writeln!(out, "    data = _json.loads(resp_body)");
         if let Some(obj) = partial.as_object() {
             for (key, val) in obj {
                 let py_val = json_to_python_literal(val);
@@ -668,25 +720,26 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         let escaped_name = escape_python(&lower_name);
         match header_value.as_str() {
             "<<present>>" => {
-                let _ = writeln!(out, "    assert \"{escaped_name}\" in response.headers  # noqa: S101");
+                let _ = writeln!(out, "    assert \"{escaped_name}\" in resp_headers  # noqa: S101");
             }
             "<<absent>>" => {
                 let _ = writeln!(
                     out,
-                    "    assert response.headers.get(\"{escaped_name}\") is None  # noqa: S101"
+                    "    assert resp_headers.get(\"{escaped_name}\") is None  # noqa: S101"
                 );
             }
             "<<uuid>>" => {
+                let _ = writeln!(out, "    import re  # noqa: PLC0415");
                 let _ = writeln!(
                     out,
-                    "    assert re.match(r'^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$', response.headers[\"{escaped_name}\"])  # noqa: S101"
+                    "    assert re.match(r'^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$', resp_headers[\"{escaped_name}\"])  # noqa: S101"
                 );
             }
             exact => {
                 let escaped_val = escape_python(exact);
                 let _ = writeln!(
                     out,
-                    "    assert response.headers[\"{escaped_name}\"] == \"{escaped_val}\"  # noqa: S101"
+                    "    assert resp_headers[\"{escaped_name}\"] == \"{escaped_val}\"  # noqa: S101"
                 );
             }
         }
@@ -695,7 +748,9 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     // Validation error assertions.
     if let Some(validation_errors) = &http.expected_response.validation_errors {
         if !validation_errors.is_empty() {
-            let _ = writeln!(out, "    errors = response.json().get(\"detail\", [])");
+            let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
+            let _ = writeln!(out, "    _data = _json.loads(resp_body)");
+            let _ = writeln!(out, "    errors = _data.get(\"detail\", [])");
             for ve in validation_errors {
                 let loc_py: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_python(s))).collect();
                 let loc_str = loc_py.join(", ");

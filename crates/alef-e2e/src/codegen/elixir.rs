@@ -110,7 +110,7 @@ impl E2eCodegen for ElixirCodegen {
         // Generate test_helper.exs.
         files.push(GeneratedFile {
             path: output_base.join("test").join("test_helper.exs"),
-            content: "ExUnit.start()\n".to_string(),
+            content: render_test_helper(has_http_tests),
             generated_header: false,
         });
 
@@ -160,6 +160,35 @@ impl E2eCodegen for ElixirCodegen {
 
     fn language_name(&self) -> &'static str {
         "elixir"
+    }
+}
+
+fn render_test_helper(has_http_tests: bool) -> String {
+    if has_http_tests {
+        r#"ExUnit.start()
+
+# Spawn mock-server binary and set MOCK_SERVER_URL for all tests.
+mock_server_bin = Path.expand("../../rust/target/release/mock-server", __DIR__)
+fixtures_dir = Path.expand("../../../fixtures", __DIR__)
+
+if File.exists?(mock_server_bin) do
+  port = Port.open({:spawn_executable, mock_server_bin}, [
+    :binary,
+    :line,
+    args: [fixtures_dir]
+  ])
+  receive do
+    {^port, {:data, {:eol, "MOCK_SERVER_URL=" <> url}}} ->
+      System.put_env("MOCK_SERVER_URL", url)
+  after
+    30_000 ->
+      raise "mock-server startup timeout"
+  end
+end
+"#
+        .to_string()
+    } else {
+        "ExUnit.start()\n".to_string()
     }
 }
 
@@ -231,15 +260,11 @@ fn render_test_file(
     let has_http = fixtures.iter().any(|f| f.is_http_test());
     if has_http {
         let _ = writeln!(out);
-        let _ = writeln!(out, "  defp base_url do");
+        let _ = writeln!(out, "  defp mock_server_url do");
         let _ = writeln!(
             out,
-            "    System.get_env(\"TEST_SERVER_URL\") || \"http://localhost:8080\""
+            "    System.get_env(\"MOCK_SERVER_URL\") || \"http://localhost:8080\""
         );
-        let _ = writeln!(out, "  end");
-        let _ = writeln!(out);
-        let _ = writeln!(out, "  defp client do");
-        let _ = writeln!(out, "    Req.new(base_url: base_url())");
         let _ = writeln!(out, "  end");
     }
 
@@ -284,12 +309,13 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     let description = fixture.description.replace('"', "\\\"");
     let method = http.request.method.to_uppercase();
     let path = &http.request.path;
+    let fixture_id = &fixture.id;
 
     let _ = writeln!(out, "  describe \"{test_name}\" do");
     let _ = writeln!(out, "    test \"{method} {path} - {description}\" do");
 
-    // Build request.
-    render_elixir_http_request(out, &http.request);
+    // Build request targeting the mock server.
+    render_elixir_http_request(out, &http.request, fixture_id);
 
     // Assert status.
     let status = http.expected_response.status_code;
@@ -306,7 +332,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
 }
 
 /// Emit Req request lines inside an ExUnit test.
-fn render_elixir_http_request(out: &mut String, req: &HttpRequest) {
+fn render_elixir_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str) {
     let method = req.method.to_lowercase();
 
     let mut opts: Vec<String> = Vec::new();
@@ -350,14 +376,15 @@ fn render_elixir_http_request(out: &mut String, req: &HttpRequest) {
         opts.push(format!("params: [{}]", pairs.join(", ")));
     }
 
-    let path_lit = format!("\"{}\"", escape_elixir(&req.path));
+    // Use the mock server's /fixtures/<id> endpoint.
+    let url_expr = format!("\"#{{mock_server_url()}}/fixtures/{}\"", escape_elixir(fixture_id));
     if opts.is_empty() {
-        let _ = writeln!(out, "      {{:ok, response}} = Req.{method}(client(), url: {path_lit})");
+        let _ = writeln!(out, "      {{:ok, response}} = Req.{method}(url: {url_expr})");
     } else {
         let opts_str = opts.join(", ");
         let _ = writeln!(
             out,
-            "      {{:ok, response}} = Req.{method}(client(), url: {path_lit}, {opts_str})"
+            "      {{:ok, response}} = Req.{method}(url: {url_expr}, {opts_str})"
         );
     }
 }

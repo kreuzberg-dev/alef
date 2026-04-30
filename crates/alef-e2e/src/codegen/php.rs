@@ -126,10 +126,13 @@ impl E2eCodegen for PhpCodegen {
             generated_header: false,
         });
 
-        // Generate bootstrap.php that loads both autoloaders.
+        // Check if any fixture is an HTTP test (needs mock server bootstrap).
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
+
+        // Generate bootstrap.php that loads both autoloaders and optionally starts the mock server.
         files.push(GeneratedFile {
             path: output_base.join("bootstrap.php"),
-            content: render_bootstrap(&pkg_path),
+            content: render_bootstrap(&pkg_path, has_http_fixtures),
             generated_header: true,
         });
 
@@ -254,8 +257,33 @@ fn render_phpunit_xml() -> String {
     .to_string()
 }
 
-fn render_bootstrap(pkg_path: &str) -> String {
+fn render_bootstrap(pkg_path: &str, has_http_fixtures: bool) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
+    let mock_server_block = if has_http_fixtures {
+        r#"
+// Spawn the mock HTTP server binary for HTTP fixture tests.
+$mockServerBin = __DIR__ . '/rust/target/release/mock-server';
+$fixturesDir = __DIR__ . '/../fixtures';
+if (file_exists($mockServerBin)) {
+    $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR];
+    $proc = proc_open([$mockServerBin, $fixturesDir], $descriptors, $pipes);
+    if (is_resource($proc)) {
+        $line = fgets($pipes[1]);
+        if ($line !== false && str_starts_with($line, 'MOCK_SERVER_URL=')) {
+            putenv(trim($line));
+            $_ENV['MOCK_SERVER_URL'] = trim(substr(trim($line), strlen('MOCK_SERVER_URL=')));
+        }
+        // Drain stdout in background thread is not possible in PHP; keep pipe open.
+        register_shutdown_function(static function () use ($proc, $pipes): void {
+            fclose($pipes[0]);
+            proc_close($proc);
+        });
+    }
+}
+"#
+    } else {
+        ""
+    };
     format!(
         r#"<?php
 {header}
@@ -270,7 +298,7 @@ require_once __DIR__ . '/vendor/autoload.php';
 $pkgAutoloader = __DIR__ . '/{pkg_path}/vendor/autoload.php';
 if (file_exists($pkgAutoloader)) {{
     require_once $pkgAutoloader;
-}}
+}}{mock_server_block}
 "#
     )
 }
@@ -333,7 +361,7 @@ fn render_test_file(
         let _ = writeln!(out, "        parent::setUp();");
         let _ = writeln!(
             out,
-            "        $baseUrl = getenv('TEST_SERVER_URL') ?: 'http://localhost:8080';"
+            "        $baseUrl = (string)(getenv('MOCK_SERVER_URL') ?: 'http://localhost:8080');"
         );
         let _ = writeln!(
             out,
@@ -378,13 +406,14 @@ fn render_test_file(
 fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
     let method_name = sanitize_filename(&fixture.id);
     let description = &fixture.description;
+    let fixture_id = &fixture.id;
 
     let _ = writeln!(out, "    /** {description} */");
     let _ = writeln!(out, "    public function test_{method_name}(): void");
     let _ = writeln!(out, "    {{");
 
-    // Build request.
-    render_php_http_request(out, &http.request);
+    // Build request targeting the mock server's /fixtures/<id> endpoint.
+    render_php_http_request(out, &http.request, fixture_id);
 
     // Assert status code.
     let status = http.expected_response.status_code;
@@ -403,7 +432,7 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
 }
 
 /// Emit Guzzle request lines inside a PHPUnit test method.
-fn render_php_http_request(out: &mut String, req: &HttpRequest) {
+fn render_php_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str) {
     let method = req.method.to_uppercase();
 
     // Build options array.
@@ -448,7 +477,8 @@ fn render_php_http_request(out: &mut String, req: &HttpRequest) {
         opts.push(format!("'query' => [{}]", pairs.join(", ")));
     }
 
-    let path_lit = format!("\"{}\"", escape_php(&req.path));
+    // Use the mock server's /fixtures/<id> endpoint.
+    let path_lit = format!("\"/fixtures/{}\"", escape_php(fixture_id));
     if opts.is_empty() {
         let _ = writeln!(
             out,

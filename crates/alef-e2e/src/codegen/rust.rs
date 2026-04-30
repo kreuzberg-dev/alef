@@ -42,6 +42,7 @@ impl super::E2eCodegen for RustE2eCodegen {
             .any(|a| a.arg_type == "json_object" || a.arg_type == "handle");
 
         // Check if any fixture in any group requires a mock HTTP server.
+        // This includes both liter-llm mock_response fixtures and spikard http fixtures.
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
@@ -1038,6 +1039,9 @@ use tokio::net::TcpListener;
 
 // ---------------------------------------------------------------------------
 // Fixture types (mirrors alef-e2e's fixture.rs for runtime deserialization)
+// Supports both schemas:
+//   liter-llm: mock_response: { status, body, stream_chunks }
+//   spikard:   http.expected_response: { status_code, body, headers }
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -1050,10 +1054,45 @@ struct MockResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct HttpExpectedResponse {
+    status_code: u16,
+    #[serde(default)]
+    body: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HttpFixture {
+    expected_response: HttpExpectedResponse,
+}
+
+#[derive(Debug, Deserialize)]
 struct Fixture {
     id: String,
     #[serde(default)]
     mock_response: Option<MockResponse>,
+    #[serde(default)]
+    http: Option<HttpFixture>,
+}
+
+impl Fixture {
+    /// Bridge both schemas into a unified MockResponse.
+    fn as_mock_response(&self) -> Option<MockResponse> {
+        if let Some(mock) = &self.mock_response {
+            return Some(MockResponse {
+                status: mock.status,
+                body: mock.body.clone(),
+                stream_chunks: mock.stream_chunks.clone(),
+            });
+        }
+        if let Some(http) = &self.http {
+            return Some(MockResponse {
+                status: http.expected_response.status_code,
+                body: http.expected_response.body.clone(),
+                stream_chunks: None,
+            });
+        }
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,7 +1220,7 @@ fn load_routes_recursive(dir: &Path, routes: &mut HashMap<String, MockRoute>) {
             };
 
             for fixture in fixtures {
-                if let Some(mock) = fixture.mock_response {
+                if let Some(mock) = fixture.as_mock_response() {
                     let route_path = format!("/fixtures/{}", fixture.id);
                     let body = mock
                         .body

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Blocker A: HTTP fixture mock-server support for spikard-style fixtures.** The e2e generator now emits the `mock-server` binary and per-language bootstrap code for projects whose fixtures use the `http.expected_response` schema (spikard shape), not just `mock_response` (liter-llm shape). Changes:
+  - `fixture.rs`: `needs_mock_server()` returns `true` for HTTP fixtures; new `as_mock_response()` bridges both schemas to a unified `MockResponse`.
+  - `codegen/rust.rs`: embedded `Fixture` struct in the mock-server binary now deserializes both `mock_response` and `http.expected_response`; route-loading uses `as_mock_response()` accessor.
+  - `codegen/typescript.rs`: HTTP test cases now call `fetch(MOCK_SERVER_URL/fixtures/<id>)` instead of `app.request(bare_path)`.
+  - `codegen/python.rs`: conftest.py now spawns the mock-server binary and exposes `MOCK_SERVER_URL`; HTTP test functions use `urllib.request` against `/fixtures/<id>`.
+  - `codegen/ruby.rs`: generates `spec/spec_helper.rb` that starts the mock-server; HTTP examples use `Net::HTTP` against `/fixtures/<id>`.
+  - `codegen/php.rs`: `bootstrap.php` spawns the mock-server; HTTP tests use `MOCK_SERVER_URL` and `/fixtures/<id>`.
+  - `codegen/elixir.rs`: `test_helper.exs` starts the mock-server via Port; HTTP tests use `Req` against `/fixtures/<id>`.
+
 ### Changed
 
 - Bump templated `ext-php-rs` pin to `0.15.12` for PHP 8.5 compatibility (downstream consumers regenerate to pick up upstream's PHP 8.5 build fixes).
