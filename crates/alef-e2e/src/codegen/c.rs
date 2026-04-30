@@ -173,10 +173,14 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call.function.clone());
+    // Fall back to the *base* (non-C-overridden) function name when no explicit
+    // result_type is set.  Using the C-overridden name (e.g. "htm_convert") would
+    // produce a doubled-prefix type like `HTMHtmConvert*`; the base name
+    // ("convert") yields the correct `HTMConvert*` shape.
     let result_type_name = overrides
         .and_then(|o| o.result_type.as_ref())
         .cloned()
-        .unwrap_or_else(|| function_name.to_pascal_case());
+        .unwrap_or_else(|| call.function.to_pascal_case());
     let client_factory = overrides.and_then(|o| o.client_factory.as_ref()).cloned();
     ResolvedCallInfo {
         function_name,

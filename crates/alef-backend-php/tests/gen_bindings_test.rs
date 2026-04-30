@@ -1909,3 +1909,105 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         "HashMap field must use the flat PHP class type, not String"
     );
 }
+
+#[test]
+fn test_stubs_non_void_methods_have_return_statements() {
+    // PHPStan at level 9 rejects non-void methods with empty `{ }` bodies.
+    // All stub methods with non-void return types must emit a body that
+    // satisfies the static analyser — `throw new \RuntimeException(...)`.
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test_lib::Config".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false),
+                make_field("label", TypeRef::String, true),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "create_config".to_string(),
+            rust_path: "test_lib::create_config".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "name".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Named("Config".to_string()),
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    // getErrorCode(): int must NOT be bare `{ }` — PHPStan rejects it.
+    assert!(
+        !content.contains("getErrorCode(): int { }"),
+        "getErrorCode stub must not have an empty body `{{ }}`; content:\n{content}"
+    );
+
+    // Non-void getter stubs must contain a throw or return, not bare `{ }`.
+    // The pattern `): int { }` or `): string { }` or `): ?string { }` are all wrong.
+    assert!(
+        !content.contains("): int { }"),
+        "no non-void stub method may have an empty body `{{ }}`; content:\n{content}"
+    );
+    assert!(
+        !content.contains("): string { }"),
+        "no non-void stub method may have an empty body `{{ }}`; content:\n{content}"
+    );
+    assert!(
+        !content.contains("): ?string { }"),
+        "no non-void stub method may have an empty body `{{ }}`; content:\n{content}"
+    );
+
+    // The static method stub in the Api class must also not be empty.
+    assert!(
+        !content.contains("): \\Test\\Lib\\Config { }"),
+        "Api class stub method must not have an empty body; content:\n{content}"
+    );
+
+    // Stubs should use throw to satisfy PHPStan.
+    assert!(
+        content.contains("throw new \\RuntimeException"),
+        "stub bodies must throw \\RuntimeException to satisfy PHPStan level 9; content:\n{content}"
+    );
+}

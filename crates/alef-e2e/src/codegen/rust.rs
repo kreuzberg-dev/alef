@@ -723,9 +723,8 @@ fn render_rust_arg(
         return (vec![format!("let {name} = {default_val};")], expr);
     }
     let literal = json_to_rust_literal(value, arg_type);
-    // For non-optional `string` args, the binding is an immediate `&'static str`
-    // literal — pass it directly without an extra `&` (which would yield `&&str`).
-    // Bytes args are strings passed as .as_bytes().
+    // String args are raw string literals (`r#"..."#`) — already `&str`, no extra `&` needed.
+    // Bytes args are passed by reference using `.as_bytes()` in the `expr` closure below.
     let pass_by_ref = arg_type == "bytes";
     let optional_expr = |n: &str| {
         if arg_type == "string" {
@@ -1485,8 +1484,10 @@ fn render_assertion(
     // Determine field access expression:
     // 1. If the field was unwrapped to a local var, use that local var name.
     // 2. When result_is_simple, the function returns a plain type (String etc.) — use result_var.
-    // 3. When the result is a Tree, map pseudo-field names to correct Rust expressions.
-    // 4. Otherwise, use the field resolver to generate the accessor.
+    // 3. When the field path is exactly the result var name (sentinel: `field: "result"`),
+    //    refer to the result variable directly to avoid emitting `result.result`.
+    // 4. When the result is a Tree, map pseudo-field names to correct Rust expressions.
+    // 5. Otherwise, use the field resolver to generate the accessor.
     let field_access = match &assertion.field {
         Some(f) if !f.is_empty() => {
             if let Some((_, local_var)) = unwrapped_fields.iter().find(|(ff, _)| ff == f) {
@@ -1494,6 +1495,10 @@ fn render_assertion(
             } else if result_is_simple {
                 // Plain return type (String, Vec<T>, etc.) has no struct fields.
                 // Use the result variable directly so assertions operate on the value itself.
+                result_var.to_string()
+            } else if f == result_var {
+                // Sentinel: fixture uses `field: "result"` (or matches the result variable name)
+                // to refer to the whole return value, not a struct field named "result".
                 result_var.to_string()
             } else if result_is_tree {
                 // Tree is an opaque type — its "fields" are accessed via root_node() or
@@ -1535,9 +1540,24 @@ fn render_assertion(
                 // For string equality, trim trailing whitespace to handle trailing newlines
                 // from the converter.
                 if val.is_string() {
+                    // When the field is Optional<String> and was NOT pre-unwrapped to a local
+                    // var (e.g. inside a result_is_vec iteration where the call-site unwrap
+                    // pass is skipped), emit `.as_deref().unwrap_or("").trim()` so the
+                    // expression is `&str` rather than `Option<String>`.
+                    let is_opt_str_not_unwrapped = assertion.field.as_ref().is_some_and(|f| {
+                        let resolved = field_resolver.resolve(f);
+                        let is_opt = field_resolver.is_optional(resolved);
+                        let is_arr = field_resolver.is_array(resolved);
+                        is_opt && !is_arr && !is_unwrapped
+                    });
+                    let field_expr = if is_opt_str_not_unwrapped {
+                        format!("{field_access}.as_deref().unwrap_or(\"\").trim()")
+                    } else {
+                        format!("{field_access}.trim()")
+                    };
                     let _ = writeln!(
                         out,
-                        "    assert_eq!({field_access}.trim(), {expected}, \"equals assertion failed\");"
+                        "    assert_eq!({field_expr}, {expected}, \"equals assertion failed\");"
                     );
                 } else if val.is_boolean() {
                     // Use assert!/assert!(!...) for booleans — clippy prefers this over assert_eq!(_, true/false).
@@ -1703,12 +1723,26 @@ fn render_assertion(
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let lit = numeric_literal(val);
+                // Check whether this field is optional but not an array — e.g. Option<usize>.
+                // Directly comparing Option<usize> >= N is a type error; wrap with unwrap_or(0).
+                let is_opt_numeric = assertion.field.as_ref().is_some_and(|f| {
+                    let resolved = field_resolver.resolve(f);
+                    let is_opt = !is_unwrapped && field_resolver.is_optional(resolved);
+                    let is_arr = field_resolver.is_array(resolved);
+                    is_opt && !is_arr
+                });
                 if val.as_u64() == Some(1) && field_access.ends_with(".len()") {
                     // Clippy prefers !is_empty() over len() >= 1 for collections.
                     // Only apply when the expression is already a `.len()` call so we
                     // don't mistakenly call `.is_empty()` on numeric (usize) fields.
                     let base = field_access.strip_suffix(".len()").unwrap_or(&field_access);
                     let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected >= 1\");");
+                } else if is_opt_numeric {
+                    // Option<usize> / Option<u64>: unwrap to 0 before comparing.
+                    let _ = writeln!(
+                        out,
+                        "    assert!({field_access}.unwrap_or(0) >= {lit}, \"expected >= {lit}\");"
+                    );
                 } else {
                     let _ = writeln!(out, "    assert!({field_access} >= {lit}, \"expected >= {lit}\");");
                 }

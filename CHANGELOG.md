@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.6] - 2026-04-30
+
+### Fixed
+
+- fix(e2e/rust): `Option<Vec<T>>` fields in `fields_array` now emit `as_deref().unwrap_or(&[])` instead of `unwrap_or("")` in the unwrap binding. Previously, `as_deref()` on `Option<Vec<T>>` yields `Option<&[T]>`, so the `&str` fallback produced an `E0308` type mismatch (e.g. `detected_languages`, `metadata.sheet_names`).
+- fix(e2e/rust): `greater_than_or_equal` assertions on optional non-array fields (e.g. `Option<usize>`) now emit `.unwrap_or(0) >= N` instead of a bare `>= N` comparison. Comparing `Option<usize> >= 2` directly is a type error (e.g. `metadata.sheet_count >= 2`).
+- fix(e2e/rust): `equals` assertions with string values on optional string fields that were not pre-unwrapped (e.g. inside a `result_is_vec` loop) now emit `.as_deref().unwrap_or("").trim()` instead of `.trim()` directly on `Option<String>`, fixing `E0599` no method `trim` on `Option<T>` (e.g. `metadata.output_format`).
+- fix(e2e/rust): `field: "result"` used as a sentinel to refer to the whole return value no longer emits `result.result`. When the field path exactly matches the result variable name, the codegen now references the result variable directly.
+- fix(e2e/c): `result_type_name` fallback now derives from the base `call.function` name instead of the C-overridden function name. When `[e2e.call.overrides.c]` sets `function = "htm_convert"` and `prefix = "htm"`, the fallback type was `HtmConvert`, which combined with the `HTM` prefix produced `HTMHtmConvert` (doubled prefix). It now correctly produces `HTMConvert`.
+- fix(backend-go): `TypeRef::Bytes`-returning methods and functions no longer emit `defer C.{prefix}_free_string(ptr)`. Bytes pointers alias internal FFI storage and must not be freed by the caller; freeing via `_free_string` (which expects `*C.char`) would corrupt the parent handle and caused cgo type errors. The `unmarshalBytes` helper copies the data without freeing the source pointer.
+- fix(backend-php): PHP type stub methods with non-void return types now emit `throw new \RuntimeException('Not implemented.');` instead of an empty `{ }` body. Empty bodies are invalid for non-void methods under PHPStan level 9 (`implicitlyImpureMethod` / missing return), which broke `composer check` on downstream repos (e.g. `getErrorCode(): int`, getter methods, and `*Api` static stubs).
+
 ## [0.12.5] - 2026-04-30
 
 ### Added

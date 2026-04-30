@@ -188,8 +188,12 @@ impl FieldResolver {
         // Map access (.get("key").map(|s| s.as_str())) already returns Option<&str>,
         // so skip .as_deref() to avoid borrowing from a temporary.
         let has_map_access = segments.iter().any(|s| matches!(s, PathSegment::MapAccess { .. }));
+        // Array fields (Option<Vec<T>>) dereference to Option<&[T]>, so unwrap_or needs &[].
+        let is_array = self.is_array(resolved);
         let binding = if has_map_access {
             format!("let {local_var} = {accessor}.unwrap_or(\"\");")
+        } else if is_array {
+            format!("let {local_var} = {accessor}.as_deref().unwrap_or(&[]);")
         } else {
             format!("let {local_var} = {accessor}.as_deref().unwrap_or(\"\");")
         };

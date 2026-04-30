@@ -1109,10 +1109,11 @@ fn gen_function_wrapper(
             writeln!(out, "\tptr := {}", c_call).ok();
             if func.error_type.is_some() {
                 writeln!(out, "\tif err := lastError(); err != nil {{").ok();
-                // Free the pointer if non-nil even on error, to avoid leaks
+                // Free the pointer if non-nil even on error, to avoid leaks.
+                // Bytes pointers are NOT freed — they alias internal storage.
                 if matches!(
                     func.return_type,
-                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
                 ) {
                     writeln!(out, "\t\tif ptr != nil {{").ok();
                     writeln!(out, "\t\t\tC.{}_free_string(ptr)", ffi_prefix).ok();
@@ -1127,10 +1128,12 @@ fn gen_function_wrapper(
                 writeln!(out, "\t\treturn nil, err").ok();
                 writeln!(out, "\t}}").ok();
             }
-            // Free the FFI-allocated string after unmarshaling
+            // Free the FFI-allocated string after unmarshaling.
+            // Bytes pointers are NOT freed — they alias internal storage owned by
+            // the parent handle. The unmarshalBytes helper copies the data instead.
             if matches!(
                 func.return_type,
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
             ) {
                 writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
@@ -1153,10 +1156,11 @@ fn gen_function_wrapper(
         writeln!(out, "\t{}", c_call).ok();
     } else {
         writeln!(out, "\tptr := {}", c_call).ok();
-        // Add defer free for C string returns
+        // Add defer free for C string returns.
+        // Bytes pointers are NOT freed — they alias internal storage.
         if matches!(
             func.return_type,
-            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
         ) {
             writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
         }
@@ -1392,10 +1396,11 @@ fn gen_method_wrapper(
                 writeln!(out, "\tptr := {}", c_call).ok();
                 if method.error_type.is_some() {
                     writeln!(out, "\tif err := lastError(); err != nil {{").ok();
-                    // Free the pointer if non-nil even on error, to avoid leaks
+                    // Free the pointer if non-nil even on error, to avoid leaks.
+                    // Bytes pointers are NOT freed — they alias internal storage.
                     if matches!(
                         method.return_type,
-                        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+                        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
                     ) {
                         writeln!(out, "\t\tif ptr != nil {{").ok();
                         writeln!(out, "\t\t\tC.{}_free_string(ptr)", ffi_prefix).ok();
@@ -1404,10 +1409,11 @@ fn gen_method_wrapper(
                     writeln!(out, "\t\treturn nil, err").ok();
                     writeln!(out, "\t}}").ok();
                 }
-                // Free the FFI-allocated string after unmarshaling
+                // Free the FFI-allocated string after unmarshaling.
+                // Bytes pointers are NOT freed — they alias internal storage.
                 if matches!(
                     method.return_type,
-                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+                    TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
                 ) {
                     writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
                 }
@@ -1437,10 +1443,11 @@ fn gen_method_wrapper(
             writeln!(out, "\t{}", c_call).ok();
         } else {
             writeln!(out, "\tptr := {}", c_call).ok();
-            // Add defer free for C string returns
+            // Add defer free for C string returns.
+            // Bytes pointers are NOT freed — they alias internal storage.
             if matches!(
                 method.return_type,
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes
+                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
             ) {
                 writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
             }
