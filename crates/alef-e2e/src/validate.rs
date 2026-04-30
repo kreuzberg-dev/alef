@@ -335,12 +335,16 @@ mod tests {
                     field: "input.data".to_string(),
                     arg_type: "bytes".to_string(),
                     optional: false,
+                    owned: false,
+                    element_type: None,
                 },
                 ArgMapping {
                     name: "mime_type".to_string(),
                     field: "input.mime_type".to_string(),
                     arg_type: "string".to_string(),
                     optional: false,
+                    owned: false,
+                    element_type: None,
                 },
             ],
             ..Default::default()

@@ -18,7 +18,11 @@ pub struct FieldInfo {
 
 impl From<&FieldDef> for FieldInfo {
     fn from(f: &FieldDef) -> Self {
-        Self { name: f.name.clone(), ty: f.ty.clone(), optional: f.optional }
+        Self {
+            name: f.name.clone(),
+            ty: f.ty.clone(),
+            optional: f.optional,
+        }
     }
 }
 
@@ -77,11 +81,7 @@ pub enum ExportValidation {
 ///
 /// Pass `module_path = "kreuzberg"` and `function_name = "render_page"` to check
 /// that `kreuzberg::render_page` exists in the surface.
-pub fn validate_call_export(
-    surface: &ApiSurface,
-    module_path: &str,
-    function_name: &str,
-) -> ExportValidation {
+pub fn validate_call_export(surface: &ApiSurface, module_path: &str, function_name: &str) -> ExportValidation {
     let expected_rust_path = format!("{module_path}::{function_name}");
 
     let all_defs: Vec<&str> = surface
@@ -92,7 +92,9 @@ pub fn validate_call_export(
         .collect();
 
     if all_defs.is_empty() {
-        return ExportValidation::NotFound { function: function_name.to_string() };
+        return ExportValidation::NotFound {
+            function: function_name.to_string(),
+        };
     }
 
     if all_defs.iter().any(|p| *p == expected_rust_path) {
@@ -185,7 +187,9 @@ mod tests {
     #[test]
     fn validate_ok_when_exported_at_declared_module() {
         let mut surface = empty_surface();
-        surface.functions.push(make_fn("render_page", "my_crate::render_page", TypeRef::String));
+        surface
+            .functions
+            .push(make_fn("render_page", "my_crate::render_page", TypeRef::String));
         assert!(matches!(
             validate_call_export(&surface, "my_crate", "render_page"),
             ExportValidation::Ok
@@ -195,12 +199,18 @@ mod tests {
     #[test]
     fn validate_wrong_path_when_not_re_exported_at_root() {
         let mut surface = empty_surface();
-        surface
-            .functions
-            .push(make_fn("render_page", "my_crate::rendering::render_page", TypeRef::String));
+        surface.functions.push(make_fn(
+            "render_page",
+            "my_crate::rendering::render_page",
+            TypeRef::String,
+        ));
 
         match validate_call_export(&surface, "my_crate", "render_page") {
-            ExportValidation::WrongPath { function, declared_module, actual_paths } => {
+            ExportValidation::WrongPath {
+                function,
+                declared_module,
+                actual_paths,
+            } => {
                 assert_eq!(function, "render_page");
                 assert_eq!(declared_module, "my_crate");
                 assert!(actual_paths.contains(&"my_crate::rendering::render_page".to_string()));
@@ -240,9 +250,11 @@ mod tests {
     #[test]
     fn validate_ok_when_one_definition_is_at_root() {
         let mut surface = empty_surface();
-        surface
-            .functions
-            .push(make_fn("normalize_whitespace", "my_crate::normalize_whitespace", TypeRef::String));
+        surface.functions.push(make_fn(
+            "normalize_whitespace",
+            "my_crate::normalize_whitespace",
+            TypeRef::String,
+        ));
         assert!(matches!(
             validate_call_export(&surface, "my_crate", "normalize_whitespace"),
             ExportValidation::Ok
@@ -259,7 +271,10 @@ mod tests {
         ));
         surface.types.push(make_type(
             "ExtractionResult",
-            vec![make_field("content", TypeRef::String), make_field("mime_type", TypeRef::String)],
+            vec![
+                make_field("content", TypeRef::String),
+                make_field("mime_type", TypeRef::String),
+            ],
         ));
         let fields = return_type_fields(&surface, "extract_doc").expect("should return fields");
         assert_eq!(fields.len(), 2);
@@ -281,7 +296,9 @@ mod tests {
     #[test]
     fn return_type_fields_none_for_string_return() {
         let mut surface = empty_surface();
-        surface.functions.push(make_fn("get_name", "my_crate::get_name", TypeRef::String));
+        surface
+            .functions
+            .push(make_fn("get_name", "my_crate::get_name", TypeRef::String));
         assert!(return_type_fields(&surface, "get_name").is_none());
     }
 
@@ -294,9 +311,11 @@ mod tests {
     #[test]
     fn return_type_fields_none_for_opaque_type() {
         let mut surface = empty_surface();
-        surface
-            .functions
-            .push(make_fn("make_handle", "my_crate::make_handle", TypeRef::Named("Handle".into())));
+        surface.functions.push(make_fn(
+            "make_handle",
+            "my_crate::make_handle",
+            TypeRef::Named("Handle".into()),
+        ));
         surface.types.push(make_type("Handle", vec![]));
         assert!(return_type_fields(&surface, "make_handle").is_none());
     }
@@ -305,8 +324,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let lib_rs = dir.path().join("lib.rs");
         std::fs::write(&lib_rs, lib_rs_source).expect("write lib.rs");
-        crate::extractor::extract(&[lib_rs.as_path()], "kreuzberg", "0.0.0", None)
-            .expect("extract failed")
+        crate::extractor::extract(&[lib_rs.as_path()], "kreuzberg", "0.0.0", None).expect("extract failed")
     }
 
     #[test]

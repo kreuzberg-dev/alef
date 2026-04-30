@@ -42,12 +42,10 @@ pub fn package_csharp(
         .join("runtimes")
         .join(&rid)
         .join("native");
-    fs::create_dir_all(&runtimes_dir)
-        .with_context(|| format!("creating runtimes dir {}", runtimes_dir.display()))?;
+    fs::create_dir_all(&runtimes_dir).with_context(|| format!("creating runtimes dir {}", runtimes_dir.display()))?;
 
     let staged = runtimes_dir.join(&shared_lib);
-    fs::copy(&lib_src, &staged)
-        .with_context(|| format!("staging {} to {}", lib_src.display(), staged.display()))?;
+    fs::copy(&lib_src, &staged).with_context(|| format!("staging {} to {}", lib_src.display(), staged.display()))?;
 
     // Find the .csproj.
     let csproj = find_csproj(workspace_root, &pkg_dir_str, &namespace)?;
@@ -61,8 +59,7 @@ pub fn package_csharp(
     // matches the template output, the write is a no-op from dotnet's
     // perspective.
     let csproj_content = render_csharp_csproj(config, version);
-    fs::write(&csproj, &csproj_content)
-        .with_context(|| format!("regenerating csproj at {}", csproj.display()))?;
+    fs::write(&csproj, &csproj_content).with_context(|| format!("regenerating csproj at {}", csproj.display()))?;
     tracing::debug!(path = %csproj.display(), "regenerated csproj from scaffold template");
 
     // Run dotnet pack from proj_dir.  Use only the filename (not a path) for
@@ -74,9 +71,7 @@ pub fn package_csharp(
         .context("csproj has no file name")?
         .to_string_lossy()
         .to_string();
-    let abs_output_dir = output_dir
-        .canonicalize()
-        .unwrap_or_else(|_| output_dir.to_path_buf());
+    let abs_output_dir = output_dir.canonicalize().unwrap_or_else(|_| output_dir.to_path_buf());
     let cmd = format!(
         "dotnet pack {proj} --configuration Release -p:Version={version} --output {out}",
         proj = csproj_name,
