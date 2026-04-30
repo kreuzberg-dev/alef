@@ -889,7 +889,13 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
 
             for field in &typ.fields {
                 // Determine Python type hint
-                let type_hint = python_field_type(&field.ty, field.optional, &enum_names, &data_enum_names);
+                let type_hint = python_field_type(
+                    &field.ty,
+                    field.optional,
+                    &enum_names,
+                    &data_enum_names,
+                    EmitContext::OptionsModule,
+                );
 
                 // Determine default value and check if we need | None
                 let (type_hint_with_none, default) = if let Some(td) = &field.typed_default {
@@ -995,12 +1001,18 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
                     vec!["str".to_string()]
                 } else if v.fields.len() == 1 {
                     // Single-field variant (positional or named): use the Python type of that field.
-                    vec![python_field_type(&v.fields[0].ty, v.fields[0].optional, &enum_names, &data_enum_names)]
+                    vec![python_field_type(
+                        &v.fields[0].ty,
+                        v.fields[0].optional,
+                        &enum_names,
+                        &data_enum_names,
+                        EmitContext::OptionsModule,
+                    )]
                 } else {
                     // Multi-field variant: emit a Python type per field, joined as a tuple-like union.
                     v.fields
                         .iter()
-                        .map(|f| python_field_type(&f.ty, f.optional, &enum_names, &data_enum_names))
+                        .map(|f| python_field_type(&f.ty, f.optional, &enum_names, &data_enum_names, EmitContext::OptionsModule))
                         .collect()
                 }
             })
@@ -1090,7 +1102,13 @@ fn gen_typeddict(
     };
     out.push_str(&format!("    \"\"\"{typeddict_doc}\"\"\"\n\n"));
     for field in &typ.fields {
-        let type_hint = python_field_type(&field.ty, field.optional, enum_names, data_enum_names);
+        let type_hint = python_field_type(
+            &field.ty,
+            field.optional,
+            enum_names,
+            data_enum_names,
+            EmitContext::OptionsModule,
+        );
         // Ensure Optional-like fields always include `| None`
         let type_hint_with_none = if field.optional && !type_hint.contains('|') {
             if matches!(&field.ty, alef_core::ir::TypeRef::Named(_)) {
@@ -1116,15 +1134,36 @@ fn gen_typeddict(
     out
 }
 
+/// Selects which Python module context a type annotation is being emitted for.
+///
+/// The same IR type can resolve to different Python names depending on the target
+/// module: in `options.py`, a data-enum `Named` type refers to the locally defined
+/// union type alias; in `_native.pyi`, it refers to the PyO3 class exposed by the
+/// native extension.  Callers pass `EmitContext` so that `python_field_type` can
+/// produce the correct annotation for each context.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EmitContext {
+    /// Emitting type annotations inside `options.py` (dataclass / TypedDict fields).
+    /// `Named(DataEnum)` resolves to the locally defined union type alias.
+    OptionsModule,
+    /// Emitting type annotations inside a `_native.pyi` stub.
+    /// `Named(DataEnum)` resolves to the native PyO3 class with the same name.
+    // Kept as an explicit variant so future callers can diverge behaviour (e.g. qualify
+    // the name with a module prefix when cross-referencing between generated files).
+    #[allow(dead_code)]
+    NativeStub,
+}
+
 /// Map IR TypeRef to Python type hint string for dataclass fields.
 /// Enum-typed fields become `str` (users pass string literals).
-/// Data enum-typed fields become `dict` (users pass dicts with type + fields).
-/// Non-enum Named types that aren't defined become `Any` to avoid F821 errors.
+/// Data enum-typed fields become the concrete type name, resolved according to
+/// `context` (local union alias in `options.py`, native class in `_native.pyi`).
 fn python_field_type(
     ty: &alef_core::ir::TypeRef,
     optional: bool,
     enum_names: &AHashSet<&str>,
     data_enum_names: &AHashSet<&str>,
+    context: EmitContext,
 ) -> String {
     use alef_core::ir::TypeRef;
     let base = match ty {
@@ -1135,15 +1174,26 @@ fn python_field_type(
         },
         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "str".to_string(),
         TypeRef::Bytes => "bytes".to_string(),
-        TypeRef::Vec(inner) => format!("list[{}]", python_field_type(inner, false, enum_names, data_enum_names)),
+        TypeRef::Vec(inner) => {
+            format!(
+                "list[{}]",
+                python_field_type(inner, false, enum_names, data_enum_names, context)
+            )
+        }
         TypeRef::Map(k, v) => format!(
             "dict[{}, {}]",
-            python_field_type(k, false, enum_names, data_enum_names),
-            python_field_type(v, false, enum_names, data_enum_names)
+            python_field_type(k, false, enum_names, data_enum_names, context),
+            python_field_type(v, false, enum_names, data_enum_names, context)
         ),
-        // Data enums: use the concrete type name — the type is imported from the native
-        // module under TYPE_CHECKING and has proper TypedDict definitions in the .pyi stubs.
-        TypeRef::Named(name) if data_enum_names.contains(name.as_str()) => name.clone(),
+        TypeRef::Named(name) if data_enum_names.contains(name.as_str()) => match context {
+            // In options.py the data-enum type is defined locally as a union alias; use
+            // the bare name so it resolves to that alias rather than a native import.
+            EmitContext::OptionsModule => name.clone(),
+            // In a _native.pyi stub the same bare name resolves to the PyO3 class
+            // exported by the native extension — no qualification needed there either,
+            // but the branch is kept separate to allow future divergence (e.g. prefixing).
+            EmitContext::NativeStub => name.clone(),
+        },
         // Plain enums: use `EnumName | str` so string literals like `"atx"` are accepted
         // alongside enum member values without mypy assignment errors.
         TypeRef::Named(name) if enum_names.contains(name.as_str()) => format!("{name} | str"),
@@ -1151,7 +1201,7 @@ fn python_field_type(
         TypeRef::Optional(inner) => {
             return format!(
                 "{} | None",
-                python_field_type(inner, false, enum_names, data_enum_names)
+                python_field_type(inner, false, enum_names, data_enum_names, context)
             );
         }
         TypeRef::Unit => "None".to_string(),
@@ -2256,4 +2306,102 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
     lines.push("    Ok(())".to_string());
     lines.push("}".to_string());
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EmitContext, python_field_type};
+    use ahash::AHashSet;
+    use alef_core::ir::{PrimitiveType, TypeRef};
+
+    fn make_sets<'a>(enum_names: &[&'a str], data_enum_names: &[&'a str]) -> (AHashSet<&'a str>, AHashSet<&'a str>) {
+        let enums: AHashSet<&'a str> = enum_names.iter().copied().collect();
+        let data_enums: AHashSet<&'a str> = data_enum_names.iter().copied().collect();
+        (enums, data_enums)
+    }
+
+    /// `Map<String, Named("ExtractionPattern")>` in OptionsModule context resolves to the
+    /// locally defined union type alias — bare, unqualified name.
+    #[test]
+    fn test_map_named_data_enum_options_module() {
+        let (enum_names, data_enum_names) = make_sets(&["ExtractionPattern"], &["ExtractionPattern"]);
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Named("ExtractionPattern".to_string())),
+        );
+        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
+        assert_eq!(result, "dict[str, ExtractionPattern]");
+    }
+
+    /// `Map<String, Named("ExtractionPattern")>` in NativeStub context resolves to the
+    /// native PyO3 class — also bare name (no `_native.` prefix needed in a .pyi file that
+    /// IS the native module).
+    #[test]
+    fn test_map_named_data_enum_native_stub() {
+        let (enum_names, data_enum_names) = make_sets(&["ExtractionPattern"], &["ExtractionPattern"]);
+        let ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Named("ExtractionPattern".to_string())),
+        );
+        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
+        assert_eq!(result, "dict[str, ExtractionPattern]");
+    }
+
+    /// `Vec<Named("Message")>` in OptionsModule context uses the bare union-alias name.
+    #[test]
+    fn test_vec_named_data_enum_options_module() {
+        let (enum_names, data_enum_names) = make_sets(&["Message"], &["Message"]);
+        let ty = TypeRef::Vec(Box::new(TypeRef::Named("Message".to_string())));
+        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
+        assert_eq!(result, "list[Message]");
+    }
+
+    /// `Vec<Named("Message")>` in NativeStub context uses the bare native-class name.
+    #[test]
+    fn test_vec_named_data_enum_native_stub() {
+        let (enum_names, data_enum_names) = make_sets(&["Message"], &["Message"]);
+        let ty = TypeRef::Vec(Box::new(TypeRef::Named("Message".to_string())));
+        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
+        assert_eq!(result, "list[Message]");
+    }
+
+    /// `Optional<Named("ExtractionPattern")>` in OptionsModule context appends `| None`.
+    #[test]
+    fn test_optional_named_data_enum_options_module() {
+        let (enum_names, data_enum_names) = make_sets(&["ExtractionPattern"], &["ExtractionPattern"]);
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("ExtractionPattern".to_string())));
+        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
+        assert_eq!(result, "ExtractionPattern | None");
+    }
+
+    /// `Optional<Named("ExtractionPattern")>` in NativeStub context appends `| None`.
+    #[test]
+    fn test_optional_named_data_enum_native_stub() {
+        let (enum_names, data_enum_names) = make_sets(&["ExtractionPattern"], &["ExtractionPattern"]);
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("ExtractionPattern".to_string())));
+        let result = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
+        assert_eq!(result, "ExtractionPattern | None");
+    }
+
+    /// Plain (non-data) enum field always uses `EnumName | str` regardless of context.
+    #[test]
+    fn test_plain_enum_field_both_contexts() {
+        let (enum_names, data_enum_names) = make_sets(&["HeadingStyle"], &[]);
+        let ty = TypeRef::Named("HeadingStyle".to_string());
+        let options = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
+        let native = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
+        assert_eq!(options, "HeadingStyle | str");
+        assert_eq!(native, "HeadingStyle | str");
+    }
+
+    /// Primitive types are unaffected by context.
+    #[test]
+    fn test_primitive_unaffected_by_context() {
+        let (enum_names, data_enum_names) = make_sets(&[], &[]);
+        let ty = TypeRef::Primitive(PrimitiveType::Bool);
+        let options = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::OptionsModule);
+        let native = python_field_type(&ty, false, &enum_names, &data_enum_names, EmitContext::NativeStub);
+        assert_eq!(options, "bool");
+        assert_eq!(native, "bool");
+    }
 }

@@ -9,8 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-pyo3): python_field_type now resolves Named(DataEnum) types correctly per emit context (options.py dataclass field vs _native.pyi stub) — introduces EmitContext enum and threads it through all collection branches (Map, Vec, Optional) so that in the OptionsModule context the bare name resolves to the locally defined union type alias rather than to the native module import, eliminating the mypy type mismatch between caller-supplied `dict[str, options.ExtractionPattern]` and the annotation `dict[str, _native.ExtractionPattern]`.
 - fix(codegen/core-to-binding): emit explicit arms for `Map<K, Named>`, `Option<Map<K, Named>>`, `Vec<Named>`, `Option<Vec<Named>>` instead of falling through to the binding-to-core helper (was emitting wrong-direction conversions; broke every backend that uses the shared converter for high-level `Option<Map<Named>>` fields).
 - fix(backend-rustler): split native.ex `force_build:` keyword across three lines so `mix format` accepts it without reformatting (was 114 chars, exceeded Elixir's 98-char default).
+- fix(codegen/binding-to-core): apply per-value `.into()` when emitting `Option<Map<K, Named>>` field conversions (was dropping the wrapper conversion, causing rustc type mismatch in PyO3/PHP/Magnus/Rustler).
+- fix(codegen/binding-to-core): preserve `Option` layer in optionalized-field path when field is genuinely IR-optional (was using `unwrap_or_default` and dropping `Option`, breaking NAPI `Option<Map<K, Named>>` round-trip).
 
 ### Added
 
