@@ -132,8 +132,12 @@ pub fn gen_struct_with_per_field_attrs(
         };
         let mut attrs: Vec<String> = cfg.field_attrs.iter().map(|a| a.to_string()).collect();
         attrs.extend(extra_field_attrs(field));
-        // Add #[serde(skip)] for opaque fields only when the struct derives serde
-        if has_serde && opaque_fields.contains(&field.name.as_str()) {
+        // Add #[serde(skip)] for opaque fields or sanitized fields when the struct derives serde.
+        // Opaque fields use Arc<T> which is not Serialize/Deserialize.
+        // Sanitized fields have types replaced with String placeholders (e.g. CancellationToken →
+        // String, OutputFormat → String) — including them in serde JSON round-trips causes
+        // "unknown field" or "unknown variant" errors at runtime.
+        if has_serde && (opaque_fields.contains(&field.name.as_str()) || field.sanitized) {
             attrs.push("serde(skip)".to_string());
         }
         sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
@@ -212,7 +216,10 @@ pub fn gen_struct_with_rename(
             a.extend(extra_attrs);
             a
         };
-        if has_serde && opaque_fields.contains(&field.name.as_str()) {
+        // Add #[serde(skip)] for opaque fields or sanitized fields — same rationale as in
+        // gen_struct_with_per_field_attrs: sanitized fields have placeholder String types that
+        // cause JSON round-trip failures with "unknown variant ''" errors.
+        if has_serde && (opaque_fields.contains(&field.name.as_str()) || field.sanitized) {
             attrs.push("serde(skip)".to_string());
         }
         let emit_name = name_override.unwrap_or_else(|| field.name.clone());
