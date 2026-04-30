@@ -1589,3 +1589,215 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         "trait_bridges.go must contain the registration function"
     );
 }
+
+/// Regression: when the same name appears as both an opaque `TypeDef` and an
+/// `ErrorDef`, the structured error struct (Code/Message fields) is emitted by
+/// `gen_go_error_struct` and the opaque-handle struct/Free method should be
+/// suppressed. Methods on the opaque type must NOT be emitted either —
+/// otherwise the codegen produces method bodies that dereference `h.ptr` on a
+/// value-type struct that has no `ptr` field, which fails to compile.
+#[test]
+fn test_opaque_error_type_uses_value_semantics() {
+    let backend = GoBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "GraphQLError".to_string(),
+            rust_path: "test_lib::GraphQLError".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "status_code".to_string(),
+                params: vec![],
+                return_type: TypeRef::Primitive(PrimitiveType::U16),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: "Returns the HTTP status code.".to_string(),
+                receiver: Some(alef_core::ir::ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "GraphQL error type".to_string(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "GraphQLError".to_string(),
+            rust_path: "test_lib::GraphQLError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "ValidationError".to_string(),
+                fields: vec![],
+                doc: "Validation failed".to_string(),
+                message_template: Some("validation failed".to_string()),
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+            }],
+            doc: "GraphQL error".to_string(),
+        }],
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("generation succeeds");
+    let content = &files[0].content;
+
+    // The error struct emitted by `gen_go_error_struct` provides the Go-side
+    // type. It carries Code/Message string fields and an Error() method —
+    // not a ptr field.
+    assert!(
+        content.contains("type GraphQLError struct"),
+        "value-type error struct must be emitted"
+    );
+    assert!(
+        content.contains("Code    string") && content.contains("Message string"),
+        "value-type error struct must have Code/Message fields, got:\n{}",
+        content
+    );
+    assert!(
+        content.contains("func (e *GraphQLError) Error() string"),
+        "value-type error must implement the error interface"
+    );
+
+    // Methods on the opaque variant must NOT be emitted — they would
+    // reference `h.ptr` which does not exist on the value-type struct.
+    assert!(
+        !content.contains("func (h *GraphQLError) StatusCode"),
+        "opaque-style method must not be generated for value-type error, got:\n{}",
+        content
+    );
+    assert!(
+        !content.contains("h.ptr"),
+        "no `h.ptr` references should appear when the only opaque type is also an error type, got:\n{}",
+        content
+    );
+}
+
+/// Regression: a type with a `TypeRef::Bytes` return value previously emitted
+/// `unmarshalBytes(ptr)` without ever defining the helper, and tried to free
+/// the byte buffer via `_free_string` (which expects `*C.char`, not
+/// `*C.uint8_t`). Both produced cgo compile errors. The fix emits a single
+/// package-level `unmarshalBytes` helper and stops emitting `_free_string`
+/// for `Bytes` returns (the FFI hands out aliasing pointers into a parent
+/// handle's storage that the caller does not own).
+#[test]
+fn test_bytes_return_emits_helper_and_no_string_free() {
+    let backend = GoBackend;
+
+    fn make_bytes_method(name: &str) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![],
+            return_type: TypeRef::Bytes,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: format!("Get {}", name),
+            receiver: Some(alef_core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            returns_ref: true,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            trait_source: None,
+        }
+    }
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "UploadFile".to_string(),
+            rust_path: "test_lib::UploadFile".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("filename", TypeRef::String, false)],
+            // Two bytes-returning methods on the same type — the helper must
+            // still be emitted exactly once.
+            methods: vec![make_bytes_method("as_bytes"), make_bytes_method("raw_content")],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: "Upload file".to_string(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("generation succeeds");
+    let content = &files[0].content;
+
+    // The helper is emitted exactly once, regardless of how many bytes-returning
+    // methods reference it.
+    let helper_decls = content.matches("func unmarshalBytes(").count();
+    assert_eq!(
+        helper_decls, 1,
+        "unmarshalBytes helper must be emitted exactly once per package, got {} occurrences in:\n{}",
+        helper_decls, content
+    );
+    assert!(
+        content.contains("unmarshalBytes(ptr)"),
+        "bytes-returning methods must call the package-level helper, got:\n{}",
+        content
+    );
+
+    // `*C.uint8_t` (the FFI return type for raw byte buffers) must not be
+    // passed to `_free_string`, which expects `*C.char` and would fail to
+    // compile under cgo's strict type checking.
+    let bytes_method_block = content
+        .split("AsBytes")
+        .nth(1)
+        .expect("AsBytes method must be generated");
+    assert!(
+        !bytes_method_block.starts_with_str_after_first("defer C.test_free_string(ptr)"),
+        "bytes return must not be freed via _free_string"
+    );
+    // More directly: ensure no emission of `_free_string(ptr)` after a Bytes
+    // method's `ptr := C.test_upload_file_as_bytes(...)` call site.
+    let as_bytes_call_idx = content
+        .find("C.test_upload_file_as_bytes")
+        .expect("AsBytes FFI call must be present");
+    let next_500 = &content[as_bytes_call_idx..(as_bytes_call_idx + 500).min(content.len())];
+    assert!(
+        !next_500.contains("test_free_string"),
+        "no _free_string call should follow a Bytes-returning FFI call, got:\n{}",
+        next_500
+    );
+}
+
+// Tiny helper trait for the regression test above.
+trait StartsWithStrAfterFirst {
+    fn starts_with_str_after_first(&self, needle: &str) -> bool;
+}
+impl StartsWithStrAfterFirst for str {
+    fn starts_with_str_after_first(&self, needle: &str) -> bool {
+        self.lines().any(|l| l.trim_start().starts_with(needle))
+    }
+}

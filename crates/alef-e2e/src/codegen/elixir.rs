@@ -119,7 +119,7 @@ impl E2eCodegen for ElixirCodegen {
             let active: Vec<&Fixture> = group
                 .fixtures
                 .iter()
-                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
+                .filter(|f| !f.should_skip_for_language(lang))
                 .collect();
 
             if active.is_empty() {

@@ -76,7 +76,7 @@ pub fn validate_fixtures_semantic(
     for fixture in fixtures {
         // Check 1: skip-all detection
         if let Some(skip) = &fixture.skip {
-            if skip.languages.is_empty() {
+            if skip.languages.is_empty() && skip.platform.is_empty() {
                 let reason = skip.reason.as_deref().unwrap_or("no reason given");
                 errors.push(ValidationError {
                     file: fixture.source.clone(),
@@ -138,15 +138,10 @@ pub fn validate_fixtures_semantic(
     if !languages.is_empty() {
         let groups = group_fixtures(fixtures);
         for group in &groups {
-            let has_any_non_skipped = group.fixtures.iter().any(|f| {
-                match &f.skip {
-                    None => true, // no skip → will generate
-                    Some(skip) => {
-                        // At least one language is NOT skipped
-                        languages.iter().any(|lang| !skip.should_skip(lang))
-                    }
-                }
-            });
+            let has_any_non_skipped = group
+                .fixtures
+                .iter()
+                .any(|f| languages.iter().any(|lang| !f.should_skip_for_language(lang)));
 
             if !has_any_non_skipped {
                 errors.push(ValidationError {
@@ -262,6 +257,7 @@ mod tests {
             Some(SkipDirective {
                 languages: vec![],
                 reason: Some("Requires feature X".to_string()),
+                ..Default::default()
             }),
             None,
         )];
@@ -295,6 +291,7 @@ mod tests {
                 Some(SkipDirective {
                     languages: vec![],
                     reason: Some("skip all".to_string()),
+                    ..Default::default()
                 }),
                 None,
             ),
@@ -304,6 +301,7 @@ mod tests {
                 Some(SkipDirective {
                     languages: vec![],
                     reason: Some("skip all".to_string()),
+                    ..Default::default()
                 }),
                 None,
             ),

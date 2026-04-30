@@ -401,6 +401,12 @@ fn gen_go_file(
     // Error helper functions
     writeln!(out, "{}\n", gen_last_error_helper(ffi_prefix)).ok();
 
+    // Bytes helper: emitted once per package, used by every method/function
+    // returning `TypeRef::Bytes`. Defining it here (rather than inline at each
+    // call site) avoids repeated declarations and keeps a single place to
+    // adjust ownership semantics.
+    writeln!(out, "{}\n", gen_unmarshal_bytes_helper()).ok();
+
     // Generate trait bridge exports (//export trampolines called by C)
     let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
     if has_plugin_bridges {
@@ -541,6 +547,14 @@ fn gen_go_file(
     // they are skipped here and must be implemented via a separate Go-native streaming API.
     // Also skip methods excluded from FFI or using enum types without FFI JSON helpers.
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        // Types that are both opaque and error types are emitted as Go value
+        // structs (Code/Message fields) by `gen_go_error_struct` — they have
+        // no `ptr` field to dispatch through. Skip method emission here so we
+        // do not generate `h.ptr` references that fail to compile against a
+        // value-type struct.
+        if typ.is_opaque && error_names.contains(typ.name.as_str()) {
+            continue;
+        }
         for method in &typ.methods {
             if method.is_static && matches!(method.return_type, TypeRef::Named(_)) {
                 continue;
@@ -559,6 +573,33 @@ fn gen_go_file(
     }
 
     out
+}
+
+/// Generate the package-level `unmarshalBytes` helper.
+///
+/// Emitted exactly once per generated `binding.go`. Methods and functions
+/// returning `TypeRef::Bytes` reference this helper by name. The helper takes
+/// a `*C.uint8_t` aliasing pointer (typically returned by an FFI accessor
+/// that hands out a borrowed view into a parent handle's buffer) and produces
+/// a freshly-allocated `*[]byte` copy. The caller MUST keep the parent handle
+/// alive across the helper call; the returned slice is detached.
+///
+/// The helper does not free the input pointer because the FFI surface aliases
+/// internal storage; freeing here would corrupt the parent handle.
+fn gen_unmarshal_bytes_helper() -> String {
+    "// unmarshalBytes copies a C byte buffer into a Go []byte.\n\
+     //\n\
+     // The pointer is treated as a NUL-terminated C string; binary payloads\n\
+     // that may contain interior NULs should be exposed by the FFI with an\n\
+     // explicit length out-parameter instead.\n\
+     func unmarshalBytes(ptr *C.uint8_t) *[]byte {\n\t\
+         if ptr == nil {\n\t\t\
+             return nil\n\t\
+         }\n\t\
+         v := []byte(C.GoString((*C.char)(unsafe.Pointer(ptr))))\n\t\
+         return &v\n\
+     }"
+    .to_string()
 }
 
 /// Generate the lastError() helper function.
