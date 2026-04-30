@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Both fields default to unset/empty so existing configs produce byte-identical output.
 
+### Changed
+
+- BREAKING(cli): `alef generate` now runs language formatters by default; pass `--no-format` to skip. The previous `--format` flag is removed (was opt-in and easily forgotten, causing generated output to fail downstream linters like `mix format`). `alef all` behaves the same way — pass `--no-format` to suppress formatters.
+
 ## [0.12.1] - 2026-04-30
 
 ### Fixed
