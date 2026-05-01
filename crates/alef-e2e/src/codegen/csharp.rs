@@ -278,7 +278,13 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
         out,
         "        var baseUrl = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\";"
     );
-    let _ = writeln!(out, "        using var client = new System.Net.Http.HttpClient();");
+    // Disable auto-follow so redirect-status fixtures (3xx) can assert the
+    // server's status code rather than the followed-target's status.
+    let _ = writeln!(
+        out,
+        "        using var handler = new System.Net.Http.HttpClientHandler {{ AllowAutoRedirect = false }};"
+    );
+    let _ = writeln!(out, "        using var client = new System.Net.Http.HttpClient(handler);");
     let _ = writeln!(
         out,
         "        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}/fixtures/{fixture_id}\");"
@@ -303,6 +309,16 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
         "expect",
         "transfer-encoding",
         "upgrade",
+        // Content-Type is owned by request.Content.Headers and is set when
+        // StringContent is constructed; adding it to request.Headers throws.
+        "content-type",
+        // Other entity headers also belong to request.Content.Headers.
+        "content-encoding",
+        "content-language",
+        "content-location",
+        "content-md5",
+        "content-range",
+        "content-disposition",
     ];
 
     for (name, value) in &request.headers {
