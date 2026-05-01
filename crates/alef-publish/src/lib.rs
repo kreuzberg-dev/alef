@@ -302,6 +302,16 @@ pub(crate) fn run_shell_command_in(cmd: &str, dir: &std::path::Path) -> Result<(
     Ok(())
 }
 
+/// Language-specific options forwarded into individual package functions.
+///
+/// All fields are optional so callers that don't package PHP can pass a
+/// default-constructed value without knowing about PHP-specific flags.
+#[derive(Default)]
+pub struct PackageOptions<'a> {
+    /// Options for PIE-conventional PHP packaging.  Required when `lang == php`.
+    pub php: Option<package::php::PiePackageOptions<'a>>,
+}
+
 /// Package built artifacts into distributable archives.
 pub fn package(
     config: &AlefConfig,
@@ -310,6 +320,7 @@ pub fn package(
     output_dir: &Path,
     version: &str,
     dry_run: bool,
+    options: &PackageOptions<'_>,
 ) -> Result<()> {
     let workspace_root = resolve_workspace_root(config);
     let ws_root = Path::new(&workspace_root);
@@ -342,7 +353,11 @@ pub fn package(
             }
             Language::Php => {
                 let t = target.context("--target required for PHP packaging")?;
-                let artifact = package::php::package_php(config, t, ws_root, output_dir, version)?;
+                let pie_opts = options
+                    .php
+                    .as_ref()
+                    .context("--php-version (and other PHP flags) required for PHP packaging")?;
+                let artifact = package::php::package_php(config, t, ws_root, output_dir, version, pie_opts)?;
                 Some(vec![artifact])
             }
             Language::Go => {

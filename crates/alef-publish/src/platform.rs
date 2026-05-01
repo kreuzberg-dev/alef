@@ -266,6 +266,46 @@ impl RustTarget {
             _ => "",
         }
     }
+
+    /// PIE OS family string: `"linux"` | `"darwin"` | `"windows"`.
+    ///
+    /// Returns an error for `Os::Unknown` (e.g. wasm32 targets).
+    pub fn pie_os_family(&self) -> Result<&'static str> {
+        match self.os {
+            Os::Linux => Ok("linux"),
+            Os::MacOs => Ok("darwin"),
+            Os::Windows => Ok("windows"),
+            Os::Unknown => bail!("unsupported OS for PIE packaging: {}", self.triple),
+        }
+    }
+
+    /// PIE architecture string: `"x86_64"` | `"arm64"` | `"x86"`.
+    ///
+    /// Maps `Aarch64` → `"arm64"` on all platforms (unlike `go_java_platform`
+    /// which uses `"aarch64"` on Linux). Returns an error for wasm32.
+    pub fn pie_arch(&self) -> Result<&'static str> {
+        match self.arch {
+            Arch::X86_64 => Ok("x86_64"),
+            Arch::Aarch64 => Ok("arm64"),
+            Arch::Arm => bail!("arm32 is not supported by PIE; PIE supports x86, x86_64, arm64"),
+            Arch::Wasm32 => bail!("wasm32 is not supported for PIE packaging"),
+        }
+    }
+
+    /// PIE libc string: `"glibc"` (Linux+Gnu) | `"musl"` (Linux+Musl) | `"bsdlibc"` (macOS).
+    ///
+    /// Returns an error on Windows (use the Windows filename scheme instead) or unknown OS.
+    pub fn pie_libc(&self) -> Result<&'static str> {
+        match self.os {
+            Os::Linux => match self.env {
+                Env::Musl => Ok("musl"),
+                _ => Ok("glibc"),
+            },
+            Os::MacOs => Ok("bsdlibc"),
+            Os::Windows => bail!("pie_libc is not applicable on Windows; use the Windows filename scheme"),
+            Os::Unknown => bail!("unsupported OS for PIE libc: {}", self.triple),
+        }
+    }
 }
 
 impl fmt::Display for RustTarget {
@@ -481,5 +521,74 @@ mod tests {
     fn binary_ext_windows() {
         let t = RustTarget::parse("x86_64-pc-windows-msvc").unwrap();
         assert_eq!(t.binary_ext(), ".exe");
+    }
+
+    // PIE helper tests
+
+    #[test]
+    fn pie_os_family_linux() {
+        let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
+        assert_eq!(t.pie_os_family().unwrap(), "linux");
+    }
+
+    #[test]
+    fn pie_os_family_darwin() {
+        let t = RustTarget::parse("aarch64-apple-darwin").unwrap();
+        assert_eq!(t.pie_os_family().unwrap(), "darwin");
+    }
+
+    #[test]
+    fn pie_os_family_windows() {
+        let t = RustTarget::parse("x86_64-pc-windows-msvc").unwrap();
+        assert_eq!(t.pie_os_family().unwrap(), "windows");
+    }
+
+    #[test]
+    fn pie_arch_x86_64() {
+        let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
+        assert_eq!(t.pie_arch().unwrap(), "x86_64");
+    }
+
+    #[test]
+    fn pie_arch_aarch64_linux_maps_to_arm64() {
+        // Explicit divergence from go_java_platform: Aarch64 → arm64 on Linux too.
+        let t = RustTarget::parse("aarch64-unknown-linux-gnu").unwrap();
+        assert_eq!(t.pie_arch().unwrap(), "arm64");
+    }
+
+    #[test]
+    fn pie_arch_aarch64_darwin_maps_to_arm64() {
+        let t = RustTarget::parse("aarch64-apple-darwin").unwrap();
+        assert_eq!(t.pie_arch().unwrap(), "arm64");
+    }
+
+    #[test]
+    fn pie_arch_arm32_errors() {
+        let t = RustTarget::parse("armv7-unknown-linux-gnueabihf").unwrap();
+        assert!(t.pie_arch().is_err());
+    }
+
+    #[test]
+    fn pie_libc_linux_gnu_is_glibc() {
+        let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
+        assert_eq!(t.pie_libc().unwrap(), "glibc");
+    }
+
+    #[test]
+    fn pie_libc_linux_musl_is_musl() {
+        let t = RustTarget::parse("x86_64-unknown-linux-musl").unwrap();
+        assert_eq!(t.pie_libc().unwrap(), "musl");
+    }
+
+    #[test]
+    fn pie_libc_darwin_is_bsdlibc() {
+        let t = RustTarget::parse("aarch64-apple-darwin").unwrap();
+        assert_eq!(t.pie_libc().unwrap(), "bsdlibc");
+    }
+
+    #[test]
+    fn pie_libc_windows_errors() {
+        let t = RustTarget::parse("x86_64-pc-windows-msvc").unwrap();
+        assert!(t.pie_libc().is_err());
     }
 }
