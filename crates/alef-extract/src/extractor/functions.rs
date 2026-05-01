@@ -121,6 +121,12 @@ pub(crate) fn extract_impl_block(
                 surface.types[idx].methods.push(method);
             }
         }
+    } else if surface.errors.iter().any(|e| e.name == type_name) {
+        // This is an impl block on a thiserror error enum. Error variants are already
+        // captured in surface.errors; creating a duplicate opaque TypeDef here would
+        // cause backends to emit two conflicting definitions for the same name.
+        // Methods on error types (e.g. status_code()) are excluded via alef.toml
+        // [exclude].methods, so we can safely skip without losing information.
     } else {
         // The impl is for a type we haven't seen as a pub struct — create an opaque entry
         let rust_path = build_rust_path(crate_name, module_path, &type_name);

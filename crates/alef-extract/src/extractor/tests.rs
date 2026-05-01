@@ -3009,3 +3009,43 @@ fn test_trait_method_with_default_impl() {
     let log_error = logger.methods.iter().find(|m| m.name == "log_error").unwrap();
     assert!(log_error.has_default_impl, "log_error() has a default impl body");
 }
+
+#[test]
+fn test_thiserror_enum_with_inherent_impl_does_not_create_opaque_type() {
+    // Regression test: when a thiserror error enum also has an `impl` block with
+    // pub methods (e.g. status_code()), extract_impl_block must NOT create an
+    // opaque TypeDef for the error type. The error is already in surface.errors;
+    // creating a duplicate TypeDef causes backends (Dart, Gleam, etc.) to emit
+    // two conflicting class definitions for the same name.
+    let source = r#"
+        use thiserror::Error;
+
+        #[derive(Debug, Error)]
+        pub enum ApiError {
+            #[error("not found: {0}")]
+            NotFound(String),
+            #[error("internal: {0}")]
+            Internal(String),
+        }
+
+        impl ApiError {
+            pub fn status_code(&self) -> u16 {
+                match self {
+                    Self::NotFound(_) => 404,
+                    Self::Internal(_) => 500,
+                }
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(surface.errors.len(), 1, "ApiError should be in errors");
+    assert_eq!(
+        surface.types.len(),
+        0,
+        "ApiError must NOT appear in types — impl block on error enum must not create opaque TypeDef"
+    );
+    let err = &surface.errors[0];
+    assert_eq!(err.name, "ApiError");
+    assert_eq!(err.variants.len(), 2);
+}
