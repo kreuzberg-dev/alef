@@ -728,7 +728,14 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFix
     }
 
     // Send request.
-    let _ = writeln!(out, "\tresp, err := http.DefaultClient.Do(req)");
+    // Disable auto-follow so redirect-status fixtures (3xx) can assert the
+    // server's response status code rather than the followed target's status.
+    let _ = writeln!(out, "\tnoRedirectClient := &http.Client{{");
+    let _ = writeln!(out, "\t\tCheckRedirect: func(req *http.Request, via []*http.Request) error {{");
+    let _ = writeln!(out, "\t\t\treturn http.ErrUseLastResponse");
+    let _ = writeln!(out, "\t\t}},");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out, "\tresp, err := noRedirectClient.Do(req)");
     let _ = writeln!(out, "\tif err != nil {{");
     let _ = writeln!(out, "\t\tt.Fatalf(\"request failed: %v\", err)");
     let _ = writeln!(out, "\t}}");
@@ -794,6 +801,13 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFix
     for (name, value) in &expected.headers {
         if value == "<<absent>>" || value == "<<present>>" || value == "<<uuid>>" {
             // Skip special-token assertions for now.
+            continue;
+        }
+        // Skip headers the mock server cannot reproduce: content-encoding (no
+        // compression) and Connection (Go's net/http strips hop-by-hop headers
+        // when reading the response).
+        let lower = name.to_ascii_lowercase();
+        if lower == "content-encoding" || lower == "connection" {
             continue;
         }
         let escaped_name = go_string_literal(name);
