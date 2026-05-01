@@ -800,8 +800,17 @@ fn gen_instance_method(
         };
         let core_call = format!("core_self.{}({})", method.name, call_args);
         let result_wrap = match &method.return_type {
-            TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path => {
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Path => {
                 ".into()".to_string()
+            }
+            // Bytes: when the core returns &Bytes (returns_ref=true), use .to_vec() since
+            // Vec<u8> does not implement From<&Bytes>. For owned Bytes, .into() works.
+            TypeRef::Bytes => {
+                if method.returns_ref {
+                    ".to_vec()".to_string()
+                } else {
+                    ".into()".to_string()
+                }
             }
             _ => String::new(),
         };
@@ -846,8 +855,17 @@ fn gen_async_instance_method(
         let field_conversions = generators::gen_lossy_binding_to_core_fields(typ, core_import, false);
         let _core_call = format!("core_self.{}({})", method.name, call_args);
         let result_wrap = match &method.return_type {
-            TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path => {
+            TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Path => {
                 ".into()".to_string()
+            }
+            // Bytes: when the core returns &Bytes (returns_ref=true), use .to_vec() since
+            // Vec<u8> does not implement From<&Bytes>. For owned Bytes, .into() works.
+            TypeRef::Bytes => {
+                if method.returns_ref {
+                    ".to_vec()".to_string()
+                } else {
+                    ".into()".to_string()
+                }
             }
             _ => String::new(),
         };
