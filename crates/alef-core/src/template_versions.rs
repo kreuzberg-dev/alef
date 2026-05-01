@@ -297,7 +297,7 @@ pub mod hex {
     pub const GLEEUNIT_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";
 
     // renovate: datasource=hex depName=gleam_httpc
-    pub const GLEAM_HTTPC_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";
+    pub const GLEAM_HTTPC_VERSION_RANGE: &str = "< 6.0.0";
 }
 
 /// pub.dev (Dart) ecosystem.
