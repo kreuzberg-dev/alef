@@ -243,7 +243,11 @@ fn render_test_case(
     // Strip any leading underscores that result from numeric-prefixed fixture IDs.
     let raw_name = sanitize_ident(&fixture.id);
     let test_name = raw_name.trim_start_matches('_');
-    let test_name = if test_name.is_empty() { raw_name.as_str() } else { test_name };
+    let test_name = if test_name.is_empty() {
+        raw_name.as_str()
+    } else {
+        test_name
+    };
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 

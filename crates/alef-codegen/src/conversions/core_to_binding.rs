@@ -351,7 +351,9 @@ pub fn field_conversion_from_core(
         // this is a clone, accepted under the existing `#[allow(clippy::useless_conversion)]`.
         TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Json) => {
             if optional {
-                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())")
+                format!(
+                    "{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())"
+                )
             } else {
                 format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()")
             }

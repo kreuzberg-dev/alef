@@ -250,7 +250,7 @@ default_profile = ENV.fetch('CARGO_PROFILE', 'release')
 
 create_rust_makefile('{ext_name}') do |config|
   config.profile = default_profile.to_sym
-  config.cargo_manifest = File.expand_path('native/Cargo.toml', __dir__)
+  config.ext_dir = 'native'
 end
 "#,
         ext_name = ext_name,

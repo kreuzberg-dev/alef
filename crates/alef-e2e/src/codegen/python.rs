@@ -111,7 +111,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
 
 fn render_pyproject(
     pkg_name: &str,
-    _pkg_path: &str,
+    pkg_path: &str,
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
 ) -> String {
@@ -129,7 +129,10 @@ fn render_pyproject(
             format!(
                 "dependencies = [ \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\", \"{pkg_name}\" ]"
             ),
-            format!("\n[tool.uv]\nsources.{pkg_name} = {{ workspace = true }}\n"),
+            format!(
+                "\n[tool.uv]\nsources.{pkg_name} = {{ path = \"{pkg_path}\" }}\n",
+                pkg_path = pkg_path
+            ),
         ),
     };
 
@@ -280,8 +283,9 @@ import pytest
 # The {module} package is expected to be installed in the current environment.
 
 _HERE = Path(__file__).parent
-_MOCK_SERVER_BIN = _HERE / "rust" / "target" / "release" / "mock-server"
-_FIXTURES_DIR = _HERE.parent / "fixtures"
+_E2E_DIR = _HERE.parent
+_MOCK_SERVER_BIN = _E2E_DIR / "rust" / "target" / "release" / "mock-server"
+_FIXTURES_DIR = _E2E_DIR.parent / "fixtures"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -463,7 +467,10 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     }
 
     // For non-HTTP fixtures, build the normal function imports.
-    let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test());
+    // Only count fixtures that are not skipped and have assertions (need to call the function).
+    let has_non_http_fixtures = fixtures
+        .iter()
+        .any(|f| !f.is_http_test() && !is_skipped(f, "python") && !f.assertions.is_empty());
     if has_non_http_fixtures {
         // Collect handle constructor function names that need to be imported.
         let handle_constructors: Vec<String> = e2e_config
@@ -600,6 +607,21 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     for fixture in fixtures {
         if fixture.is_http_test() {
             render_http_test_function(&mut out, fixture);
+        } else if !is_skipped(fixture, "python") && fixture.assertions.is_empty() {
+            // Non-HTTP fixture with no assertions: generate a skipped placeholder.
+            let fn_name = sanitize_ident(&fixture.id);
+            let description = &fixture.description;
+            let desc_with_period = if description.ends_with('.') {
+                description.to_string()
+            } else {
+                format!("{description}.")
+            };
+            let _ = writeln!(
+                out,
+                "@pytest.mark.skip(reason=\"no assertions configured for this fixture in python e2e\")"
+            );
+            let _ = writeln!(out, "def test_{fn_name}() -> None:");
+            let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
         } else {
             render_test_function(
                 &mut out,
