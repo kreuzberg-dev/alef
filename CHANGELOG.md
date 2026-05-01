@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(codegen/conversions): emit `k.to_string()` for Map keys in core→binding conversion and `k.into()` for the reverse direction so `Cow<'_, str>`/`Box<str>`/`Arc<str>` keys (which the type resolver normalizes to `TypeRef::String`) round-trip correctly. Without this fix the generated `From` impls produced `(Cow<'_, str>, …)` iterators feeding `HashMap<String, String>::from_iter`, breaking pyo3/napi/php bindings on `Metadata.additional`.
 - fix(e2e/elixir): add missing commas between deps entries in generated `mix.exs`; without them Elixir emits a syntax error before deps like `{:req, ...}`.
 - fix(e2e/kotlin): fall back to `alef_config.resolved_version()` when `[e2e.packages.kotlin]` has no explicit `version`, avoiding a stale `0.1.0` jar reference in `build.gradle.kts`.
 - fix(e2e/gleam): strip leading underscores from generated test-function names; fixture IDs with numeric prefixes (e.g. `13_json_...`) produced `_json_..._test()` which Gleam rejects.

@@ -307,12 +307,14 @@ pub(super) fn gen_optionalized_field_to_core(
             _ => format!("{name}: val.{name}.unwrap_or_default()"),
         },
         TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
-            // Map with Json values: binding uses HashMap<K, String>, core uses HashMap<K, serde_json::Value>
+            // Map with Json values: binding uses HashMap<K, String>, core uses HashMap<K, serde_json::Value>.
+            // Use `k.into()` for non-Json keys so String→String is a no-op while still converting
+            // String→Cow<'_, str>/Box<str>/Arc<str> when the core type uses one of those wrappers.
             let k_is_json = matches!(k.as_ref(), TypeRef::Json);
             let k_expr = if k_is_json {
                 "serde_json::from_str(&k).unwrap_or_default()"
             } else {
-                "k"
+                "k.into()"
             };
             format!(
                 "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| ({k_expr}, serde_json::from_str(&v).unwrap_or(serde_json::json!(v)))).collect()"
@@ -421,12 +423,14 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                 format!("{name}: val.{name}.into()")
             }
         }
-        // Map with Json value type: binding uses HashMap<K, String>, core uses HashMap<K, Value>
+        // Map with Json value type: binding uses HashMap<K, String>, core uses HashMap<K, Value>.
+        // Use `k.into()` for non-Json keys so String→String is a no-op while still converting
+        // String→Cow<'_, str>/Box<str>/Arc<str> when the core type uses one of those wrappers.
         TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
             let k_expr = if matches!(k.as_ref(), TypeRef::Json) {
                 "serde_json::from_str(&k).unwrap_or_default()"
             } else {
-                "k"
+                "k.into()"
             };
             if optional {
                 format!(
