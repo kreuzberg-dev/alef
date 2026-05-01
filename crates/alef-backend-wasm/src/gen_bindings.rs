@@ -30,6 +30,45 @@ fn emit_rustdoc(doc: &str) -> String {
     out
 }
 
+/// Convert a `TypeRef` to its concrete Rust type string for use in serde deserialization
+/// let-bindings. Unlike `WasmMapper::map_type`, this always returns a concrete Rust type
+/// (e.g. `String`, `Vec<String>`) rather than `JsValue`. Used when emitting
+/// `serde_wasm_bindgen::from_value::<T>(jsval)?` where T must be a concrete type.
+fn typeref_to_core_type_str(ty: &TypeRef) -> String {
+    use alef_core::ir::PrimitiveType;
+    match ty {
+        TypeRef::String | TypeRef::Char => "String".to_string(),
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "bool".to_string(),
+            PrimitiveType::U8 => "u8".to_string(),
+            PrimitiveType::U16 => "u16".to_string(),
+            PrimitiveType::U32 => "u32".to_string(),
+            PrimitiveType::U64 => "u64".to_string(),
+            PrimitiveType::I8 => "i8".to_string(),
+            PrimitiveType::I16 => "i16".to_string(),
+            PrimitiveType::I32 => "i32".to_string(),
+            PrimitiveType::I64 => "i64".to_string(),
+            PrimitiveType::F32 => "f32".to_string(),
+            PrimitiveType::F64 => "f64".to_string(),
+            PrimitiveType::Usize => "usize".to_string(),
+            PrimitiveType::Isize => "isize".to_string(),
+        },
+        TypeRef::Vec(inner) => format!("Vec<{}>", typeref_to_core_type_str(inner)),
+        TypeRef::Optional(inner) => format!("Option<{}>", typeref_to_core_type_str(inner)),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            typeref_to_core_type_str(k),
+            typeref_to_core_type_str(v)
+        ),
+        TypeRef::Json => "serde_json::Value".to_string(),
+        TypeRef::Bytes => "Vec<u8>".to_string(),
+        TypeRef::Path => "String".to_string(),
+        TypeRef::Duration => "u64".to_string(),
+        TypeRef::Named(n) => n.to_string(),
+        TypeRef::Unit => "()".to_string(),
+    }
+}
+
 /// Check if a TypeRef references a Named type that is in the exclude set.
 /// Used to skip fields whose types were excluded from WASM generation,
 /// preventing references to non-existent Js* wrapper types.
@@ -135,12 +174,116 @@ impl Backend for WasmBackend {
         let mapper = WasmMapper::new(type_overrides, prefix.clone());
         let core_import = config.core_import_for_language(Language::Wasm);
 
+        // Build source-crate remaps from config: each `source_crate_remaps` entry
+        // becomes `(original_crate_name_with_underscores, core_import)`. References
+        // to `<original>::T` in IR rust_paths are rewritten to `<core_import>::T`.
+        let source_remap_pairs: Vec<(String, String)> = wasm_config
+            .map(|c| c.source_crate_remaps.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|orig| (orig.replace('-', "_"), core_import.clone()))
+            .collect();
+        let source_remaps_borrowed: Vec<(&str, &str)> = source_remap_pairs
+            .iter()
+            .map(|(o, n)| (o.as_str(), n.as_str()))
+            .collect();
+        // Crates whose types should be auto-skipped: source crates that aren't
+        // available as deps (excluded via `exclude_extra_dependencies`) and aren't
+        // remapped to the override. Generated code referencing these would fail
+        // to resolve because the crate isn't in the binding's Cargo deps.
+        let dropped_crates: ahash::AHashSet<String> = wasm_config
+            .map(|c| c.exclude_extra_dependencies.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|name| name.replace('-', "_"))
+            .filter(|underscored| {
+                // Keep if it's the core_import (already a dep via override) or remapped
+                underscored != &core_import && !source_remap_pairs.iter().any(|(orig, _)| orig == underscored)
+            })
+            .collect();
+        // Auto-exclude types whose source crate is in `dropped_crates`. The IR's
+        // `rust_path` starts with the source crate name; if that name is in the
+        // dropped set, alef cannot generate working bindings for the type
+        // (the From impl would reference a crate not in the dep tree).
+        for typ in &api.types {
+            let crate_seg = typ.rust_path.split("::").next().unwrap_or("").replace('-', "_");
+            if dropped_crates.contains(&crate_seg) && !exclude_types.contains(&typ.name) {
+                exclude_types.push(typ.name.clone());
+            }
+        }
+        for enum_def in &api.enums {
+            let crate_seg = enum_def.rust_path.split("::").next().unwrap_or("").replace('-', "_");
+            if dropped_crates.contains(&crate_seg) && !exclude_types.contains(&enum_def.name) {
+                exclude_types.push(enum_def.name.clone());
+            }
+        }
+        for func in &api.functions {
+            let crate_seg = func.rust_path.split("::").next().unwrap_or("").replace('-', "_");
+            if dropped_crates.contains(&crate_seg) && !exclude_functions.contains(&func.name) {
+                exclude_functions.push(func.name.clone());
+            }
+        }
+        // Errors mirror types — skip those whose source crate isn't in the dep tree.
+        let dropped_error_names: Vec<String> = api
+            .errors
+            .iter()
+            .filter(|e| {
+                let crate_seg = e.rust_path.split("::").next().unwrap_or("").replace('-', "_");
+                dropped_crates.contains(&crate_seg)
+            })
+            .map(|e| e.name.clone())
+            .collect();
+        for name in dropped_error_names {
+            if !exclude_types.contains(&name) {
+                exclude_types.push(name);
+            }
+        }
+
+        // Apply per-type field exclusions: any field listed in `[wasm].exclude_fields`
+        // is treated as if it were `#[cfg]`-gated, so the binding struct omits it and
+        // the From impl uses `..Default::default()` to fill it.
+        let exclude_fields_map = wasm_config.map(|c| c.exclude_fields.clone()).unwrap_or_default();
+        // Build a fresh ApiSurface clone with exclude_fields applied: each field in
+        // the exclude list gets `cfg: Some("excluded_via_alef_toml")` so all
+        // downstream cfg-skip code paths (binding struct gen, From impls, builder
+        // patterns) treat it as native-only and emit ..Default::default() on wasm.
+        let api_owned;
+        let api: &ApiSurface = if exclude_fields_map.is_empty() {
+            api
+        } else {
+            api_owned = {
+                let mut cloned = api.clone();
+                for typ in &mut cloned.types {
+                    if let Some(skip_list) = exclude_fields_map.get(&typ.name) {
+                        for field in &mut typ.fields {
+                            if skip_list.iter().any(|s| s == &field.name) && field.cfg.is_none() {
+                                field.cfg = Some("alef_excluded".to_string());
+                                typ.has_stripped_cfg_fields = true;
+                            }
+                        }
+                    }
+                }
+                cloned
+            };
+            &api_owned
+        };
+
         // Note: custom modules and registrations handled below after builder creation
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::unnecessary_cast, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, clippy::useless_conversion)");
         builder.add_import("wasm_bindgen::prelude::*");
+
+        // Hand-written Rust modules: declare `pub mod <name>;` at the top of lib.rs
+        // and re-export with `pub use <name>::*;`. Source files for these modules
+        // must exist in `crates/<name>-wasm/src/<name>.rs` and are not managed by alef.
+        if let Some(modules) = wasm_config.map(|c| c.custom_rust_modules.as_slice()) {
+            for module in modules {
+                builder.add_item(&format!("pub mod {module};"));
+                builder.add_item(&format!("pub use {module}::*;"));
+            }
+        }
 
         // js_sys items are always referenced with full paths (js_sys::Object, js_sys::Reflect, etc.)
         // so no explicit `use js_sys;` import is needed (clippy::single_component_path_imports).
@@ -288,6 +431,7 @@ impl Backend for WasmBackend {
             map_uses_jsvalue: true,
             option_duration_on_defaults: true,
             exclude_types: &exclude_types,
+            source_crate_remaps: &source_remaps_borrowed,
             ..Default::default()
         };
         let convertible = alef_codegen::conversions::convertible_types(api);
@@ -1488,6 +1632,39 @@ fn gen_function(
                         ));
                     }
                 }
+                TypeRef::Vec(outer_inner) if matches!(outer_inner.as_ref(), TypeRef::Vec(_)) => {
+                    // Nested Vec (e.g. Vec<Vec<String>>): wasm-bindgen cannot pass this across
+                    // the boundary directly, so the param arrives as JsValue. Deserialize via
+                    // serde_wasm_bindgen and shadow the original binding so gen_call_args can
+                    // still reference the parameter by its original name.
+                    // Build the concrete core type by unwrapping the IR rather than calling
+                    // mapper.map_type (which would produce Vec<Vec<JsValue>> for nested vecs).
+                    let elem_ty = if let TypeRef::Vec(elem) = outer_inner.as_ref() {
+                        typeref_to_core_type_str(elem.as_ref())
+                    } else {
+                        "String".to_string()
+                    };
+                    let core_ty = format!("Vec<Vec<{elem_ty}>>");
+                    let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
+                    if p.optional {
+                        serde_bindings.push_str(&format!(
+                            "let {n}: Option<{core_ty}> = {n}.map(|v| \
+                             serde_wasm_bindgen::from_value::<{core_ty}>(v){err_conv})\
+                             .transpose()?;\n    ",
+                            n = p.name,
+                            core_ty = core_ty,
+                            err_conv = err_conv,
+                        ));
+                    } else {
+                        serde_bindings.push_str(&format!(
+                            "let {n}: {core_ty} = \
+                             serde_wasm_bindgen::from_value::<{core_ty}>({n}){err_conv}?;\n    ",
+                            n = p.name,
+                            core_ty = core_ty,
+                            err_conv = err_conv,
+                        ));
+                    }
+                }
                 _ => {}
             }
         }
@@ -1900,7 +2077,7 @@ description = "{description}"
 repository = "{repository}"
 {keywords_toml}
 [package.metadata.cargo-machete]
-ignored = ["futures-util", "wasm-bindgen-futures", "serde_json"]
+ignored = ["futures-util", "js-sys", "wasm-bindgen-futures", "serde_json"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

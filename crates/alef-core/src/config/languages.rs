@@ -268,6 +268,28 @@ pub struct WasmConfig {
     /// crates that the WASM target cannot link.
     #[serde(default)]
     pub exclude_extra_dependencies: Vec<String>,
+    /// Hand-written Rust modules to declare in the generated lib.rs with `pub mod <name>;`
+    /// and re-export with `pub use <name>::*;`. Separate from `[custom_modules].wasm` which
+    /// only adds TypeScript `export *` re-exports. Use this for Rust-side dispatch/glue modules.
+    #[serde(default)]
+    pub custom_rust_modules: Vec<String>,
+    /// Per-type field exclusions for the generated From impls and binding struct.
+    /// Key is the type name (e.g. "ServerConfig"), value is a list of field names to skip.
+    /// Use when source fields are gated behind `#[cfg(not(target_arch = "wasm32"))]` and
+    /// therefore don't exist in the wasm32 compilation environment.
+    #[serde(default)]
+    pub exclude_fields: HashMap<String, Vec<String>>,
+    /// Source crate names whose types are re-exported by the `core_crate_override`
+    /// crate. References to `<original_crate>::TypeName` in generated code are
+    /// rewritten to `<override_crate>::TypeName`. Only meaningful when
+    /// `core_crate_override` is set.
+    /// Example: with `core_crate_override = "spikard-http"`, setting
+    /// `source_crate_remaps = ["spikard-core", "spikard"]` rewrites
+    /// `spikard_core::Method` and `spikard::Method` references to
+    /// `spikard_http::Method` (assumes `spikard-http` re-exports them via
+    /// `pub use spikard_core::*`).
+    #[serde(default)]
+    pub source_crate_remaps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
