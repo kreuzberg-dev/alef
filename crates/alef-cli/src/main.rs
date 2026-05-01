@@ -1156,6 +1156,20 @@ fn main() -> Result<()> {
                     let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                     let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
                     pipeline::finalize_hashes(&path_set, &sources_hash)?;
+
+                    // Sweep orphan alef-generated files in the e2e output root that
+                    // are no longer produced by the current generation set (e.g.
+                    // categories that now produce 0 functions, fixtures filtered
+                    // out by language-specific gates). Without this pass, those
+                    // files linger on disk with stale `alef:hash:` headers and
+                    // `alef verify` reports them as stale forever.
+                    let sweep_root = if registry {
+                        base_dir.join(&e2e_ref.registry.output)
+                    } else {
+                        base_dir.join(&e2e_ref.output)
+                    };
+                    pipeline::sweep_orphans(&[sweep_root], &path_set)?;
+
                     cache::write_stage_hash(cache_key, &stage_hash, &output_paths)?;
                     println!("Generated {count} e2e files");
                     Ok(())

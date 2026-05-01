@@ -12,7 +12,7 @@ pub use extract::extract;
 pub use format::format_generated;
 pub use generate::{
     diff_files, finalize_hashes, generate, generate_public_api, generate_stubs, normalize_content, readme, scaffold,
-    write_files, write_scaffold_files, write_scaffold_files_with_overwrite,
+    sweep_orphans, write_files, write_scaffold_files, write_scaffold_files_with_overwrite,
 };
 pub use helpers::init;
 pub use version::{set_version, sync_versions, verify_versions};
