@@ -223,10 +223,12 @@ fn render_mix_exs(
             format!("      {{:{dep_atom}, path: \"{pkg_path}\"}}")
         }
     };
-    let _ = writeln!(out, "{dep_line}");
     if has_http_tests {
-        let _ = writeln!(out, "      {{:req, \"{req}\"}}", req = tv::hex::REQ);
+        let _ = writeln!(out, "{dep_line},");
+        let _ = writeln!(out, "      {{:req, \"{req}\"}},", req = tv::hex::REQ);
         let _ = writeln!(out, "      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON);
+    } else {
+        let _ = writeln!(out, "{dep_line}");
     }
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  end");

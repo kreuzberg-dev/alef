@@ -70,6 +70,7 @@ impl E2eCodegen for KotlinE2eCodegen {
             .as_ref()
             .and_then(|p| p.version.as_ref())
             .cloned()
+            .or_else(|| alef_config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
         let kotlin_pkg_id = alef_config.kotlin_package();
 
