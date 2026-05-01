@@ -772,8 +772,16 @@ fn apply_core_wrapper_from_core(
             // Always emit val.{name}.into_owned() regardless of what the base conversion emits.
             // This handles both the normal path (base = "name: val.name") and the sanitized path
             // (base = "name: format!(\"{:?}\", val.name)") which produces debug-escaped strings.
+            // When the binding has been optionalized (e.g. NAPI default-optional fields), the
+            // upstream pass already wrapped the conversion in Some(...) — preserve that wrap.
+            let prefix = format!("{name}: ");
+            let already_some_wrapped = conversion
+                .strip_prefix(&prefix)
+                .is_some_and(|expr| expr.starts_with("Some("));
             if optional {
                 format!("{name}: val.{name}.as_ref().map(|v| v.to_string())")
+            } else if already_some_wrapped {
+                format!("{name}: Some(val.{name}.to_string())")
             } else {
                 format!("{name}: val.{name}.to_string()")
             }

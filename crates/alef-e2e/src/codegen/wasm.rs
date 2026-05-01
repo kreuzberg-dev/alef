@@ -92,6 +92,30 @@ impl E2eCodegen for WasmCodegen {
                 .fixtures
                 .iter()
                 .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
+                // Wasm e2e is HTTP-only — drop non-HTTP fixtures entirely.
+                // Without this, render_http_test_case emits nothing per fixture
+                // and we end up with an empty `describe(...)` block, which vitest
+                // treats as a test-file failure.
+                .filter(|f| f.http.is_some())
+                // Node fetch (undici) rejects pre-set Content-Length that doesn't
+                // match the real body length — skip fixtures designed to send a
+                // mismatched header.
+                .filter(|f| {
+                    f.http.as_ref().is_none_or(|h| {
+                        !h.request
+                            .headers
+                            .iter()
+                            .any(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+                    })
+                })
+                // Node fetch only supports a fixed set of HTTP methods; TRACE and
+                // CONNECT throw at the runtime level before reaching the server.
+                .filter(|f| {
+                    f.http.as_ref().is_none_or(|h| {
+                        let m = h.request.method.to_ascii_uppercase();
+                        m != "TRACE" && m != "CONNECT"
+                    })
+                })
                 .collect();
 
             if active.is_empty() {

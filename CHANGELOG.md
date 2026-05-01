@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(template-versions): `ENVOY_VERSION_RANGE` for the `envoy` Hex package — used by gleam e2e tests to read `MOCK_SERVER_URL` since neither `gleam_stdlib` nor `gleam_erlang` expose env-var access.
+- feat(e2e/gleam): inject `gleam_http` as a direct dep and emit `import gleam/result` so generated tests can compile under gleam_stdlib >= 1.0.
+
+### Fixed
+
+- fix(codegen/conversions): preserve `Some(...)` wrap when the binding optionalizes a non-optional core field of type `Cow<'_, str>` (e.g. NAPI `optionalize_defaults`); previously the Cow `to_string()` branch dropped the upstream `Some(...)` wrap, producing `String` where `Option<String>` was required and breaking compile of NAPI bindings whose core type holds `Cow<'static, str>` (`ArchiveMetadata.format`, `ExtractionResult.mime_type`)
+- fix(e2e/wasm): drop non-HTTP fixtures, fixtures with a literal `Content-Length` header, and fixtures using TRACE/CONNECT before code generation; node `fetch` (undici) rejects pre-set Content-Length and disallows TRACE/CONNECT, and empty `describe(...)` blocks fail vitest
+
+- fix(e2e/elixir): emit a `@tag :skip` ExUnit test for non-HTTP non-`mock_response` fixtures (AsyncAPI, WebSocket, OpenRPC schema-only) so generated suites compile without referencing a non-existent binding `handle_request`/`handle_request_async` callable.
+- fix(e2e/elixir): drop `content-encoding` and `connection` from generated header assertions — Req auto-decompresses gzip/brotli responses and strips the encoding header, and `connection` is a hop-by-hop header stripped by the response pipeline.
+- fix(e2e/gleam): import `gleam/httpc` (not the package name `gleam_httpc`) and call `httpc.send/1`; the previous import path produced "unknown module" errors at compile time.
+- fix(e2e/gleam): replace `gleam/os.get_env` (removed from gleam_stdlib >= 1.0) with `envoy.get/1` for `MOCK_SERVER_URL` lookup.
+- fix(e2e/gleam): annotate the `list.find` predicate with `fn(h: #(String, String))` so the gleam type checker can resolve tuple field access on `resp.headers`.
+- fix(e2e/gleam): use `result.is_ok` (not `option.is_some`) for header-presence assertions — `list.find` returns `Result(a, Nil)`, not an Option.
+- fix(e2e/gleam): strip leading underscores/digits from HTTP test function names so numeric-prefixed fixture IDs (`13_json_with_charset_utf16`) produce valid gleam identifiers.
+- fix(e2e/gleam): always emit the `e2e_gleam_test.gleam` entry module so `gleam test` discovers the per-category test files.
+- fix(e2e/gleam): drop WebSocket-upgrade fixtures (request advertises `Upgrade: websocket`) — gleam_httpc cannot follow HTTP/1.1 protocol upgrades and errors with `ResponseTimeout`.
+- fix(e2e/wasm): drop non-HTTP fixtures, fixtures with a pre-set `Content-Length` header, and fixtures using `TRACE`/`CONNECT` methods — node's undici fetch rejects the first two and refuses to dispatch the latter.
+
 ## [0.12.16] - 2026-05-01
 
 ### Added
