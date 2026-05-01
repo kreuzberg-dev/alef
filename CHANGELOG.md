@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - fix(backend-magnus): use variadic arity (-1) with `scan_args` for free functions that have optional or promoted parameters; previously such functions were registered with a fixed arity equal to the total parameter count, causing Ruby callers that omit trailing optional arguments to get an argument count error
+- fix(e2e/ruby): emit `nil` placeholder for skipped optional positional args when a later arg is present; previously omitting an optional String arg before a json_object arg produced a 2-arg call where the config object landed in the string slot, causing a `TypeError: no implicit conversion` runtime error
 - fix(e2e/elixir): add kreuzberg path dep and rustler direct dep to generated mix.exs so NIF force-build works in e2e tests
 - fix(backend-extendr): derive R wrapper output path as packages/r/R/ instead of packages/r/src/rust/src/
 - fix(scaffold/r): include `<R_ext/Visibility.h>` in generated entrypoint.c to define `attribute_visible`
