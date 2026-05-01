@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e/ruby): use title-cased `Net::HTTP` request class names (`Delete`, `Head`, `Patch`, `Put`) instead of all-caps variants that don't exist in Ruby's stdlib; skip `content-encoding` header assertions; handle plain-string and empty bodies correctly; skip HTTP 101 WebSocket upgrade tests; emit `skip` stubs for non-HTTP fixtures (WebSocket, SSE) that cannot be tested via Net::HTTP; avoid `JSON.parse(nil)` on 204 No Content responses; deduplicate `Content-Type` header when body is already set.
+- fix(backend-magnus): use `.to_vec()` instead of `.into()` when wrapping `&Bytes` return values from non-opaque struct methods; `Vec<u8>: From<&Bytes>` is not implemented so `.into()` failed to compile for methods like `as_bytes()` on `UploadFile`.
+
 ## [0.12.13] - 2026-05-01
 
 ### Fixed
