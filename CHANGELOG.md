@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.12] - 2026-05-01
+
 ### Fixed
 
 - fix(codegen/binding_helpers): apply `k.into()` to Map keys in `gen_lossy_binding_to_core_fields` so the binding-side `is_empty()` helper round-trips wrapped string keys (`Cow`, `Box<str>`, `Arc<str>`) correctly. Previously the helper emitted `(k, …)` directly, which broke when the core key type was `AHashMap<Cow<'static, str>, Value>`.
