@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-05-01
+
+### Changed (BREAKING)
+
+- feat(publish/php): `alef publish package --lang php` now produces PIE-conventional archives.
+  Filename: `php_{ext}-{ver}_php{phpVer}-{arch}-{os}-{libc}-{ts}.tgz` (Unix) /
+  `php_{ext}-{ver}-{phpVer}-{ts}-{compiler}-{arch}.zip` (Windows).
+  Archive contains only `{ext_name}.so`/`.dll` at the archive root — no `composer.json`,
+  `pie.json`, `INSTALL.md`, or `ext/` subdirectory. Requires new flags:
+  `--php-version` (required), `--php-ts` (default `nts`), `--php-libc` (auto-detected),
+  `--windows-compiler` (required on Windows targets). A SHA-256 sidecar
+  `{archive}.sha256` is always written alongside the archive.
+
 ### Added
 
 - feat(template-versions): `ENVOY_VERSION_RANGE` for the `envoy` Hex package — used by gleam e2e tests to read `MOCK_SERVER_URL` since neither `gleam_stdlib` nor `gleam_erlang` expose env-var access.

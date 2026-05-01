@@ -329,6 +329,18 @@ enum PublishAction {
         /// Show what would be packaged without executing.
         #[arg(long)]
         dry_run: bool,
+        /// PHP minor version (e.g. "8.5"). Required when --lang php.
+        #[arg(long)]
+        php_version: Option<String>,
+        /// PHP thread-safety mode: "nts" or "ts". Defaults to "nts".
+        #[arg(long, default_value = "nts")]
+        php_ts: String,
+        /// Linux libc override: "glibc" or "musl". Auto-detected from target triple if absent.
+        #[arg(long)]
+        php_libc: Option<String>,
+        /// Windows compiler tag (e.g. "vs16", "vs17"). Required when target OS is windows and --lang php.
+        #[arg(long)]
+        windows_compiler: Option<String>,
     },
     /// Validate that all package manifests are consistent and ready for publishing.
     Validate,
@@ -1247,6 +1259,10 @@ fn main() -> Result<()> {
                     output,
                     version,
                     dry_run,
+                    php_version,
+                    php_ts,
+                    php_libc,
+                    windows_compiler,
                 } => {
                     let languages = resolve_languages(&config, lang.as_deref())?;
                     let rust_target = target
@@ -1257,12 +1273,46 @@ fn main() -> Result<()> {
                         .or_else(|| config.resolved_version())
                         .context("could not determine version — set --version or version_from in alef.toml")?;
                     let output_dir = std::path::Path::new(&output);
+
+                    // Build PHP-specific options when any PHP language is in the list.
+                    let needs_php = languages.contains(&alef_core::config::Language::Php);
+                    let pie_opts: Option<alef_publish::package::php::PiePackageOptions<'_>> = if needs_php {
+                        let php_ver = php_version
+                            .as_deref()
+                            .context("--php-version is required when packaging --lang php")?;
+                        let ts_mode = alef_publish::package::php::TsMode::parse(&php_ts)?;
+                        // Validate: Windows target requires --windows-compiler.
+                        if let Some(ref rt) = rust_target {
+                            if rt.os == alef_publish::platform::Os::Windows && windows_compiler.is_none() {
+                                anyhow::bail!("--windows-compiler is required when packaging PHP for a Windows target");
+                            }
+                        }
+                        Some(alef_publish::package::php::PiePackageOptions {
+                            php_version: php_ver,
+                            ts_mode,
+                            libc_override: php_libc.as_deref(),
+                            windows_compiler: windows_compiler.as_deref(),
+                        })
+                    } else {
+                        None
+                    };
+
+                    let pkg_options = alef_publish::PackageOptions { php: pie_opts };
+
                     eprintln!(
                         "Packaging {} (v{ver}) for: {}",
                         output_dir.display(),
                         format_languages(&languages)
                     );
-                    alef_publish::package(&config, &languages, rust_target.as_ref(), output_dir, &ver, dry_run)?;
+                    alef_publish::package(
+                        &config,
+                        &languages,
+                        rust_target.as_ref(),
+                        output_dir,
+                        &ver,
+                        dry_run,
+                        &pkg_options,
+                    )?;
                     println!("Package complete");
                     Ok(())
                 }

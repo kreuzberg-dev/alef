@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "alef-adapters"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-core",
@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-csharp"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-adapters",
  "alef-codegen",
@@ -53,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-dart"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-codegen",
  "alef-core",
@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-extendr"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-ffi"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -90,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-gleam"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-codegen",
@@ -104,7 +104,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-go"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-adapters",
  "alef-codegen",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-java"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-kotlin"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-codegen",
  "alef-core",
@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-magnus"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -150,7 +150,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-napi"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-php"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-pyo3"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-rustler"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -197,7 +197,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-swift"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-codegen",
  "alef-core",
@@ -209,7 +209,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-wasm"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-adapters",
@@ -221,7 +221,7 @@ dependencies = [
 
 [[package]]
 name = "alef-backend-zig"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-codegen",
  "alef-core",
@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "alef-cli"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-backend-csharp",
@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "alef-codegen"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-core",
@@ -286,7 +286,7 @@ dependencies = [
 
 [[package]]
 name = "alef-core"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "alef-docs"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-core",
  "anyhow",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "alef-e2e"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-codegen",
  "alef-core",
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "alef-extract"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "ahash",
  "alef-core",
@@ -340,21 +340,23 @@ dependencies = [
 
 [[package]]
 name = "alef-publish"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-core",
  "alef-scaffold",
  "anyhow",
  "serde_json",
+ "sha2",
  "tempfile",
  "toml",
  "toml_edit",
  "tracing",
+ "zip",
 ]
 
 [[package]]
 name = "alef-readme"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-core",
  "anyhow",
@@ -366,7 +368,7 @@ dependencies = [
 
 [[package]]
 name = "alef-scaffold"
-version = "0.12.16"
+version = "0.13.0"
 dependencies = [
  "alef-core",
  "anyhow",
@@ -450,6 +452,15 @@ name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+
+[[package]]
+name = "arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
+dependencies = [
+ "derive_arbitrary",
+]
 
 [[package]]
 name = "arrayref"
@@ -800,6 +811,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 dependencies = [
  "powerfmt",
+]
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -2832,7 +2854,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "zip"
+version = "2.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fabe6324e908f85a1c52063ce7aa26b68dcb7eb6dbc83a2d148403c9bc3eba50"
+dependencies = [
+ "arbitrary",
+ "crc32fast",
+ "crossbeam-utils",
+ "displaydoc",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "thiserror",
+ "zopfli",
+]
+
+[[package]]
 name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[package]]
+name = "zopfli"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f05cd8797d63865425ff89b5c4a48804f35ba0ce8d125800027ad6017d2b5249"
+dependencies = [
+ "bumpalo",
+ "crc32fast",
+ "log",
+ "simd-adler32",
+]
