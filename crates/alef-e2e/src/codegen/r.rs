@@ -258,6 +258,137 @@ fn render_assertion(
     result_is_simple: bool,
     _e2e_config: &E2eConfig,
 ) {
+    // Handle synthetic / derived fields before the is_valid_for_result check
+    // so they are never treated as struct attribute accesses on the result.
+    if let Some(f) = &assertion.field {
+        match f.as_str() {
+            "chunks_have_content" => {
+                let pred = format!("all(sapply({result_var}$chunks %||% list(), function(c) nchar(c$content) > 0))");
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "  expect_true({pred})");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "  expect_false({pred})");
+                    }
+                    _ => {
+                        let _ = writeln!(out, "  # skipped: unsupported assertion type on synthetic field '{f}'");
+                    }
+                }
+                return;
+            }
+            "chunks_have_embeddings" => {
+                let pred = format!(
+                    "all(sapply({result_var}$chunks %||% list(), function(c) !is.null(c$embedding) && length(c$embedding) > 0))"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "  expect_true({pred})");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "  expect_false({pred})");
+                    }
+                    _ => {
+                        let _ = writeln!(out, "  # skipped: unsupported assertion type on synthetic field '{f}'");
+                    }
+                }
+                return;
+            }
+            // ---- EmbedResponse virtual fields ----
+            // embed_texts returns list of numeric vectors in R — no wrapper object.
+            // result_var is the embedding matrix; use it directly.
+            "embeddings" => {
+                match assertion.assertion_type.as_str() {
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let r_val = json_to_r(val, false);
+                            let _ = writeln!(out, "  expect_equal(length({result_var}), {r_val})");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let r_val = json_to_r(val, false);
+                            let _ = writeln!(out, "  expect_gte(length({result_var}), {r_val})");
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(out, "  expect_gt(length({result_var}), 0)");
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(out, "  expect_equal(length({result_var}), 0)");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "  # skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embedding_dimensions" => {
+                let expr = format!("(if (length({result_var}) == 0) 0L else length({result_var}[[1]]))");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let r_val = json_to_r(val, false);
+                            let _ = writeln!(out, "  expect_equal({expr}, {r_val})");
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let r_val = json_to_r(val, false);
+                            let _ = writeln!(out, "  expect_gt({expr}, {r_val})");
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "  # skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                let pred = match f.as_str() {
+                    "embeddings_valid" => {
+                        format!("all(sapply({result_var}, function(e) length(e) > 0))")
+                    }
+                    "embeddings_finite" => {
+                        format!("all(sapply({result_var}, function(e) all(is.finite(e))))")
+                    }
+                    "embeddings_non_zero" => {
+                        format!("all(sapply({result_var}, function(e) any(e != 0.0)))")
+                    }
+                    "embeddings_normalized" => {
+                        format!("all(sapply({result_var}, function(e) abs(sum(e * e) - 1.0) < 1e-3))")
+                    }
+                    _ => unreachable!(),
+                };
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "  expect_true({pred})");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "  expect_false({pred})");
+                    }
+                    _ => {
+                        let _ = writeln!(out, "  # skipped: unsupported assertion type on synthetic field '{f}'");
+                    }
+                }
+                return;
+            }
+            // ---- keywords / keywords_count ----
+            // R ExtractionResult does not expose extracted_keywords; skip.
+            "keywords" | "keywords_count" => {
+                let _ = writeln!(out, "  # skipped: field '{f}' not available on R ExtractionResult");
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {

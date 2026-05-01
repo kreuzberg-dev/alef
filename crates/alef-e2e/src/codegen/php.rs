@@ -889,6 +889,160 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
 ) {
+    // Handle synthetic / derived fields before the is_valid_for_result check
+    // so they are never treated as struct property accesses on the result.
+    if let Some(f) = &assertion.field {
+        match f.as_str() {
+            "chunks_have_content" => {
+                let pred = format!(
+                    "array_reduce(${result_var}->chunks ?? [], fn($carry, $c) => $carry && !empty($c->content), true)"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        $this->assertTrue({pred});");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        $this->assertFalse({pred});");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "chunks_have_embeddings" => {
+                let pred = format!(
+                    "array_reduce(${result_var}->chunks ?? [], fn($carry, $c) => $carry && !empty($c->embedding), true)"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        $this->assertTrue({pred});");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        $this->assertFalse({pred});");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- EmbedResponse virtual fields ----
+            // embed_texts returns array<array<float>> in PHP — no wrapper object.
+            // $result_var is the embedding matrix; use it directly.
+            "embeddings" => {
+                match assertion.assertion_type.as_str() {
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let php_val = json_to_php(val);
+                            let _ = writeln!(out, "        $this->assertCount({php_val}, ${result_var});");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let php_val = json_to_php(val);
+                            let _ = writeln!(
+                                out,
+                                "        $this->assertGreaterThanOrEqual({php_val}, count(${result_var}));"
+                            );
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(out, "        $this->assertNotEmpty(${result_var});");
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(out, "        $this->assertEmpty(${result_var});");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embedding_dimensions" => {
+                let expr = format!("(empty(${result_var}) ? 0 : count(${result_var}[0]))");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let php_val = json_to_php(val);
+                            let _ = writeln!(out, "        $this->assertEquals({php_val}, {expr});");
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let php_val = json_to_php(val);
+                            let _ = writeln!(out, "        $this->assertGreaterThan({php_val}, {expr});");
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                let pred = match f.as_str() {
+                    "embeddings_valid" => {
+                        format!("array_reduce(${result_var}, fn($carry, $e) => $carry && count($e) > 0, true)")
+                    }
+                    "embeddings_finite" => {
+                        format!(
+                            "array_reduce(${result_var}, fn($carry, $e) => $carry && array_reduce($e, fn($c, $v) => $c && is_finite($v), true), true)"
+                        )
+                    }
+                    "embeddings_non_zero" => {
+                        format!(
+                            "array_reduce(${result_var}, fn($carry, $e) => $carry && count(array_filter($e, fn($v) => $v !== 0.0)) > 0, true)"
+                        )
+                    }
+                    "embeddings_normalized" => {
+                        format!(
+                            "array_reduce(${result_var}, fn($carry, $e) => $carry && abs(array_sum(array_map(fn($v) => $v * $v, $e)) - 1.0) < 1e-3, true)"
+                        )
+                    }
+                    _ => unreachable!(),
+                };
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        $this->assertTrue({pred});");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        $this->assertFalse({pred});");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- keywords / keywords_count ----
+            // PHP ExtractionResult does not expose extracted_keywords; skip.
+            "keywords" | "keywords_count" => {
+                let _ = writeln!(
+                    out,
+                    "        // skipped: field '{f}' not available on PHP ExtractionResult"
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {

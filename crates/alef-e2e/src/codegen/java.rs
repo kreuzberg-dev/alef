@@ -6,7 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_java, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -313,7 +313,9 @@ fn render_test_file(
             !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
         })
     });
-    let needs_object_mapper = needs_object_mapper_for_options || needs_object_mapper_for_handle;
+    // HTTP fixtures always need ObjectMapper for JSON body comparison.
+    let has_http_fixtures = fixtures.iter().any(|f| f.http.is_some());
+    let needs_object_mapper = needs_object_mapper_for_options || needs_object_mapper_for_handle || has_http_fixtures;
 
     // Collect all options_type values used (class-level + per-fixture call overrides).
     let mut all_options_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -393,6 +395,153 @@ fn render_test_file(
     out
 }
 
+/// Render an HTTP server test method using java.net.http.HttpClient against MOCK_SERVER_URL.
+///
+/// The mock server registers each fixture at `/fixtures/<fixture_id>` and returns the
+/// pre-canned response. Tests send the correct HTTP method and headers to that endpoint.
+fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    let method_name = fixture.id.to_upper_camel_case();
+    let description = &fixture.description;
+    let request = &http.request;
+    let expected = &http.expected_response;
+    let method = request.method.to_uppercase();
+    let fixture_id = &fixture.id;
+    let expected_status = expected.status_code;
+
+    // Skip tests that expect a 101 Switching Protocols response — Java's HttpClient
+    // cannot handle protocol-switch responses and throws an EOFException.
+    if expected_status == 101 {
+        let _ = writeln!(out, "    @Test");
+        let _ = writeln!(out, "    void test{method_name}() {{");
+        let _ = writeln!(out, "        // {description}");
+        let _ = writeln!(
+            out,
+            "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"Skipped: Java HttpClient cannot handle 101 Switching Protocols responses\");"
+        );
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
+    let _ = writeln!(out, "    @Test");
+    let _ = writeln!(out, "    void test{method_name}() throws Exception {{");
+    let _ = writeln!(out, "        // {description}");
+    let _ = writeln!(out, "        String baseUrl = System.getenv(\"MOCK_SERVER_URL\");",);
+    let _ = writeln!(out, "        if (baseUrl == null) baseUrl = \"http://localhost:8080\";");
+
+    // The mock server serves each fixture at /fixtures/<fixture_id>.
+    // We send the correct HTTP method and headers to that endpoint.
+    let _ = writeln!(
+        out,
+        "        java.net.URI uri = java.net.URI.create(baseUrl + \"/fixtures/{fixture_id}\");"
+    );
+
+    // Build request.
+    let body_publisher = if let Some(body) = &request.body {
+        let json = serde_json::to_string(body).unwrap_or_default();
+        let escaped = escape_java(&json);
+        format!("java.net.http.HttpRequest.BodyPublishers.ofString(\"{escaped}\")")
+    } else {
+        "java.net.http.HttpRequest.BodyPublishers.noBody()".to_string()
+    };
+
+    let _ = writeln!(out, "        var builder = java.net.http.HttpRequest.newBuilder(uri)");
+    let _ = writeln!(out, "            .method(\"{method}\", {body_publisher});");
+
+    // Java's HttpClient restricts certain headers that cannot be set programmatically.
+    const JAVA_RESTRICTED_HEADERS: &[&str] = &["connection", "content-length", "expect", "host", "upgrade"];
+
+    // Add headers.
+    let content_type = request.content_type.as_deref().unwrap_or("application/json");
+    if request.body.is_some() {
+        let _ = writeln!(
+            out,
+            "        builder = builder.header(\"Content-Type\", \"{content_type}\");"
+        );
+    }
+    for (name, value) in &request.headers {
+        // Skip restricted headers — Java's HttpClient throws IllegalArgumentException for these.
+        if JAVA_RESTRICTED_HEADERS.contains(&name.to_lowercase().as_str()) {
+            continue;
+        }
+        let escaped_name = escape_java(name);
+        let escaped_value = escape_java(value);
+        let _ = writeln!(
+            out,
+            "        builder = builder.header(\"{escaped_name}\", \"{escaped_value}\");"
+        );
+    }
+
+    // Add cookies as Cookie header.
+    if !request.cookies.is_empty() {
+        let cookie_str: Vec<String> = request.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let cookie_header = escape_java(&cookie_str.join("; "));
+        let _ = writeln!(
+            out,
+            "        builder = builder.header(\"Cookie\", \"{cookie_header}\");"
+        );
+    }
+
+    let _ = writeln!(out, "        var response = java.net.http.HttpClient.newHttpClient()");
+    let _ = writeln!(
+        out,
+        "            .send(builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString());"
+    );
+
+    // Assert status code.
+    let _ = writeln!(
+        out,
+        "        assertEquals({expected_status}, response.statusCode(), \"status code mismatch\");"
+    );
+
+    // Assert body if expected.
+    if let Some(expected_body) = &expected.body {
+        match expected_body {
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                let json_str = serde_json::to_string(expected_body).unwrap_or_default();
+                let escaped = escape_java(&json_str);
+                let _ = writeln!(out, "        var bodyJson = MAPPER.readTree(response.body());");
+                let _ = writeln!(out, "        var expectedJson = MAPPER.readTree(\"{escaped}\");");
+                let _ = writeln!(out, "        assertEquals(expectedJson, bodyJson, \"body mismatch\");");
+            }
+            serde_json::Value::String(s) => {
+                let escaped = escape_java(s);
+                let _ = writeln!(
+                    out,
+                    "        assertEquals(\"{escaped}\", response.body().trim(), \"body mismatch\");"
+                );
+            }
+            other => {
+                let escaped = escape_java(&other.to_string());
+                let _ = writeln!(
+                    out,
+                    "        assertEquals(\"{escaped}\", response.body().trim(), \"body mismatch\");"
+                );
+            }
+        }
+    }
+
+    // Assert response headers if specified (skip special tokens and non-applicable headers).
+    for (name, value) in &expected.headers {
+        if value == "<<absent>>" || value == "<<present>>" || value == "<<uuid>>" {
+            // Skip special-token assertions for now.
+            continue;
+        }
+        // content-encoding is set by the real spikard server (compression middleware)
+        // but the mock server doesn't compress response bodies, so skip this assertion.
+        if name.to_lowercase() == "content-encoding" {
+            continue;
+        }
+        let escaped_name = escape_java(name);
+        let escaped_value = escape_java(value);
+        let _ = writeln!(
+            out,
+            "        assertTrue(response.headers().firstValue(\"{escaped_name}\").orElse(\"\").contains(\"{escaped_value}\"), \"header {escaped_name} mismatch\");"
+        );
+    }
+
+    let _ = writeln!(out, "    }}");
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_test_method(
     out: &mut String,
@@ -407,6 +556,12 @@ fn render_test_method(
     enum_fields: &HashSet<String>,
     e2e_config: &E2eConfig,
 ) {
+    // Delegate HTTP fixtures to the HTTP-specific renderer.
+    if let Some(http) = &fixture.http {
+        render_http_test_method(out, fixture, http);
+        return;
+    }
+
     // Resolve per-fixture call config (supports named calls via fixture.call field).
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let lang = "java";
@@ -425,16 +580,15 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    // The Java binding wraps a C FFI layer and does not expose a handleRequest or equivalent
-    // function that can be called from e2e tests.  Until Java-native HTTP integration tests
-    // are implemented, emit compilable stubs for all fixtures that don't use mock_response.
-    if fixture.mock_response.is_none() {
+    // Emit a compilable stub for non-HTTP fixtures that have no call override.
+    if call_overrides.is_none() {
         let _ = writeln!(out, "    @Test");
         let _ = writeln!(out, "    void test{method_name}() {{");
         let _ = writeln!(out, "        // {description}");
         let _ = writeln!(
             out,
-            "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"TODO: implement Java e2e tests via the spikard Java binding API\");"
+            "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"TODO: implement Java e2e test for fixture '{}'\");",
+            fixture.id
         );
         let _ = writeln!(out, "    }}");
         return;

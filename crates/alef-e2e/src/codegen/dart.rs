@@ -66,7 +66,8 @@ impl E2eCodegen for DartE2eCodegen {
                 "# Run test files sequentially to avoid overwhelming the mock server with\n",
                 "# concurrent keep-alive connections.\n",
                 "concurrency: 1\n",
-            ).to_string(),
+            )
+            .to_string(),
             generated_header: false,
         });
 
@@ -141,12 +142,7 @@ dev_dependencies:
     )
 }
 
-fn render_test_file(
-    category: &str,
-    fixtures: &[&Fixture],
-    e2e_config: &E2eConfig,
-    lang: &str,
-) -> String {
+fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfig, lang: &str) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
 
@@ -300,10 +296,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     // Determine effective content-type:
     // - If the fixture has an explicit Content-Type header, use that.
     // - Otherwise, if there's a body, default to application/json.
-    let has_explicit_content_type = request
-        .headers
-        .keys()
-        .any(|k| k.to_lowercase() == "content-type");
+    let has_explicit_content_type = request.headers.keys().any(|k| k.to_lowercase() == "content-type");
     let effective_content_type = if has_explicit_content_type {
         request
             .headers
@@ -321,15 +314,15 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     let escaped_method = escape_dart(&method);
     let is_redirect = expected_status / 100 == 3;
 
-    let _ = writeln!(out, "  test('{description}', () => _serialized(() => _withRetry(() async {{");
+    let _ = writeln!(
+        out,
+        "  test('{description}', () => _serialized(() => _withRetry(() async {{"
+    );
     let _ = writeln!(
         out,
         "    final baseUrl = Platform.environment['MOCK_SERVER_URL'] ?? 'http://localhost:8080';"
     );
-    let _ = writeln!(
-        out,
-        "    final uri = Uri.parse('$baseUrl/fixtures/{fixture_id}');"
-    );
+    let _ = writeln!(out, "    final uri = Uri.parse('$baseUrl/fixtures/{fixture_id}');");
 
     // Use the shared client (keep-alive connection reuse with retry on failure).
     let _ = writeln!(
@@ -355,18 +348,11 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
         }
         let escaped_name = escape_dart(&name.to_lowercase());
         let escaped_value = escape_dart(value);
-        let _ = writeln!(
-            out,
-            "    ioReq.headers.set('{escaped_name}', '{escaped_value}');"
-        );
+        let _ = writeln!(out, "    ioReq.headers.set('{escaped_name}', '{escaped_value}');");
     }
     // Add cookies.
     if !request.cookies.is_empty() {
-        let cookie_str: Vec<String> = request
-            .cookies
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect();
+        let cookie_str: Vec<String> = request.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
         let cookie_header = escape_dart(&cookie_str.join("; "));
         let _ = writeln!(out, "    ioReq.headers.set('cookie', '{cookie_header}');");
     }
@@ -375,10 +361,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     if has_body {
         let json_str = serde_json::to_string(&request.body).unwrap_or_default();
         let escaped = escape_dart(&json_str);
-        let _ = writeln!(
-            out,
-            "    final bodyBytes = utf8.encode('{escaped}');"
-        );
+        let _ = writeln!(out, "    final bodyBytes = utf8.encode('{escaped}');");
         let _ = writeln!(out, "    ioReq.add(bodyBytes);");
     }
 
@@ -391,10 +374,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture, http: &HttpFixture
     // Always drain the response body to allow the server to cleanly close the connection.
     // This prevents RST packets that corrupt subsequent requests.
     let needs_body_read = !is_redirect && expected.body.is_some();
-    let _ = writeln!(
-        out,
-        "    final bodyStr = await ioResp.transform(utf8.decoder).join();"
-    );
+    let _ = writeln!(out, "    final bodyStr = await ioResp.transform(utf8.decoder).join();");
 
     // Assert body if expected (not for redirects — body is empty).
     if needs_body_read {

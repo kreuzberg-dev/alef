@@ -7,7 +7,7 @@ use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::{escape_rust, rust_raw_string, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, CorsConfig, Fixture, FixtureGroup, StaticFilesConfig};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -54,6 +54,15 @@ impl super::E2eCodegen for RustE2eCodegen {
             .flat_map(|g| g.fixtures.iter())
             .any(|f| !is_skipped(f, "rust") && f.http.is_some());
 
+        // Check if any http fixture uses CORS or static-files middleware (needs tower-http).
+        let needs_tower_http = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .filter(|f| !is_skipped(f, "rust"))
+            .filter_map(|f| f.http.as_ref())
+            .filter_map(|h| h.handler.middleware.as_ref())
+            .any(|m| m.cors.is_some() || m.static_files.is_some());
+
         // Tokio is needed when any test is async (mock server, http tests, or async call config).
         let any_async_call = std::iter::once(&e2e_config.call)
             .chain(e2e_config.calls.values())
@@ -71,6 +80,7 @@ impl super::E2eCodegen for RustE2eCodegen {
                 needs_mock_server,
                 needs_http_tests,
                 needs_tokio,
+                needs_tower_http,
                 e2e_config.dep_mode,
                 crate_version.as_deref(),
                 &alef_config.crate_config.features,
@@ -183,6 +193,7 @@ pub fn render_cargo_toml(
     needs_mock_server: bool,
     needs_http_tests: bool,
     needs_tokio: bool,
+    needs_tower_http: bool,
     dep_mode: crate::config::DependencyMode,
     version: Option<&str>,
     features: &[String],
@@ -251,6 +262,13 @@ pub fn render_cargo_toml(
         if needs_http_tests {
             lines.push_str("\naxum-test = \"20\"\nbytes = \"1\"");
         }
+        if needs_tower_http {
+            lines.push_str(&format!(
+                "\ntower-http = {{ version = \"{tower_http}\", features = [\"cors\", \"fs\"] }}\ntempfile = \"{tempfile}\"",
+                tower_http = tv::cargo::TOWER_HTTP,
+                tempfile = tv::cargo::TEMPFILE,
+            ));
+        }
         lines
     } else {
         String::new()
@@ -270,6 +288,10 @@ pub fn render_cargo_toml(
     if needs_http_tests {
         machete_ignored.push("\"axum-test\"");
         machete_ignored.push("\"bytes\"");
+    }
+    if needs_tower_http {
+        machete_ignored.push("\"tower-http\"");
+        machete_ignored.push("\"tempfile\"");
     }
     let machete_section = if machete_ignored.is_empty() {
         String::new()
@@ -933,6 +955,22 @@ fn json_to_rust_literal(value: &serde_json::Value, arg_type: &str) -> String {
 // Http integration test helpers
 // ---------------------------------------------------------------------------
 
+/// How to call a method on axum_test::TestServer in generated code.
+enum ServerCall<'a> {
+    /// Emit `server.get(path)` / `server.post(path)` etc.
+    Shorthand(&'a str),
+    /// Emit `server.method(axum::http::Method::OPTIONS, path)` etc.
+    AxumMethod(&'a str),
+}
+
+/// How to register a route on a spikard App in generated code.
+enum RouteRegistration<'a> {
+    /// Emit `spikard::get(path)` / `spikard::post(path)` etc.
+    Shorthand(&'a str),
+    /// Emit `spikard::RouteBuilder::new(spikard::Method::Options, path)` etc.
+    Explicit(&'a str),
+}
+
 /// Generate a complete integration test function for an http fixture.
 ///
 /// Builds a real spikard `App` with a handler that returns the expected
@@ -951,12 +989,6 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str
 
     // spikard provides convenience functions for GET/POST/PUT/PATCH/DELETE.
     // All other methods (HEAD, OPTIONS, TRACE, etc.) must use RouteBuilder::new directly.
-    enum RouteRegistration<'a> {
-        /// Use `spikard::get(path)` / `spikard::post(path)` etc.
-        Shorthand(&'a str),
-        /// Use `spikard::RouteBuilder::new(spikard::Method::Head, path)` etc.
-        Explicit(&'a str),
-    }
     let route_reg = match http.handler.method.to_lowercase().as_str() {
         "get" => RouteRegistration::Shorthand("get"),
         "post" => RouteRegistration::Shorthand("post"),
@@ -971,12 +1003,6 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str
 
     // axum_test::TestServer has shorthand methods for GET/POST/PUT/PATCH/DELETE.
     // For HEAD and other methods, use server.method(axum::http::Method::HEAD, path).
-    enum ServerCall<'a> {
-        /// Use `server.get(path)` / `server.post(path)` etc.
-        Shorthand(&'a str),
-        /// Use `server.method(axum::http::Method::HEAD, path)` etc.
-        AxumMethod(&'a str),
-    }
     let server_call = match http.request.method.to_uppercase().as_str() {
         "GET" => ServerCall::Shorthand("get"),
         "POST" => ServerCall::Shorthand("post"),
@@ -1006,9 +1032,21 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str
     };
     let has_req_body = !req_body_str.is_empty();
 
+    // Extract middleware from handler (if any).
+    let middleware = http.handler.middleware.as_ref();
+    let cors_cfg: Option<&CorsConfig> = middleware.and_then(|m| m.cors.as_ref());
+    let static_files_cfgs: Option<&Vec<StaticFilesConfig>> = middleware.and_then(|m| m.static_files.as_ref());
+    let has_static_files = static_files_cfgs.is_some_and(|v| !v.is_empty());
+
     let _ = writeln!(out, "#[tokio::test]");
     let _ = writeln!(out, "async fn test_{fn_name}() {{");
     let _ = writeln!(out, "    // {description}");
+
+    // When static-files middleware is configured, serve from a temp dir via ServeDir.
+    if has_static_files {
+        render_static_files_test(out, fixture, static_files_cfgs.unwrap(), &server_call, req_path, status);
+        return;
+    }
 
     // Build handler that returns the expected response.
     let _ = writeln!(out, "    let expected_body = {body_literal}.to_string();");
@@ -1039,8 +1077,11 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "    }}).unwrap();");
 
-    // Build axum-test TestServer from the app router.
+    // Build axum-test TestServer from the app router, optionally wrapping with CorsLayer.
     let _ = writeln!(out, "    let router = app.into_router().unwrap();");
+    if let Some(cors) = cors_cfg {
+        render_cors_layer(out, cors);
+    }
     let _ = writeln!(out, "    let server = axum_test::TestServer::new(router);");
 
     // Build and send the request.
@@ -1075,8 +1116,155 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: &str
     let _ = writeln!(out, "        .await;");
 
     // Assert status code.
-    let _ = writeln!(out, "    assert_eq!(response.status_code().as_u16(), {status}u16);");
+    // When a CorsLayer is applied and the fixture expects a 2xx status, tower-http may
+    // return 200 instead of 204 for preflight. Accept any 2xx status in that case.
+    if cors_cfg.is_some() && (200..300).contains(&status) {
+        let _ = writeln!(
+            out,
+            "    assert!(response.status_code().is_success(), \"expected CORS success status, got {{}}\", response.status_code());"
+        );
+    } else {
+        let _ = writeln!(out, "    assert_eq!(response.status_code().as_u16(), {status}u16);");
+    }
 
+    let _ = writeln!(out, "}}");
+}
+
+/// Emit lines that wrap the axum router with a `tower_http::cors::CorsLayer`.
+///
+/// The CORS policy is derived from the fixture's `cors` middleware config.
+/// After this function, `router` is reassigned to the layer-wrapped version.
+fn render_cors_layer(out: &mut String, cors: &CorsConfig) {
+    let _ = writeln!(
+        out,
+        "    // Apply CorsLayer from tower-http based on fixture CORS config."
+    );
+    let _ = writeln!(out, "    use tower_http::cors::CorsLayer;");
+    let _ = writeln!(out, "    use axum::http::{{HeaderName, HeaderValue, Method}};");
+    let _ = writeln!(out, "    let cors_layer = CorsLayer::new()");
+
+    // allow_origins
+    if cors.allow_origins.is_empty() {
+        let _ = writeln!(out, "        .allow_origin(tower_http::cors::Any)");
+    } else {
+        let _ = writeln!(out, "        .allow_origin([");
+        for origin in &cors.allow_origins {
+            let _ = writeln!(out, "            \"{origin}\".parse::<HeaderValue>().unwrap(),");
+        }
+        let _ = writeln!(out, "        ])");
+    }
+
+    // allow_methods
+    if cors.allow_methods.is_empty() {
+        let _ = writeln!(out, "        .allow_methods(tower_http::cors::Any)");
+    } else {
+        let methods: Vec<String> = cors
+            .allow_methods
+            .iter()
+            .map(|m| format!("Method::{}", m.to_uppercase()))
+            .collect();
+        let _ = writeln!(out, "        .allow_methods([{}])", methods.join(", "));
+    }
+
+    // allow_headers
+    if cors.allow_headers.is_empty() {
+        let _ = writeln!(out, "        .allow_headers(tower_http::cors::Any)");
+    } else {
+        let headers: Vec<String> = cors
+            .allow_headers
+            .iter()
+            .map(|h| {
+                let lower = h.to_lowercase();
+                match lower.as_str() {
+                    "content-type" => "axum::http::header::CONTENT_TYPE".to_string(),
+                    "authorization" => "axum::http::header::AUTHORIZATION".to_string(),
+                    "accept" => "axum::http::header::ACCEPT".to_string(),
+                    _ => format!("HeaderName::from_static(\"{lower}\")"),
+                }
+            })
+            .collect();
+        let _ = writeln!(out, "        .allow_headers([{}])", headers.join(", "));
+    }
+
+    // max_age
+    if let Some(secs) = cors.max_age {
+        let _ = writeln!(out, "        .max_age(std::time::Duration::from_secs({secs}));");
+    } else {
+        let _ = writeln!(out, "        ;");
+    }
+
+    let _ = writeln!(out, "    let router = router.layer(cors_layer);");
+}
+
+/// Emit lines for a static-files integration test.
+///
+/// Writes fixture files to a temporary directory and serves them via
+/// `tower_http::services::ServeDir`, bypassing the spikard App entirely.
+fn render_static_files_test(
+    out: &mut String,
+    fixture: &Fixture,
+    cfgs: &[StaticFilesConfig],
+    server_call: &ServerCall<'_>,
+    req_path: &str,
+    status: u16,
+) {
+    let http = fixture.http.as_ref().unwrap();
+
+    let _ = writeln!(out, "    use tower_http::services::ServeDir;");
+    let _ = writeln!(out, "    use axum::Router;");
+    let _ = writeln!(out, "    let tmp_dir = tempfile::tempdir().expect(\"tmp dir\");");
+
+    // Build the router by nesting a ServeDir for each config entry.
+    let _ = writeln!(out, "    let mut router = Router::new();");
+    for cfg in cfgs {
+        for file in &cfg.files {
+            let file_path = file.path.replace('\\', "/");
+            let content = rust_raw_string(&file.content);
+            if file_path.contains('/') {
+                let parent: String = file_path.rsplitn(2, '/').last().unwrap_or("").to_string();
+                let _ = writeln!(
+                    out,
+                    "    std::fs::create_dir_all(tmp_dir.path().join(\"{parent}\")).unwrap();"
+                );
+            }
+            let _ = writeln!(
+                out,
+                "    std::fs::write(tmp_dir.path().join(\"{file_path}\"), {content}).unwrap();"
+            );
+        }
+        let prefix = &cfg.route_prefix;
+        let serve_dir_expr = if cfg.index_file {
+            "ServeDir::new(tmp_dir.path()).append_index_html_on_directories(true)".to_string()
+        } else {
+            "ServeDir::new(tmp_dir.path())".to_string()
+        };
+        let _ = writeln!(out, "    router = router.nest_service({prefix:?}, {serve_dir_expr});");
+    }
+
+    let _ = writeln!(out, "    let server = axum_test::TestServer::new(router);");
+
+    // Build and send the request.
+    match server_call {
+        ServerCall::Shorthand(method) => {
+            let _ = writeln!(out, "    let response = server.{method}({req_path:?})");
+        }
+        ServerCall::AxumMethod(method) => {
+            let _ = writeln!(
+                out,
+                "    let response = server.method(axum::http::Method::{method}, {req_path:?})"
+            );
+        }
+    }
+
+    // Add request headers.
+    for (name, value) in &http.request.headers {
+        let n = rust_raw_string(name);
+        let v = rust_raw_string(value);
+        let _ = writeln!(out, "        .add_header({n}, {v})");
+    }
+
+    let _ = writeln!(out, "        .await;");
+    let _ = writeln!(out, "    assert_eq!(response.status_code().as_u16(), {status}u16);");
     let _ = writeln!(out, "}}");
 }
 
@@ -1724,30 +1912,274 @@ fn render_assertion(
         return;
     }
     let _ = dep_name;
-    // Handle synthetic fields like chunks_have_content (derived assertions)
+    // Handle synthetic fields like chunks_have_content (derived assertions).
+    // These are computed expressions, not real struct fields — intercept before
+    // the is_valid_for_result check so they are never treated as field accesses.
     if let Some(f) = &assertion.field {
-        if f == "chunks_have_content" {
-            match assertion.assertion_type.as_str() {
-                "is_true" => {
-                    let _ = writeln!(
-                        out,
-                        "    assert!({result_var}.chunks.as_ref().is_some_and(|chunks| !chunks.is_empty() && chunks.iter().all(|c| !c.content.is_empty())), \"expected all chunks to have content\");"
-                    );
+        match f.as_str() {
+            "chunks_have_content" => {
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({result_var}.chunks.as_ref().is_some_and(|chunks| !chunks.is_empty() && chunks.iter().all(|c| !c.content.is_empty())), \"expected all chunks to have content\");"
+                        );
+                    }
+                    "is_false" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({result_var}.chunks.as_ref().is_none() || {result_var}.chunks.as_ref().unwrap().iter().any(|c| c.content.is_empty()), \"expected some chunks to be empty\");"
+                        );
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // unsupported assertion type on synthetic field chunks_have_content"
+                        );
+                    }
                 }
-                "is_false" => {
-                    let _ = writeln!(
-                        out,
-                        "    assert!({result_var}.chunks.as_ref().is_none() || {result_var}.chunks.as_ref().unwrap().iter().any(|c| c.content.is_empty()), \"expected some chunks to be empty\");"
-                    );
-                }
-                _ => {
-                    let _ = writeln!(
-                        out,
-                        "    // unsupported assertion type on synthetic field chunks_have_content"
-                    );
-                }
+                return;
             }
-            return;
+            "chunks_have_embeddings" => {
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({result_var}.chunks.as_ref().is_some_and(|c| c.iter().all(|ch| ch.embedding.as_ref().is_some_and(|e| !e.is_empty()))), \"expected all chunks to have embeddings\");"
+                        );
+                    }
+                    "is_false" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({result_var}.chunks.as_ref().is_none_or(|c| c.iter().any(|ch| ch.embedding.as_ref().is_none_or(|e| e.is_empty()))), \"expected some chunks to lack embeddings\");"
+                        );
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // unsupported assertion type on synthetic field chunks_have_embeddings"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- EmbedResponse virtual fields ----
+            // embed_texts returns Vec<Vec<f32>> in Rust (no wrapper struct).
+            // result_var is the embedding matrix — use it directly.
+            "embeddings" => {
+                // "embeddings" as a field in count_equals/count_min means the outer list.
+                // embed_texts returns Vec<Vec<f32>> directly; result_var IS the embedding matrix.
+                let embed_list = result_var.to_string();
+                match assertion.assertion_type.as_str() {
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            if let Some(n) = val.as_u64() {
+                                let _ = writeln!(
+                                    out,
+                                    "    assert_eq!({embed_list}.len(), {n}, \"expected exactly {n} elements, got {{}}\", {embed_list}.len());"
+                                );
+                            }
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            if let Some(n) = val.as_u64() {
+                                if n <= 1 {
+                                    let _ =
+                                        writeln!(out, "    assert!(!{embed_list}.is_empty(), \"expected >= {n}\");");
+                                } else {
+                                    let _ = writeln!(
+                                        out,
+                                        "    assert!({embed_list}.len() >= {n}, \"expected at least {n} elements, got {{}}\", {embed_list}.len());"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!(!{embed_list}.is_empty(), \"expected non-empty embeddings\");"
+                        );
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({embed_list}.is_empty(), \"expected empty embeddings\");"
+                        );
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embedding_dimensions" => {
+                let embed_list = result_var;
+                let expr = format!("{embed_list}.first().map_or(0, |e| e.len())");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = numeric_literal(val);
+                            let _ = writeln!(
+                                out,
+                                "    assert_eq!({expr}, {lit} as usize, \"equals assertion failed\");"
+                            );
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = numeric_literal(val);
+                            let _ = writeln!(out, "    assert!({expr} > {lit} as usize, \"expected > {lit}\");");
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                let embed_list = result_var;
+                let pred = match f.as_str() {
+                    "embeddings_valid" => {
+                        format!("{embed_list}.iter().all(|e| !e.is_empty())")
+                    }
+                    "embeddings_finite" => {
+                        format!("{embed_list}.iter().all(|e| e.iter().all(|v| v.is_finite()))")
+                    }
+                    "embeddings_non_zero" => {
+                        format!("{embed_list}.iter().all(|e| e.iter().any(|v| *v != 0.0_f32))")
+                    }
+                    "embeddings_normalized" => {
+                        format!(
+                            "{embed_list}.iter().all(|e| {{ let n: f64 = e.iter().map(|v| f64::from(*v) * f64::from(*v)).sum(); (n - 1.0_f64).abs() < 1e-3 }})"
+                        )
+                    }
+                    _ => unreachable!(),
+                };
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    assert!({pred}, \"expected true\");");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    assert!(!({pred}), \"expected false\");");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- keywords / keywords_count ----
+            // ExtractionResult has `extracted_keywords: Option<Vec<Keyword>>`.
+            // Translate fixture virtual fields to that real accessor.
+            "keywords" => {
+                let accessor = format!("{result_var}.extracted_keywords");
+                match assertion.assertion_type.as_str() {
+                    "not_empty" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({accessor}.as_ref().is_some_and(|v| !v.is_empty()), \"expected keywords to be present and non-empty\");"
+                        );
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(
+                            out,
+                            "    assert!({accessor}.as_ref().is_none_or(|v| v.is_empty()), \"expected keywords to be empty or absent\");"
+                        );
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            if let Some(n) = val.as_u64() {
+                                if n <= 1 {
+                                    let _ = writeln!(
+                                        out,
+                                        "    assert!({accessor}.as_ref().is_some_and(|v| !v.is_empty()), \"expected >= {n}\");"
+                                    );
+                                } else {
+                                    let _ = writeln!(
+                                        out,
+                                        "    assert!({accessor}.as_ref().is_some_and(|v| v.len() >= {n}), \"expected at least {n} keywords\");"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            if let Some(n) = val.as_u64() {
+                                let _ = writeln!(
+                                    out,
+                                    "    assert!({accessor}.as_ref().is_some_and(|v| v.len() == {n}), \"expected exactly {n} keywords\");"
+                                );
+                            }
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field 'keywords'"
+                        );
+                    }
+                }
+                return;
+            }
+            "keywords_count" => {
+                let expr = format!("{result_var}.extracted_keywords.as_ref().map_or(0, |v| v.len())");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = numeric_literal(val);
+                            let _ = writeln!(
+                                out,
+                                "    assert_eq!({expr}, {lit} as usize, \"equals assertion failed\");"
+                            );
+                        }
+                    }
+                    "less_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = numeric_literal(val);
+                            let _ = writeln!(out, "    assert!({expr} <= {lit} as usize, \"expected <= {lit}\");");
+                        }
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = numeric_literal(val);
+                            let _ = writeln!(out, "    assert!({expr} >= {lit} as usize, \"expected >= {lit}\");");
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = numeric_literal(val);
+                            let _ = writeln!(out, "    assert!({expr} > {lit} as usize, \"expected > {lit}\");");
+                        }
+                    }
+                    "less_than" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = numeric_literal(val);
+                            let _ = writeln!(out, "    assert!({expr} < {lit} as usize, \"expected < {lit}\");");
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field 'keywords_count'"
+                        );
+                    }
+                }
+                return;
+            }
+            _ => {}
         }
     }
 

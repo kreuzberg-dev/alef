@@ -5,15 +5,12 @@
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_js, sanitize_filename, sanitize_ident};
-use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
-use heck::{ToLowerCamelCase, ToUpperCamelCase};
-use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -42,19 +39,6 @@ impl E2eCodegen for WasmCodegen {
             .and_then(|o| o.module.as_ref())
             .cloned()
             .unwrap_or_else(|| call.module.clone());
-        let function_name = overrides
-            .and_then(|o| o.function.as_ref())
-            .cloned()
-            .unwrap_or_else(|| call.function.clone());
-        let options_type = overrides.and_then(|o| o.options_type.clone());
-        let handle_config_type = overrides.and_then(|o| o.handle_config_type.clone());
-        let client_factory = overrides.and_then(|o| o.client_factory.as_deref());
-        let empty_enum_fields = HashMap::new();
-        let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields);
-        let empty_bigint_fields: Vec<String> = Vec::new();
-        let bigint_fields = overrides.map(|o| &o.bigint_fields).unwrap_or(&empty_bigint_fields);
-        let result_var = &call.result_var;
-        let is_async = call.r#async;
 
         // Resolve package config.
         let wasm_pkg = e2e_config.resolve_package("wasm");
@@ -115,28 +99,7 @@ impl E2eCodegen for WasmCodegen {
             }
 
             let filename = format!("{}.test.ts", sanitize_filename(&group.category));
-            let field_resolver = FieldResolver::new(
-                &e2e_config.fields,
-                &e2e_config.fields_optional,
-                &e2e_config.result_fields,
-                &e2e_config.fields_array,
-            );
-            let content = render_test_file(
-                &group.category,
-                &active,
-                &pkg_name,
-                &function_name,
-                result_var,
-                is_async,
-                &e2e_config.call.args,
-                &field_resolver,
-                options_type.as_deref(),
-                enum_fields,
-                handle_config_type.as_deref(),
-                client_factory,
-                bigint_fields,
-                e2e_config,
-            );
+            let content = render_test_file(&group.category, &active);
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
                 content,
@@ -257,145 +220,15 @@ fn render_tsconfig() -> String {
     .to_string()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn render_test_file(
-    category: &str,
-    fixtures: &[&Fixture],
-    pkg_name: &str,
-    function_name: &str,
-    _result_var: &str,
-    _is_async: bool,
-    args: &[crate::config::ArgMapping],
-    field_resolver: &FieldResolver,
-    options_type: Option<&str>,
-    enum_fields: &HashMap<String, String>,
-    handle_config_type: Option<&str>,
-    client_factory: Option<&str>,
-    bigint_fields: &[String],
-    e2e_config: &E2eConfig,
-) -> String {
+fn render_test_file(category: &str, fixtures: &[&Fixture]) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    let _ = writeln!(out, "import {{ describe, it, expect }} from 'vitest';");
-
-    // Check if any fixture uses a json_object arg that needs the options type import.
-    let needs_options_import = options_type.is_some()
-        && fixtures.iter().any(|f| {
-            args.iter().any(|arg| {
-                if arg.arg_type != "json_object" {
-                    return false;
-                }
-                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                let val = if field == "input" {
-                    Some(&f.input)
-                } else {
-                    f.input.get(field)
-                };
-                val.is_some_and(|v| !v.is_null())
-            })
-        });
-
-    // Collect all enum types that need to be imported.
-    let mut enum_imports: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
-    if needs_options_import {
-        for fixture in fixtures {
-            for arg in args {
-                if arg.arg_type == "json_object" {
-                    let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                    let val = if field == "input" {
-                        Some(&fixture.input)
-                    } else {
-                        fixture.input.get(field)
-                    };
-                    if let Some(val) = val {
-                        if let Some(obj) = val.as_object() {
-                            for k in obj.keys() {
-                                if let Some(enum_type) = enum_fields.get(k) {
-                                    enum_imports.insert(enum_type);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Collect handle constructor imports.
-    let handle_constructors: Vec<String> = args
-        .iter()
-        .filter(|arg| arg.arg_type == "handle")
-        .map(|arg| format!("create{}", arg.name.to_upper_camel_case()))
-        .collect();
-
-    {
-        let mut imports: Vec<String> = if client_factory.is_some() {
-            // When using client_factory, import the factory instead of the function
-            vec![]
-        } else {
-            vec![function_name.to_string()]
-        };
-
-        // Also import any additional function names used by per-fixture call overrides.
-        for fixture in fixtures {
-            if fixture.call.is_some() {
-                let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-                let fixture_fn = resolve_wasm_function_name(call_config);
-                if client_factory.is_none() && !imports.contains(&fixture_fn) {
-                    imports.push(fixture_fn);
-                }
-            }
-        }
-
-        // Collect tree helper function names needed by method_result assertions.
-        for fixture in fixtures {
-            for assertion in &fixture.assertions {
-                if assertion.assertion_type == "method_result" {
-                    if let Some(method_name) = &assertion.method {
-                        if let Some(helper_fn) = wasm_method_helper_import(method_name) {
-                            if !imports.contains(&helper_fn) {
-                                imports.push(helper_fn);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(factory) = client_factory {
-            let camel = factory.to_lower_camel_case();
-            if !imports.contains(&camel) {
-                imports.push(camel);
-            }
-        }
-        imports.extend(handle_constructors);
-        if let (true, Some(opts_type)) = (needs_options_import, options_type) {
-            imports.push(opts_type.to_string());
-            imports.extend(enum_imports.iter().map(|s| s.to_string()));
-        }
-        // Import the handle config class when configured.
-        if let Some(hct) = handle_config_type {
-            if !imports.contains(&hct.to_string()) {
-                imports.push(hct.to_string());
-            }
-        }
-        let _ = writeln!(out, "import {{ {} }} from '{pkg_name}';", imports.join(", "));
-    }
+    let _ = writeln!(out, "import {{ describe, expect, it }} from 'vitest';");
     let _ = writeln!(out);
     let _ = writeln!(out, "describe('{category}', () => {{");
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_case(
-            &mut out,
-            fixture,
-            field_resolver,
-            options_type,
-            enum_fields,
-            handle_config_type,
-            client_factory,
-            bigint_fields,
-            e2e_config,
-        );
+        render_http_test_case(&mut out, fixture);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -405,529 +238,155 @@ fn render_test_file(
     out
 }
 
-/// Resolve the function name for a call config, applying wasm-specific overrides.
-fn resolve_wasm_function_name(call_config: &crate::config::CallConfig) -> String {
-    call_config
-        .overrides
-        .get("wasm")
-        .and_then(|o| o.function.clone())
-        .unwrap_or_else(|| call_config.function.clone())
-}
-
-/// Return the package-level helper function name to import for a method_result method,
-/// or `None` if the method maps to a property access (no import needed).
-fn wasm_method_helper_import(method_name: &str) -> Option<String> {
-    match method_name {
-        "has_error_nodes" => Some("treeHasErrorNodes".to_string()),
-        "error_count" | "tree_error_count" => Some("treeErrorCount".to_string()),
-        "tree_to_sexp" => Some("treeToSexp".to_string()),
-        "contains_node_type" => Some("treeContainsNodeType".to_string()),
-        "find_nodes_by_type" => Some("findNodesByType".to_string()),
-        "run_query" => Some("runQuery".to_string()),
-        // Property accesses (root_child_count, root_node_type, named_children_count)
-        // and unknown methods that become `result.method()` don't need extra imports.
-        _ => None,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn render_test_case(
-    out: &mut String,
-    fixture: &Fixture,
-    field_resolver: &FieldResolver,
-    options_type: Option<&str>,
-    enum_fields: &HashMap<String, String>,
-    handle_config_type: Option<&str>,
-    client_factory: Option<&str>,
-    bigint_fields: &[String],
-    e2e_config: &E2eConfig,
-) {
-    // Resolve per-fixture call config (supports `"call": "parse"` overrides in fixtures).
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    let resolved_function_name = resolve_wasm_function_name(call_config);
-    let function_name = resolved_function_name.as_str();
-    let resolved_result_var = call_config.result_var.clone();
-    let result_var = resolved_result_var.as_str();
-    let is_async = call_config.r#async;
-    let args = &call_config.args;
+/// Render a vitest `it` block for an HTTP server fixture via fetch.
+///
+/// Wasm e2e tests run under vitest+node, so they can use global `fetch` to hit the mock server.
+fn render_http_test_case(out: &mut String, fixture: &Fixture) {
+    let Some(http) = &fixture.http else {
+        return;
+    };
 
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
-    let async_kw = if is_async { "async " } else { "" };
-    let await_kw = if is_async { "await " } else { "" };
 
-    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-    let (mut setup_lines, arg_parts) = build_args_and_setup(
-        &fixture.input,
-        args,
-        options_type,
-        enum_fields,
-        &fixture.id,
-        handle_config_type,
-        bigint_fields,
-    );
-    let args_str = arg_parts.join(", ");
-
-    // Build visitor if present and add to setup
-    let mut visitor_arg = String::new();
-    if let Some(visitor_spec) = &fixture.visitor {
-        visitor_arg = build_wasm_visitor(&mut setup_lines, visitor_spec);
-    }
-
-    let final_args = if visitor_arg.is_empty() {
-        args_str
-    } else if args_str.is_empty() {
-        format!("{{ visitor: {visitor_arg} }}")
-    } else {
-        format!("{args_str}, {{ visitor: {visitor_arg} }}")
-    };
-
-    // Build the call expression — either `client.method(args)` or `method(args)`
-    let call_expr = if client_factory.is_some() {
-        format!("client.{function_name}({final_args})")
-    } else {
-        format!("{function_name}({final_args})")
-    };
-
-    // Check if any arg is a base_url to determine if we need fixture path
-    let has_base_url_arg = args.iter().any(|arg| arg.arg_type == "base_url");
-    let base_url_expr = if has_base_url_arg {
-        format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id)
-    } else {
-        "process.env.MOCK_SERVER_URL".to_string()
-    };
-
-    if expects_error {
-        let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
-        if let Some(factory) = client_factory {
-            let factory_camel = factory.to_lower_camel_case();
-            let _ = writeln!(
-                out,
-                "    const client = {await_kw}{factory_camel}('test-key', {base_url_expr});"
-            );
-        }
-        for line in &setup_lines {
-            let _ = writeln!(out, "    {line}");
-        }
-        if is_async {
-            let _ = writeln!(
-                out,
-                "    await expect({async_kw}() => {await_kw}{call_expr}).rejects.toThrow();"
-            );
-        } else {
-            let _ = writeln!(out, "    expect(() => {call_expr}).toThrow();");
-        }
+    // HTTP 101 (WebSocket upgrade) — fetch cannot handle upgrade responses.
+    if http.expected_response.status_code == 101 {
+        let _ = writeln!(out, "  it.skip('{test_name}: {description}', async () => {{");
+        let _ = writeln!(out, "    // HTTP 101 WebSocket upgrade cannot be tested via fetch");
         let _ = writeln!(out, "  }});");
         return;
     }
 
-    let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
-    if let Some(factory) = client_factory {
-        let factory_camel = factory.to_lower_camel_case();
-        let _ = writeln!(
-            out,
-            "    const client = {await_kw}{factory_camel}('test-key', {base_url_expr});"
-        );
-    }
-    for line in &setup_lines {
-        let _ = writeln!(out, "    {line}");
-    }
+    let method = http.request.method.to_uppercase();
 
-    let has_usable_assertion = fixture.assertions.iter().any(|a| {
-        if a.assertion_type == "not_error" || a.assertion_type == "error" {
-            return false;
-        }
-        match &a.field {
-            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
-            _ => true,
-        }
-    });
+    // Build the init object for `fetch(url, init)`.
+    let mut init_entries: Vec<String> = Vec::new();
+    init_entries.push(format!("method: '{method}'"));
+    // Do not follow redirects — tests that assert on 3xx status codes need the original response.
+    init_entries.push("redirect: 'manual'".to_string());
 
-    if has_usable_assertion {
-        let _ = writeln!(out, "    const {result_var} = {await_kw}{call_expr};");
-    } else {
-        let _ = writeln!(out, "    {await_kw}{call_expr};");
+    // Headers
+    if !http.request.headers.is_empty() {
+        let entries: Vec<String> = http
+            .request
+            .headers
+            .iter()
+            .map(|(k, v)| {
+                let expanded_v = v.clone();
+                format!("      \"{}\": \"{}\"", escape_js(k), escape_js(&expanded_v))
+            })
+            .collect();
+        init_entries.push(format!("headers: {{\n{},\n    }}", entries.join(",\n")));
     }
 
-    for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver);
+    // Body
+    if let Some(body) = &http.request.body {
+        let js_body = json_to_js(body);
+        init_entries.push(format!("body: JSON.stringify({js_body})"));
     }
 
-    let _ = writeln!(out, "  }});");
-}
+    let fixture_id = escape_js(&fixture.id);
+    let _ = writeln!(out, "  it('{test_name}: {description}', async () => {{");
+    let _ = writeln!(
+        out,
+        "    const baseUrl = process.env.MOCK_SERVER_URL ?? \"http://localhost:8080\";"
+    );
+    let _ = writeln!(out, "    const mockUrl = `${{baseUrl}}/fixtures/{fixture_id}`;");
 
-/// Build setup lines and argument parts for a function call.
-///
-/// Returns `(setup_lines, args_parts)`. Setup lines are emitted before the
-/// function call; args parts are joined with `, ` to form the argument list.
-fn build_args_and_setup(
-    input: &serde_json::Value,
-    args: &[crate::config::ArgMapping],
-    options_type: Option<&str>,
-    enum_fields: &HashMap<String, String>,
-    fixture_id: &str,
-    handle_config_type: Option<&str>,
-    bigint_fields: &[String],
-) -> (Vec<String>, Vec<String>) {
-    let mut setup_lines = Vec::new();
-    let mut parts = Vec::new();
+    let init_str = init_entries.join(", ");
+    let _ = writeln!(out, "    const response = await fetch(mockUrl, {{ {init_str} }});");
 
-    if args.is_empty() {
-        parts.push(json_to_js(input));
-        return (setup_lines, parts);
-    }
+    // Status code assertion.
+    let status = http.expected_response.status_code;
+    let _ = writeln!(out, "    expect(response.status).toBe({status});");
 
-    for arg in args {
-        if arg.arg_type == "mock_url" {
-            setup_lines.push(format!(
-                "const {} = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;",
-                arg.name,
-            ));
-            parts.push(arg.name.clone());
-            continue;
-        }
-
-        if arg.arg_type == "base_url" {
-            // When mock server is in use, set base_url to include the fixture path
-            // so that client requests like /v1/chat/completions become
-            // /fixtures/{fixture_id}/v1/chat/completions which match the prefix
-            setup_lines.push(format!(
-                "const {} = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;",
-                arg.name,
-            ));
-            parts.push(arg.name.clone());
-            continue;
-        }
-
-        if arg.arg_type == "handle" {
-            let constructor_name = format!("create{}", arg.name.to_upper_camel_case());
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
-            if config_value.is_null()
-                || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
-            {
-                setup_lines.push(format!("const {} = {constructor_name}(null);", arg.name));
-            } else if let (Some(hct), Some(obj)) = (handle_config_type, config_value.as_object()) {
-                // WASM bindings use _assertClass validation, so we must construct
-                // a proper class instance instead of passing a plain JS object.
-                let config_var = format!("{}Config", arg.name);
-                setup_lines.push(format!("const {config_var} = new {hct}();"));
-                for (k, field_val) in obj {
-                    let camel_key = k.to_lower_camel_case();
-                    let js_val = json_to_js(field_val);
-                    setup_lines.push(format!("{config_var}.{camel_key} = {js_val};"));
-                }
-                setup_lines.push(format!("const {} = {constructor_name}({config_var});", arg.name));
+    // Body assertions.
+    if let Some(expected_body) = &http.expected_response.body {
+        // Empty-string sentinel ("") and null mean no body — skip assertion.
+        if !(expected_body.is_null() || expected_body.is_string() && expected_body.as_str() == Some("")) {
+            if let serde_json::Value::String(s) = expected_body {
+                // Plain-string body: mock server returns raw text, compare as text.
+                let escaped = escape_js(s);
+                let _ = writeln!(out, "    const text = await response.text();");
+                let _ = writeln!(out, "    expect(text).toBe('{escaped}');");
             } else {
-                let js_val = json_to_js(config_value);
-                setup_lines.push(format!("const {} = {constructor_name}({js_val});", arg.name));
-            }
-            parts.push(arg.name.clone());
-            continue;
-        }
-
-        // When field == "input", the entire input object IS the value (not a nested key)
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = if field == "input" {
-            Some(input)
-        } else {
-            input.get(field)
-        };
-        match val {
-            None | Some(serde_json::Value::Null) if arg.optional => continue,
-            None | Some(serde_json::Value::Null) => {
-                let default_val = match arg.arg_type.as_str() {
-                    "string" => "''".to_string(),
-                    "int" | "integer" => "0".to_string(),
-                    "float" | "number" => "0.0".to_string(),
-                    "bool" | "boolean" => "false".to_string(),
-                    _ => "null".to_string(),
-                };
-                parts.push(default_val);
-            }
-            Some(v) => {
-                if arg.arg_type == "json_object" && !v.is_null() {
-                    if let Some(opts_type) = options_type {
-                        if let Some(obj) = v.as_object() {
-                            setup_lines.push(format!("const options = new {opts_type}();"));
-                            for (k, field_val) in obj {
-                                let camel_key = k.to_lower_camel_case();
-                                let js_val = if let Some(enum_type) = enum_fields.get(k) {
-                                    if let Some(s) = field_val.as_str() {
-                                        let pascal_val = s.to_upper_camel_case();
-                                        format!("{enum_type}.{pascal_val}")
-                                    } else {
-                                        json_to_js(field_val)
-                                    }
-                                } else if bigint_fields.iter().any(|f| f == &camel_key) && field_val.is_number() {
-                                    format!("BigInt({})", json_to_js(field_val))
-                                } else {
-                                    json_to_js(field_val)
-                                };
-                                setup_lines.push(format!("options.{camel_key} = {js_val};"));
-                            }
-                            parts.push("options".to_string());
-                            continue;
-                        }
-                    }
-                }
-                parts.push(json_to_js(v));
+                let js_val = json_to_js(expected_body);
+                let _ = writeln!(out, "    const data = await response.json();");
+                let _ = writeln!(out, "    expect(data).toEqual({js_val});");
             }
         }
-    }
-
-    (setup_lines, parts)
-}
-
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
-    // Skip assertions on fields that don't exist on the result type.
-    if let Some(f) = &assertion.field {
-        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
-            return;
-        }
-    }
-
-    let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => field_resolver.accessor(f, "wasm", result_var),
-        _ => result_var.to_string(),
-    };
-
-    match assertion.assertion_type.as_str() {
-        "equals" => {
-            if let Some(expected) = &assertion.value {
-                let js_val = json_to_js(expected);
-                if expected.is_string() {
-                    let _ = writeln!(out, "    expect({field_expr}.trim()).toBe({js_val});");
-                } else {
-                    let _ = writeln!(out, "    expect({field_expr}).toBe({js_val});");
-                }
-            }
-        }
-        "contains" => {
-            if let Some(expected) = &assertion.value {
-                let js_val = json_to_js(expected);
-                let _ = writeln!(out, "    expect({field_expr}).toContain({js_val});");
-            }
-        }
-        "contains_all" => {
-            if let Some(values) = &assertion.values {
-                for val in values {
-                    let js_val = json_to_js(val);
-                    let _ = writeln!(out, "    expect({field_expr}).toContain({js_val});");
-                }
-            }
-        }
-        "not_contains" => {
-            if let Some(expected) = &assertion.value {
-                let js_val = json_to_js(expected);
-                let _ = writeln!(out, "    expect({field_expr}).not.toContain({js_val});");
-            }
-        }
-        "not_empty" => {
-            let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThan(0);");
-        }
-        "is_empty" => {
-            let _ = writeln!(out, "    expect({field_expr}.trim()).toHaveLength(0);");
-        }
-        "contains_any" => {
-            if let Some(values) = &assertion.values {
-                let items: Vec<String> = values.iter().map(json_to_js).collect();
-                let arr_str = items.join(", ");
+    } else if let Some(partial) = &http.expected_response.body_partial {
+        let _ = writeln!(out, "    const data = await response.json();");
+        if let Some(obj) = partial.as_object() {
+            for (key, val) in obj {
+                let js_key = escape_js(key);
+                let js_val = json_to_js(val);
                 let _ = writeln!(
                     out,
-                    "    expect([{arr_str}].some((v) => {field_expr}.includes(v))).toBe(true);"
+                    "    expect((data as Record<string, unknown>)['{js_key}']).toEqual({js_val});"
                 );
             }
         }
-        "greater_than" => {
-            if let Some(val) = &assertion.value {
-                let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({field_expr}).toBeGreaterThan({js_val});");
-            }
-        }
-        "less_than" => {
-            if let Some(val) = &assertion.value {
-                let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({field_expr}).toBeLessThan({js_val});");
-            }
-        }
-        "greater_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({field_expr}).toBeGreaterThanOrEqual({js_val});");
-            }
-        }
-        "less_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({field_expr}).toBeLessThanOrEqual({js_val});");
-            }
-        }
-        "starts_with" => {
-            if let Some(expected) = &assertion.value {
-                let js_val = json_to_js(expected);
-                let _ = writeln!(out, "    expect({field_expr}.startsWith({js_val})).toBe(true);");
-            }
-        }
-        "count_min" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThanOrEqual({n});");
-                }
-            }
-        }
-        "count_equals" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).toBe({n});");
-                }
-            }
-        }
-        "is_true" => {
-            let _ = writeln!(out, "    expect({field_expr}).toBe(true);");
-        }
-        "is_false" => {
-            let _ = writeln!(out, "    expect({field_expr}).toBe(false);");
-        }
-        "method_result" => {
-            if let Some(method_name) = &assertion.method {
-                let call_expr = build_wasm_method_call(result_var, method_name, assertion.args.as_ref());
-                let check = assertion.check.as_deref().unwrap_or("is_true");
-                match check {
-                    "equals" => {
-                        if let Some(val) = &assertion.value {
-                            let js_val = json_to_js(val);
-                            let _ = writeln!(out, "    expect({call_expr}).toBe({js_val});");
-                        }
-                    }
-                    "is_true" => {
-                        let _ = writeln!(out, "    expect({call_expr}).toBe(true);");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "    expect({call_expr}).toBe(false);");
-                    }
-                    "greater_than_or_equal" => {
-                        if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(out, "    expect({call_expr}).toBeGreaterThanOrEqual({n});");
-                        }
-                    }
-                    "count_min" => {
-                        if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(out, "    expect({call_expr}.length).toBeGreaterThanOrEqual({n});");
-                        }
-                    }
-                    "contains" => {
-                        if let Some(val) = &assertion.value {
-                            let js_val = json_to_js(val);
-                            let _ = writeln!(out, "    expect({call_expr}).toContain({js_val});");
-                        }
-                    }
-                    "is_error" => {
-                        let _ = writeln!(out, "    expect(() => {{ {call_expr}; }}).toThrow();");
-                    }
-                    other_check => {
-                        panic!("WASM e2e generator: unsupported method_result check type: {other_check}");
-                    }
-                }
-            } else {
-                panic!("WASM e2e generator: method_result assertion missing 'method' field");
-            }
-        }
-        "min_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThanOrEqual({n});");
-                }
-            }
-        }
-        "max_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).toBeLessThanOrEqual({n});");
-                }
-            }
-        }
-        "ends_with" => {
-            if let Some(expected) = &assertion.value {
-                let js_val = json_to_js(expected);
-                let _ = writeln!(out, "    expect({field_expr}.endsWith({js_val})).toBe(true);");
-            }
-        }
-        "matches_regex" => {
-            if let Some(expected) = &assertion.value {
-                if let Some(pattern) = expected.as_str() {
-                    let _ = writeln!(out, "    expect({field_expr}).toMatch(/{pattern}/);");
-                }
-            }
-        }
-        "not_error" => {
-            // No-op — if we got here, the call succeeded.
-        }
-        "error" => {
-            // Handled at the test level.
-        }
-        other => {
-            panic!("WASM e2e generator: unsupported assertion type: {other}");
-        }
     }
-}
 
-/// Build a WASM/JS call expression for a method_result assertion on a tree-sitter Tree.
-/// Maps method names to the appropriate JavaScript function calls or property accesses.
-fn build_wasm_method_call(result_var: &str, method_name: &str, args: Option<&serde_json::Value>) -> String {
-    match method_name {
-        "root_child_count" => format!("{result_var}.rootNode.childCount"),
-        "root_node_type" => format!("{result_var}.rootNode.type"),
-        "named_children_count" => format!("{result_var}.rootNode.namedChildCount"),
-        "has_error_nodes" => format!("treeHasErrorNodes({result_var})"),
-        "error_count" | "tree_error_count" => format!("treeErrorCount({result_var})"),
-        "tree_to_sexp" => format!("treeToSexp({result_var})"),
-        "contains_node_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("treeContainsNodeType({result_var}, \"{node_type}\")")
+    // Header assertions.
+    for (header_name, header_value) in &http.expected_response.headers {
+        let lower_name = header_name.to_lowercase();
+        // The mock server strips content-encoding headers because it returns uncompressed bodies.
+        if lower_name == "content-encoding" {
+            continue;
         }
-        "find_nodes_by_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("findNodesByType({result_var}, \"{node_type}\")")
-        }
-        "run_query" => {
-            let query_source = args
-                .and_then(|a| a.get("query_source"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let language = args
-                .and_then(|a| a.get("language"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("runQuery({result_var}, \"{language}\", \"{query_source}\", source)")
-        }
-        other => {
-            let camel_method = other.to_lower_camel_case();
-            if let Some(args_val) = args {
-                let arg_str = args_val
-                    .as_object()
-                    .map(|obj| {
-                        obj.iter()
-                            .map(|(k, v)| format!("{}: {}", k, json_to_js(v)))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                    .unwrap_or_default();
-                format!("{result_var}.{camel_method}({arg_str})")
-            } else {
-                format!("{result_var}.{camel_method}()")
+        let escaped_name = escape_js(&lower_name);
+        match header_value.as_str() {
+            "<<present>>" => {
+                let _ = writeln!(
+                    out,
+                    "    expect(response.headers.get('{escaped_name}')).not.toBeNull();"
+                );
+            }
+            "<<absent>>" => {
+                let _ = writeln!(out, "    expect(response.headers.get('{escaped_name}')).toBeNull();");
+            }
+            "<<uuid>>" => {
+                let _ = writeln!(
+                    out,
+                    "    expect(response.headers.get('{escaped_name}')).toMatch(/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/);"
+                );
+            }
+            exact => {
+                let escaped_val = escape_js(exact);
+                let _ = writeln!(
+                    out,
+                    "    expect(response.headers.get('{escaped_name}')).toBe('{escaped_val}');"
+                );
             }
         }
     }
+
+    // Validation error assertions — skip when a full body assertion is already generated
+    // (redundant, and response.json() can only be called once per response).
+    let body_has_content = matches!(&http.expected_response.body, Some(v)
+        if !(v.is_null() || (v.is_string() && v.as_str() == Some(""))));
+    if let Some(validation_errors) = &http.expected_response.validation_errors {
+        if !validation_errors.is_empty() && !body_has_content {
+            let _ = writeln!(
+                out,
+                "    const body = await response.json() as {{ errors?: unknown[] }};"
+            );
+            let _ = writeln!(out, "    const errors = body.errors ?? [];");
+            for ve in validation_errors {
+                let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_js(s))).collect();
+                let loc_str = loc_js.join(", ");
+                let escaped_msg = escape_js(&ve.msg);
+                let _ = writeln!(
+                    out,
+                    "    expect((errors as Array<Record<string, unknown>>).some((e) => JSON.stringify(e[\"loc\"]) === JSON.stringify([{loc_str}]) && String(e[\"msg\"]).includes(\"{escaped_msg}\"))).toBe(true);"
+                );
+            }
+        }
+    }
+
+    let _ = writeln!(out, "  }});");
 }
 
 /// Convert a `serde_json::Value` to a JavaScript literal string.
@@ -958,84 +417,4 @@ fn json_to_js(value: &serde_json::Value) -> String {
             format!("{{ {} }}", entries.join(", "))
         }
     }
-}
-
-/// Build a WASM/JS visitor object and add setup line. Returns the visitor variable name.
-fn build_wasm_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) -> String {
-    use std::fmt::Write as FmtWrite;
-    let mut visitor_obj = String::new();
-    let _ = writeln!(visitor_obj, "{{");
-    for (method_name, action) in &visitor_spec.callbacks {
-        emit_wasm_visitor_method(&mut visitor_obj, method_name, action);
-    }
-    let _ = writeln!(visitor_obj, "    }}");
-
-    setup_lines.push(format!("const _testVisitor = {visitor_obj}"));
-    "_testVisitor".to_string()
-}
-
-/// Emit a WASM/JS visitor method for a callback action.
-fn emit_wasm_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
-    use std::fmt::Write as FmtWrite;
-
-    let camel_method = to_camel_case_wasm(method_name);
-    let params = match method_name {
-        "visit_link" => "ctx, href, text, title",
-        "visit_image" => "ctx, src, alt, title",
-        "visit_heading" => "ctx, level, text, id",
-        "visit_code_block" => "ctx, lang, code",
-        "visit_code_inline"
-        | "visit_strong"
-        | "visit_emphasis"
-        | "visit_strikethrough"
-        | "visit_underline"
-        | "visit_subscript"
-        | "visit_superscript"
-        | "visit_mark"
-        | "visit_button"
-        | "visit_summary"
-        | "visit_figcaption"
-        | "visit_definition_term"
-        | "visit_definition_description" => "ctx, text",
-        "visit_text" => "ctx, text",
-        "visit_list_item" => "ctx, ordered, marker, text",
-        "visit_blockquote" => "ctx, content, depth",
-        "visit_table_row" => "ctx, cells, isHeader",
-        "visit_custom_element" => "ctx, tagName, html",
-        "visit_form" => "ctx, actionUrl, method",
-        "visit_input" => "ctx, inputType, name, value",
-        "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
-        "visit_details" => "ctx, isOpen",
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "ctx, output",
-        "visit_list_start" => "ctx, ordered",
-        "visit_list_end" => "ctx, ordered, output",
-        _ => "ctx",
-    };
-
-    let _ = writeln!(out, "    {camel_method}({params}): string | {{ custom: string }} {{");
-    match action {
-        CallbackAction::Skip => {
-            let _ = writeln!(out, "        return \"skip\";");
-        }
-        CallbackAction::Continue => {
-            let _ = writeln!(out, "        return \"continue\";");
-        }
-        CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "        return \"preserve_html\";");
-        }
-        CallbackAction::Custom { output } => {
-            let escaped = escape_js(output);
-            let _ = writeln!(out, "        return {{ custom: {escaped} }};");
-        }
-        CallbackAction::CustomTemplate { template } => {
-            let _ = writeln!(out, "        return {{ custom: `{template}` }};");
-        }
-    }
-    let _ = writeln!(out, "    }},");
-}
-
-/// Convert snake_case to camelCase for method names.
-fn to_camel_case_wasm(snake: &str) -> String {
-    use heck::ToLowerCamelCase;
-    snake.to_lower_camel_case()
 }

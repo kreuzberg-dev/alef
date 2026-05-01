@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/rust): translate synthetic assertion fields (`embeddings`, `embedding_dimensions`, `embeddings_valid`, `embeddings_finite`, `embeddings_non_zero`, `embeddings_normalized`, `chunks_have_embeddings`, `keywords`, `keywords_count`) to correct Rust expressions instead of treating them as struct field accesses; `keywords`/`keywords_count` map to `extracted_keywords` on `ExtractionResult`.
+- fix(e2e/python): intercept synthetic embedding and keyword assertion fields before struct field emission; skip `keywords`/`keywords_count` (no Python binding for `extracted_keywords`).
+- fix(e2e/typescript): intercept synthetic embedding and keyword assertion fields; emit Vitest `expect` assertions using array methods; skip `keywords`/`keywords_count`.
+- fix(e2e/go): intercept synthetic embedding and keyword assertion fields; emit inline immediately-invoked functions for predicate checks on `*[][]float32`; skip `keywords`/`keywords_count`.
+- fix(e2e/ruby): intercept synthetic embedding and keyword assertion fields in the binding assertion path; emit RSpec `expect` assertions using Ruby enumerable methods; skip `keywords`/`keywords_count`.
+- fix(e2e/php): intercept synthetic embedding and keyword assertion fields; emit PHPUnit assertions using `array_reduce`/`array_filter`; skip `keywords`/`keywords_count`.
+- fix(e2e/csharp): intercept synthetic embedding and keyword assertion fields; emit xUnit assertions using LINQ; skip `keywords`/`keywords_count`.
+- fix(e2e/elixir): intercept synthetic embedding and keyword assertion fields; emit ExUnit assertions using `Enum` functions; skip `keywords`/`keywords_count`.
+- fix(e2e/r): intercept synthetic embedding and keyword assertion fields; emit testthat `expect_*` assertions using `sapply`/`all`; skip `keywords`/`keywords_count`.
+- fix(e2e/wasm): intercept synthetic embedding and keyword assertion fields (defensive, embed is WASM-skipped); skip `keywords`/`keywords_count`.
 - fix(e2e/ruby): use title-cased `Net::HTTP` request class names (`Delete`, `Head`, `Patch`, `Put`) instead of all-caps variants that don't exist in Ruby's stdlib; skip `content-encoding` header assertions; handle plain-string and empty bodies correctly; skip HTTP 101 WebSocket upgrade tests; emit `skip` stubs for non-HTTP fixtures (WebSocket, SSE) that cannot be tested via Net::HTTP; avoid `JSON.parse(nil)` on 204 No Content responses; deduplicate `Content-Type` header when body is already set.
 - fix(backend-magnus): use `.to_vec()` instead of `.into()` when wrapping `&Bytes` return values from non-opaque struct methods; `Vec<u8>: From<&Bytes>` is not implemented so `.into()` failed to compile for methods like `as_bytes()` on `UploadFile`.
 - fix(e2e/gleam): filter out HTTP-type fixtures and call-based fixtures without a Gleam-specific override; emit a `src/` placeholder module (required by the Gleam toolchain) and a smoke test when no fixture-driven tests are generated; strip leading digits from test function names.

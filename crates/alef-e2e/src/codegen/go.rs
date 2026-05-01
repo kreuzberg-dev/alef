@@ -3,7 +3,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{go_string_literal, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture};
 use alef_codegen::naming::{go_param_name, to_go_name};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
@@ -268,6 +268,23 @@ fn render_test_file(
         })
     });
 
+    // Determine if we need "net/http" and "io" (HTTP server tests via HTTP client).
+    let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
+    let needs_http = has_http_fixtures;
+
+    // Determine if we need "reflect" (for HTTP response body JSON comparison).
+    let needs_reflect = fixtures.iter().any(|f| {
+        if let Some(http) = &f.http {
+            if let Some(body) = &http.expected_response.body {
+                matches!(body, serde_json::Value::Object(_) | serde_json::Value::Array(_))
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    });
+
     let _ = writeln!(out, "// E2e tests for category: {category}");
     let _ = writeln!(out, "package e2e_test");
     let _ = writeln!(out);
@@ -275,16 +292,25 @@ fn render_test_file(
     if needs_base64 {
         let _ = writeln!(out, "\t\"encoding/base64\"");
     }
-    if needs_json {
+    if needs_json || needs_reflect {
         let _ = writeln!(out, "\t\"encoding/json\"");
     }
     if needs_fmt {
         let _ = writeln!(out, "\t\"fmt\"");
     }
+    if needs_http {
+        let _ = writeln!(out, "\t\"io\"");
+    }
+    if needs_http {
+        let _ = writeln!(out, "\t\"net/http\"");
+    }
     if needs_os {
         let _ = writeln!(out, "\t\"os\"");
     }
-    if needs_strings {
+    if needs_reflect {
+        let _ = writeln!(out, "\t\"reflect\"");
+    }
+    if needs_strings || needs_http {
         let _ = writeln!(out, "\t\"strings\"");
     }
     let _ = writeln!(out, "\t\"testing\"");
@@ -335,9 +361,15 @@ fn render_test_function(
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
 
+    // Delegate HTTP fixtures to the HTTP-specific renderer.
+    if let Some(http) = &fixture.http {
+        render_http_test_function(out, fixture, http);
+        return;
+    }
+
     // The Go binding wraps a C FFI layer and does not expose a HandleRequest or equivalent
-    // function that can be called from e2e tests.  Until Go-native HTTP integration tests
-    // are implemented, emit compilable stubs for all fixtures that don't use mock_response.
+    // function that can be called from e2e tests. Emit compilable stubs for non-HTTP fixtures
+    // that don't have Rust FFI bindings.
     if fixture.mock_response.is_none() {
         let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
         let _ = writeln!(out, "\t// {description}");
@@ -625,6 +657,147 @@ fn render_test_function(
     let _ = writeln!(out, "}}");
 }
 
+/// Render an HTTP server test function using net/http against MOCK_SERVER_URL.
+///
+/// The mock server registers each fixture at `/fixtures/<fixture_id>` and returns the
+/// pre-canned response. Tests send the correct HTTP method and headers to that endpoint.
+fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    let fn_name = fixture.id.to_upper_camel_case();
+    let description = &fixture.description;
+    let request = &http.request;
+    let expected = &http.expected_response;
+    let method = request.method.to_uppercase();
+    let fixture_id = &fixture.id;
+    let expected_status = expected.status_code;
+
+    let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
+    let _ = writeln!(out, "\t// {description}");
+    let _ = writeln!(out, "\tbaseURL := os.Getenv(\"MOCK_SERVER_URL\")");
+    let _ = writeln!(out, "\tif baseURL == \"\" {{");
+    let _ = writeln!(out, "\t\tbaseURL = \"http://localhost:8080\"");
+    let _ = writeln!(out, "\t}}");
+
+    // Build request body.
+    let body_expr = if let Some(body) = &request.body {
+        let json = serde_json::to_string(body).unwrap_or_default();
+        let escaped = go_string_literal(&json);
+        format!("strings.NewReader({})", escaped)
+    } else {
+        "strings.NewReader(\"\")".to_string()
+    };
+
+    let _ = writeln!(out, "\tbody := {body_expr}");
+    let _ = writeln!(
+        out,
+        "\treq, err := http.NewRequest(\"{method}\", baseURL+\"/fixtures/{fixture_id}\", body)"
+    );
+    let _ = writeln!(out, "\tif err != nil {{");
+    let _ = writeln!(out, "\t\tt.Fatalf(\"new request failed: %v\", err)");
+    let _ = writeln!(out, "\t}}");
+
+    // Set headers.
+    let content_type = request.content_type.as_deref().unwrap_or("application/json");
+    if request.body.is_some() {
+        let _ = writeln!(out, "\treq.Header.Set(\"Content-Type\", \"{content_type}\")");
+    }
+
+    for (name, value) in &request.headers {
+        let escaped_name = go_string_literal(name);
+        let escaped_value = go_string_literal(value);
+        let _ = writeln!(out, "\treq.Header.Set({escaped_name}, {escaped_value})");
+    }
+
+    // Add cookies.
+    if !request.cookies.is_empty() {
+        for (name, value) in &request.cookies {
+            let escaped_name = go_string_literal(name);
+            let escaped_value = go_string_literal(value);
+            let _ = writeln!(
+                out,
+                "\treq.AddCookie(&http.Cookie{{Name: {escaped_name}, Value: {escaped_value}}})"
+            );
+        }
+    }
+
+    // Send request.
+    let _ = writeln!(out, "\tresp, err := http.DefaultClient.Do(req)");
+    let _ = writeln!(out, "\tif err != nil {{");
+    let _ = writeln!(out, "\t\tt.Fatalf(\"request failed: %v\", err)");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out, "\tdefer resp.Body.Close()");
+
+    // Read body.
+    let _ = writeln!(out, "\tbodyBytes, err := io.ReadAll(resp.Body)");
+    let _ = writeln!(out, "\tif err != nil {{");
+    let _ = writeln!(out, "\t\tt.Fatalf(\"read body failed: %v\", err)");
+    let _ = writeln!(out, "\t}}");
+
+    // Assert status code.
+    let _ = writeln!(out, "\tif resp.StatusCode != {expected_status} {{");
+    let _ = writeln!(
+        out,
+        "\t\tt.Fatalf(\"status: got %d want {expected_status}\", resp.StatusCode)"
+    );
+    let _ = writeln!(out, "\t}}");
+
+    // Assert body if expected.
+    if let Some(expected_body) = &expected.body {
+        match expected_body {
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                let json_str = serde_json::to_string(expected_body).unwrap_or_default();
+                let escaped = go_string_literal(&json_str);
+                let _ = writeln!(out, "\tvar got map[string]any");
+                let _ = writeln!(out, "\tvar want map[string]any");
+                let _ = writeln!(out, "\tif err := json.Unmarshal(bodyBytes, &got); err != nil {{");
+                let _ = writeln!(out, "\t\tt.Fatalf(\"json unmarshal got: %v\", err)");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(
+                    out,
+                    "\tif err := json.Unmarshal([]byte({escaped}), &want); err != nil {{"
+                );
+                let _ = writeln!(out, "\t\tt.Fatalf(\"json unmarshal want: %v\", err)");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tif !reflect.DeepEqual(got, want) {{");
+                let _ = writeln!(out, "\t\tt.Fatalf(\"body mismatch: got %v want %v\", got, want)");
+                let _ = writeln!(out, "\t}}");
+            }
+            serde_json::Value::String(s) => {
+                let escaped = go_string_literal(s);
+                let _ = writeln!(out, "\tif strings.TrimSpace(string(bodyBytes)) != {escaped} {{");
+                let _ = writeln!(out, "\t\tt.Fatalf(\"body: got %s want {escaped}\", string(bodyBytes))");
+                let _ = writeln!(out, "\t}}");
+            }
+            other => {
+                let escaped = go_string_literal(&other.to_string());
+                let _ = writeln!(out, "\tif strings.TrimSpace(string(bodyBytes)) != {escaped} {{");
+                let _ = writeln!(out, "\t\tt.Fatalf(\"body: got %s want {escaped}\", string(bodyBytes))");
+                let _ = writeln!(out, "\t}}");
+            }
+        }
+    }
+
+    // Assert response headers if specified (skip special tokens and non-applicable headers).
+    for (name, value) in &expected.headers {
+        if value == "<<absent>>" || value == "<<present>>" || value == "<<uuid>>" {
+            // Skip special-token assertions for now.
+            continue;
+        }
+        let escaped_name = go_string_literal(name);
+        let escaped_value = go_string_literal(value);
+        let _ = writeln!(
+            out,
+            "\tif !strings.Contains(resp.Header.Get({escaped_name}), {escaped_value}) {{"
+        );
+        let _ = writeln!(
+            out,
+            "\t\tt.Fatalf(\"header {escaped_name} mismatch: got %s want to contain {escaped_value}\", resp.Header.Get({escaped_name}))"
+        );
+        let _ = writeln!(out, "\t}}");
+    }
+
+    let _ = writeln!(out, "}}");
+}
+
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
 /// Returns `(setup_lines, args_string)`.
@@ -811,6 +984,167 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_array: bool,
 ) {
+    // Handle synthetic / derived fields before the is_valid_for_result check
+    // so they are never treated as struct field accesses on the result.
+    if !result_is_simple {
+        if let Some(f) = &assertion.field {
+            // embed_texts returns *[][]float32; the embedding matrix is *result_var.
+            // We emit inline func() expressions so we don't need additional variables.
+            let embed_deref = format!("(*{result_var})");
+            match f.as_str() {
+                "chunks_have_content" => {
+                    let pred = format!(
+                        "func() bool {{ chunks := {result_var}.Chunks; if chunks == nil {{ return false }}; for _, c := range *chunks {{ if c.Content == \"\" {{ return false }} }}; return true }}()"
+                    );
+                    match assertion.assertion_type.as_str() {
+                        "is_true" => {
+                            let _ = writeln!(out, "\tassert.True(t, {pred}, \"expected true\")");
+                        }
+                        "is_false" => {
+                            let _ = writeln!(out, "\tassert.False(t, {pred}, \"expected false\")");
+                        }
+                        _ => {
+                            let _ = writeln!(out, "\t// skipped: unsupported assertion type on synthetic field '{f}'");
+                        }
+                    }
+                    return;
+                }
+                "chunks_have_embeddings" => {
+                    let pred = format!(
+                        "func() bool {{ chunks := {result_var}.Chunks; if chunks == nil {{ return false }}; for _, c := range *chunks {{ if c.Embedding == nil || len(*c.Embedding) == 0 {{ return false }} }}; return true }}()"
+                    );
+                    match assertion.assertion_type.as_str() {
+                        "is_true" => {
+                            let _ = writeln!(out, "\tassert.True(t, {pred}, \"expected true\")");
+                        }
+                        "is_false" => {
+                            let _ = writeln!(out, "\tassert.False(t, {pred}, \"expected false\")");
+                        }
+                        _ => {
+                            let _ = writeln!(out, "\t// skipped: unsupported assertion type on synthetic field '{f}'");
+                        }
+                    }
+                    return;
+                }
+                "embeddings" => {
+                    match assertion.assertion_type.as_str() {
+                        "count_equals" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(
+                                        out,
+                                        "\tassert.Equal(t, {n}, len({embed_deref}), \"expected exactly {n} elements\")"
+                                    );
+                                }
+                            }
+                        }
+                        "count_min" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(
+                                        out,
+                                        "\tassert.GreaterOrEqual(t, len({embed_deref}), {n}, \"expected at least {n} elements\")"
+                                    );
+                                }
+                            }
+                        }
+                        "not_empty" => {
+                            let _ = writeln!(
+                                out,
+                                "\tassert.NotEmpty(t, {embed_deref}, \"expected non-empty embeddings\")"
+                            );
+                        }
+                        "is_empty" => {
+                            let _ = writeln!(out, "\tassert.Empty(t, {embed_deref}, \"expected empty embeddings\")");
+                        }
+                        _ => {
+                            let _ = writeln!(
+                                out,
+                                "\t// skipped: unsupported assertion type on synthetic field 'embeddings'"
+                            );
+                        }
+                    }
+                    return;
+                }
+                "embedding_dimensions" => {
+                    let expr = format!(
+                        "func() int {{ if len({embed_deref}) == 0 {{ return 0 }}; return len({embed_deref}[0]) }}()"
+                    );
+                    match assertion.assertion_type.as_str() {
+                        "equals" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(
+                                        out,
+                                        "\tif {expr} != {n} {{\n\t\tt.Errorf(\"equals mismatch: got %v\", {expr})\n\t}}"
+                                    );
+                                }
+                            }
+                        }
+                        "greater_than" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(out, "\tassert.Greater(t, {expr}, {n}, \"expected > {n}\")");
+                                }
+                            }
+                        }
+                        _ => {
+                            let _ = writeln!(
+                                out,
+                                "\t// skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                            );
+                        }
+                    }
+                    return;
+                }
+                "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                    let pred = match f.as_str() {
+                        "embeddings_valid" => {
+                            format!(
+                                "func() bool {{ for _, e := range {embed_deref} {{ if len(e) == 0 {{ return false }} }}; return true }}()"
+                            )
+                        }
+                        "embeddings_finite" => {
+                            format!(
+                                "func() bool {{ for _, e := range {embed_deref} {{ for _, v := range e {{ if v != v || v == float32(1.0/0.0) || v == float32(-1.0/0.0) {{ return false }} }} }}; return true }}()"
+                            )
+                        }
+                        "embeddings_non_zero" => {
+                            format!(
+                                "func() bool {{ for _, e := range {embed_deref} {{ hasNonZero := false; for _, v := range e {{ if v != 0 {{ hasNonZero = true; break }} }}; if !hasNonZero {{ return false }} }}; return true }}()"
+                            )
+                        }
+                        "embeddings_normalized" => {
+                            format!(
+                                "func() bool {{ for _, e := range {embed_deref} {{ var n float64; for _, v := range e {{ n += float64(v) * float64(v) }}; if n < 0.999 || n > 1.001 {{ return false }} }}; return true }}()"
+                            )
+                        }
+                        _ => unreachable!(),
+                    };
+                    match assertion.assertion_type.as_str() {
+                        "is_true" => {
+                            let _ = writeln!(out, "\tassert.True(t, {pred}, \"expected true\")");
+                        }
+                        "is_false" => {
+                            let _ = writeln!(out, "\tassert.False(t, {pred}, \"expected false\")");
+                        }
+                        _ => {
+                            let _ = writeln!(out, "\t// skipped: unsupported assertion type on synthetic field '{f}'");
+                        }
+                    }
+                    return;
+                }
+                // ---- keywords / keywords_count ----
+                // Go ExtractionResult does not expose extracted_keywords; skip.
+                "keywords" | "keywords_count" => {
+                    let _ = writeln!(out, "\t// skipped: field '{f}' not available on Go ExtractionResult");
+                    return;
+                }
+                _ => {}
+            }
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     // When result_is_simple, all field assertions operate on the scalar result directly.
     if !result_is_simple {

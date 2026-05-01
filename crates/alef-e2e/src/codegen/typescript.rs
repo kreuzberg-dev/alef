@@ -497,7 +497,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     // Body assertions.
     if let Some(expected_body) = &http.expected_response.body {
         // Empty-string sentinel ("") and null mean no body — skip assertion.
-        if !(expected_body.is_string() && expected_body.as_str() == Some("")) && !expected_body.is_null() {
+        if !(expected_body.is_null() || expected_body.is_string() && expected_body.as_str() == Some("")) {
             if let serde_json::Value::String(s) = expected_body {
                 // Plain-string body: mock server returns raw text, compare as text.
                 let escaped = escape_js(s);
@@ -793,6 +793,151 @@ fn build_args_and_setup(
 }
 
 fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
+    // Handle synthetic / derived fields before the is_valid_for_result check
+    // so they are never treated as struct property accesses on the result.
+    if let Some(f) = &assertion.field {
+        match f.as_str() {
+            "chunks_have_content" => {
+                let pred = format!("({result_var}.chunks ?? []).every((c: {{ content?: string }}) => !!c.content)");
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    expect({pred}).toBe(true);");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    expect({pred}).toBe(false);");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "chunks_have_embeddings" => {
+                let pred = format!(
+                    "({result_var}.chunks ?? []).every((c: {{ embedding?: number[] }}) => c.embedding != null && c.embedding.length > 0)"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    expect({pred}).toBe(true);");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    expect({pred}).toBe(false);");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- EmbedResponse virtual fields ----
+            // embed_texts returns number[][] in TypeScript — no wrapper object.
+            // result_var is the embedding matrix; use it directly.
+            "embeddings" => {
+                match assertion.assertion_type.as_str() {
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            let _ = writeln!(out, "    expect({result_var}.length).toBe({js_val});");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            let _ = writeln!(out, "    expect({result_var}.length).toBeGreaterThanOrEqual({js_val});");
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(out, "    expect({result_var}.length).toBeGreaterThan(0);");
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(out, "    expect({result_var}.length).toBe(0);");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embedding_dimensions" => {
+                let expr = format!("({result_var}.length > 0 ? {result_var}[0].length : 0)");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            let _ = writeln!(out, "    expect({expr}).toBe({js_val});");
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            let _ = writeln!(out, "    expect({expr}).toBeGreaterThan({js_val});");
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                let pred = match f.as_str() {
+                    "embeddings_valid" => {
+                        format!("{result_var}.every((e: number[]) => e.length > 0)")
+                    }
+                    "embeddings_finite" => {
+                        format!("{result_var}.every((e: number[]) => e.every((v: number) => isFinite(v)))")
+                    }
+                    "embeddings_non_zero" => {
+                        format!("{result_var}.every((e: number[]) => e.some((v: number) => v !== 0))")
+                    }
+                    "embeddings_normalized" => {
+                        format!(
+                            "{result_var}.every((e: number[]) => {{ const n = e.reduce((s: number, v: number) => s + v * v, 0); return Math.abs(n - 1.0) < 1e-3; }})"
+                        )
+                    }
+                    _ => unreachable!(),
+                };
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    expect({pred}).toBe(true);");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    expect({pred}).toBe(false);");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- keywords / keywords_count ----
+            // Node JsExtractionResult does not expose extracted_keywords; skip.
+            "keywords" | "keywords_count" => {
+                let _ = writeln!(
+                    out,
+                    "    // skipped: field '{f}' not available on Node JsExtractionResult"
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {

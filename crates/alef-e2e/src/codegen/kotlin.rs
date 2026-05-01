@@ -385,9 +385,7 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
     );
 
     // Java's HttpClient restricts certain headers that cannot be set programmatically.
-    const JAVA_RESTRICTED_HEADERS: &[&str] = &[
-        "connection", "content-length", "expect", "host", "upgrade",
-    ];
+    const JAVA_RESTRICTED_HEADERS: &[&str] = &["connection", "content-length", "expect", "host", "upgrade"];
 
     // Add headers.
     let content_type = request.content_type.as_deref().unwrap_or("application/json");

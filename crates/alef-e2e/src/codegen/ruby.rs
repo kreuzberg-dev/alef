@@ -327,10 +327,7 @@ fn render_spec_file(
                 let test_name = sanitize_ident(&fixture.id);
                 let description = fixture.description.replace('\'', "\\'");
                 let _ = writeln!(out, "  it '{test_name}: {description}' do");
-                let _ = writeln!(
-                    out,
-                    "    skip 'Non-HTTP fixture cannot be tested via Net::HTTP'"
-                );
+                let _ = writeln!(out, "    skip 'Non-HTTP fixture cannot be tested via Net::HTTP'");
                 let _ = writeln!(out, "  end");
             } else {
                 // Resolve per-fixture call config (supports named calls via fixture.call field).
@@ -410,7 +407,10 @@ fn render_http_example(out: &mut String, fixture: &Fixture, http: &HttpFixture) 
     // HTTP 101 (WebSocket upgrade) cannot be tested via Net::HTTP — generate a skip.
     if status == 101 {
         let _ = writeln!(out, "    it '{}' do", description);
-        let _ = writeln!(out, "      skip 'HTTP 101 WebSocket upgrade cannot be tested via Net::HTTP'");
+        let _ = writeln!(
+            out,
+            "      skip 'HTTP 101 WebSocket upgrade cannot be tested via Net::HTTP'"
+        );
         let _ = writeln!(out, "    end");
         let _ = writeln!(out, "  end");
         return;
@@ -460,7 +460,10 @@ fn render_ruby_http_request_mock(out: &mut String, req: &HttpRequest, fixture_id
     // Disable automatic redirect following so 3xx status codes can be asserted.
     let _ = writeln!(out, "      _req = Net::HTTP::{method_class}.new(_uri.request_uri)");
 
-    let has_body = req.body.as_ref().is_some_and(|b| !matches!(b, serde_json::Value::String(s) if s.is_empty()));
+    let has_body = req
+        .body
+        .as_ref()
+        .is_some_and(|b| !matches!(b, serde_json::Value::String(s) if s.is_empty()));
     if has_body {
         let ruby_body = json_to_ruby(req.body.as_ref().unwrap());
         let _ = writeln!(out, "      _req.body = {ruby_body}.to_json");
@@ -477,10 +480,7 @@ fn render_ruby_http_request_mock(out: &mut String, req: &HttpRequest, fixture_id
         let _ = writeln!(out, "      _req[{rk}] = {rv}");
     }
 
-    let _ = writeln!(
-        out,
-        "      response = _http.request(_req)"
-    );
+    let _ = writeln!(out, "      response = _http.request(_req)");
 }
 
 /// Emit body assertions for an HTTP expected response.
@@ -499,7 +499,10 @@ fn render_ruby_body_assertions(out: &mut String, expected: &HttpExpectedResponse
             _ => {
                 let ruby_val = json_to_ruby(body);
                 // response.body may be nil for 204 No Content or empty responses.
-                let _ = writeln!(out, "      _body = response.body && !response.body.empty? ? JSON.parse(response.body) : nil");
+                let _ = writeln!(
+                    out,
+                    "      _body = response.body && !response.body.empty? ? JSON.parse(response.body) : nil"
+                );
                 let _ = writeln!(out, "      expect(_body).to eq({ruby_val})");
             }
         }
@@ -761,6 +764,145 @@ fn render_assertion(
     result_is_simple: bool,
     e2e_config: &E2eConfig,
 ) {
+    // Handle synthetic / derived fields before the is_valid_for_result check
+    // so they are never treated as struct attribute accesses on the result.
+    if let Some(f) = &assertion.field {
+        match f.as_str() {
+            "chunks_have_content" => {
+                let pred = format!("({result_var}.chunks || []).all? {{ |c| c.content && !c.content.empty? }}");
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    expect({pred}).to be(true)");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    expect({pred}).to be(false)");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "chunks_have_embeddings" => {
+                let pred =
+                    format!("({result_var}.chunks || []).all? {{ |c| !c.embedding.nil? && !c.embedding.empty? }}");
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    expect({pred}).to be(true)");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    expect({pred}).to be(false)");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- EmbedResponse virtual fields ----
+            // embed_texts returns Array<Array<Float>> in Ruby — no wrapper struct.
+            // result_var is the embedding matrix; use it directly.
+            "embeddings" => {
+                match assertion.assertion_type.as_str() {
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let rb_val = json_to_ruby(val);
+                            let _ = writeln!(out, "    expect({result_var}.length).to eq({rb_val})");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let rb_val = json_to_ruby(val);
+                            let _ = writeln!(out, "    expect({result_var}.length).to be >= {rb_val}");
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(out, "    expect({result_var}).not_to be_empty");
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(out, "    expect({result_var}).to be_empty");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embedding_dimensions" => {
+                let expr = format!("({result_var}.empty? ? 0 : {result_var}[0].length)");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let rb_val = json_to_ruby(val);
+                            let _ = writeln!(out, "    expect({expr}).to eq({rb_val})");
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let rb_val = json_to_ruby(val);
+                            let _ = writeln!(out, "    expect({expr}).to be > {rb_val}");
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                let pred = match f.as_str() {
+                    "embeddings_valid" => {
+                        format!("{result_var}.all? {{ |e| !e.empty? }}")
+                    }
+                    "embeddings_finite" => {
+                        format!("{result_var}.all? {{ |e| e.all? {{ |v| v.finite? }} }}")
+                    }
+                    "embeddings_non_zero" => {
+                        format!("{result_var}.all? {{ |e| e.any? {{ |v| v != 0.0 }} }}")
+                    }
+                    "embeddings_normalized" => {
+                        format!("{result_var}.all? {{ |e| n = e.sum {{ |v| v * v }}; (n - 1.0).abs < 1e-3 }}")
+                    }
+                    _ => unreachable!(),
+                };
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    expect({pred}).to be(true)");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    expect({pred}).to be(false)");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- keywords / keywords_count ----
+            // Ruby ExtractionResult does not expose extracted_keywords; skip.
+            "keywords" | "keywords_count" => {
+                let _ = writeln!(out, "    # skipped: field '{f}' not available on Ruby ExtractionResult");
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {

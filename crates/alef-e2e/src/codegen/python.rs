@@ -780,7 +780,7 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     // Body assertions.
     if let Some(expected_body) = &http.expected_response.body {
         // Empty-string sentinel means no body — skip assertion.
-        if !(expected_body.is_string() && expected_body.as_str() == Some("")) && !expected_body.is_null() {
+        if !(expected_body.is_null() || expected_body.is_string() && expected_body.as_str() == Some("")) {
             if let serde_json::Value::String(s) = expected_body {
                 // Plain-string body: mock server returns raw text, compare decoded bytes directly.
                 let py_val = format!("\"{}\"", escape_python(s));
@@ -840,7 +840,7 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     }
 
     // Validation error assertions — skip when a full body assertEquals is already generated
-    // (it is redundant and avoids mis-keying "detail" vs "errors").
+    // (it is redundant and avoids miss-keying "detail" vs "errors").
     if let Some(validation_errors) = &http.expected_response.validation_errors {
         if !validation_errors.is_empty() && !body_has_content {
             let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
@@ -1210,6 +1210,151 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     fields_enum: &std::collections::HashSet<String>,
 ) {
+    // Handle synthetic / derived fields before the is_valid_for_result check
+    // so they are never treated as struct attribute accesses on the result.
+    if let Some(f) = &assertion.field {
+        match f.as_str() {
+            "chunks_have_content" => {
+                let pred = format!("all(c.content for c in ({result_var}.chunks or []))");
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    assert {pred}  # noqa: S101");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    assert not ({pred})  # noqa: S101");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "chunks_have_embeddings" => {
+                let pred = format!(
+                    "all(c.embedding is not None and len(c.embedding) > 0 for c in ({result_var}.chunks or []))"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    assert {pred}  # noqa: S101");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    assert not ({pred})  # noqa: S101");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- EmbedResponse virtual fields ----
+            // embed_texts returns list[list[float]] in Python — no wrapper struct.
+            // result_var is the embedding matrix; use it directly.
+            "embeddings" => {
+                match assertion.assertion_type.as_str() {
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            if let Some(n) = val.as_u64() {
+                                let _ = writeln!(out, "    assert len({result_var}) == {n}  # noqa: S101");
+                            }
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            if let Some(n) = val.as_u64() {
+                                let _ = writeln!(out, "    assert len({result_var}) >= {n}  # noqa: S101");
+                            }
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(out, "    assert len({result_var}) > 0  # noqa: S101");
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(out, "    assert len({result_var}) == 0  # noqa: S101");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embedding_dimensions" => {
+                let expr = format!("(len({result_var}[0]) if {result_var} else 0)");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let py_val = value_to_python_string(val);
+                            let _ = writeln!(out, "    assert {expr} == {py_val}  # noqa: S101");
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let py_val = value_to_python_string(val);
+                            let _ = writeln!(out, "    assert {expr} > {py_val}  # noqa: S101");
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                let pred = match f.as_str() {
+                    "embeddings_valid" => {
+                        format!("all(bool(e) for e in {result_var})")
+                    }
+                    "embeddings_finite" => {
+                        format!("all(v == v and abs(v) != float('inf') for e in {result_var} for v in e)")
+                    }
+                    "embeddings_non_zero" => {
+                        format!("all(any(v != 0.0 for v in e) for e in {result_var})")
+                    }
+                    "embeddings_normalized" => {
+                        format!("all(abs(sum(v * v for v in e) - 1.0) < 1e-3 for e in {result_var})")
+                    }
+                    _ => unreachable!(),
+                };
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "    assert {pred}  # noqa: S101");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    assert not ({pred})  # noqa: S101");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- keywords / keywords_count ----
+            // Python ExtractionResult does not expose extracted_keywords; skip.
+            "keywords" | "keywords_count" => {
+                let _ = writeln!(
+                    out,
+                    "    # skipped: field '{f}' not available on Python ExtractionResult"
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {

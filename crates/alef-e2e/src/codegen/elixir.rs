@@ -70,25 +70,8 @@ impl E2eCodegen for ElixirCodegen {
             .unwrap_or(&empty_atom_fields);
         let result_var = &call.result_var;
 
-        // Resolve package config.
-        let elixir_pkg = e2e_config.resolve_package("elixir");
-        let pkg_path = elixir_pkg
-            .as_ref()
-            .and_then(|p| p.path.as_ref())
-            .cloned()
-            .unwrap_or_else(|| "../../packages/elixir".to_string());
-        // The dep atom must be a valid snake_case Elixir atom (e.g., :html_to_markdown),
-        // derived from the call module name, not the PascalCase module path.
-        let dep_atom = elixir_pkg
-            .as_ref()
-            .and_then(|p| p.name.as_ref())
-            .cloned()
-            .unwrap_or_else(|| raw_module.to_snake_case());
-        let dep_version = elixir_pkg
-            .as_ref()
-            .and_then(|p| p.version.as_ref())
-            .cloned()
-            .unwrap_or_else(|| "0.1.0".to_string());
+        // Note: Elixir e2e tests use HTTP client only — no binding/NIF dependency needed.
+        // Package config is kept for future use but not currently applied to mix.exs.
 
         // Check if any fixture in any group is an HTTP test.
         let has_http_tests = groups.iter().any(|g| g.fixtures.iter().any(|f| f.is_http_test()));
@@ -96,7 +79,7 @@ impl E2eCodegen for ElixirCodegen {
         // Generate mix.exs.
         files.push(GeneratedFile {
             path: output_base.join("mix.exs"),
-            content: render_mix_exs(&dep_atom, &pkg_path, &dep_version, e2e_config.dep_mode, has_http_tests),
+            content: render_mix_exs("", "", "", e2e_config.dep_mode, has_http_tests),
             generated_header: false,
         });
 
@@ -193,10 +176,10 @@ end
 }
 
 fn render_mix_exs(
-    dep_atom: &str,
-    pkg_path: &str,
-    dep_version: &str,
-    dep_mode: crate::config::DependencyMode,
+    _dep_atom: &str,
+    _pkg_path: &str,
+    _dep_version: &str,
+    _dep_mode: crate::config::DependencyMode,
     has_http_tests: bool,
 ) -> String {
     let mut out = String::new();
@@ -214,21 +197,11 @@ fn render_mix_exs(
     let _ = writeln!(out);
     let _ = writeln!(out, "  defp deps do");
     let _ = writeln!(out, "    [");
-    // Use a bare atom for the dep name (e.g., :html_to_markdown), not a quoted atom.
-    let dep_line = match dep_mode {
-        crate::config::DependencyMode::Registry => {
-            format!("      {{:{dep_atom}, \"{dep_version}\"}}")
-        }
-        crate::config::DependencyMode::Local => {
-            format!("      {{:{dep_atom}, path: \"{pkg_path}\"}}")
-        }
-    };
+    // E2e tests use HTTP client only — no binding/NIF dependency.
+    // Add Req + Jason for HTTP testing.
     if has_http_tests {
-        let _ = writeln!(out, "{dep_line},");
         let _ = writeln!(out, "      {{:req, \"{req}\"}},", req = tv::hex::REQ);
         let _ = writeln!(out, "      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON);
-    } else {
-        let _ = writeln!(out, "{dep_line}");
     }
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  end");
@@ -753,6 +726,152 @@ fn render_assertion(
     field_resolver: &FieldResolver,
     module_path: &str,
 ) {
+    // Handle synthetic / derived fields before the is_valid_for_result check
+    // so they are never treated as struct field accesses on the result.
+    if let Some(f) = &assertion.field {
+        match f.as_str() {
+            "chunks_have_content" => {
+                let pred =
+                    format!("Enum.all?({result_var}.chunks || [], fn c -> c.content != nil and c.content != \"\" end)");
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "      assert {pred}");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "      refute {pred}");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "      # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "chunks_have_embeddings" => {
+                let pred = format!(
+                    "Enum.all?({result_var}.chunks || [], fn c -> c.embedding != nil and c.embedding != [] end)"
+                );
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "      assert {pred}");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "      refute {pred}");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "      # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- EmbedResponse virtual fields ----
+            // embed_texts returns [[float]] in Elixir — no wrapper struct.
+            // result_var is the embedding matrix; use it directly.
+            "embeddings" => {
+                match assertion.assertion_type.as_str() {
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let ex_val = json_to_elixir(val);
+                            let _ = writeln!(out, "      assert length({result_var}) == {ex_val}");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let ex_val = json_to_elixir(val);
+                            let _ = writeln!(out, "      assert length({result_var}) >= {ex_val}");
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(out, "      assert {result_var} != []");
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(out, "      assert {result_var} == []");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "      # skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embedding_dimensions" => {
+                let expr = format!("(if {result_var} == [], do: 0, else: length(hd({result_var})))");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let ex_val = json_to_elixir(val);
+                            let _ = writeln!(out, "      assert {expr} == {ex_val}");
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let ex_val = json_to_elixir(val);
+                            let _ = writeln!(out, "      assert {expr} > {ex_val}");
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "      # skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                let pred = match f.as_str() {
+                    "embeddings_valid" => {
+                        format!("Enum.all?({result_var}, fn e -> e != [] end)")
+                    }
+                    "embeddings_finite" => {
+                        format!("Enum.all?({result_var}, fn e -> Enum.all?(e, fn v -> is_float(v) and v == v end) end)")
+                    }
+                    "embeddings_non_zero" => {
+                        format!("Enum.all?({result_var}, fn e -> Enum.any?(e, fn v -> v != 0.0 end) end)")
+                    }
+                    "embeddings_normalized" => {
+                        format!(
+                            "Enum.all?({result_var}, fn e -> n = Enum.reduce(e, 0.0, fn v, acc -> acc + v * v end); abs(n - 1.0) < 1.0e-3 end)"
+                        )
+                    }
+                    _ => unreachable!(),
+                };
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "      assert {pred}");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "      refute {pred}");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "      # skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- keywords / keywords_count ----
+            // Elixir ExtractionResult does not expose extracted_keywords; skip.
+            "keywords" | "keywords_count" => {
+                let _ = writeln!(
+                    out,
+                    "      # skipped: field '{f}' not available on Elixir ExtractionResult"
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {

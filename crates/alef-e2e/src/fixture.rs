@@ -171,6 +171,54 @@ pub struct ValidationErrorExpectation {
     pub error_type: String,
 }
 
+/// CORS policy configuration for HTTP handler tests.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CorsConfig {
+    /// Allowed origins (e.g. `["https://example.com"]`). Empty means deny all.
+    #[serde(default)]
+    pub allow_origins: Vec<String>,
+    /// Allowed HTTP methods (e.g. `["GET", "POST"]`). Empty means deny all.
+    #[serde(default)]
+    pub allow_methods: Vec<String>,
+    /// Allowed request headers (e.g. `["Content-Type"]`). Empty means deny all.
+    #[serde(default)]
+    pub allow_headers: Vec<String>,
+    /// Exposed response headers (e.g. `["X-Total-Count"]`).
+    #[serde(default)]
+    pub expose_headers: Vec<String>,
+    /// `Access-Control-Max-Age` value in seconds.
+    #[serde(default)]
+    pub max_age: Option<u64>,
+    /// Whether to allow credentials.
+    #[serde(default)]
+    pub allow_credentials: bool,
+}
+
+/// A single static file entry for the static-files middleware.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaticFile {
+    /// Relative path within the served directory (e.g. `"hello.txt"`).
+    pub path: String,
+    /// File content (plain text or HTML string).
+    pub content: String,
+}
+
+/// Static-files middleware configuration for HTTP handler tests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaticFilesConfig {
+    /// URL route prefix (e.g. `"/public"`).
+    pub route_prefix: String,
+    /// Files to write to the temporary directory.
+    #[serde(default)]
+    pub files: Vec<StaticFile>,
+    /// Whether to serve `index.html` for directory requests.
+    #[serde(default)]
+    pub index_file: bool,
+    /// `Cache-Control` header value to apply.
+    #[serde(default)]
+    pub cache_control: Option<String>,
+}
+
 /// Middleware configuration for HTTP handler tests.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HttpMiddleware {
@@ -186,6 +234,12 @@ pub struct HttpMiddleware {
     pub request_timeout: Option<serde_json::Value>,
     #[serde(default)]
     pub request_id: Option<serde_json::Value>,
+    /// CORS policy to apply via tower-http `CorsLayer`.
+    #[serde(default)]
+    pub cors: Option<CorsConfig>,
+    /// Static-files configuration to serve via tower-http `ServeDir`.
+    #[serde(default)]
+    pub static_files: Option<Vec<StaticFilesConfig>>,
 }
 
 impl Fixture {

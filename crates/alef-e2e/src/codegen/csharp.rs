@@ -6,7 +6,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_csharp, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -204,6 +204,11 @@ fn render_test_file(
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     // Always import System.Text.Json for the shared JsonOptions field.
+    let _ = writeln!(out, "using System;");
+    let _ = writeln!(out, "using System.Collections.Generic;");
+    let _ = writeln!(out, "using System.Linq;");
+    let _ = writeln!(out, "using System.Net.Http;");
+    let _ = writeln!(out, "using System.Text;");
     let _ = writeln!(out, "using System.Text.Json;");
     let _ = writeln!(out, "using System.Text.Json.Serialization;");
     let _ = writeln!(out, "using System.Threading.Tasks;");
@@ -247,6 +252,135 @@ fn render_test_file(
     out
 }
 
+/// Render an HTTP server test method using System.Net.Http.HttpClient against MOCK_SERVER_URL.
+fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    let method_name = fixture.id.to_upper_camel_case();
+    let description = &fixture.description;
+    let request = &http.request;
+    let expected = &http.expected_response;
+    let method = request.method.to_uppercase();
+    let fixture_id = &fixture.id;
+    let expected_status = expected.status_code;
+
+    let _ = writeln!(out, "    [Fact]");
+    let _ = writeln!(out, "    public async Task Test_{method_name}()");
+    let _ = writeln!(out, "    {{");
+    let _ = writeln!(out, "        // {description}");
+    let _ = writeln!(
+        out,
+        "        var baseUrl = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\";"
+    );
+    let _ = writeln!(out, "        using var client = new System.Net.Http.HttpClient();");
+    let _ = writeln!(
+        out,
+        "        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}/fixtures/{fixture_id}\");"
+    );
+
+    // Set Content-Type header if there's a body.
+    let content_type = request.content_type.as_deref().unwrap_or("application/json");
+    if request.body.is_some() {
+        let json_str = serde_json::to_string(&request.body).unwrap_or_default();
+        let escaped = escape_csharp(&json_str);
+        let _ = writeln!(
+            out,
+            "        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");"
+        );
+    }
+
+    // Add headers (skip restricted headers).
+    const CSHARP_RESTRICTED_HEADERS: &[&str] = &[
+        "content-length",
+        "host",
+        "connection",
+        "expect",
+        "transfer-encoding",
+        "upgrade",
+    ];
+
+    for (name, value) in &request.headers {
+        if CSHARP_RESTRICTED_HEADERS.contains(&name.to_lowercase().as_str()) {
+            continue;
+        }
+        let escaped_name = escape_csharp(name);
+        let escaped_value = escape_csharp(value);
+        let _ = writeln!(
+            out,
+            "        request.Headers.Add(\"{escaped_name}\", \"{escaped_value}\");"
+        );
+    }
+
+    // Add cookies as Cookie header.
+    if !request.cookies.is_empty() {
+        let cookie_str: Vec<String> = request.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let cookie_header = escape_csharp(&cookie_str.join("; "));
+        let _ = writeln!(out, "        request.Headers.Add(\"Cookie\", \"{cookie_header}\");");
+    }
+
+    let _ = writeln!(out, "        var response = await client.SendAsync(request);");
+    let _ = writeln!(
+        out,
+        "        Assert.Equal({expected_status}, (int)response.StatusCode);"
+    );
+
+    // Assert body if expected.
+    if let Some(expected_body) = &expected.body {
+        match expected_body {
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                let json_str = serde_json::to_string(expected_body).unwrap_or_default();
+                let escaped = escape_csharp(&json_str);
+                let _ = writeln!(
+                    out,
+                    "        var bodyText = await response.Content.ReadAsStringAsync();"
+                );
+                let _ = writeln!(out, "        var body = JsonDocument.Parse(bodyText).RootElement;");
+                let _ = writeln!(
+                    out,
+                    "        var expectedBody = JsonDocument.Parse(\"{escaped}\").RootElement;"
+                );
+                let _ = writeln!(
+                    out,
+                    "        Assert.Equal(expectedBody.GetRawText(), body.GetRawText());"
+                );
+            }
+            serde_json::Value::String(s) => {
+                let escaped = escape_csharp(s);
+                let _ = writeln!(
+                    out,
+                    "        var bodyText = await response.Content.ReadAsStringAsync();"
+                );
+                let _ = writeln!(out, "        Assert.Equal(\"{escaped}\", bodyText.Trim());");
+            }
+            other => {
+                let escaped = escape_csharp(&other.to_string());
+                let _ = writeln!(
+                    out,
+                    "        var bodyText = await response.Content.ReadAsStringAsync();"
+                );
+                let _ = writeln!(out, "        Assert.Equal(\"{escaped}\", bodyText.Trim());");
+            }
+        }
+    }
+
+    // Assert response headers if specified (skip special tokens).
+    for (name, value) in &expected.headers {
+        if value == "<<absent>>" || value == "<<present>>" || value == "<<uuid>>" {
+            continue;
+        }
+        // Skip content-encoding since the mock server doesn't compress.
+        if name.to_lowercase() == "content-encoding" {
+            continue;
+        }
+        let escaped_name = escape_csharp(name);
+        let escaped_value = escape_csharp(value);
+        let _ = writeln!(
+            out,
+            "        Assert.True(response.Headers.TryGetValues(\"{escaped_name}\", out var values) && values.Any(v => v.Contains(\"{escaped_value}\")), \"header {escaped_name} mismatch\");"
+        );
+    }
+
+    let _ = writeln!(out, "    }}");
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_test_method(
     out: &mut String,
@@ -264,22 +398,14 @@ fn render_test_method(
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
-    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    // The C# binding wraps a C FFI layer and does not expose a HandleRequest or equivalent
-    // function that can be called from e2e tests.  Until C#-native HTTP integration tests
-    // are implemented, emit compilable stubs for all fixtures that don't use mock_response.
-    if fixture.mock_response.is_none() {
-        let _ = writeln!(
-            out,
-            "    [Fact(Skip = \"TODO: implement C# e2e tests via the spikard C# binding API\")]"
-        );
-        let _ = writeln!(out, "    public void Test_{method_name}()");
-        let _ = writeln!(out, "    {{");
-        let _ = writeln!(out, "        // {description}");
-        let _ = writeln!(out, "    }}");
+    // HTTP fixtures: generate real HTTP client tests using System.Net.Http.
+    if let Some(http) = &fixture.http {
+        render_http_test_method(out, fixture, http);
         return;
     }
+
+    let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     // Resolve call config per-fixture so named calls (e.g. "parse") use the
     // correct function name, result variable, and async flag.
@@ -563,6 +689,150 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_vec: bool,
 ) {
+    // Handle synthetic / derived fields before the is_valid_for_result check
+    // so they are never treated as struct property accesses on the result.
+    if let Some(f) = &assertion.field {
+        match f.as_str() {
+            "chunks_have_content" => {
+                let pred = format!("({result_var}.Chunks ?? new()).All(c => !string.IsNullOrEmpty(c.Content))");
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        Assert.True({pred});");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        Assert.False({pred});");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            "chunks_have_embeddings" => {
+                let pred =
+                    format!("({result_var}.Chunks ?? new()).All(c => c.Embedding != null && c.Embedding.Count > 0)");
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        Assert.True({pred});");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        Assert.False({pred});");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- EmbedResponse virtual fields ----
+            // embed_texts returns List<List<float>> in C# — no wrapper object.
+            // result_var is the embedding matrix; use it directly.
+            "embeddings" => {
+                match assertion.assertion_type.as_str() {
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let cs_val = json_to_csharp(val);
+                            let _ = writeln!(out, "        Assert.True({result_var}.Count == {cs_val});");
+                        }
+                    }
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let cs_val = json_to_csharp(val);
+                            let _ = writeln!(out, "        Assert.True({result_var}.Count >= {cs_val});");
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(out, "        Assert.NotEmpty({result_var});");
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(out, "        Assert.Empty({result_var});");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embedding_dimensions" => {
+                let expr = format!("({result_var}.Count > 0 ? {result_var}[0].Count : 0)");
+                match assertion.assertion_type.as_str() {
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let cs_val = json_to_csharp(val);
+                            let _ = writeln!(out, "        Assert.True({expr} == {cs_val});");
+                        }
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let cs_val = json_to_csharp(val);
+                            let _ = writeln!(out, "        Assert.True({expr} > {cs_val});");
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+                        );
+                    }
+                }
+                return;
+            }
+            "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
+                let pred = match f.as_str() {
+                    "embeddings_valid" => {
+                        format!("{result_var}.All(e => e.Count > 0)")
+                    }
+                    "embeddings_finite" => {
+                        format!("{result_var}.All(e => e.All(v => !float.IsInfinity(v) && !float.IsNaN(v)))")
+                    }
+                    "embeddings_non_zero" => {
+                        format!("{result_var}.All(e => e.Any(v => v != 0.0f))")
+                    }
+                    "embeddings_normalized" => {
+                        format!(
+                            "{result_var}.All(e => {{ var n = e.Sum(v => (double)v * v); return Math.Abs(n - 1.0) < 1e-3; }})"
+                        )
+                    }
+                    _ => unreachable!(),
+                };
+                match assertion.assertion_type.as_str() {
+                    "is_true" => {
+                        let _ = writeln!(out, "        Assert.True({pred});");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "        Assert.False({pred});");
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
+                        );
+                    }
+                }
+                return;
+            }
+            // ---- keywords / keywords_count ----
+            // C# ExtractionResult does not expose extracted_keywords; skip.
+            "keywords" | "keywords_count" => {
+                let _ = writeln!(
+                    out,
+                    "        // skipped: field '{f}' not available on C# ExtractionResult"
+                );
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {

@@ -88,6 +88,9 @@ pub mod cargo {
     // walkdir major-only; manual bump required
     pub const WALKDIR: &str = "2";
 
+    // renovate: datasource=crate depName=tower-http
+    pub const TOWER_HTTP: &str = "0.6";
+
     // renovate: datasource=crate depName=flutter_rust_bridge
     pub const FLUTTER_RUST_BRIDGE: &str = "2.12.0";
 
@@ -292,6 +295,9 @@ pub mod hex {
 
     // version range; manual bump required
     pub const GLEEUNIT_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";
+
+    // renovate: datasource=hex depName=gleam_httpc
+    pub const GLEAM_HTTPC_VERSION_RANGE: &str = ">= 1.0.0 and < 2.0.0";
 }
 
 /// pub.dev (Dart) ecosystem.
