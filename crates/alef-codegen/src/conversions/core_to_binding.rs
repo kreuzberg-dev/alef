@@ -345,14 +345,15 @@ pub fn field_conversion_from_core(
                 format!("{name}: val.{name}.iter().map(|i| i.as_ref().map(ToString::to_string)).collect()")
             }
         }
-        // Map with Json values: core uses HashMap<K, serde_json::Value>, binding uses HashMap<K, String>
-        TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Json) => {
-            let k_is_json = matches!(k.as_ref(), TypeRef::Json);
-            let k_expr = if k_is_json { "k.to_string()" } else { "k" };
+        // Map with Json values: core uses HashMap<K, serde_json::Value>, binding uses HashMap<K, String>.
+        // Always emit `k.to_string()` so Cow<'_, str> / Box<str> / Arc<str> keys (which the type
+        // resolver normalizes to TypeRef::String) convert correctly. For an actual `String` key
+        // this is a clone, accepted under the existing `#[allow(clippy::useless_conversion)]`.
+        TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Json) => {
             if optional {
-                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({k_expr}, v.to_string())).collect())")
+                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())")
             } else {
-                format!("{name}: val.{name}.into_iter().map(|(k, v)| ({k_expr}, v.to_string())).collect()")
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()")
             }
         }
         // Map with Json keys: core uses HashMap<serde_json::Value, V>, binding uses HashMap<String, V>
