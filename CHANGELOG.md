@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/php): skip JSON decode and body assertions when `expected_response.body` is the empty-string sentinel, avoiding `JsonException` on empty bodies.
 - fix(e2e/php): skip `markTestSkipped` for non-HTTP fixtures with no assertions; add `allow_redirects => false` to Guzzle client; skip HTTP 101 WebSocket upgrade tests; handle plain-string response bodies with raw `(string)$response->getBody()` comparison; suppress redundant `validation_errors` assertions when a full `body` assertEquals is generated; skip `content-encoding` header assertions since the mock server always returns uncompressed bodies.
 - fix(e2e/rust): handle `<<absent>>` sentinel by omitting that header from mock responses; handle `<<uuid>>` sentinel by generating a real UUID v4 value; use `text/plain` default content-type when body is not JSON.
+- fix(e2e/python): skip content-encoding assertions; handle plain-string and empty/null bodies without json.loads; skip HTTP 101 tests; disable redirect following; fix validation errors field name ("errors" not "detail").
+- fix(e2e/typescript): skip content-encoding assertions; handle plain-string and empty/null bodies; skip HTTP 101 tests; add redirect: 'manual'; suppress import when no-assertion non-HTTP fixtures; emit it.skip stubs; fix validation errors field name.
 
 ## [0.12.11] - 2026-05-01
 

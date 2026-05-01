@@ -293,7 +293,9 @@ fn render_test_file(
     let _ = writeln!(out, "import {{ describe, expect, it }} from 'vitest';");
 
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
-    let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test());
+    // Only treat as "has non-HTTP fixtures" when at least one non-HTTP fixture has assertions
+    // (fixtures with no assertions are emitted as it.skip stubs that don't call any imports).
+    let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test() && !f.assertions.is_empty());
 
     // Check if any fixture uses a json_object arg that needs the options type import.
     let needs_options_import = options_type.is_some()
@@ -442,11 +444,21 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
 
+    // HTTP 101 (WebSocket upgrade) — fetch cannot handle upgrade responses.
+    if http.expected_response.status_code == 101 {
+        let _ = writeln!(out, "  it.skip('{test_name}: {description}', async () => {{");
+        let _ = writeln!(out, "    // HTTP 101 WebSocket upgrade cannot be tested via fetch");
+        let _ = writeln!(out, "  }});");
+        return;
+    }
+
     let method = http.request.method.to_uppercase();
 
     // Build the init object for `fetch(url, init)`.
     let mut init_entries: Vec<String> = Vec::new();
     init_entries.push(format!("method: '{method}'"));
+    // Do not follow redirects — tests that assert on 3xx status codes need the original response.
+    init_entries.push("redirect: 'manual'".to_string());
 
     // Headers
     if !http.request.headers.is_empty() {
@@ -484,9 +496,19 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
 
     // Body assertions.
     if let Some(expected_body) = &http.expected_response.body {
-        let js_val = json_to_js(expected_body);
-        let _ = writeln!(out, "    const data = await response.json();");
-        let _ = writeln!(out, "    expect(data).toEqual({js_val});");
+        // Empty-string sentinel ("") and null mean no body — skip assertion.
+        if !(expected_body.is_string() && expected_body.as_str() == Some("")) && !expected_body.is_null() {
+            if let serde_json::Value::String(s) = expected_body {
+                // Plain-string body: mock server returns raw text, compare as text.
+                let escaped = escape_js(s);
+                let _ = writeln!(out, "    const text = await response.text();");
+                let _ = writeln!(out, "    expect(text).toBe('{escaped}');");
+            } else {
+                let js_val = json_to_js(expected_body);
+                let _ = writeln!(out, "    const data = await response.json();");
+                let _ = writeln!(out, "    expect(data).toEqual({js_val});");
+            }
+        }
     } else if let Some(partial) = &http.expected_response.body_partial {
         let _ = writeln!(out, "    const data = await response.json();");
         if let Some(obj) = partial.as_object() {
@@ -504,6 +526,10 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     // Header assertions.
     for (header_name, header_value) in &http.expected_response.headers {
         let lower_name = header_name.to_lowercase();
+        // The mock server strips content-encoding headers because it returns uncompressed bodies.
+        if lower_name == "content-encoding" {
+            continue;
+        }
         let escaped_name = escape_js(&lower_name);
         match header_value.as_str() {
             "<<present>>" => {
@@ -531,14 +557,17 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         }
     }
 
-    // Validation error assertions.
+    // Validation error assertions — skip when a full body assertion is already generated
+    // (redundant, and response.json() can only be called once per response).
+    let body_has_content = matches!(&http.expected_response.body, Some(v)
+        if !(v.is_null() || (v.is_string() && v.as_str() == Some(""))));
     if let Some(validation_errors) = &http.expected_response.validation_errors {
-        if !validation_errors.is_empty() {
+        if !validation_errors.is_empty() && !body_has_content {
             let _ = writeln!(
                 out,
-                "    const body = await response.json() as {{ detail?: unknown[] }};"
+                "    const body = await response.json() as {{ errors?: unknown[] }};"
             );
-            let _ = writeln!(out, "    const errors = body.detail ?? [];");
+            let _ = writeln!(out, "    const errors = body.errors ?? [];");
             for ve in validation_errors {
                 let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_js(s))).collect();
                 let loc_str = loc_js.join(", ");
@@ -608,6 +637,14 @@ fn render_test_case(
 
     // Check if this is an error-expecting test.
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+
+    // Skip tests with no assertions — they would call a stub function that may not exist.
+    if fixture.assertions.is_empty() {
+        let _ = writeln!(out, "  it.skip('{test_name}: {description}', async () => {{");
+        let _ = writeln!(out, "    // no assertions configured for this fixture in node e2e");
+        let _ = writeln!(out, "  }});");
+        return;
+    }
 
     if expects_error {
         let _ = writeln!(out, "  it('{test_name}: {description}', async () => {{");

@@ -664,6 +664,20 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         format!("{description}.")
     };
 
+    // HTTP 101 (WebSocket upgrade) — urllib cannot handle upgrade responses.
+    let status = http.expected_response.status_code;
+    if status == 101 {
+        let _ = writeln!(
+            out,
+            "@pytest.mark.skip(reason=\"HTTP 101 WebSocket upgrade cannot be tested via urllib\")"
+        );
+        let _ = writeln!(out, "def test_{fn_name}(mock_server: str) -> None:");
+        let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
+        let _ = writeln!(out, "    ...");
+        let _ = writeln!(out);
+        return;
+    }
+
     if is_skipped(fixture, "python") {
         let reason = fixture
             .skip
@@ -714,17 +728,35 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         );
     }
     // Determine which response variables are actually needed.
-    let needs_body = http.expected_response.body.is_some()
+    // Exclude the empty-string body sentinel ("") and null — those mean "no body".
+    let body_has_content = matches!(&http.expected_response.body, Some(v)
+        if !(v.is_null() || (v.is_string() && v.as_str() == Some(""))));
+    let needs_body = body_has_content
         || http.expected_response.body_partial.is_some()
         || http
             .expected_response
             .validation_errors
             .as_ref()
             .is_some_and(|v| !v.is_empty());
-    let needs_headers = !http.expected_response.headers.is_empty();
+    // content-encoding is skipped (mock server strips it), so only consider other headers.
+    let needs_headers = http
+        .expected_response
+        .headers
+        .iter()
+        .any(|(k, _)| k.to_lowercase() != "content-encoding");
 
+    // Build an opener that does NOT follow redirects so we can assert on 3xx responses.
+    let _ = writeln!(
+        out,
+        "    class _NoRedirect(urllib.request.HTTPRedirectHandler):  # noqa: N801"
+    );
+    let _ = writeln!(
+        out,
+        "        def redirect_request(self, *args, **kwargs): return None  # noqa: E704"
+    );
+    let _ = writeln!(out, "    _opener = urllib.request.build_opener(_NoRedirect())");
     let _ = writeln!(out, "    try:");
-    let _ = writeln!(out, "        response = urllib.request.urlopen(_req)  # noqa: S310");
+    let _ = writeln!(out, "        response = _opener.open(_req)  # noqa: S310");
     let _ = writeln!(out, "        status_code = response.status");
     if needs_body {
         let _ = writeln!(out, "        resp_body = response.read()");
@@ -747,10 +779,19 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
 
     // Body assertions.
     if let Some(expected_body) = &http.expected_response.body {
-        let py_val = json_to_python_literal(expected_body);
-        let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
-        let _ = writeln!(out, "    data = _json.loads(resp_body)");
-        let _ = writeln!(out, "    assert data == {py_val}  # noqa: S101");
+        // Empty-string sentinel means no body — skip assertion.
+        if !(expected_body.is_string() && expected_body.as_str() == Some("")) && !expected_body.is_null() {
+            if let serde_json::Value::String(s) = expected_body {
+                // Plain-string body: mock server returns raw text, compare decoded bytes directly.
+                let py_val = format!("\"{}\"", escape_python(s));
+                let _ = writeln!(out, "    assert resp_body.decode() == {py_val}  # noqa: S101");
+            } else {
+                let py_val = json_to_python_literal(expected_body);
+                let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
+                let _ = writeln!(out, "    data = _json.loads(resp_body)");
+                let _ = writeln!(out, "    assert data == {py_val}  # noqa: S101");
+            }
+        }
     } else if let Some(partial) = &http.expected_response.body_partial {
         let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
         let _ = writeln!(out, "    data = _json.loads(resp_body)");
@@ -766,6 +807,10 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     // Header assertions.
     for (header_name, header_value) in &http.expected_response.headers {
         let lower_name = header_name.to_lowercase();
+        // The mock server strips content-encoding headers because it returns uncompressed bodies.
+        if lower_name == "content-encoding" {
+            continue;
+        }
         let escaped_name = escape_python(&lower_name);
         match header_value.as_str() {
             "<<present>>" => {
@@ -794,12 +839,13 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         }
     }
 
-    // Validation error assertions.
+    // Validation error assertions — skip when a full body assertEquals is already generated
+    // (it is redundant and avoids mis-keying "detail" vs "errors").
     if let Some(validation_errors) = &http.expected_response.validation_errors {
-        if !validation_errors.is_empty() {
+        if !validation_errors.is_empty() && !body_has_content {
             let _ = writeln!(out, "    import json as _json  # noqa: PLC0415");
             let _ = writeln!(out, "    _data = _json.loads(resp_body)");
-            let _ = writeln!(out, "    errors = _data.get(\"detail\", [])");
+            let _ = writeln!(out, "    errors = _data.get(\"errors\", [])");
             for ve in validation_errors {
                 let loc_py: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_python(s))).collect();
                 let loc_str = loc_py.join(", ");
