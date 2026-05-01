@@ -262,8 +262,8 @@ fn render_bootstrap(pkg_path: &str, has_http_fixtures: bool) -> String {
     let mock_server_block = if has_http_fixtures {
         r#"
 // Spawn the mock HTTP server binary for HTTP fixture tests.
-$mockServerBin = __DIR__ . '/rust/target/release/mock-server';
-$fixturesDir = __DIR__ . '/../fixtures';
+$mockServerBin = __DIR__ . '/../rust/target/release/mock-server';
+$fixturesDir = __DIR__ . '/../../fixtures';
 if (file_exists($mockServerBin)) {
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR];
     $proc = proc_open([$mockServerBin, $fixturesDir], $descriptors, $pipes);
@@ -408,12 +408,18 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
     let description = &fixture.description;
     let fixture_id = &fixture.id;
 
+    // Determine if body assertions will be generated (so we know whether to
+    // call json_decode — skipping it avoids JsonException on empty/non-JSON bodies).
+    let needs_json_body = http.expected_response.body.is_some()
+        || http.expected_response.body_partial.is_some()
+        || http.expected_response.validation_errors.is_some();
+
     let _ = writeln!(out, "    /** {description} */");
     let _ = writeln!(out, "    public function test_{method_name}(): void");
     let _ = writeln!(out, "    {{");
 
     // Build request targeting the mock server's /fixtures/<id> endpoint.
-    render_php_http_request(out, &http.request, fixture_id);
+    render_php_http_request(out, &http.request, fixture_id, needs_json_body);
 
     // Assert status code.
     let status = http.expected_response.status_code;
@@ -432,7 +438,9 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
 }
 
 /// Emit Guzzle request lines inside a PHPUnit test method.
-fn render_php_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str) {
+/// `needs_json_body` controls whether a `$body = json_decode(...)` line is emitted.
+/// Skip it for responses with no body (204, 304, HEAD, etc.) to avoid JsonException.
+fn render_php_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str, needs_json_body: bool) {
     let method = req.method.to_uppercase();
 
     // Build options array.
@@ -495,11 +503,15 @@ fn render_php_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str
         let _ = writeln!(out, "        ]);");
     }
 
-    // Decode JSON body for assertions.
-    let _ = writeln!(
-        out,
-        "        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);"
-    );
+    // Decode JSON body for assertions only when body assertions are expected.
+    // Omitting json_decode for empty-body responses (204, 304, HEAD, etc.)
+    // prevents JsonException on non-JSON or empty response bodies.
+    if needs_json_body {
+        let _ = writeln!(
+            out,
+            "        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);"
+        );
+    }
 }
 
 /// Emit body assertions for an HTTP expected response.
@@ -645,6 +657,17 @@ fn render_test_method(
     if expects_error {
         let _ = writeln!(out, "        $this->expectException(\\Exception::class);");
         let _ = writeln!(out, "        {call_expr};");
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
+    // Non-HTTP fixture with no assertions: generate a skipped placeholder so
+    // PHPUnit does not try to call a method that may not exist on the binding.
+    if fixture.assertions.is_empty() {
+        let _ = writeln!(
+            out,
+            "        $this->markTestSkipped('no assertions configured for this fixture in php e2e');"
+        );
         let _ = writeln!(out, "    }}");
         return;
     }

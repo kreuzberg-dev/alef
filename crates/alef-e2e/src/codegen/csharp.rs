@@ -266,6 +266,18 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    // The C# binding wraps a C FFI layer and does not expose a HandleRequest or equivalent
+    // function that can be called from e2e tests.  Until C#-native HTTP integration tests
+    // are implemented, emit compilable stubs for all fixtures that don't use mock_response.
+    if fixture.mock_response.is_none() {
+        let _ = writeln!(out, "    [Fact(Skip = \"TODO: implement C# e2e tests via the spikard C# binding API\")]");
+        let _ = writeln!(out, "    public void Test_{method_name}()");
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        // {description}");
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
     // Resolve call config per-fixture so named calls (e.g. "parse") use the
     // correct function name, result variable, and async flag.
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());

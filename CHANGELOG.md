@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.11] - 2026-05-01
+
 ### Changed
 
 - feat(e2e/swift): emit test files into `packages/swift/Tests/<Module>Tests/` instead of a standalone `e2e/swift` package. SwiftPM 6.0 forbids local `.package(path:)` references between packages in the same git repository; placing the generated tests inside the existing library package sidesteps the restriction while retaining a skeletal `e2e/swift/Package.swift` for CI reference.

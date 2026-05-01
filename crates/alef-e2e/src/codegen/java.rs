@@ -425,6 +425,18 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    // The Java binding wraps a C FFI layer and does not expose a handleRequest or equivalent
+    // function that can be called from e2e tests.  Until Java-native HTTP integration tests
+    // are implemented, emit compilable stubs for all fixtures that don't use mock_response.
+    if fixture.mock_response.is_none() {
+        let _ = writeln!(out, "    @Test");
+        let _ = writeln!(out, "    void test{method_name}() {{");
+        let _ = writeln!(out, "        // {description}");
+        let _ = writeln!(out, "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"TODO: implement Java e2e tests via the spikard Java binding API\");");
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
     // Resolve per-fixture options_type: prefer the java call override, fall back to class-level.
     let effective_options_type: Option<String> = call_overrides
         .and_then(|o| o.options_type.clone())
