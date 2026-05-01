@@ -666,9 +666,17 @@ fn build_args_and_setup(
 
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
+    // Track optional args that were skipped; if a later arg is emitted we must back-fill nil
+    // to preserve positional correctness (e.g. extract_file(path, nil, config)).
+    let mut skipped_optional_count: usize = 0;
 
     for arg in args {
         if arg.arg_type == "mock_url" {
+            // Flush any pending nil placeholders for skipped optionals before this positional arg.
+            for _ in 0..skipped_optional_count {
+                parts.push("nil".to_string());
+            }
+            skipped_optional_count = 0;
             setup_lines.push(format!(
                 "{} = \"#{{ENV.fetch('MOCK_SERVER_URL')}}/fixtures/{fixture_id}\"",
                 arg.name,
@@ -678,6 +686,11 @@ fn build_args_and_setup(
         }
 
         if arg.arg_type == "handle" {
+            // Flush any pending nil placeholders for skipped optionals before this positional arg.
+            for _ in 0..skipped_optional_count {
+                parts.push("nil".to_string());
+            }
+            skipped_optional_count = 0;
             // Generate a create_engine (or equivalent) call and pass the variable.
             let constructor_name = format!("create_{}", arg.name.to_snake_case());
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
@@ -704,11 +717,16 @@ fn build_args_and_setup(
         let val = input.get(field);
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // Optional arg with no fixture value: skip entirely.
+                // Optional arg with no fixture value: defer; emit nil only if a later arg is present.
+                skipped_optional_count += 1;
                 continue;
             }
             None | Some(serde_json::Value::Null) => {
-                // Required arg with no fixture value: pass a language-appropriate default.
+                // Required arg with no fixture value: flush deferred nils, then pass a default.
+                for _ in 0..skipped_optional_count {
+                    parts.push("nil".to_string());
+                }
+                skipped_optional_count = 0;
                 let default_val = match arg.arg_type.as_str() {
                     "string" => "''".to_string(),
                     "int" | "integer" => "0".to_string(),
@@ -719,6 +737,11 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
+                // Flush deferred nil placeholders for skipped optional args that precede this one.
+                for _ in 0..skipped_optional_count {
+                    parts.push("nil".to_string());
+                }
+                skipped_optional_count = 0;
                 // For json_object args with options_type, construct a typed options object.
                 // When result_is_simple, the binding accepts a plain Hash (no wrapper class).
                 if arg.arg_type == "json_object" && !v.is_null() {

@@ -1231,9 +1231,9 @@ fn gen_function(
         })
     };
     let return_type = mapper.map_type(&func.return_type);
-    // Async functions always return Result because Runtime::new() can fail, even when the core
-    // function itself has no error type.
-    let has_error = func.error_type.is_some() || func.is_async;
+    // Async functions always return Result because Runtime::new() can fail.
+    // Variadic functions must return Result because scan_args uses ? operator.
+    let has_error = func.error_type.is_some() || func.is_async || variadic;
     let return_annotation = mapper.wrap_return(&return_type, has_error);
 
     let can_delegate = shared::can_auto_delegate_function(func, opaque_types);
@@ -1339,6 +1339,18 @@ fn gen_function(
             format!(
                 "let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    Ok({wrap})"
             )
+        } else if variadic {
+            // Variadic functions must return Result (scan_args uses ?), so wrap plain value in Ok().
+            let inner = generators::wrap_return(
+                &core_call,
+                &func.return_type,
+                "",
+                opaque_types,
+                false,
+                func.returns_ref,
+                false,
+            );
+            format!("Ok({inner})")
         } else {
             generators::wrap_return(
                 &core_call,
@@ -1351,7 +1363,7 @@ fn gen_function(
             )
         }
     } else {
-        gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some())
+        gen_magnus_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some() || variadic)
     };
     // Add #[allow(unused_variables)] to functions with unimplemented bodies to suppress warnings for unused params
     let allow_attr = if !can_delegate && !serde_recoverable {
