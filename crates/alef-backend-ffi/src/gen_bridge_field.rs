@@ -189,7 +189,7 @@ pub unsafe extern "C" fn {fn_name}(
         Some(unsafe {{ &*options }}.clone())
     }};
 
-    match {core_import}::convert(html_str, options_rs, None) {{
+    match {core_import}::convert(html_str, options_rs) {{
         Ok(result) => Box::into_raw(Box::new(result)),
         Err(e) => {{
             set_last_error(2, &e.to_string());
