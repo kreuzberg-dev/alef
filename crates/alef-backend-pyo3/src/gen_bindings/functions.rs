@@ -36,17 +36,19 @@ pub(super) fn gen_api_py(
     let bridge_param_names: ahash::AHashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
 
-    // Build lookup for options-field bridges: options_type_name → (visitor_kwarg_name, field_name).
+    // Build lookup for options-field bridges: options_type_name → (visitor_kwarg_name, field_name, type_alias).
     // When a function parameter's type matches an options-field bridge's `options_type`, we add
-    // a `visitor: object | None = None` convenience kwarg to the Python wrapper.
-    let options_field_bridges: AHashMap<&str, (&str, &str)> = trait_bridges
+    // a `visitor: {type_alias} | None = None` convenience kwarg to the Python wrapper.
+    // The type_alias (e.g. "VisitorHandle") is the handle type exported from the native module.
+    let options_field_bridges: AHashMap<&str, (&str, &str, Option<&str>)> = trait_bridges
         .iter()
         .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
         .filter_map(|b| {
             let options_type = b.options_type.as_deref()?;
             let param_name = b.param_name.as_deref()?;
             let field_name = b.resolved_options_field()?;
-            Some((options_type, (param_name, field_name)))
+            let type_alias = b.type_alias.as_deref();
+            Some((options_type, (param_name, field_name, type_alias)))
         })
         .collect();
 
@@ -123,6 +125,13 @@ pub(super) fn gen_api_py(
         // names in annotations. This avoids `_rust.`-prefixed return types which cause
         // type checkers to see a different type than the public re-export.
         collect_named_types(&func.return_type, &mut all_type_imports);
+    }
+    // Also collect type_alias names from options-field bridges so they can be used in
+    // function signature annotations for visitor parameters.
+    for bridge in trait_bridges {
+        if let Some(alias) = &bridge.type_alias {
+            all_type_imports.insert(alias.clone());
+        }
     }
 
     let mut out = String::with_capacity(4096);
@@ -280,14 +289,15 @@ pub(super) fn gen_api_py(
         };
 
         // Check if this type has an options-field bridge (e.g. ConversionOptions.visitor).
-        // If so, the converter gains a `_visitor_override: object | None = None` param.
+        // If so, the converter gains a `_visitor_override: {type_alias} | None = None` param.
         let bridge_visitor_field = options_field_bridges.get(type_name.as_str()).copied();
+        let bridge_visitor_type = bridge_visitor_field.and_then(|(_, _, alias)| alias).unwrap_or("object");
 
         // Build the converter signature.
         // When there's a visitor override param, always use multi-line form.
         if bridge_visitor_field.is_some() {
             out.push_str(&format!(
-                "def _to_rust_{snake}(\n    value: {type_name} | None,\n    _visitor_override: object | None = None,\n) -> _rust.{type_name} | None:\n"
+                "def _to_rust_{snake}(\n    value: {type_name} | None,\n    _visitor_override: {bridge_visitor_type} | None = None,\n) -> _rust.{type_name} | None:\n"
             ));
         } else {
             // Single-line: "def _to_rust_{snake}(value: {type_name} | None) -> _rust.{type_name} | None:"
@@ -308,7 +318,7 @@ pub(super) fn gen_api_py(
             "    \"\"\"Convert Python {type_name} to Rust binding type.\"\"\"\n"
         ));
         out.push_str("    if value is None:\n");
-        if let Some((kwarg_name, _field_name)) = bridge_visitor_field {
+        if let Some((kwarg_name, _field_name, _)) = bridge_visitor_field {
             // When value is None but visitor override is provided, construct a default instance.
             out.push_str(&format!(
                 "        if _visitor_override is not None:\n            return _rust.{type_name}({kwarg_name}=_visitor_override)\n        return None\n"
@@ -397,7 +407,7 @@ pub(super) fn gen_api_py(
 
             // Check if this field is the options-field bridge field (visitor handle).
             // When it is, use the _visitor_override if provided, else fall back to value.field.
-            if let Some((kwarg_name, field_name)) = bridge_visitor_field {
+            if let Some((kwarg_name, field_name, _)) = bridge_visitor_field {
                 if field.name == field_name {
                     out.push_str(&format!(
                         "        {field_name}=_visitor_override if _visitor_override is not None else {accessor},\n",
@@ -468,9 +478,9 @@ pub(super) fn gen_api_py(
         }
 
         // Detect if this function has an options-field bridge (visitor embedded in options).
-        // When it does, add a convenience `visitor: object | None = None` kwarg.
-        // We track: (options_param_name, options_type_name, visitor_kwarg_name, field_name).
-        let options_field_visitor_kwarg: Option<(&str, &str, &str)> = func.params.iter().find_map(|p| {
+        // When it does, add a convenience `visitor: {type_alias} | None = None` kwarg.
+        // We track: (options_param_name, options_type_name, visitor_kwarg_name, type_alias).
+        let options_field_visitor_kwarg: Option<(&str, &str, &str, Option<&str>)> = func.params.iter().find_map(|p| {
             let type_name = match &p.ty {
                 alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
                 alef_core::ir::TypeRef::Optional(inner) => {
@@ -482,11 +492,12 @@ pub(super) fn gen_api_py(
                 }
                 _ => None,
             }?;
-            let (kwarg_name, _field_name) = options_field_bridges.get(type_name)?;
-            Some((p.name.as_str(), type_name, *kwarg_name))
+            let (kwarg_name, _field_name, type_alias) = options_field_bridges.get(type_name)?;
+            Some((p.name.as_str(), type_name, *kwarg_name, *type_alias))
         });
-        if let Some((_, _, kwarg_name)) = options_field_visitor_kwarg {
-            sig_parts.push(format!("{kwarg_name}: object | None = None"));
+        if let Some((_, _, kwarg_name, type_alias)) = options_field_visitor_kwarg {
+            let visitor_type = type_alias.unwrap_or("object");
+            sig_parts.push(format!("{kwarg_name}: {visitor_type} | None = None"));
         }
 
         let return_type_str = crate::type_map::python_type(&func.return_type);
@@ -579,7 +590,7 @@ pub(super) fn gen_api_py(
                     // When this param is the options param of an options-field bridge, pass the
                     // visitor kwarg name as _visitor_override so the converter injects it.
                     let scalar_expr = if options_field_bridges.contains_key(name) {
-                        if let Some((_, _, kwarg_name)) = options_field_visitor_kwarg {
+                        if let Some((_, _, kwarg_name, _)) = options_field_visitor_kwarg {
                             format!("_to_rust_{snake}({pname}, _visitor_override={kwarg_name})")
                         } else {
                             format!("_to_rust_{snake}({pname})")

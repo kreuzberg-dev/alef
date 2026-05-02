@@ -13,6 +13,19 @@ fn python_safe_name(name: &str) -> String {
     alef_core::keywords::python_ident(name)
 }
 
+/// Convert PascalCase to snake_case.
+/// Examples: "Indented" -> "indented", "AtxClosed" -> "atx_closed"
+fn pascal_to_snake(name: &str) -> String {
+    let mut result = String::new();
+    for (i, ch) in name.chars().enumerate() {
+        if i > 0 && ch.is_uppercase() {
+            result.push('_');
+        }
+        result.push(ch.to_lowercase().next().unwrap_or(ch));
+    }
+    result
+}
+
 /// Check if a parameter name shadows a Python builtin (triggers ruff A002).
 pub fn is_python_builtin_name(name: &str) -> bool {
     const BUILTINS: &[&str] = &[
@@ -413,6 +426,19 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
             ));
         }
         lines.push("    def __init__(self, value: int | str) -> None: ...".to_string());
+        // Emit SCREAMING_SNAKE_CASE aliases as class attributes (runtime monkey-patch compatibility).
+        // These match the runtime monkey-patches in options.py (e.g., CodeBlockStyle.INDENTED = CodeBlockStyle.Indented)
+        // Convert PascalCase variant names (e.g. AtxClosed) to SCREAMING_SNAKE_CASE (ATX_CLOSED)
+        for variant in &enum_def.variants {
+            let pascal = python_safe_name(&variant.name);
+            // Convert PascalCase to snake_case, then to SCREAMING_SNAKE_CASE
+            let snake_case = pascal_to_snake(&pascal);
+            let screaming = snake_case.to_uppercase();
+            if pascal != screaming {
+                // Only emit the alias if it differs from the pascal_case name
+                lines.push(format!("    {}: {} = ...", screaming, enum_def.name));
+            }
+        }
     }
 
     lines.join("\n")
