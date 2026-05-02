@@ -248,6 +248,36 @@ pub struct CallConfig {
     /// skip_languages
     #[serde(default)]
     pub skip_languages: Vec<String>,
+    /// When `true`, the function returns a primitive (e.g. `String`, `bool`,
+    /// `i32`) rather than a struct.  Generators that would otherwise emit
+    /// `result.<field>` will fall back to the bare result variable.
+    ///
+    /// This is a property of the Rust core's return type and therefore identical
+    /// across every binding — set it on the call, not in per-language overrides.
+    /// The same flag is also accepted under `[e2e.calls.<name>.overrides.<lang>]`
+    /// for backwards compatibility, but the call-level value takes precedence.
+    #[serde(default)]
+    pub result_is_simple: bool,
+    /// When `true`, the function returns `Vec<T>` / `Array<T>`.  Generators that
+    /// support per-element field assertions (rust, csharp) iterate or index into
+    /// the result; the typescript codegen indexes `[0]` to mirror csharp.
+    ///
+    /// As with `result_is_simple`, this is a Rust-side property — set it on the
+    /// call, not on per-language overrides. Per-language overrides remain
+    /// supported for backwards compatibility.
+    #[serde(default)]
+    pub result_is_vec: bool,
+    /// When `true` (combined with `result_is_simple`), the simple return is a
+    /// slice/array (e.g., `Vec<String>` → `string[]` in TS).
+    #[serde(default)]
+    pub result_is_array: bool,
+    /// When `true`, the function returns a raw byte array (`Vec<u8>` →
+    /// `Uint8Array` / `[]byte` / `byte[]`).
+    #[serde(default)]
+    pub result_is_bytes: bool,
+    /// When `true`, the function returns `Option<T>`.
+    #[serde(default)]
+    pub result_is_option: bool,
 }
 
 fn default_result_var() -> String {
@@ -502,6 +532,29 @@ pub struct CallOverride {
     /// ```
     #[serde(default)]
     pub arg_order: Vec<String>,
+    /// When `true`, `json_object` args with an `options_type` are passed as a
+    /// pointer (`*OptionsType`) rather than a value.  Use for Go bindings where
+    /// the options parameter is `*ConversionOptions` (nil-able pointer) rather
+    /// than a plain struct.
+    ///
+    /// Absent options are passed as `nil`; present options are unmarshalled into
+    /// a local variable and passed as `&optionsVar`.
+    #[serde(default)]
+    pub options_ptr: bool,
+    /// Alternative function name to use when the fixture includes a `visitor`.
+    ///
+    /// Some bindings expose two entry points: `Convert(html, opts)` for the
+    /// plain case and `ConvertWithVisitor(html, opts, visitor)` when a visitor
+    /// is involved.  Set this to the visitor-accepting function name so the
+    /// generator can pick the right symbol automatically.
+    ///
+    /// E.g., `"ConvertWithVisitor"` makes the Go generator emit:
+    /// ```go
+    /// result, err := htmd.ConvertWithVisitor(html, nil, visitor)
+    /// ```
+    /// instead of `htmd.Convert(html, nil, visitor)` (which would not compile).
+    #[serde(default)]
+    pub visitor_function: Option<String>,
 }
 
 /// Per-language package reference configuration.

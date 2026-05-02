@@ -723,18 +723,14 @@ fn render_test_case(
         per_call_options_type.or_else(|| options_type.map(|s| s.to_string()));
     let options_type = fixture_options_type.as_deref();
 
-    // When the binding's return type is a primitive (e.g. `string`, `boolean`,
-    // `number`) and not a struct, accessing `result.<field>` triggers TS2339.
-    // The per-call override `result_is_simple = true` indicates the function
-    // returns a scalar; in that case, every assertion should target the result
-    // value directly. We pass this flag through to render_assertion below.
-    let result_is_simple = call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
-
-    // When the binding returns `Vec<T>` / `Array<T>`, fixture assertions on
-    // single-result fields (`mime_type`, `content`, …) should target the *first*
-    // element. We mirror the csharp codegen and index `[0]` into the result
-    // variable when `result_is_vec` is set on the per-call language override.
-    let result_is_vec = call_config.overrides.get(lang).is_some_and(|o| o.result_is_vec);
+    // Result-shape flags describe the Rust core's return type and therefore apply
+    // to every binding; prefer the call-level value (`[e2e.calls.<name>]`) and
+    // fall back to a per-language override only for backwards compatibility with
+    // older alef.tomls that declared the flag under `overrides.<lang>`.
+    let result_is_simple = call_config.result_is_simple
+        || call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
+    let result_is_vec = call_config.result_is_vec
+        || call_config.overrides.get(lang).is_some_and(|o| o.result_is_vec);
 
     // Apply per-language `arg_order` reordering. NAPI-RS often reshuffles
     // parameters relative to the canonical Rust signature (e.g. extract_file
@@ -886,7 +882,18 @@ fn build_args_and_setup(
     fixture_id: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
-        // If no args mapping, pass the whole input as a single argument.
+        // No args mapping. If the fixture has no input either, the call takes no
+        // arguments — emit a bare call. Otherwise pass the whole input as a
+        // single argument (legacy behavior, used by HTTP-style fixtures whose
+        // input describes a request body).
+        let no_input = matches!(input, serde_json::Value::Null)
+            || input
+                .as_object()
+                .map(|o| o.is_empty())
+                .unwrap_or(false);
+        if no_input {
+            return (Vec::new(), String::new());
+        }
         return (Vec::new(), json_to_js(input));
     }
 
