@@ -2806,3 +2806,303 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
         options_py.content
     );
 }
+
+// ---------------------------------------------------------------------------
+// Options-field bridge (bind_via = "options_field") tests
+// ---------------------------------------------------------------------------
+
+/// Build a fixture that mirrors the html-to-markdown setup:
+///   - `HtmlVisitor` trait (visitor-style, all methods have default impls)
+///   - `VisitorHandle` type alias in `ConversionOptions.visitor`
+///   - `convert(html: &str, options: Option<ConversionOptions>) -> Result<ConversionResult>`
+///   - Bridge config: `bind_via = "options_field"`, `options_type = "ConversionOptions"`
+fn make_options_field_bridge_api() -> (ApiSurface, AlefConfig) {
+    // The IR type for the visitor field on ConversionOptions is String (sanitized),
+    // because Rc<RefCell<dyn HtmlVisitor>> cannot be expressed in the IR.
+    let visitor_field = FieldDef {
+        name: "visitor".to_string(),
+        ty: TypeRef::String,
+        optional: true,
+        default: None,
+        doc: "Optional visitor for HTML traversal.".to_string(),
+        sanitized: true, // IR sanitizes Rc<RefCell<dyn HtmlVisitor>> to String
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: alef_core::ir::CoreWrapper::None,
+        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+        newtype_wrapper: None,
+    };
+
+    let conversion_options_type = TypeDef {
+        name: "ConversionOptions".to_string(),
+        rust_path: "html_to_markdown_rs::ConversionOptions".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            make_field("heading_style", TypeRef::String, false),
+            visitor_field,
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: "Conversion configuration.".to_string(),
+        cfg: None,
+    };
+
+    // HtmlVisitor trait — all methods have default impls (visitor-style bridge)
+    let visit_method = MethodDef {
+        name: "visit_element".to_string(),
+        params: vec![],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: "Visit an element.".to_string(),
+        receiver: Some(alef_core::ir::ReceiverKind::RefMut),
+        sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: true,
+        trait_source: None,
+    };
+
+    let html_visitor_trait = TypeDef {
+        name: "HtmlVisitor".to_string(),
+        rust_path: "html_to_markdown_rs::visitor::HtmlVisitor".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![visit_method],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Visitor trait for HTML traversal.".to_string(),
+        cfg: None,
+    };
+
+    // ConversionResult (return type)
+    let conversion_result_type = TypeDef {
+        name: "ConversionResult".to_string(),
+        rust_path: "html_to_markdown_rs::ConversionResult".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("markdown", TypeRef::String, false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: true,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: "Result of an HTML to Markdown conversion.".to_string(),
+        cfg: None,
+    };
+
+    // convert(html: &str, options: Option<ConversionOptions>) -> Result<ConversionResult>
+    let convert_fn = FunctionDef {
+        name: "convert".to_string(),
+        rust_path: "html_to_markdown_rs::convert".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "html".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "options".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string()))),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+        ],
+        return_type: TypeRef::Named("ConversionResult".to_string()),
+        is_async: false,
+        error_type: Some("ConversionError".to_string()),
+        doc: "Convert HTML to Markdown.".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "html-to-markdown-rs".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![conversion_options_type, html_visitor_trait, conversion_result_type],
+        functions: vec![convert_fn],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let bridge_config = TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: Some("VisitorHandle".to_string()),
+        param_name: Some("visitor".to_string()),
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: None, // falls back to param_name = "visitor"
+    };
+
+    let mut config = make_config();
+    config.trait_bridges = vec![bridge_config];
+
+    (api, config)
+}
+
+#[test]
+fn test_options_field_bridge_visitor_field_type() {
+    let backend = Pyo3Backend;
+    let (api, config) = make_options_field_bridge_api();
+    let files = backend.generate_bindings(&api, &config).expect("generate_bindings");
+    let content = &files[0].content;
+
+    // The visitor field on ConversionOptions must be Option<Py<PyAny>>, not String.
+    assert!(
+        content.contains("pub visitor: Option<Py<PyAny>>,"),
+        "visitor field should be Option<Py<PyAny>>;\ncontent:\n{}",
+        content
+    );
+
+    // Must NOT contain the sanitized String type for the visitor field
+    assert!(
+        !content.contains("pub visitor: String,"),
+        "visitor field must not be String;\ncontent:\n{}",
+        content
+    );
+    assert!(
+        !content.contains("pub visitor: Option<String>,"),
+        "visitor field must not be Option<String>;\ncontent:\n{}",
+        content
+    );
+}
+
+#[test]
+fn test_options_field_bridge_unsendable_attr() {
+    let backend = Pyo3Backend;
+    let (api, config) = make_options_field_bridge_api();
+    let files = backend.generate_bindings(&api, &config).expect("generate_bindings");
+    let content = &files[0].content;
+
+    // ConversionOptions must use #[pyclass(unsendable, ...)] not #[pyclass(frozen, ...)]
+    // because it embeds Rc<RefCell<dyn HtmlVisitor>> via Py<PyAny>.
+    assert!(
+        content.contains("pyclass(unsendable,"),
+        "ConversionOptions must use pyclass(unsendable);\ncontent:\n{}",
+        content
+    );
+
+    // Must NOT use frozen for this type (other types may still use frozen)
+    // Check that the ConversionOptions struct uses unsendable
+    let options_struct_pos = content.find("struct ConversionOptions").expect("ConversionOptions struct");
+    let before_struct = &content[..options_struct_pos];
+    // Find the last #[pyclass...] before the struct
+    let last_pyclass = before_struct.rfind("pyclass(").expect("pyclass before ConversionOptions");
+    let pyclass_attr = &before_struct[last_pyclass..last_pyclass + 30];
+    assert!(
+        pyclass_attr.contains("unsendable"),
+        "pyclass before ConversionOptions should be unsendable, got: {}",
+        pyclass_attr
+    );
+}
+
+#[test]
+fn test_options_field_bridge_no_convert_with_visitor() {
+    let backend = Pyo3Backend;
+    let (api, config) = make_options_field_bridge_api();
+    let files = backend.generate_bindings(&api, &config).expect("generate_bindings");
+    let content = &files[0].content;
+
+    // The options-field bridge must NOT emit a separate convert_with_visitor function.
+    // The visitor is embedded in ConversionOptions.
+    assert!(
+        !content.contains("convert_with_visitor"),
+        "must not emit convert_with_visitor for options-field bridge;\ncontent:\n{}",
+        content
+    );
+}
+
+#[test]
+fn test_options_field_bridge_convert_wrapper_body() {
+    let backend = Pyo3Backend;
+    let (api, config) = make_options_field_bridge_api();
+    let files = backend.generate_bindings(&api, &config).expect("generate_bindings");
+    let content = &files[0].content;
+
+    // The generated convert function must:
+    // 1. Extract visitor from options before serde round-trip
+    // 2. Build PyHtmlVisitorBridge
+    // 3. Set visitor on core options
+    assert!(
+        content.contains("PyHtmlVisitorBridge"),
+        "convert wrapper must build PyHtmlVisitorBridge;\ncontent:\n{}",
+        content
+    );
+    assert!(
+        content.contains("visitor"),
+        "convert wrapper must reference visitor field;\ncontent:\n{}",
+        content
+    );
+
+    // Must export just `convert`, not a separate visitor function
+    assert!(
+        content.contains("pub fn convert"),
+        "convert function must be exported;\ncontent:\n{}",
+        content
+    );
+}
+
+#[test]
+fn test_options_field_bridge_serde_skip_on_visitor_field() {
+    let backend = Pyo3Backend;
+    let (api, config) = make_options_field_bridge_api();
+    let files = backend.generate_bindings(&api, &config).expect("generate_bindings");
+    let content = &files[0].content;
+
+    // The visitor field must have #[serde(skip)] to prevent round-trip failures.
+    // (Py<PyAny> is not Serialize/Deserialize)
+    assert!(
+        content.contains("serde(skip)"),
+        "visitor field must have #[serde(skip)];\ncontent:\n{}",
+        content
+    );
+}

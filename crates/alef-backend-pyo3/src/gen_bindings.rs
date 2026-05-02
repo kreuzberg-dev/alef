@@ -4,7 +4,8 @@ use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{
-    AdapterPattern, AlefConfig, DtoConfig, Language, PythonDtoStyle, detect_serde_available, resolve_output_dir,
+    AdapterPattern, AlefConfig, BridgeBinding, DtoConfig, Language, PythonDtoStyle, detect_serde_available,
+    resolve_output_dir,
 };
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
@@ -297,6 +298,25 @@ impl Backend for Pyo3Backend {
             }
         }
 
+        // Collect options-field bridge metadata: type names that serve as the `options_type`
+        // for any `bind_via = "options_field"` bridge.  These types:
+        //   - Must use `#[pyclass(unsendable)]` (they embed `Rc<RefCell<dyn Trait>>`)
+        //   - Have their bridge-field type overridden to `Option<Py<PyAny>>`
+        // Map: options_type_name → (field_name, bridge_struct_name)
+        let options_field_types: AHashMap<String, (String, String)> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| b.bind_via == BridgeBinding::OptionsField)
+            .filter_map(|b| {
+                let options_type = b.options_type.as_deref()?;
+                let field_name = b.resolved_options_field()?;
+                Some((
+                    options_type.to_string(),
+                    (field_name.to_string(), format!("Py{}Bridge", b.trait_name)),
+                ))
+            })
+            .collect();
+
         // Track emitted #[pyclass] struct names to prevent duplicate definitions (E0255/E0428).
         // Duplicates can slip through when path-mapping collapses two distinct raw paths onto
         // the same name after dedup has already run on the pre-mapping IR.
@@ -338,11 +358,18 @@ impl Backend for Pyo3Backend {
                 // attribute (`#[serde(rename = "class")]`) so the user-facing API is unchanged.
                 let type_name = typ.name.clone();
                 let config_ref = config;
-                builder.add_item(&generators::gen_struct_with_rename(
+                let bridge_field_info = options_field_types.get(typ.name.as_str());
+                let struct_code = generators::gen_struct_with_rename(
                     typ,
                     &mapper,
                     &cfg,
                     |field| {
+                        // For the bridge field, ensure serde(skip) is emitted via extra_field_attrs.
+                        if let Some((bridge_field_name, _)) = bridge_field_info {
+                            if field.name == *bridge_field_name {
+                                return vec!["pyo3(get)".to_string(), "serde(skip)".to_string()];
+                            }
+                        }
                         // When the field needs a keyword-escape rename, replace the default
                         // `pyo3(get)` with `pyo3(get, name = "original")` and add a serde
                         // rename attr so JSON serialization still uses the original name.
@@ -361,8 +388,21 @@ impl Backend for Pyo3Backend {
                             vec![]
                         }
                     },
-                    |field| config_ref.resolve_field_name(alef_core::config::Language::Python, &type_name, &field.name),
-                ));
+                    |field| {
+                        config_ref.resolve_field_name(alef_core::config::Language::Python, &type_name, &field.name)
+                    },
+                );
+                // When this is an options-field bridge type:
+                //   1. Rewrite the bridge field's IR-sanitized type to Option<Py<PyAny>>.
+                //   2. Switch #[pyclass(frozen, ...)] → #[pyclass(unsendable, ...)] because the
+                //      struct now embeds Rc<RefCell<dyn HtmlVisitor>> via Py<PyAny> and is !Send.
+                let struct_code = if let Some((bridge_field_name, _)) = bridge_field_info {
+                    rewrite_bridge_field_type(&struct_code, bridge_field_name)
+                        .replace("pyclass(frozen,", "pyclass(unsendable,")
+                } else {
+                    struct_code
+                };
+                builder.add_item(&struct_code);
                 // Build per-type field renames for the constructor
                 let py_field_renames: std::collections::HashMap<String, String> = typ
                     .fields
@@ -402,14 +442,17 @@ impl Backend for Pyo3Backend {
             if py_exclude_functions.contains(&f.name) {
                 continue;
             }
-            // Check whether any parameter's type matches a trait bridge type_alias.
-            // When it does, generate a bridge-aware function instead of the generic one.
-            let bridge_param = crate::trait_bridge::find_bridge_param(f, &config.trait_bridges);
-            if let Some((param_idx, bridge_cfg)) = bridge_param {
-                builder.add_item(&crate::trait_bridge::gen_bridge_function(
+            // Priority: options-field bridges take precedence over function-param bridges.
+            // When a function parameter's named type carries a bridge field
+            // (`bind_via = "options_field"`), emit a bridge-field-aware function that
+            // extracts the visitor from options and builds the bridge before calling core.
+            // No separate `convert_with_visitor` export is emitted.
+            let bridge_field =
+                crate::trait_bridge::find_bridge_field(f, &api.types, &config.trait_bridges);
+            if let Some(bridge_field_match) = bridge_field {
+                builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
                     f,
-                    param_idx,
-                    bridge_cfg,
+                    &bridge_field_match,
                     &mapper,
                     &cfg,
                     &adapter_bodies,
@@ -417,13 +460,28 @@ impl Backend for Pyo3Backend {
                     &core_import,
                 ));
             } else {
-                builder.add_item(&generators::gen_function(
-                    f,
-                    &mapper,
-                    &cfg,
-                    &adapter_bodies,
-                    &opaque_types,
-                ));
+                // Legacy positional bridge (bind_via = "function_param") — unchanged path.
+                let bridge_param = crate::trait_bridge::find_bridge_param(f, &config.trait_bridges);
+                if let Some((param_idx, bridge_cfg)) = bridge_param {
+                    builder.add_item(&crate::trait_bridge::gen_bridge_function(
+                        f,
+                        param_idx,
+                        bridge_cfg,
+                        &mapper,
+                        &cfg,
+                        &adapter_bodies,
+                        &opaque_types,
+                        &core_import,
+                    ));
+                } else {
+                    builder.add_item(&generators::gen_function(
+                        f,
+                        &mapper,
+                        &cfg,
+                        &adapter_bodies,
+                        &opaque_types,
+                    ));
+                }
             }
         }
 
@@ -2479,6 +2537,20 @@ fn gen_module_init(module_name: &str, api: &ApiSurface, config: &AlefConfig) -> 
 /// Operates on the rendered text of `gen_opaque_struct`. The rewrite is anchored on
 /// the exact `Arc<std::sync::Mutex<` substring; any future codegen output change that
 /// drops the fully-qualified path will be caught by the unit tests in this file.
+/// Rewrite the bridge field type in a generated struct to `Option<Py<PyAny>>`.
+///
+/// The IR sanitizes visitor handle types (`Rc<RefCell<dyn Trait>>`) to `String` or
+/// `Option<String>`.  The binding struct must expose `Option<Py<PyAny>>` so Python
+/// callers can pass arbitrary callback objects.
+fn rewrite_bridge_field_type(struct_code: &str, field_name: &str) -> String {
+    let pattern_plain = format!("pub {field_name}: String,");
+    let pattern_opt = format!("pub {field_name}: Option<String>,");
+    let replacement = format!("pub {field_name}: Option<Py<PyAny>>,");
+    struct_code
+        .replace(&pattern_plain, &replacement)
+        .replace(&pattern_opt, &replacement)
+}
+
 fn rewrite_to_tokio_mutex_struct(struct_code: &str) -> String {
     struct_code.replace("Arc<std::sync::Mutex<", "Arc<tokio::sync::Mutex<")
 }
