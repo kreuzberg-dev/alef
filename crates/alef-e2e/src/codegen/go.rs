@@ -1079,12 +1079,15 @@ fn build_args_and_setup(
                                 parts.push("nil".to_string());
                             }
                         } else if is_array {
-                            // Array type — unmarshal into []string (typical for paths/texts).
+                            // Array type — unmarshal into a Go slice. Default to []string,
+                            // but honor `element_type` to emit nested slice types
+                            // (e.g. `Vec<String>` → `[][]string`).
+                            let go_slice_type = element_type_to_go_slice(arg.element_type.as_deref());
                             let json_str = serde_json::to_string(v).unwrap_or_default();
                             let go_literal = go_string_literal(&json_str);
                             let var_name = &arg.name;
                             setup_lines.push(format!(
-                                "var {var_name} []string\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
+                                "var {var_name} {go_slice_type}\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
                             ));
                             parts.push(var_name.to_string());
                         } else if let Some(opts_type) = options_type {
@@ -2092,6 +2095,39 @@ fn pascal_to_snake_case(s: &str) -> String {
         return s.to_string();
     }
     camel_to_snake_case(s)
+}
+
+/// Map an `ArgMapping.element_type` to a Go slice type. Used for `json_object` args
+/// whose fixture value is a JSON array. The element type is wrapped in `[]…` so an
+/// element of `String` becomes `[]string` and `Vec<String>` becomes `[][]string`.
+fn element_type_to_go_slice(element_type: Option<&str>) -> String {
+    let elem = element_type.unwrap_or("String").trim();
+    let go_elem = rust_type_to_go(elem);
+    format!("[]{go_elem}")
+}
+
+/// Map a small subset of Rust scalar / `Vec<T>` types to their Go equivalents.
+/// Defaults to `string` for unknown types, matching the historical codegen behavior.
+fn rust_type_to_go(rust: &str) -> String {
+    let trimmed = rust.trim();
+    if let Some(inner) = trimmed.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+        return format!("[]{}", rust_type_to_go(inner));
+    }
+    match trimmed {
+        "String" | "&str" | "str" => "string".to_string(),
+        "bool" => "bool".to_string(),
+        "f32" => "float32".to_string(),
+        "f64" => "float64".to_string(),
+        "i8" => "int8".to_string(),
+        "i16" => "int16".to_string(),
+        "i32" => "int32".to_string(),
+        "i64" | "isize" => "int64".to_string(),
+        "u8" => "uint8".to_string(),
+        "u16" => "uint16".to_string(),
+        "u32" => "uint32".to_string(),
+        "u64" | "usize" => "uint64".to_string(),
+        _ => "string".to_string(),
+    }
 }
 
 fn json_to_go(value: &serde_json::Value) -> String {

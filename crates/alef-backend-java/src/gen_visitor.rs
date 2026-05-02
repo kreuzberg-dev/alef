@@ -907,11 +907,7 @@ fn gen_visit_result(package: &str) -> String {
     .ok();
     writeln!(out).ok();
     writeln!(out, "    /** Alias for {{@link #continueDefault()}}. */").ok();
-    writeln!(
-        out,
-        "    static VisitResult continue_() {{ return new Continue(); }}"
-    )
-    .ok();
+    writeln!(out, "    static VisitResult continue_() {{ return new Continue(); }}").ok();
     writeln!(out, "}}").ok();
     out
 }
@@ -1019,19 +1015,11 @@ fn gen_test_visitor_adapter(package: &str) -> String {
         }
         writeln!(out, "    @Override").ok();
         // Check if method sig is short enough for one line
-        let single = format!(
-            "    public VisitResult {}({}) {{",
-            spec.java_method, node_params
-        );
+        let single = format!("    public VisitResult {}({}) {{", spec.java_method, node_params);
         if single.len() <= 100 {
             writeln!(out, "{}", single).ok();
         } else {
-            writeln!(
-                out,
-                "    public VisitResult {}(",
-                spec.java_method
-            )
-            .ok();
+            writeln!(out, "    public VisitResult {}(", spec.java_method).ok();
             writeln!(out, "            {}) {{", node_params).ok();
         }
         writeln!(out, "        var visitCtx = toVisitContext(context);").ok();
@@ -1315,7 +1303,11 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     )
     .ok();
     writeln!(out, "            case VisitResult.Custom c -> {{").ok();
-    writeln!(out, "                var buf = Arena.global().allocateFrom(c.markdown());").ok();
+    writeln!(
+        out,
+        "                var buf = Arena.global().allocateFrom(c.markdown());"
+    )
+    .ok();
     writeln!(
         out,
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
@@ -1329,7 +1321,11 @@ fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out, "                yield VISIT_RESULT_CUSTOM;").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "            case VisitResult.Error e -> {{").ok();
-    writeln!(out, "                var buf = Arena.global().allocateFrom(e.message());").ok();
+    writeln!(
+        out,
+        "                var buf = Arena.global().allocateFrom(e.message());"
+    )
+    .ok();
     writeln!(
         out,
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
@@ -1523,11 +1519,7 @@ fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
         call_args.join(", ")
     )
     .ok();
-    writeln!(
-        out,
-        "            return encodeVisitResult(result, outCustom, outLen);"
-    )
-    .ok();
+    writeln!(out, "            return encodeVisitResult(result, outCustom, outLen);").ok();
     writeln!(out, "        }} catch (Throwable ignored) {{").ok();
     writeln!(out, "            return 0;").ok();
     writeln!(out, "        }}").ok();
