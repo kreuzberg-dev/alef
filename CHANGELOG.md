@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-go): `NodeContext.NodeType` field type is now emitted as `NodeType` (the package-defined
+  type alias for `string`) instead of the raw `string` type. The redundant `type NodeType = string`
+  declaration in `visitor.go` that caused a redeclaration compile error with `binding.go`'s
+  `type NodeType string` has been removed.
+
 - fix(napi): `core_to_binding` conversion now emits `Default::default()` for opaque Named fields
   with `CoreWrapper::None` (e.g. `visitor: Object<'static>`) instead of trying to wrap them
   with `Arc::new` — mirrors the same fix previously applied to `binding_to_core`.
