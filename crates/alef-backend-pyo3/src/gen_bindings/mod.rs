@@ -277,6 +277,57 @@ impl Backend for Pyo3Backend {
             builder.add_import("std::collections::HashMap"); // Used in Map field conversions and method returns
         }
 
+        // PyVisitorRef: a thin wrapper around Py<PyAny> that implements Clone.
+        // This newtype makes Py<PyAny> work with PyO3's #[pyclass] field derivations,
+        // which require Clone. Uses std::sync::Arc to make the handle cheaply cloneable
+        // without needing the GIL (Clone doesn't require GIL entry, only Arc::clone).
+        let py_visitor_ref_def = r#"
+/// Wrapper for trait visitor types (Py<PyAny>) that implements Clone.
+///
+/// Py<PyAny> is not Clone. This wrapper uses Arc<Py<PyAny>> internally for cheap cloning.
+/// The .inner field is public for compatibility with generated code that needs to access
+/// the underlying Py<PyAny> for trait dispatch.
+#[derive(Debug)]
+pub struct PyVisitorRef {
+    pub inner: std::sync::Arc<pyo3::Py<pyo3::PyAny>>,
+}
+
+impl Clone for PyVisitorRef {
+    fn clone(&self) -> Self {
+        PyVisitorRef {
+            inner: std::sync::Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl From<pyo3::Py<pyo3::PyAny>> for PyVisitorRef {
+    fn from(visitor: pyo3::Py<pyo3::PyAny>) -> Self {
+        PyVisitorRef {
+            inner: std::sync::Arc::new(visitor),
+        }
+    }
+}
+
+impl<'py> pyo3::FromPyObject<'py> for PyVisitorRef {
+    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+        Ok(PyVisitorRef {
+            inner: std::sync::Arc::new(pyo3::Py::from(ob.as_any())),
+        })
+    }
+}
+
+impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
+    type Target = pyo3::PyAny;
+    type Output = pyo3::Bound<'py, pyo3::PyAny>;
+    type Error = pyo3::PyErr;
+
+    fn into_pyobject(self, py: pyo3::Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok((*self.inner).bind(py).clone())
+    }
+}
+"#;
+        builder.add_item(py_visitor_ref_def);
+
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Python);
         for module in custom_mods {
