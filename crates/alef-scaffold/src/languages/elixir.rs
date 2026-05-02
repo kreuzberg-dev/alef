@@ -28,6 +28,11 @@ pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> an
     );
 
     let extra_deps = render_extra_deps(config, Language::Elixir);
+    let extra_deps_has = |name: &str| {
+        extra_deps
+            .lines()
+            .any(|line| line.trim_start().starts_with(&format!("{name} ")))
+    };
     let extra_deps_section = if extra_deps.is_empty() {
         String::new()
     } else {
@@ -53,7 +58,7 @@ pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> an
         ""
     };
     // Async/streaming NIF code uses futures_util::StreamExt to consume Stream returns.
-    let futures_util_dep = if has_async {
+    let futures_util_dep = if has_async && !extra_deps_has("futures-util") {
         format!("\nfutures-util = \"{}\"", tv::cargo::FUTURES_UTIL)
     } else {
         String::new()

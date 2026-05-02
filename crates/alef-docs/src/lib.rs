@@ -37,6 +37,10 @@ use naming::{
 use signatures::{render_function_signature, render_method_signature};
 use sorting::{is_update_type, type_sort_key};
 
+fn md_table_cell(value: &str) -> String {
+    value.replace('|', "\\|")
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -196,7 +200,7 @@ fn render_function(
         out.push_str("|------|------|----------|-------------|\n");
         for param in &func.params {
             let pname = field_name(&param.name, lang);
-            let pty = doc_type_with_optional(&param.ty, lang, param.optional, ffi_prefix);
+            let pty = md_table_cell(&doc_type_with_optional(&param.ty, lang, param.optional, ffi_prefix));
             let required = if param.optional { "No" } else { "Yes" };
             let pdoc = param_docs
                 .get(param.name.as_str())
@@ -366,7 +370,7 @@ fn render_type(ty: &TypeDef, lang: Language, config: &AlefConfig, api: &ApiSurfa
                 doc_type_with_optional(&field.ty, lang, field.optional, ffi_prefix)
             };
 
-            let fdefault = format_field_default(field, lang, api, ffi_prefix);
+            let fdefault = md_table_cell(&format_field_default(field, lang, api, ffi_prefix));
             let fdoc = {
                 let raw = clean_doc_inline(&field.doc, lang);
                 if raw.is_empty() {
@@ -380,7 +384,7 @@ fn render_type(ty: &TypeDef, lang: Language, config: &AlefConfig, api: &ApiSurfa
                     raw
                 }
             };
-            let _ = writeln!(out, "| `{fname}` | `{fty}` | {fdefault} | {fdoc} |");
+            let _ = writeln!(out, "| `{fname}` | `{}` | {fdefault} | {fdoc} |", md_table_cell(&fty));
         }
         out.push('\n');
     }
@@ -561,7 +565,7 @@ fn generate_configuration_doc(
                     doc_type_with_optional(&field.ty, Language::Python, field.optional, "")
                 };
 
-                let fdefault = format_field_default(field, Language::Python, api, "");
+                let fdefault = md_table_cell(&format_field_default(field, Language::Python, api, ""));
                 let fdoc = {
                     let raw = clean_doc_inline(&field.doc, Language::Python);
                     if raw.is_empty() {
@@ -574,7 +578,14 @@ fn generate_configuration_doc(
                         raw
                     }
                 };
-                let _ = writeln!(out, "| `{}` | `{}` | {} | {} |", field.name, fty, fdefault, fdoc);
+                let _ = writeln!(
+                    out,
+                    "| `{}` | `{}` | {} | {} |",
+                    field.name,
+                    md_table_cell(&fty),
+                    fdefault,
+                    fdoc
+                );
             }
             out.push('\n');
         }

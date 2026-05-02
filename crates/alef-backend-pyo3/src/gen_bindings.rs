@@ -969,6 +969,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
     let mut type_checking_only_imports: Vec<String> = native_type_imports
         .iter()
         .filter(|n| !runtime_native_import_names.contains(n.as_str()))
+        .filter(|n| !data_enum_names.contains(n.as_str()))
         .cloned()
         .collect();
     type_checking_only_imports.sort();

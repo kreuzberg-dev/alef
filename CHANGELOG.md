@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Generated aliases such as `ToolChoice = ToolChoiceMode | str | SpecificToolChoice` now have the
   required runtime enum import and remain ruff-clean.
 
+- fix(codegen): avoid generated lint failures for regenerated polyglot projects:
+  data-enum aliases are no longer also imported under `TYPE_CHECKING`, Elixir NIF
+  manifests avoid duplicate `futures-util` entries, Markdown table cells escape union
+  type pipes, and generated Java package checkstyle accepts long FFI signatures.
+
 - fix(codegen): preserve sanitized `Cow<str>` fields in Rust binding DTO serde and binding-to-core conversions.
   Python bindings previously dropped required string fields such as `ProcessConfig.language`, causing generated e2e
   tests to fail with missing-field deserialization errors.

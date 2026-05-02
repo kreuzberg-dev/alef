@@ -468,7 +468,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
     </module>
 
     <module name="LineLength">
-        <property name="max" value="120"/>
+        <property name="max" value="200"/>
         <property name="ignorePattern" value="^package.*|^import.*|a]href|href|http://|https://|ftp://"/>
     </module>
 
@@ -536,11 +536,11 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Re
     let eclipse_formatter_xml = r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <profiles version="21">
     <profile kind="CodeFormatterProfile" name="Kreuzberg" version="21">
-        <setting id="org.eclipse.jdt.core.formatter.lineSplit" value="120"/>
+        <setting id="org.eclipse.jdt.core.formatter.lineSplit" value="200"/>
         <setting id="org.eclipse.jdt.core.formatter.tabulation.char" value="space"/>
         <setting id="org.eclipse.jdt.core.formatter.tabulation.size" value="4"/>
         <setting id="org.eclipse.jdt.core.formatter.indentation.size" value="4"/>
-        <setting id="org.eclipse.jdt.core.formatter.comment.line_length" value="120"/>
+        <setting id="org.eclipse.jdt.core.formatter.comment.line_length" value="200"/>
     </profile>
 </profiles>
 "#;
