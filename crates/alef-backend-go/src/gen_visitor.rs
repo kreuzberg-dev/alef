@@ -845,7 +845,7 @@ pub fn gen_visitor_file(
     .ok();
     writeln!(out, "type NodeContext struct {{").ok();
     writeln!(out, "\t// NodeType is a coarse-grained node type tag.").ok();
-    writeln!(out, "\tNodeType string `json:\"node_type\"`").ok();
+    writeln!(out, "\tNodeType NodeType `json:\"node_type\"`").ok();
     writeln!(out, "\t// TagName is the HTML element tag name (e.g. \"div\").").ok();
     writeln!(out, "\tTagName string `json:\"tag_name\"`").ok();
     writeln!(out, "\t// Depth is the DOM depth (0 = root).").ok();
@@ -863,11 +863,9 @@ pub fn gen_visitor_file(
     writeln!(out, "}}").ok();
     writeln!(out).ok();
 
-    // NodeType is now a plain string constant namespace — the JSON values come from Rust's
-    // serde-serialized NodeType enum (snake_case by default).
-    writeln!(out, "// NodeType is a string constant for the node type tag.").ok();
-    writeln!(out, "type NodeType = string").ok();
-    writeln!(out).ok();
+    // NOTE: NodeType is defined in binding.go as `type NodeType string`.
+    // Do NOT re-declare it here — that would cause a redeclaration compile error.
+    // The NodeContext struct field uses NodeType directly from the same package.
 
     // -------------------------------------------------------------------------
     // VisitResult
