@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-pyo3): fixed three remaining codegen bugs for PyO3 bindings: (1) `PyVisitorRef::extract` now uses `Borrowed::to_owned()` instead of non-existent `Borrowed::clone()` to avoid E0507 "cannot move out of dereference"; (2) builder methods on has_default structs no longer attempt to access `.inner` for bridge type parameters—visitor parameter skips the core builder's `.visitor()` call and uses `None` instead to avoid E0308 type mismatch; (3) wrapper functions that pass has_default parameters to core functions now wrap the deserialized value in `Some()` when core expects `Option<T>` to fix E0308 "expected Option, found T".
+
 - fix(backend-pyo3): `PyVisitorRef` now uses PyO3 0.28 API correctly. Updated `FromPyObject<'a, 'py>` to accept two lifetimes and use `extract(Borrowed<'a, 'py, PyAny>)` instead of the deprecated `extract_bound()`. Fixed `IntoPyObject` error type to use `Infallible` (conversion cannot fail). Resolves E0407, E0107, E0277, E0308 errors when building against PyO3 0.28.3.
 
 - fix(backend-pyo3): trait types now map to `PyVisitorRef` (a custom wrapper) instead of `Arc<Py<PyAny>>`.

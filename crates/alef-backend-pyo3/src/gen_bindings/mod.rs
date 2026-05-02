@@ -98,7 +98,7 @@ impl Backend for Pyo3Backend {
                 }
             }
         }
-        let mapper = Pyo3Mapper { trait_type_names };
+        let mapper = Pyo3Mapper { trait_type_names, bridge_type_names: AHashSet::new() };
         let core_import = config.core_import_name();
 
         // Detect serde availability from the output crate's Cargo.toml
@@ -313,7 +313,7 @@ impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PyVisitorRef {
 
     fn extract(ob: pyo3::Borrowed<'a, 'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         Ok(PyVisitorRef {
-            inner: std::sync::Arc::new(ob.clone().unbind()),
+            inner: std::sync::Arc::new(ob.to_owned().unbind()),
         })
     }
 }
@@ -681,7 +681,49 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
         // Module init
         builder.add_item(&methods::gen_module_init(&config.python_module_name(), api, config));
 
-        let content = builder.build();
+        let mut content = builder.build();
+
+        // Post-process generated code to fix bridge type builder methods.
+        // Builder methods on has_default types with opaque bridge parameters
+        // (e.g., visitor: PyVisitorRef) should not attempt to access .inner,
+        // as there is no From impl from Arc<Py<PyAny>> to the core visitor type.
+        // Replace patterns like .visitor(visitor.as_ref().map(|v| &v.inner))
+        // with .visitor(None) to skip setting the visitor on the core builder.
+        for bridge in &config.trait_bridges {
+            if let Some(field_name) = bridge.resolved_options_field() {
+                let param_name = bridge.param_name.as_deref().unwrap_or(&field_name);
+                // Simple string replacement for the pattern:
+                // .visitor(visitor.as_ref().map(|v| &v.inner))  →  .visitor(None)
+                let pattern = format!(".{}({}.as_ref().map(|v| &v.inner))", field_name, param_name);
+                let replacement = format!(".{}(None)", field_name);
+                content = content.replace(&pattern, &replacement);
+            }
+        }
+
+        // Fix wrapper functions that pass Option<T> params to core functions expecting Option<T>.
+        // When a binding param is Optional<T> and serde deserializes to T, wrap in Some() at call site.
+        // The core function expects Option<ConversionOptions>, but serde deserialization produces
+        // ConversionOptions (not Optional). Wrap in Some() when passing to core.
+        // Look for patterns like: html_to_markdown_rs::convert(&html, options_core)
+        // and replace with: html_to_markdown_rs::convert(&html, Some(options_core))
+        // Iterate through all functions and look for calls to core with has_default params.
+        for func in &api.functions {
+            // Check if any parameter is a has_default type
+            for param in &func.params {
+                if let alef_core::ir::TypeRef::Named(name) = &param.ty {
+                    // Check if this is a has_default type
+                    if let Some(typ) = api.types.iter().find(|t| &t.name == name && t.has_default) {
+                        // Generate the variable name (param_name + "_core")
+                        let core_var = format!("{}_core", param.name);
+                        // Pattern: ..., {core_var}) where it appears in a function call
+                        // Look for pattern: core_import::function_name(..., param_name_core)
+                        let call_pattern = format!(", {core_var})");
+                        let call_replacement = format!(", Some({core_var}))");
+                        content = content.replace(&call_pattern, &call_replacement);
+                    }
+                }
+            }
+        }
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("lib.rs"),
