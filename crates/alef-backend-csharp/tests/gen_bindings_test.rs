@@ -1,8 +1,9 @@
 use alef_backend_csharp::CsharpBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CSharpConfig, CrateConfig, FfiConfig};
+use alef_core::config::{AlefConfig, BridgeBinding, CSharpConfig, CrateConfig, FfiConfig, TraitBridgeConfig};
 use alef_core::ir::{
-    ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
+    TypeDef, TypeRef,
 };
 
 #[test]
@@ -1285,5 +1286,320 @@ fn test_plain_enum_with_default_emits_single_nullable() {
         cs_file.content.contains("Mode?"),
         "Enum field with null default should be nullable; got:\n{}",
         cs_file.content
+    );
+}
+
+
+// ---------------------------------------------------------------------------
+// Helpers for options-field bridge tests
+// ---------------------------------------------------------------------------
+
+fn make_conversion_options_type() -> TypeDef {
+    TypeDef {
+        name: "ConversionOptions".to_string(),
+        rust_path: "htm::ConversionOptions".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            FieldDef {
+                name: "some_flag".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::Bool),
+                optional: true,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+            },
+            FieldDef {
+                name: "visitor".to_string(),
+                ty: TypeRef::Named("HtmlVisitorHandle".to_string()),
+                optional: true,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef_core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+            },
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+fn make_html_visitor_trait() -> TypeDef {
+    TypeDef {
+        name: "HtmlVisitor".to_string(),
+        rust_path: "htm::HtmlVisitor".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "visit_text".to_string(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(alef_core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: true,
+        }],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+fn make_convert_function() -> FunctionDef {
+    FunctionDef {
+        name: "convert".to_string(),
+        rust_path: "htm::convert".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "html".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "options".to_string(),
+                ty: TypeRef::Named("ConversionOptions".to_string()),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+        ],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: Some("Error".to_string()),
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    }
+}
+
+fn make_options_field_bridge_config(crate_name: &str) -> AlefConfig {
+    let mut config = minimal_csharp_config(crate_name);
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: Some("HtmlVisitorHandle".to_string()),
+        param_name: Some("visitor".to_string()),
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: Some("visitor".to_string()),
+    }];
+    config
+}
+
+// ---------------------------------------------------------------------------
+// Options-field bridge tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_options_field_bridge_adds_visitor_property_to_options_type() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "htm".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![make_conversion_options_type(), make_html_visitor_trait()],
+        functions: vec![make_convert_function()],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_options_field_bridge_config("htm");
+    let files = backend.generate_bindings(&api, &config).expect("generation should succeed");
+
+    let opts_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("ConversionOptions.cs"))
+        .expect("ConversionOptions.cs should be generated");
+
+    let content = &opts_file.content;
+
+    assert!(
+        content.contains("[JsonIgnore]"),
+        "ConversionOptions.cs must contain [JsonIgnore] for the bridge property; got:\n{content}"
+    );
+    assert!(
+        content.contains("HtmlVisitorBridge? Visitor"),
+        "ConversionOptions.cs must have a HtmlVisitorBridge? Visitor property; got:\n{content}"
+    );
+    assert!(
+        !content.contains("[JsonPropertyName(\"visitor\")]"),
+        "ConversionOptions.cs must not serialize the visitor field as JSON; got:\n{content}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_emits_setter_pinvoke() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "htm".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![make_conversion_options_type(), make_html_visitor_trait()],
+        functions: vec![make_convert_function()],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_options_field_bridge_config("htm");
+    let files = backend.generate_bindings(&api, &config).expect("generation should succeed");
+
+    let nm_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
+        .expect("NativeMethods.cs should be generated");
+
+    let content = &nm_file.content;
+
+    assert!(
+        content.contains("htm_conversion_options_set_visitor"),
+        "NativeMethods.cs must declare the options setter entry-point; got:\n{content}"
+    );
+    assert!(
+        content.contains("ConversionOptionsSetVisitor"),
+        "NativeMethods.cs must expose ConversionOptionsSetVisitor; got:\n{content}"
+    );
+    assert!(
+        content.contains("ConversionOptionsSetVisitor(IntPtr options, IntPtr vtable)"),
+        "Setter must have (IntPtr options, IntPtr vtable) signature; got:\n{content}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_wrapper_calls_setter_not_convert_with_visitor() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "htm".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![make_conversion_options_type(), make_html_visitor_trait()],
+        functions: vec![make_convert_function()],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_options_field_bridge_config("htm");
+    let files = backend.generate_bindings(&api, &config).expect("generation should succeed");
+
+    let wrapper_file = files
+        .iter()
+        .find(|f| f.content.contains("public static") && f.content.contains("Convert("))
+        .expect("wrapper class file should be generated");
+
+    let content = &wrapper_file.content;
+
+    assert!(
+        content.contains("ConversionOptionsSetVisitor"),
+        "Wrapper Convert must call ConversionOptionsSetVisitor; got:\n{content}"
+    );
+    assert!(
+        !content.contains("ConvertWithVisitor"),
+        "Wrapper must not expose ConvertWithVisitor in options-field mode; got:\n{content}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_excluded_by_language_leaves_json_field() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "htm".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![make_conversion_options_type(), make_html_visitor_trait()],
+        functions: vec![make_convert_function()],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let mut config = minimal_csharp_config("htm");
+    config.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: Some("HtmlVisitorHandle".to_string()),
+        param_name: Some("visitor".to_string()),
+        register_extra_args: None,
+        exclude_languages: vec!["csharp".to_string()],
+        bind_via: BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: Some("visitor".to_string()),
+    }];
+
+    let files = backend.generate_bindings(&api, &config).expect("generation should succeed");
+
+    let opts_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("ConversionOptions.cs"))
+        .expect("ConversionOptions.cs should be generated");
+
+    let content = &opts_file.content;
+
+    assert!(
+        !content.contains("[JsonIgnore]"),
+        "Excluded bridge must not inject [JsonIgnore]; got:\n{content}"
+    );
+    assert!(
+        !content.contains("HtmlVisitorBridge"),
+        "Excluded bridge must not inject visitor property; got:\n{content}"
     );
 }
