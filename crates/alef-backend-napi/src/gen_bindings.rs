@@ -182,6 +182,7 @@ impl Backend for NapiBackend {
                     &opaque_types,
                     &prefix,
                     &adapter_bodies,
+                    &config.trait_bridges,
                 ));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
@@ -271,20 +272,92 @@ impl Backend for NapiBackend {
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
+
+        // Base config used for enum conversions (no bridge fields relevant for enums).
         let napi_conv_config = alef_codegen::conversions::ConversionConfig {
             type_name_prefix: &prefix,
             cast_large_ints_to_i64: true,
             cast_f32_to_f64: true,
-            // optionalize_defaults: For types with has_default, conversion generators
-            // make all fields Option<T> and apply defaults via FromNapiValue,
-            // enabling JS users to pass partial objects and omit fields they want defaults for.
             optionalize_defaults: true,
             option_duration_on_defaults: true,
             include_cfg_metadata: true,
             ..Default::default()
         };
+
+        // Build a lookup: type name → list of bridge field names that must always use
+        // Default::default() in From conversions. Bridge fields are typed as Object<'static>
+        // in the binding struct; the actual bridge setup is done by the convert wrapper.
+        //
+        // This covers two cases:
+        //   (a) Fields explicitly registered as bridge fields in options_type (e.g. ConversionOptions.visitor).
+        //   (b) Fields in any type whose type is a bridge type alias (e.g. ConversionOptionsUpdate.visitor).
+        //       These fields cannot be converted through the binding type, so they must use Default::default().
+        let bridge_fields_by_type: std::collections::HashMap<&str, Vec<&str>> = {
+            // Collect all bridge type aliases (e.g. "VisitorHandle").
+            let bridge_type_aliases: ahash::AHashSet<&str> = config
+                .trait_bridges
+                .iter()
+                .filter_map(|b| b.type_alias.as_deref())
+                .collect();
+
+            let mut map: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+            // Case (a): explicitly declared options_field bridges.
+            for bridge in &config.trait_bridges {
+                if bridge.bind_via == alef_core::config::BridgeBinding::OptionsField {
+                    if let Some(options_type) = bridge.options_type.as_deref() {
+                        if let Some(field_name) = bridge.resolved_options_field() {
+                            map.entry(options_type).or_default().push(field_name);
+                        }
+                    }
+                }
+            }
+            // Case (b): any type with a field whose type is a bridge type alias.
+            for typ in api.types.iter().filter(|t| !t.is_trait) {
+                for field in &typ.fields {
+                    let core_named = match &field.ty {
+                        alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                        alef_core::ir::TypeRef::Optional(inner) => {
+                            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                Some(n.as_str())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    if let Some(alias) = core_named {
+                        if bridge_type_aliases.contains(alias) {
+                            let entries = map.entry(typ.name.as_str()).or_default();
+                            if !entries.contains(&field.name.as_str()) {
+                                entries.push(field.name.as_str());
+                            }
+                        }
+                    }
+                }
+            }
+            map
+        };
+
         // From/Into conversions using shared parameterized generators
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+            let bridge_fields: Vec<&str> = bridge_fields_by_type
+                .get(typ.name.as_str())
+                .map(|v| v.as_slice())
+                .unwrap_or(&[])
+                .to_vec();
+            let napi_conv_config = alef_codegen::conversions::ConversionConfig {
+                type_name_prefix: &prefix,
+                cast_large_ints_to_i64: true,
+                cast_f32_to_f64: true,
+                // optionalize_defaults: For types with has_default, conversion generators
+                // make all fields Option<T> and apply defaults via FromNapiValue,
+                // enabling JS users to pass partial objects and omit fields they want defaults for.
+                optionalize_defaults: true,
+                option_duration_on_defaults: true,
+                include_cfg_metadata: true,
+                force_default_fields: &bridge_fields,
+                ..Default::default()
+            };
             if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
@@ -512,7 +585,7 @@ fn gen_struct(
     }
 
     // Build a list of bridge field names on this struct type so we can emit the correct type
-    // for sanitized fields that carry a visitor bridge handle.
+    // for fields that carry a visitor bridge handle.
     let bridge_fields: Vec<&str> = trait_bridges
         .iter()
         .filter(|b| {
@@ -522,24 +595,67 @@ fn gen_struct(
         .filter_map(|b| b.resolved_options_field())
         .collect();
 
+    // Build a set of all type aliases used as bridge types (e.g. "VisitorHandle").
+    // Any field in ANY struct that directly references one of these types must be emitted
+    // as Option<Object<'static>> — the Js-prefixed opaque wrapper cannot implement
+    // FromNapiValue (it wraps Rc<...> which is !Send).
+    let bridge_type_aliases: ahash::AHashSet<&str> = trait_bridges
+        .iter()
+        .filter_map(|b| b.type_alias.as_deref())
+        .collect();
+
+    // Returns true when a TypeRef is exactly a bridge type alias (possibly wrapped in Optional).
+    fn is_bridge_type<'a>(ty: &TypeRef, aliases: &ahash::AHashSet<&'a str>) -> bool {
+        match ty {
+            TypeRef::Named(n) => aliases.contains(n.as_str()),
+            TypeRef::Optional(inner) => is_bridge_type(inner, aliases),
+            _ => false,
+        }
+    }
+
+    // Helper: does a TypeRef tree contain any Named variant?
+    fn contains_named(ty: &TypeRef) -> bool {
+        match ty {
+            TypeRef::Named(_) => true,
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => contains_named(inner),
+            TypeRef::Map(k, v) => contains_named(k) || contains_named(v),
+            _ => false,
+        }
+    }
+
     for field in &typ.fields {
-        if field.sanitized {
-            if bridge_fields.iter().any(|fname| *fname == field.name) {
-                // Emit as Option<Object<'static>> so JS callers can pass a visitor object.
-                let js_name = to_node_name(&field.name);
-                let attrs = if js_name != field.name {
-                    vec![format!("napi(js_name = \"{}\")", js_name)]
-                } else {
-                    vec![]
-                };
-                struct_builder.add_field(
-                    &field.name,
-                    "Option<napi::bindgen_prelude::Object<'static>>",
-                    attrs,
-                );
-            }
-            // Regular sanitized fields are skipped — core conversion uses Default::default().
+        // Bridge fields (e.g. visitor) must be emitted as Option<Object<'static>> regardless
+        // of whether the field is sanitized. This covers:
+        //   (a) fields explicitly listed as bridge fields for this options_type, and
+        //   (b) fields in any struct whose type is a bridge type alias (e.g. VisitorHandle)
+        //       — these cannot implement FromNapiValue and must be handled via Object<'static>.
+        if bridge_fields.iter().any(|fname| *fname == field.name)
+            || is_bridge_type(&field.ty, &bridge_type_aliases)
+        {
+            // Emit as Option<Object<'static>> so JS callers can pass a visitor object.
+            let js_name = to_node_name(&field.name);
+            let attrs = if js_name != field.name {
+                vec![format!("napi(js_name = \"{}\")", js_name)]
+            } else {
+                vec![]
+            };
+            struct_builder.add_field(
+                &field.name,
+                "Option<napi::bindgen_prelude::Object<'static>>",
+                attrs,
+            );
             continue;
+        }
+        if field.sanitized {
+            // Sanitized Named-type fields: the binding type (Js-prefixed opaque class) does not
+            // implement FromNapiValue, so it cannot appear as a #[napi(object)] struct field.
+            // Skip these — the core conversion will use Default::default() for them.
+            if contains_named(&field.ty) {
+                continue;
+            }
+            // Sanitized primitive-typed fields (e.g. Vec<u32> sanitized from (u32, u32) tuple,
+            // or Vec<String> sanitized from Vec<Box<str>>) are directly representable in JS.
+            // Emit them so the binding struct exposes the sanitized representation.
         }
         let mapped_type = mapper.map_type(&field.ty);
         // For types with Default, make all fields optional so JS callers
@@ -570,7 +686,16 @@ fn gen_opaque_struct_methods(
     opaque_types: &AHashSet<String>,
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    trait_bridges: &[alef_core::config::TraitBridgeConfig],
 ) -> String {
+    // Collect type aliases used as bridge types (e.g. "VisitorHandle"). Methods that take
+    // these types as parameters cannot be delegated from NAPI: the Js-prefixed opaque wrapper
+    // wraps Arc<Rc<...>> which is !Send and therefore cannot implement FromNapiValue.
+    let bridge_type_aliases: AHashSet<&str> = trait_bridges
+        .iter()
+        .filter_map(|b| b.type_alias.as_deref())
+        .collect();
+
     let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
 
@@ -581,6 +706,22 @@ fn gen_opaque_struct_methods(
         // and emitting an unimplemented stub pollutes the public API with dead placeholders.
         let adapter_key = format!("{}.{}", typ.name, method.name);
         if method.sanitized && !adapter_bodies.contains_key(&adapter_key) {
+            continue;
+        }
+        // Skip methods whose parameters reference bridge type aliases (e.g. VisitorHandle).
+        // These types wrap Rc<RefCell<...>> which is !Send and cannot implement FromNapiValue,
+        // so NAPI cannot accept them as JS function arguments.
+        let has_bridge_param = method.params.iter().any(|p| {
+            let named = match &p.ty {
+                alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                alef_core::ir::TypeRef::Optional(inner) => {
+                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                }
+                _ => None,
+            };
+            named.is_some_and(|n| bridge_type_aliases.contains(n))
+        });
+        if has_bridge_param && !adapter_bodies.contains_key(&adapter_key) {
             continue;
         }
         impl_builder.add_method(&gen_opaque_instance_method(

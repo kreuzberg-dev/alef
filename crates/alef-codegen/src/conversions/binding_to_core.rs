@@ -134,7 +134,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         if references_excluded && typ.has_stripped_cfg_fields {
             continue;
         }
-        let conversion = if field.sanitized || references_excluded {
+        let conversion = if field.sanitized || references_excluded || config.force_default_fields.contains(&field.name.as_str()) {
             format!("{}: Default::default()", field.name)
         } else if optionalized && !field.optional {
             // Field was wrapped in Option<T> for JS ergonomics but core expects T.
