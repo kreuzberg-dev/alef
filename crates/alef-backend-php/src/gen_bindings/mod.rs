@@ -161,15 +161,9 @@ impl Backend for PhpBackend {
         }
 
         // Compute the PHP namespace for namespaced class registration.
-        // Uses the same logic as `generate_public_api` / `generate_type_stubs`.
+        // Delegates to config so [php].namespace overrides are respected.
         let extension_name = config.php_extension_name();
-        let php_namespace = if extension_name.contains('_') {
-            let parts: Vec<&str> = extension_name.split('_').collect();
-            let ns_parts: Vec<String> = parts.iter().map(|p| p.to_pascal_case()).collect();
-            ns_parts.join("\\")
-        } else {
-            extension_name.to_pascal_case()
-        };
+        let php_namespace = config.php_autoload_namespace();
 
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Php)?;
@@ -482,14 +476,8 @@ impl Backend for PhpBackend {
         content.push_str(&hash::header(CommentStyle::DoubleSlash));
         content.push_str("declare(strict_types=1);\n\n");
 
-        // Determine namespace
-        let namespace = if extension_name.contains('_') {
-            let parts: Vec<&str> = extension_name.split('_').collect();
-            let ns_parts: Vec<String> = parts.iter().map(|p| p.to_pascal_case()).collect();
-            ns_parts.join("\\")
-        } else {
-            class_name.clone()
-        };
+        // Determine namespace — delegates to config so [php].namespace overrides are respected.
+        let namespace = config.php_autoload_namespace();
 
         content.push_str(&format!("namespace {};\n\n", namespace));
         content.push_str(&format!("final class {}\n", class_name));
@@ -619,14 +607,8 @@ impl Backend for PhpBackend {
         let extension_name = config.php_extension_name();
         let class_name = extension_name.to_pascal_case();
 
-        // Determine namespace (same logic as generate_public_api)
-        let namespace = if extension_name.contains('_') {
-            let parts: Vec<&str> = extension_name.split('_').collect();
-            let ns_parts: Vec<String> = parts.iter().map(|p| p.to_pascal_case()).collect();
-            ns_parts.join("\\")
-        } else {
-            class_name.clone()
-        };
+        // Determine namespace — delegates to config so [php].namespace overrides are respected.
+        let namespace = config.php_autoload_namespace();
 
         // PSR-12 requires a blank line after the opening `<?php` tag.
         // php-cs-fixer enforces this and would insert it post-write,

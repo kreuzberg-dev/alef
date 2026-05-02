@@ -32,6 +32,7 @@ fn make_config_with_extension(extension_name: &str) -> AlefConfig {
         ruby: None,
         php: Some(PhpConfig {
             extension_name: Some(extension_name.to_string()),
+            namespace: None,
             feature_gate: None,
             stubs: None,
             features: None,
@@ -130,6 +131,7 @@ fn make_config() -> AlefConfig {
         ruby: None,
         php: Some(PhpConfig {
             extension_name: Some("test_lib".to_string()),
+            namespace: None,
             feature_gate: None,
             stubs: None,
             features: None,

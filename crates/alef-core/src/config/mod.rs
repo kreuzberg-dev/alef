@@ -898,12 +898,18 @@ impl AlefConfig {
             .unwrap_or_else(|| self.crate_config.name.clone())
     }
 
-    /// Get the PHP Composer autoload namespace derived from the extension name.
+    /// Get the PHP namespace for class registration and PSR-4 autoloading.
     ///
-    /// Converts the extension name (e.g. `html_to_markdown_rs`) into a
-    /// PSR-4 namespace string (e.g. `Html\\To\\Markdown\\Rs`).
+    /// Resolution order:
+    /// 1. `[php].namespace` — used verbatim when set (e.g. `"HtmlToMarkdown"`).
+    /// 2. Derived from `[php].extension_name` by splitting on `_` and converting each
+    ///    segment to PascalCase (e.g. `html_to_markdown` → `Html\To\Markdown`).
     pub fn php_autoload_namespace(&self) -> String {
         use heck::ToPascalCase;
+        // If an explicit namespace override is configured, use it verbatim.
+        if let Some(ns) = self.php.as_ref().and_then(|p| p.namespace.as_ref()) {
+            return ns.clone();
+        }
         let ext = self.php_extension_name();
         if ext.contains('_') {
             ext.split('_')
