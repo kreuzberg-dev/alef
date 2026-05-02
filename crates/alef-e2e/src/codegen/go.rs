@@ -638,10 +638,12 @@ fn render_test_function(
     let simple_option_expects_value = result_is_simple
         && result_is_option
         && has_usable_assertion
-        && fixture
-            .assertions
-            .iter()
-            .any(|a| !matches!(a.assertion_type.as_str(), "is_empty" | "error" | "not_error"));
+        && fixture.assertions.iter().any(|a| {
+            !matches!(
+                a.assertion_type.as_str(),
+                "is_empty" | "not_empty" | "error" | "not_error"
+            )
+        });
 
     // For functions that return (value, error): emit `result, err :=`
     // For functions that return only error: emit `err :=`
