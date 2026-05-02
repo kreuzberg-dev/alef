@@ -71,6 +71,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `WasmHeadingStyle`, `WasmCodeBlockStyle`, and `WasmPreprocessingPreset` defaulting to the wrong
   variant.
 
+- fix(codegen): `gen_enum` now uses the `is_default` flag from the IR to select the `#[default]`
+  variant instead of always marking index 0. Fixes all non-WASM binding backends (PyO3, NAPI,
+  Magnus, Rustler, Java, C#, PHP, Go) where enums whose `#[default]` variant is not the first
+  variant (e.g. `HeadingStyle::Atx`) were incorrectly defaulting to the first variant.
+
+- fix(codegen): multi-line doc comments that wrap at a comma (e.g. `convert`'s docstring: "Convert
+  HTML to Markdown, returning…") are no longer truncated at the first raw source line. All backends
+  now call `doc_first_paragraph_joined` which collects lines until the first blank line and joins
+  them with a space, producing a complete first-paragraph summary.
+
 - fix(backend-wasm): visitor `VisitResult` dispatch now recognises JS object shapes `{ custom: "…" }`
   and `{ error: "…" }` via `js_sys::Reflect::get`, enabling callers to return `Custom` variant results
   without relying on string coercion that silently produced `Continue`.

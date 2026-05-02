@@ -1,4 +1,5 @@
 use ahash::AHashSet;
+use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::{AlefConfig, BridgeBinding};
 use alef_core::hash::{self, CommentStyle};
@@ -276,7 +277,7 @@ pub(super) fn gen_elixir_struct_module(
     let _ = writeln!(out, "defmodule {app_module}.{} do", typ.name);
 
     if !typ.doc.is_empty() {
-        let doc_first = typ.doc.lines().next().unwrap_or("").replace('"', "\\\"");
+        let doc_first = doc_first_paragraph_joined(&typ.doc).replace('"', "\\\"");
         let _ = writeln!(out, "  @moduledoc \"{doc_first}\"");
     } else {
         let _ = writeln!(out, "  @moduledoc false");
@@ -431,7 +432,7 @@ pub(super) fn gen_elixir_enum_module(enum_def: &alef_core::ir::EnumDef, app_modu
     let _ = writeln!(out, "defmodule {app_module}.{} do", enum_def.name);
 
     if !enum_def.doc.is_empty() {
-        let doc_first = enum_def.doc.lines().next().unwrap_or("").replace('"', "\\\"");
+        let doc_first = doc_first_paragraph_joined(&enum_def.doc).replace('"', "\\\"");
         let _ = writeln!(out, "  @moduledoc \"{doc_first}\"");
     } else {
         let _ = writeln!(out, "  @moduledoc false");

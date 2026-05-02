@@ -1,6 +1,20 @@
 //! Language-native documentation comment emission.
 //! Provides standardized functions for emitting doc comments in different languages.
 
+/// Join the first paragraph of a doc comment into a single line.
+///
+/// Collects lines until the first blank line, trims each, and joins with a space.
+/// This preserves sentences wrapped across multiple source lines, e.g. the `convert`
+/// function whose first source line ends with a comma because the sentence continues
+/// on line two.
+pub fn doc_first_paragraph_joined(doc: &str) -> String {
+    doc.lines()
+        .take_while(|l| !l.trim().is_empty())
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Emit PHPDoc-style comments (/** ... */)
 /// Used for PHP classes, methods, and properties.
 pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str) {
@@ -257,6 +271,32 @@ fn escape_javadoc_html_entities(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_doc_first_paragraph_joined_single_line() {
+        assert_eq!(doc_first_paragraph_joined("Hello world."), "Hello world.");
+    }
+
+    #[test]
+    fn test_doc_first_paragraph_joined_wrapped_sentence() {
+        // Simulates the convert() docstring that wraps "images," onto the next line.
+        let doc = "Convert HTML to Markdown, returning a result with content, metadata, images,\nand warnings.";
+        assert_eq!(
+            doc_first_paragraph_joined(doc),
+            "Convert HTML to Markdown, returning a result with content, metadata, images, and warnings."
+        );
+    }
+
+    #[test]
+    fn test_doc_first_paragraph_joined_stops_at_blank_line() {
+        let doc = "First paragraph.\n\n# Section\nMore content.";
+        assert_eq!(doc_first_paragraph_joined(doc), "First paragraph.");
+    }
+
+    #[test]
+    fn test_doc_first_paragraph_joined_empty() {
+        assert_eq!(doc_first_paragraph_joined(""), "");
+    }
 
     #[test]
     fn test_emit_phpdoc() {

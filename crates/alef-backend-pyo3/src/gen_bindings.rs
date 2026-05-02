@@ -1,6 +1,7 @@
 use crate::type_map::Pyo3Mapper;
 use ahash::{AHashMap, AHashSet};
 use alef_codegen::builder::RustFileBuilder;
+use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{
@@ -533,6 +534,7 @@ impl Backend for Pyo3Backend {
             // No separate `convert_with_visitor` export is emitted.
             let bridge_field = crate::trait_bridge::find_bridge_field(f, &api.types, &config.trait_bridges);
             if let Some(bridge_field_match) = bridge_field {
+                let api_err = api.errors.first().map(|e| e.name.as_str());
                 builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
                     f,
                     &bridge_field_match,
@@ -541,11 +543,13 @@ impl Backend for Pyo3Backend {
                     &adapter_bodies,
                     &opaque_types,
                     &core_import,
+                    api_err,
                 ));
             } else {
                 // Legacy positional bridge (bind_via = "function_param") — unchanged path.
                 let bridge_param = crate::trait_bridge::find_bridge_param(f, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
+                    let api_err = api.errors.first().map(|e| e.name.as_str());
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(
                         f,
                         param_idx,
@@ -555,6 +559,7 @@ impl Backend for Pyo3Backend {
                         &adapter_bodies,
                         &opaque_types,
                         &core_import,
+                        api_err,
                     ));
                 } else {
                     builder.add_item(&generators::gen_function(
@@ -840,7 +845,7 @@ impl Backend for Pyo3Backend {
 /// it is emitted as a `TypedDict` (with `total=False`) instead of a `@dataclass`.
 fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> String {
     use alef_core::ir::TypeRef;
-    use heck::{ToShoutySnakeCase, ToSnakeCase};
+    use heck::ToSnakeCase;
 
     // Collect enum names for type detection (plain unit enums vs data enums)
     let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
@@ -1060,7 +1065,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             // `setattr` + `getattr` to bridge the keyword.
             for variant in &enum_def.variants {
                 let rust_name = &variant.name;
-                let py_name = rust_name.to_shouty_snake_case();
+                let py_name = crate::gen_stubs::to_python_screaming(rust_name);
                 // PyO3 escapes Python-keyword variant names by appending `_`
                 // (matching `python_safe_name`), so `None` becomes `None_` on
                 // the runtime class. We must `getattr` from the escaped form.
@@ -1094,7 +1099,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         }
         out.push_str(&format!("class {}(str, Enum):\n", enum_def.name));
         let enum_doc = if !enum_def.doc.is_empty() {
-            let raw = enum_def.doc.lines().next().unwrap_or("").trim().to_string();
+            let raw = doc_first_paragraph_joined(&enum_def.doc);
             let first = sanitize_python_doc(&raw);
             let content = if first.len() > 89 {
                 first[..89].to_string()
@@ -1114,7 +1119,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             let value = variant.name.to_snake_case();
             out.push_str(&format!(
                 "    {} = \"{}\"\n",
-                variant.name.to_shouty_snake_case(),
+                crate::gen_stubs::to_python_screaming(&variant.name),
                 value
             ));
         }
@@ -1149,7 +1154,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             out.push_str("@dataclass\n");
             out.push_str(&format!("class {}:\n", typ.name));
             let class_doc = if !typ.doc.is_empty() {
-                let raw = typ.doc.lines().next().unwrap_or("").trim().to_string();
+                let raw = doc_first_paragraph_joined(&typ.doc);
                 let first = sanitize_python_doc(&raw);
                 let content = if first.len() > 89 {
                     first[..89].to_string()
@@ -1222,7 +1227,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
                 let safe_name = alef_core::keywords::python_ident(&field.name);
                 if !field.doc.is_empty() {
                     out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
-                    let doc_line = sanitize_python_doc(field.doc.lines().next().unwrap_or(""));
+                    let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
                     // Avoid `""""` when docstring ends with `"` — add trailing space.
                     let safe_doc = if doc_line.ends_with('"') {
                         format!("{doc_line} ")
@@ -1317,7 +1322,7 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         }
 
         let doc = if !enum_def.doc.is_empty() {
-            let raw = enum_def.doc.lines().next().unwrap_or("").trim().to_string();
+            let raw = doc_first_paragraph_joined(&enum_def.doc);
             let first = sanitize_python_doc(&raw);
             let content = if first.len() > 89 {
                 first[..89].to_string()
@@ -1373,7 +1378,7 @@ fn gen_typeddict(
     let mut out = String::new();
     out.push_str(&format!("class {}(TypedDict, total=False):\n", typ.name));
     let typeddict_doc = if !typ.doc.is_empty() {
-        let raw = typ.doc.lines().next().unwrap_or("").trim().to_string();
+        let raw = doc_first_paragraph_joined(&typ.doc);
         let first = sanitize_python_doc(&raw);
         let content = if first.len() > 89 {
             first[..89].to_string()
@@ -1410,7 +1415,7 @@ fn gen_typeddict(
         let safe_name = alef_core::keywords::python_ident(&field.name);
         if !field.doc.is_empty() {
             out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
-            let doc_line = sanitize_python_doc(field.doc.lines().next().unwrap_or(""));
+            let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
             // A triple-quoted docstring that ends with `"` would produce `""""` (4 quotes),
             // which Python parses as an empty string followed by a stray `"`.
             // Add a trailing space to prevent the collision.
@@ -1666,6 +1671,24 @@ fn gen_api_py(
     let bridge_param_names: ahash::AHashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
 
+    // Build lookup: options_type_name → (param_name, field_name) for options-field bridges.
+    //
+    // When `bind_via = "options_field"`, the visitor is embedded as a field on the options
+    // struct rather than being a top-level function parameter.  The Python wrapper must expose
+    // it as a top-level `visitor=` kwarg for ergonomic use (e.g. `convert(html, visitor=v)`).
+    // This map drives both the `_to_rust_*` converter extension and the wrapper-function
+    // `visitor=` kwarg injection.
+    let options_field_bridges: AHashMap<&str, (&str, &str)> = trait_bridges
+        .iter()
+        .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+        .filter_map(|b| {
+            let options_type = b.options_type.as_deref()?;
+            let param_name = b.param_name.as_deref()?;
+            let field_name = b.resolved_options_field()?;
+            Some((options_type, (param_name, field_name)))
+        })
+        .collect();
+
     // Build lookup: type_name → TypeDef for has_default types
     let default_types: AHashMap<String, &alef_core::ir::TypeDef> = api
         .types
@@ -1895,11 +1918,23 @@ fn gen_api_py(
             }
         };
 
+        // Check if this type is the options_type for an options-field bridge.
+        // If so, the converter gets an extra `_visitor_override` param so the top-level
+        // wrapper function can inject the visitor kwarg without mutating the user's object.
+        let bridge_visitor_field: Option<&str> = options_field_bridges
+            .get(type_name.as_str())
+            .map(|&(_, field_name)| field_name);
+
         // Single-line: "def _to_rust_{snake}(value: {type_name} | None) -> _rust.{type_name} | None:"
         // Prefix "def _to_rust_" (13) + snake + "(value: " (8) + type_name + " | None) -> _rust." (18)
         // + type_name + " | None:" (8) = 47 + snake.len + 2 * type_name.len
         let sig_len = 47 + snake.len() + 2 * type_name.len();
-        if sig_len > 100 {
+        if bridge_visitor_field.is_some() {
+            // Always emit multi-line when the converter has the extra visitor override param.
+            out.push_str(&format!(
+                "def _to_rust_{snake}(\n    value: {type_name} | None,\n    _visitor_override: object | None = None,\n) -> _rust.{type_name} | None:\n"
+            ));
+        } else if sig_len > 100 {
             out.push_str(&format!(
                 "def _to_rust_{snake}(\n    value: {type_name} | None,\n) -> _rust.{type_name} | None:\n"
             ));
@@ -1992,6 +2027,17 @@ fn gen_api_py(
                 }
             }
 
+            // For options-field bridge types: emit the bridge field with visitor override.
+            if let Some(bridge_field) = bridge_visitor_field {
+                if field.name == bridge_field {
+                    let accessor = field_access(&field.name);
+                    out.push_str(&format!(
+                        "        {name}=_visitor_override if _visitor_override is not None else {accessor},\n",
+                        name = field.name
+                    ));
+                    continue;
+                }
+            }
             let accessor = field_access(&field.name);
             out.push_str(&format!("        {name}={accessor},\n", name = field.name));
         }
@@ -2028,6 +2074,33 @@ fn gen_api_py(
             }
         }
 
+        // Detect whether this function should receive a top-level `visitor=` kwarg.
+        //
+        // When `bind_via = "options_field"`, the visitor lives inside the options struct.
+        // We expose it as an extra kwarg at the Python wrapper level so callers can write
+        // `convert(html, visitor=v)` instead of `convert(html, ConversionOptions(visitor=v))`.
+        //
+        // The injected kwarg's name is the bridge's `param_name` (e.g. `"visitor"`).
+        // We detect the injection point by looking for a param whose leaf type matches
+        // the bridge's `options_type` (e.g. `"ConversionOptions"`).
+        let options_field_visitor_kwarg: Option<(&str, &str)> = func
+            .params
+            .iter()
+            .find_map(|p| {
+                let leaf = match &p.ty {
+                    TypeRef::Named(n) => Some(n.as_str()),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }?;
+                options_field_bridges.get(leaf).map(|&(param_name, _)| (p.name.as_str(), param_name))
+            });
+
         let mut sig_parts = Vec::new();
         let is_with_default = |p: &&alef_core::ir::ParamDef| p.optional || promoted_params.contains(&p.name);
         let (required, optional): (Vec<_>, Vec<_>) = func.params.iter().partition(|p| !is_with_default(p));
@@ -2050,6 +2123,10 @@ fn gen_api_py(
                 base_type
             };
             sig_parts.push(format!("{}: {}", param.name, py_type));
+        }
+        // Append the injected visitor kwarg AFTER all IR params (always optional with default None).
+        if let Some((_, visitor_kwarg_name)) = options_field_visitor_kwarg {
+            sig_parts.push(format!("{visitor_kwarg_name}: object | None = None"));
         }
 
         let return_type_str = crate::type_map::python_type(&func.return_type);
@@ -2081,8 +2158,8 @@ fn gen_api_py(
         }
         {
             let doc_with_period = if !func.doc.is_empty() {
-                let doc_first_line = func.doc.lines().next().unwrap_or("");
-                let doc_sanitized = sanitize_python_doc(doc_first_line.trim());
+                let doc_first_para = doc_first_paragraph_joined(&func.doc);
+                let doc_sanitized = sanitize_python_doc(doc_first_para.trim());
                 // `    """..."""` is 10 chars of overhead; period may add 1 more char.
                 // Limit content to 89 chars so that with a trailing period the full line stays ≤100.
                 let doc_content = if doc_sanitized.len() > 89 {
@@ -2139,7 +2216,17 @@ fn gen_api_py(
                 // has_default struct: Python-side conversion via _to_rust_<snake>().
                 if default_types.contains_key(name) {
                     let snake = name.to_snake_case();
-                    let scalar_expr = format!("_to_rust_{snake}({pname})");
+                    // When this param is the options_type for an options-field bridge, pass
+                    // the injected `visitor` kwarg as `_visitor_override` to the converter so
+                    // it takes effect without mutating the user's options object.
+                    let visitor_kwarg_for_converter: Option<&str> = options_field_bridges
+                        .get(name)
+                        .map(|&(visitor_param_name, _)| visitor_param_name);
+                    let scalar_expr = if let Some(vname) = visitor_kwarg_for_converter {
+                        format!("_to_rust_{snake}({pname}, _visitor_override={vname})")
+                    } else {
+                        format!("_to_rust_{snake}({pname})")
+                    };
                     if is_collection {
                         let element_expr = format!("_to_rust_{snake}(__item)");
                         let body = format!("[{element_expr} for __item in {pname}]");
@@ -2174,6 +2261,37 @@ fn gen_api_py(
                 }
             }
             call_args.push((param.name.clone(), param.name.clone()));
+        }
+
+        // When an options-field bridge visitor kwarg was injected, handle the case where
+        // `options is None` but `visitor is not None`.  In this case the `_to_rust_*`
+        // converter (which guards `if value is None: return None`) would discard the visitor.
+        // Emit a guard that creates a minimal Rust options object carrying only the visitor.
+        //
+        // This emits AFTER the conversion variables so the guard can reference `_rust_<opts>`.
+        if let Some((options_param_name, visitor_kwarg_name)) = options_field_visitor_kwarg {
+            let var = format!("_rust_{options_param_name}");
+            let opts_type = func
+                .params
+                .iter()
+                .find(|p| p.name == options_param_name)
+                .and_then(|p| {
+                    if let TypeRef::Named(n) = &p.ty {
+                        Some(n.as_str())
+                    } else if let TypeRef::Optional(inner) = &p.ty {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("ConversionOptions");
+            out.push_str(&format!(
+                "    if {var} is None and {visitor_kwarg_name} is not None:\n        {var} = _rust.{opts_type}({visitor_kwarg_name}={visitor_kwarg_name})\n"
+            ));
         }
 
         // Use keyword arguments so the call is independent of the pyo3 signature order.
@@ -2292,7 +2410,8 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
         }
         out.push_str(&format!("class {}(Exception):\n", error.name));
         let doc = if !error.doc.is_empty() {
-            let first_line = sanitize_python_doc(error.doc.lines().next().unwrap_or("").trim());
+            let first_para = doc_first_paragraph_joined(&error.doc);
+            let first_line = sanitize_python_doc(first_para.trim());
             if first_line.ends_with('.') {
                 first_line
             } else {
@@ -2312,7 +2431,8 @@ fn gen_exceptions_py(api: &ApiSurface) -> String {
             }
             out.push_str(&format!("class {}({}):\n", variant_name, error.name));
             let doc = if !variant.doc.is_empty() {
-                let first_line = sanitize_python_doc(variant.doc.lines().next().unwrap_or("").trim());
+                let first_para_v = doc_first_paragraph_joined(&variant.doc);
+                let first_line = sanitize_python_doc(first_para_v.trim());
                 if first_line.ends_with('.') {
                     first_line
                 } else {

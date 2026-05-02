@@ -5,6 +5,7 @@ mod types;
 use crate::type_map::RustlerMapper;
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
+use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::generators;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, BridgeBinding, Language, resolve_output_dir};
@@ -52,6 +53,9 @@ impl Backend for RustlerBackend {
             .unwrap_or_default();
         let exclude_types: AHashSet<&str> = elixir_config
             .map(|c| c.exclude_types.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        let cpu_bound_functions: AHashSet<String> = elixir_config
+            .map(|c| c.cpu_bound_functions.iter().cloned().collect())
             .unwrap_or_default();
 
         let mut builder = RustFileBuilder::new().with_generated_header();
@@ -199,6 +203,7 @@ impl Backend for RustlerBackend {
                     &opaque_types,
                     &default_types,
                     &core_import,
+                    &cpu_bound_functions,
                 ));
                 builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
                     func,
@@ -223,6 +228,7 @@ impl Backend for RustlerBackend {
                     &opaque_types,
                     &default_types,
                     &core_import,
+                    &cpu_bound_functions,
                 ));
             }
         }
@@ -487,9 +493,13 @@ impl Backend for RustlerBackend {
             } else {
                 func.name.to_snake_case()
             };
-            let doc_line_raw = func.doc.lines().next().unwrap_or("Function");
+            let doc_para_func = if func.doc.is_empty() {
+                "Function".to_string()
+            } else {
+                doc_first_paragraph_joined(&func.doc)
+            };
             // Elixir @doc strings use double-quote delimiters; escape any embedded quotes.
-            let doc_line = doc_line_raw.replace('"', "\\\"");
+            let doc_line = doc_para_func.replace('"', "\\\"");
             let doc_line = doc_line.as_str();
 
             let param_types: Vec<String> = func
@@ -659,6 +669,27 @@ impl Backend for RustlerBackend {
                         content.push_str(&format!("      {native_mod}.{nif_fn_name}({plain_args_str})\n"));
                         content.push_str("    end\n");
                         content.push_str("  end\n\n");
+
+                        // Nil clause: options is nil — pass nil directly to the NIF.
+                        let nil_clause_params: Vec<String> = arity_params
+                            .iter()
+                            .enumerate()
+                            .map(|(i, p)| if i == opts_idx { "nil".to_string() } else { p.clone() })
+                            .collect();
+                        let nil_nif_args: Vec<String> = nif_call_args
+                            .iter()
+                            .enumerate()
+                            .map(|(i, a)| if i == opts_idx { "nil".to_string() } else { a.clone() })
+                            .collect();
+                        content.push_str(&format!(
+                            "  def {nif_fn_name}({}) do\n",
+                            nil_clause_params.join(", ")
+                        ));
+                        content.push_str(&format!(
+                            "    {native_mod}.{nif_fn_name}({})\n",
+                            nil_nif_args.join(", ")
+                        ));
+                        content.push_str("  end\n\n");
                         continue;
                     }
                 }
@@ -820,8 +851,12 @@ impl Backend for RustlerBackend {
                     format!("{}_{}", typ.name.to_lowercase(), method.name)
                 };
 
-                let doc_line_raw = method.doc.lines().next().unwrap_or("Method");
-                let doc_line_escaped = doc_line_raw.replace('"', "\\\"");
+                let doc_para_method = if method.doc.is_empty() {
+                    "Method".to_string()
+                } else {
+                    doc_first_paragraph_joined(&method.doc)
+                };
+                let doc_line_escaped = doc_para_method.replace('"', "\\\"");
                 content.push_str(&format!("  @doc \"{doc_line_escaped}\"\n"));
 
                 // Params: receiver (if any) + method params
@@ -1045,6 +1080,7 @@ mod tests {
                 rename_fields: Default::default(),
                 run_wrapper: None,
                 extra_lint_paths: vec![],
+                cpu_bound_functions: vec![],
             }),
             wasm: None,
             ffi: None,

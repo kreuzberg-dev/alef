@@ -1,5 +1,6 @@
 use crate::type_map::{java_boxed_type, java_type};
 use ahash::AHashSet;
+use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::naming::to_class_name;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{DefaultValue, EnumDef, PrimitiveType, TypeDef, TypeRef};
@@ -120,7 +121,7 @@ pub(crate) fn gen_record_type(
             let comma = if i < field_entries.len() - 1 { "," } else { "" };
             if !entry.doc.is_empty() {
                 // Inline single-line doc for record components in multi-line form.
-                let doc_summary = escape_javadoc_line(entry.doc.lines().next().unwrap_or("").trim());
+                let doc_summary = escape_javadoc_line(doc_first_paragraph_joined(&entry.doc).trim());
                 writeln!(record_block, "    /** {doc_summary} */").ok();
             }
             writeln!(record_block, "    {}{}", entry.decl, comma).ok();
@@ -235,7 +236,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
             .clone()
             .unwrap_or_else(|| java_apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
         if !variant.doc.is_empty() {
-            let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
+            let doc_summary = escape_javadoc_line(doc_first_paragraph_joined(&variant.doc).trim());
             // 4 spaces indent + "/** " + " */" = 11 chars overhead; wrap if total > 80
             if doc_summary.len() + 11 > 80 {
                 writeln!(out, "    /**").ok();
@@ -380,7 +381,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         if variant.fields.is_empty() {
             // Unit variant
             if !variant.doc.is_empty() {
-                let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
+                let doc_summary = escape_javadoc_line(doc_first_paragraph_joined(&variant.doc).trim());
                 writeln!(out, "    /** {doc_summary} */").ok();
             }
             writeln!(out, "    record {}() implements {} {{", variant.name, enum_def.name).ok();
@@ -438,7 +439,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                 + " { }".len();
 
             if !variant.doc.is_empty() {
-                let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
+                let doc_summary = escape_javadoc_line(doc_first_paragraph_joined(&variant.doc).trim());
                 writeln!(out, "    /** {doc_summary} */").ok();
             }
             if single_len > RECORD_LINE_WRAP_THRESHOLD && field_parts.len() > 1 {
