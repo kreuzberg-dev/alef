@@ -856,10 +856,16 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             for variant in &enum_def.variants {
                 let rust_name = &variant.name;
                 let py_name = rust_name.to_shouty_snake_case();
-                if alef_core::keywords::PYTHON_KEYWORDS.contains(&rust_name.as_str()) {
+                // PyO3 escapes Python-keyword variant names by appending `_`
+                // (matching `python_safe_name`), so `None` becomes `None_` on
+                // the runtime class. We must `getattr` from the escaped form.
+                let runtime_name = alef_core::keywords::python_ident(rust_name);
+                let needs_setattr = runtime_name.as_str() != rust_name.as_str()
+                    || alef_core::keywords::PYTHON_KEYWORDS.contains(&py_name.as_str());
+                if needs_setattr {
                     out.push_str(&format!(
                         "setattr({}, \"{}\", getattr({}, \"{}\"))\n",
-                        enum_def.name, py_name, enum_def.name, rust_name
+                        enum_def.name, py_name, enum_def.name, runtime_name
                     ));
                 } else {
                     out.push_str(&format!(

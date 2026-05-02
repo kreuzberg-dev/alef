@@ -302,6 +302,7 @@ impl Backend for JavaBackend {
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
+        let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
         // Generate a high-level public API class that wraps the raw FFI class.
         // Class name = main_class without "Rs" suffix (e.g., HtmlToMarkdownRs -> HtmlToMarkdown)
@@ -314,6 +315,7 @@ impl Backend for JavaBackend {
             &prefix,
             &bridge_param_names,
             &bridge_type_aliases,
+            has_visitor_pattern,
         );
 
         Ok(vec![GeneratedFile {
