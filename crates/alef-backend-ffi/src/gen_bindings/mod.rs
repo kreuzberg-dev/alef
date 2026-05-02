@@ -4,7 +4,6 @@ mod types;
 
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
-use alef_codegen::generators::trait_bridge::find_bridge_field;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AlefConfig, BridgeBinding, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
@@ -455,20 +454,24 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         if visitor_callbacks_enabled && func.sanitized && func.name == "convert" {
             continue;
         }
-        // Options-field bridge path: skip the sanitized `convert` stub when find_bridge_field
-        // finds a match (the visitor is in options, so the standard free-function path cannot
-        // handle it). The replacement is emitted below via gen_convert_with_options_field_bridge.
-        if has_options_field_bridge && func.sanitized && func.name == "convert" {
-            if find_bridge_field(func, &api.types, &config.trait_bridges).is_some() {
-                continue;
-            }
+        // Options-field bridge path: suppress ALL `convert` variants (both sanitized and
+        // unsanitized).  The only correct `{prefix}_convert` is emitted later via
+        // gen_convert_with_options_field_bridge; any version emitted here would produce a
+        // duplicate #[no_mangle] symbol that fails to compile.
+        if has_options_field_bridge && func.name == "convert" {
+            continue;
         }
         builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map, &enum_names));
     }
 
     // Visitor/callback FFI support — generated when `[ffi] visitor_callbacks = true`.
     // Note: the generated code uses std::rc::Rc fully qualified, so no extra import needed.
-    if visitor_callbacks_enabled {
+    // When options-field bridge mode is active the entire legacy visitor path is suppressed:
+    // - gen_convert_no_visitor emits a second {prefix}_convert symbol (duplicate)
+    // - gen_visitor_bindings emits {prefix}_convert_with_visitor which is not part of the
+    //   options-field API surface
+    // The options-field bridge emits the single authoritative {prefix}_convert below.
+    if visitor_callbacks_enabled && !has_options_field_bridge {
         // Emit the real {prefix}_convert implementation (no-visitor path) before the visitor
         // bindings so that {prefix}_convert_with_visitor can document itself as the visitor
         // counterpart.

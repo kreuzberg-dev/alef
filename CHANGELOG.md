@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-ffi): suppress duplicate `{prefix}_convert` symbols in options-field
+  bridge mode. When `bind_via = "options_field"` is set, the free-function loop now
+  skips ALL `convert` variants (not just sanitized ones), and `gen_convert_no_visitor`
+  + `gen_visitor_bindings` are not emitted. The single authoritative `{prefix}_convert`
+  comes exclusively from `gen_convert_with_options_field_bridge`. Removes the three
+  `htm_convert` definitions that caused a duplicate `#[no_mangle]` compile error in
+  html-to-markdown.
+
 - fix(e2e): visitor codegen now assigns the synthesized visitor object to
   `options.visitor` (language-idiomatic field assignment) instead of passing it
   as a third positional argument. This aligns e2e test generation with the h2m
