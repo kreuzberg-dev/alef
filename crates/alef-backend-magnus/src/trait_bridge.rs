@@ -3,12 +3,12 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to Ruby objects via Magnus `respond_to` checks and `funcall`.
 
-pub use alef_codegen::generators::trait_bridge::find_bridge_param;
+pub use alef_codegen::generators::trait_bridge::{BridgeFieldMatch, find_bridge_field, find_bridge_param};
 use alef_codegen::generators::trait_bridge::{
     TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -1097,6 +1097,169 @@ pub fn gen_bridge_function(
     let func_name = &func.name;
     let mut out = String::with_capacity(1024);
     if func.error_type.is_some() {
+        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
+    }
+    writeln!(out, "#[allow(unused_variables)]").ok();
+    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
+    writeln!(out, "    {body}").ok();
+    writeln!(out, "}}").ok();
+
+    out
+}
+
+/// Generate a Magnus free function where the visitor bridge lives as a field on the options
+/// struct (`bind_via = "options_field"`).
+///
+/// The generated wrapper:
+/// 1. Accepts the options parameter as `magnus::Value` (or `Option<magnus::Value>`).
+/// 2. Deserializes it to the binding options struct via `to_json` / `serde_json`.
+/// 3. Extracts the visitor field (`Option<magnus::Value>`) from the binding struct.
+/// 4. Builds `RbBridgeStruct` from the visitor field value when present.
+/// 5. Wraps the bridge in `Rc<RefCell<dyn Trait>>` and sets it on the core options struct.
+/// 6. Calls the core function.
+#[allow(clippy::too_many_arguments)]
+pub fn gen_bridge_field_function(
+    func: &FunctionDef,
+    bridge_match: &BridgeFieldMatch<'_>,
+    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    opaque_types: &ahash::AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let struct_name = format!("Rb{}Bridge", bridge_match.bridge.trait_name);
+    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+
+    let options_type = &bridge_match.options_type;
+    let field_name = &bridge_match.field_name;
+    let param_name = &bridge_match.param_name;
+    let param_is_optional = bridge_match.param_is_optional;
+
+    // Build parameter list — options param becomes magnus::Value (or Option<magnus::Value>).
+    let mut sig_parts = Vec::new();
+    for p in &func.params {
+        if p.name == *param_name {
+            if param_is_optional || p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                sig_parts.push(format!("{param_name}: Option<magnus::Value>"));
+            } else {
+                sig_parts.push(format!("{param_name}: magnus::Value"));
+            }
+        } else {
+            let ty = mapper.map_type(&p.ty);
+            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                sig_parts.push(format!("{}: Option<{}>", p.name, ty));
+            } else {
+                sig_parts.push(format!("{}: {}", p.name, ty));
+            }
+        }
+    }
+    let params_str = sig_parts.join(", ");
+
+    let return_type = mapper.map_type(&func.return_type);
+    let has_error = func.error_type.is_some();
+    let ret = mapper.wrap_return(&return_type, has_error);
+
+    let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
+
+    // Deserialize the options value from Ruby hash/nil to the binding struct.
+    let deser_block = if param_is_optional {
+        format!(
+            "let mut {param_name}_binding: {options_type} = match {param_name} {{\n    \
+             Some(_v) if !_v.is_nil() => {{ let _s: String = _v.funcall(\"to_json\", ()){err_conv}?; \
+             serde_json::from_str(&_s){err_conv}? }},\n    \
+             _ => Default::default(),\n\
+             }};"
+        )
+    } else {
+        format!(
+            "let mut {param_name}_binding: {options_type} = {{ let _s: String = {param_name}.funcall(\"to_json\", ()){err_conv}?; \
+             serde_json::from_str(&_s){err_conv}? }};"
+        )
+    };
+
+    // Extract the visitor field from the binding struct.
+    let visitor_extract = format!(
+        "let _visitor_rb: Option<magnus::Value> = {param_name}_binding.{field_name}.take();"
+    );
+
+    // Convert binding options to core options. The visitor field is Option<magnus::Value>
+    // on the binding struct — the From impl skips it, so it is None on the core struct.
+    // The convert wrapper sets the real value below.
+    let core_opts_bind = format!(
+        "let mut {param_name}_core: {core_import}::{options_type} = {param_name}_binding.into();"
+    );
+
+    // Build bridge and attach to core options.
+    let bridge_attach = format!(
+        "if let Some(_v) = _visitor_rb {{\n    \
+             let _bridge = {struct_name}::new(_v);\n    \
+             {param_name}_core.{field_name} = Some(std::rc::Rc::new(std::cell::RefCell::new(_bridge)) as {handle_path});\n\
+             }}"
+    );
+
+    // Build core call arguments.
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            if p.name == *param_name {
+                format!("{param_name}_core")
+            } else {
+                match &p.ty {
+                    TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                        if p.optional {
+                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                        } else {
+                            format!("&{}.inner", p.name)
+                        }
+                    }
+                    TypeRef::String | TypeRef::Char => {
+                        if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    }
+                    _ => p.name.clone(),
+                }
+            }
+        })
+        .collect();
+    let call_args_str = call_args.join(", ");
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+    let core_call = format!("{core_fn_path}({call_args_str})");
+
+    let return_wrap = match &func.return_type {
+        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+        }
+        TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
+        _ => "val".to_string(),
+    };
+
+    let body = if has_error {
+        if return_wrap == "val" {
+            format!(
+                "{deser_block}\n    {visitor_extract}\n    {core_opts_bind}\n    {bridge_attach}\n    {core_call}{err_conv}"
+            )
+        } else {
+            format!(
+                "{deser_block}\n    {visitor_extract}\n    {core_opts_bind}\n    {bridge_attach}\n    {core_call}.map(|val| {return_wrap}){err_conv}"
+            )
+        }
+    } else {
+        format!("{deser_block}\n    {visitor_extract}\n    {core_opts_bind}\n    {bridge_attach}\n    {core_call}")
+    };
+
+    let func_name = &func.name;
+    let mut out = String::with_capacity(1024);
+    if has_error {
         writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
     }
     writeln!(out, "#[allow(unused_variables)]").ok();

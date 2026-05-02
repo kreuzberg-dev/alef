@@ -171,7 +171,14 @@ impl Backend for MagnusBackend {
             } else {
                 let generates_default =
                     typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
-                builder.add_item(&gen_struct(typ, &mapper, &module_name, api, generates_default));
+                builder.add_item(&gen_struct(
+                    typ,
+                    &mapper,
+                    &module_name,
+                    api,
+                    generates_default,
+                    &config.trait_bridges,
+                ));
                 if generates_default {
                     builder.add_item(&alef_codegen::generators::gen_struct_default_impl(typ, ""));
                 }
@@ -194,6 +201,11 @@ impl Backend for MagnusBackend {
         for func in &api.functions {
             if !is_reserved_fn(&func.name) && !exclude_functions.contains(func.name.as_str()) {
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+                let bridge_field = if bridge_param.is_none() {
+                    crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges)
+                } else {
+                    None
+                };
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(
                         func,
@@ -202,6 +214,14 @@ impl Backend for MagnusBackend {
                         &mapper,
                         &opaque_types,
                         &default_types,
+                        &core_import,
+                    ));
+                } else if let Some(ref bfm) = bridge_field {
+                    builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
+                        func,
+                        bfm,
+                        &mapper,
+                        &opaque_types,
                         &core_import,
                     ));
                 } else {
@@ -248,6 +268,29 @@ impl Backend for MagnusBackend {
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
+
+        // Collect field names that are bridge fields per type name (bind_via = OptionsField).
+        // These fields carry `Option<magnus::Value>` in the binding struct and cannot be
+        // automatically converted by the standard From impl — they are bridged manually in
+        // the convert wrapper. We generate a custom From impl that skips them.
+        let bridge_fields_by_type: std::collections::HashMap<&str, std::collections::HashSet<String>> =
+            config
+                .trait_bridges
+                .iter()
+                .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+                .filter_map(|b| {
+                    let type_name = b.options_type.as_deref()?;
+                    let field_name = b.resolved_options_field()?.to_string();
+                    Some((type_name, field_name))
+                })
+                .fold(
+                    std::collections::HashMap::new(),
+                    |mut acc, (type_name, field_name)| {
+                        acc.entry(type_name).or_default().insert(field_name);
+                        acc
+                    },
+                );
+
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque || exclude_types.contains(typ.name.as_str()) {
                 continue;
@@ -255,7 +298,25 @@ impl Backend for MagnusBackend {
             let is_strict = alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core);
             let is_relaxed = alef_codegen::conversions::can_generate_conversion(typ, &core_to_binding);
             if is_strict && input_types.contains(&typ.name) {
-                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
+                let bridge_fields = bridge_fields_by_type.get(typ.name.as_str());
+                if let Some(skip_fields) = bridge_fields {
+                    builder.add_item(&gen_from_binding_to_core_skipping_fields(
+                        typ,
+                        &core_import,
+                        skip_fields,
+                    ));
+                } else {
+                    builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
+                }
+            } else if let Some(skip_fields) = bridge_fields_by_type.get(typ.name.as_str()) {
+                // Type has bridge fields but was excluded from convertible_types (e.g. because
+                // the visitor field prevented automatic conversion). Generate a custom impl that
+                // skips the bridge fields so the convert wrapper can manually set them.
+                builder.add_item(&gen_from_binding_to_core_skipping_fields(
+                    typ,
+                    &core_import,
+                    skip_fields,
+                ));
             }
             if is_relaxed {
                 builder.add_item(&alef_codegen::conversions::gen_from_core_to_binding(
@@ -632,8 +693,20 @@ fn gen_struct(
     module_name: &str,
     _api: &ApiSurface,
     generates_default: bool,
+    bridges: &[alef_core::config::TraitBridgeConfig],
 ) -> String {
+    use alef_core::config::BridgeBinding;
+
     let class_path = format!("{}::{}", module_name, typ.name);
+
+    // Collect field names on this type that are bridge fields (bind_via = OptionsField).
+    // These are rendered as `Option<magnus::Value>` so Ruby callers can pass any Ruby object
+    // that responds to the visitor methods, or nil to opt out.
+    let bridge_field_names: std::collections::HashSet<String> = bridges
+        .iter()
+        .filter(|b| b.bind_via == BridgeBinding::OptionsField && b.options_type.as_deref() == Some(&typ.name))
+        .filter_map(|b| b.resolved_options_field().map(str::to_string))
+        .collect();
 
     let mut struct_builder = StructBuilder::new(&typ.name);
     struct_builder.add_attr(&format!(r#"magnus::wrap(class = "{}")"#, class_path));
@@ -655,12 +728,23 @@ fn gen_struct(
     }
 
     for field in &typ.fields {
-        let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
-            mapper.optional(&mapper.map_type(&field.ty))
+        if bridge_field_names.contains(&field.name) {
+            // Bridge fields are host-language callback objects. Render as Option<magnus::Value>
+            // so Ruby callers can pass any Ruby object responding to the visitor methods.
+            // The serde skip attribute ensures JSON round-trips ignore this field.
+            struct_builder.add_field(
+                &field.name,
+                "Option<magnus::Value>",
+                vec!["serde(skip)".to_string()],
+            );
         } else {
-            mapper.map_type(&field.ty)
-        };
-        struct_builder.add_field(&field.name, &field_type, vec![]);
+            let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
+                mapper.optional(&mapper.map_type(&field.ty))
+            } else {
+                mapper.map_type(&field.ty)
+            };
+            struct_builder.add_field(&field.name, &field_type, vec![]);
+        }
     }
 
     let mut out = struct_builder.build();
@@ -1601,6 +1685,62 @@ fn gen_async_function(
 }
 
 /// Generate a type-appropriate unimplemented body for Magnus (no todo!()).
+/// Generate a custom `impl From<BindingType> for CoreType` that skips specified fields.
+///
+/// Bridge fields carry `Option<magnus::Value>` in the binding struct but
+/// `Option<Rc<RefCell<dyn Trait>>>` in the core struct. The standard auto-generated
+/// `From` impl cannot handle this conversion, so we skip those fields and let the
+/// convert wrapper set them manually after building the bridge.
+///
+/// Skipped fields fall back to `Default::default()` on the core side, which is
+/// `None` for `Option` fields — the convert wrapper sets the real value.
+fn gen_from_binding_to_core_skipping_fields(
+    typ: &alef_core::ir::TypeDef,
+    core_import: &str,
+    skip_fields: &std::collections::HashSet<String>,
+) -> String {
+    use std::fmt::Write;
+
+    let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
+    let binding_name = &typ.name;
+    let mut out = String::with_capacity(512);
+    writeln!(out, "#[allow(clippy::redundant_closure, clippy::useless_conversion)]").ok();
+    writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
+    writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
+    writeln!(out, "        let mut __result = {core_path}::default();").ok();
+    for field in &typ.fields {
+        if skip_fields.contains(&field.name) {
+            // Bridge field: leave at Default::default() (None), set by convert wrapper.
+            continue;
+        }
+        if field.sanitized || field.cfg.is_some() {
+            continue;
+        }
+        let conversion = match &field.ty {
+            alef_core::ir::TypeRef::Named(_) => {
+                if field.optional || matches!(&field.ty, alef_core::ir::TypeRef::Optional(_)) {
+                    format!("val.{0}.map(Into::into)", field.name)
+                } else {
+                    format!("val.{0}.into()", field.name)
+                }
+            }
+            alef_core::ir::TypeRef::Duration => {
+                if field.optional {
+                    format!("val.{0}.map(std::time::Duration::from_millis)", field.name)
+                } else {
+                    format!("std::time::Duration::from_millis(val.{})", field.name)
+                }
+            }
+            _ => format!("val.{}", field.name),
+        };
+        writeln!(out, "        __result.{} = {conversion};", field.name).ok();
+    }
+    writeln!(out, "        __result").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
+    out
+}
+
 fn gen_magnus_unimplemented_body(return_type: &alef_core::ir::TypeRef, fn_name: &str, has_error: bool) -> String {
     use alef_core::ir::TypeRef;
     let err_msg = format!("Not implemented: {fn_name}");
@@ -1712,14 +1852,16 @@ fn gen_module_init(
         if is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
-        // Functions with a trait_bridge param go through gen_bridge_function, which emits a
-        // fixed-arity signature (not args: &[Value]). For those we must register fixed arity
-        // even when params include optionals — otherwise Magnus's function! macro fails to
-        // satisfy trait bounds (the fn doesn't take &[Value]). For all other functions we use
+        // Functions with a trait_bridge param or bridge field go through gen_bridge_function /
+        // gen_bridge_field_function, which emit a fixed-arity signature (not args: &[Value]).
+        // For those we must register fixed arity even when params include optionals — otherwise
+        // Magnus's function! macro fails to satisfy trait bounds. For all other functions we use
         // variadic arity (-1) so Ruby callers can omit trailing optional arguments; the
         // generated body uses scan_args to unpack.
         let has_bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
-        let param_count: i32 = if !has_bridge_param && needs_variadic_arity(&func.params) {
+        let has_bridge_field = !has_bridge_param
+            && crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges).is_some();
+        let param_count: i32 = if !has_bridge_param && !has_bridge_field && needs_variadic_arity(&func.params) {
             -1
         } else {
             func.params.len() as i32
