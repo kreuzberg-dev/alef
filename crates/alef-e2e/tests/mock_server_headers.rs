@@ -3,7 +3,7 @@
 //!
 //! Both shapes are checked:
 //!   * `MockResponse.headers` (liter-llm `mock_response.headers`)
-//!   * `HttpExpectedResponse.headers` (spikard `http.expected_response.headers`)
+//!   * `HttpExpectedResponse.headers` (consumer `http.expected_response.headers`)
 //!
 //! The generated source is inspected for the iteration code that applies each
 //! header to the axum `Response::builder()`. This guards against regressions
@@ -56,7 +56,7 @@ fn mock_server_binary_deserializes_headers_from_both_schemas() {
         bin.contains("struct MockResponse") && bin.contains("headers: HashMap<String, String>"),
         "Mock-server binary must deserialize `mock_response.headers`"
     );
-    // spikard shape: `http.expected_response.headers`
+    // consumer shape: `http.expected_response.headers`
     assert!(
         bin.contains("struct HttpExpectedResponse"),
         "Mock-server binary must define HttpExpectedResponse"
@@ -75,7 +75,7 @@ fn mock_server_binary_applies_headers_to_response() {
     assert!(
         bin.contains("for (name, value) in &route.headers"),
         "Mock-server binary's serve_route must iterate `route.headers` and apply each entry — \
-         otherwise spikard fixtures' Access-Control-*, X-Request-Id, WWW-Authenticate, etc. \
+         otherwise consumer fixtures' Access-Control-*, X-Request-Id, WWW-Authenticate, etc. \
          headers come back as null on the consumer side"
     );
 }

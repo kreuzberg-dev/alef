@@ -275,8 +275,8 @@ pub(super) fn gen_cbindgen_toml(prefix: &str, api: &alef_core::ir::ApiSurface) -
         // Use the IR type name verbatim (it already comes from Rust source as
         // PascalCase). `to_pascal_case` mangles names containing all-caps
         // abbreviations: e.g. `GraphQLError` becomes `GraphQlError`, which
-        // disagrees with cbindgen's emit (`SPIKARDGraphQLError`) and breaks the
-        // C consumer build.
+        // disagrees with cbindgen's emit (e.g. `MYLIBGraphQLError` for prefix
+        // `MYLIB`) and breaks the C consumer build.
         .map(|t| format!("{prefix_upper}{}", t.name))
         .collect();
 

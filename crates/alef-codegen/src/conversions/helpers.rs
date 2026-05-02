@@ -526,7 +526,7 @@ pub fn core_type_path(typ: &TypeDef, core_import: &str) -> String {
 /// a known source→override mapping.
 ///
 /// When `core_crate_override` is set for a language, IR `rust_path` values still
-/// contain the original source crate prefix (e.g. `spikard_core::Method`). The
+/// contain the original source crate prefix (e.g. `mylib_core::Method`). The
 /// `remaps` slice contains `(original_crate, override_crate)` pairs; when the
 /// leading crate segment of `rust_path` matches `original_crate`, it is replaced
 /// with `override_crate`.

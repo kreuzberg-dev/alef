@@ -499,8 +499,8 @@ pub fn gen_function(
 /// delegate trait method calls to their inner core type.
 pub fn collect_trait_imports(api: &ApiSurface) -> Vec<String> {
     // Collect all trait paths, then deduplicate by last segment (trait name).
-    // When two paths resolve to the same trait name (e.g. `spikard_core::Dependency`
-    // and `spikard_core::di::Dependency`), only one import is needed. Keep the
+    // When two paths resolve to the same trait name (e.g. `mylib_core::Dependency`
+    // and `mylib_core::di::Dependency`), only one import is needed. Keep the
     // shorter (public re-export) path to avoid E0252 duplicate-import errors.
     let mut traits: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {

@@ -283,11 +283,11 @@ pub struct WasmConfig {
     /// crate. References to `<original_crate>::TypeName` in generated code are
     /// rewritten to `<override_crate>::TypeName`. Only meaningful when
     /// `core_crate_override` is set.
-    /// Example: with `core_crate_override = "spikard-http"`, setting
-    /// `source_crate_remaps = ["spikard-core", "spikard"]` rewrites
-    /// `spikard_core::Method` and `spikard::Method` references to
-    /// `spikard_http::Method` (assumes `spikard-http` re-exports them via
-    /// `pub use spikard_core::*`).
+    /// Example: with `core_crate_override = "mylib-http"`, setting
+    /// `source_crate_remaps = ["mylib-core", "mylib"]` rewrites
+    /// `mylib_core::Method` and `mylib::Method` references to
+    /// `mylib_http::Method` (assumes `mylib-http` re-exports them via
+    /// `pub use mylib_core::*`).
     #[serde(default)]
     pub source_crate_remaps: Vec<String>,
 }

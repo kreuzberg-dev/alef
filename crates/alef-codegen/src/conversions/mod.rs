@@ -61,12 +61,12 @@ pub struct ConversionConfig<'a> {
     /// `.inner` directly instead of calling `.into()` + wrapping in `Arc::new`.
     pub opaque_types: Option<&'a AHashSet<String>>,
     /// When `core_crate_override` is set for a language, the IR's `rust_path` values
-    /// still contain the original source crate prefix (e.g. `spikard_core::Method`).
+    /// still contain the original source crate prefix (e.g. `mylib_core::Method`).
     /// This field remaps those paths: `(original_crate_name, override_crate_name)`.
     /// When set, any `rust_path` whose leading crate segment equals `original_crate_name`
     /// is rewritten to use `override_crate_name` instead.
-    /// Example: `Some(("spikard_core", "spikard_http"))` rewrites
-    /// `spikard_core::Method` → `spikard_http::Method`.
+    /// Example: `Some(("mylib_core", "mylib_http"))` rewrites
+    /// `mylib_core::Method` → `mylib_http::Method`.
     pub source_crate_remaps: &'a [(&'a str, &'a str)],
     /// Per-field binding name overrides.  Key is `"TypeName.field_name"` (using the original
     /// IR field name); value is the binding struct's actual Rust field name (e.g. `"class_"`).

@@ -181,7 +181,7 @@ pub struct CrateConfig {
     #[serde(default)]
     pub features: Vec<String>,
     /// Maps extracted rust_path prefixes to actual import paths in binding crates.
-    /// Example: { "spikard" = "spikard_http" } rewrites "spikard::ServerConfig" to "spikard_http::ServerConfig"
+    /// Example: { "mylib" = "mylib_http" } rewrites "mylib::ServerConfig" to "mylib_http::ServerConfig"
     #[serde(default)]
     pub path_mappings: HashMap<String, String>,
     /// Additional Cargo dependencies added to ALL binding crate Cargo.tomls.
@@ -228,7 +228,7 @@ fn default_true() -> bool {
 ///
 /// Examples:
 /// - `https://github.com/kreuzberg-dev/kreuzberg` → `Some("com.github.kreuzberg_dev")`
-/// - `https://github.com/spikard-rs/spikard`     → `Some("com.github.spikard_rs")`
+/// - `https://github.com/example/mylib`          → `Some("com.github.example")`
 /// - `https://gitlab.com/foo/bar`                → `Some("com.gitlab.foo")`
 /// - `https://example.invalid/x`                 → `Some("invalid.example.x")`
 /// - `https://github.com/`                       → `None` (no org segment)
@@ -1472,7 +1472,7 @@ pub fn resolve_output_dir(config_path: Option<&PathBuf>, crate_name: &str, defau
 
 /// Detect whether `serde` and `serde_json` are available in a binding crate's Cargo.toml.
 ///
-/// `output_dir` is the generated source directory (e.g., `crates/spikard-py/src/`).
+/// `output_dir` is the generated source directory (e.g., `crates/mylib-py/src/`).
 /// The function walks up to find the crate's Cargo.toml and checks its `[dependencies]`
 /// for both `serde` and `serde_json`.
 pub fn detect_serde_available(output_dir: &str) -> bool {

@@ -88,7 +88,7 @@ pub struct AdapterConfig {
     /// For Python: release GIL during call
     #[serde(default)]
     pub gil_release: bool,
-    /// For callback_bridge: the Rust trait to implement (e.g., "SpikardHandler")
+    /// For callback_bridge: the Rust trait to implement (e.g., "MyHandler")
     #[serde(default)]
     pub trait_name: Option<String>,
     /// For callback_bridge: the trait method name (e.g., "handle")

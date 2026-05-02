@@ -46,13 +46,13 @@ impl super::E2eCodegen for RustE2eCodegen {
             .any(|a| a.arg_type == "json_object" || a.arg_type == "handle");
 
         // Check if any fixture in any group requires a mock HTTP server.
-        // This includes both liter-llm mock_response fixtures and spikard http fixtures.
+        // This includes both `mock_response`-bearing fixtures and `http`-block fixtures.
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
             .any(|f| !is_skipped(f, "rust") && f.mock_response.is_some());
 
-        // Check if any fixture uses the http integration test pattern (spikard http fixtures).
+        // Check if any fixture uses the http integration test pattern (an `http` block).
         let needs_http_tests = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
@@ -1353,11 +1353,15 @@ enum ServerCall<'a> {
     AxumMethod(&'a str),
 }
 
-/// How to register a route on a spikard App in generated code.
+/// How to register a route on the consumer crate's App in generated code.
+///
+/// The emitter prefixes every symbol with `{dep_name}` (the consumer's crate
+/// name), so the generated code calls e.g. `mylib::get(path)` /
+/// `mylib::RouteBuilder::new(mylib::Method::Options, path)`.
 enum RouteRegistration<'a> {
-    /// Emit `spikard::get(path)` / `spikard::post(path)` etc.
+    /// Emit `{dep_name}::get(path)` / `{dep_name}::post(path)` etc.
     Shorthand(&'a str),
-    /// Emit `spikard::RouteBuilder::new(spikard::Method::Options, path)` etc.
+    /// Emit `{dep_name}::RouteBuilder::new({dep_name}::Method::Options, path)` etc.
     Explicit(&'a str),
 }
 
@@ -1492,7 +1496,7 @@ fn render_cors_layer(out: &mut String, cors: &CorsConfig) {
 /// Emit lines for a static-files integration test.
 ///
 /// Writes fixture files to a temporary directory and serves them via
-/// `tower_http::services::ServeDir`, bypassing the spikard App entirely.
+/// `tower_http::services::ServeDir`, bypassing the consumer's App entirely.
 fn render_static_files_test(
     out: &mut String,
     fixture: &Fixture,
@@ -1808,8 +1812,8 @@ use tokio::net::TcpListener;
 // ---------------------------------------------------------------------------
 // Fixture types (mirrors alef-e2e's fixture.rs for runtime deserialization)
 // Supports both schemas:
-//   liter-llm: mock_response: { status, body, stream_chunks }
-//   spikard:   http.expected_response: { status_code, body, headers }
+//   mock_response: { status, body, stream_chunks }
+//   http.expected_response: { status_code, body, headers }
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]

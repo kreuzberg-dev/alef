@@ -73,7 +73,7 @@ impl E2eCodegen for JavaCodegen {
         });
 
         // Generate test files per category. Path mirrors the configured Java
-        // package — `dev.spikard` becomes `dev/spikard`, etc. — so the package
+        // package — `dev.myorg` becomes `dev/myorg`, etc. — so the package
         // declaration in each test file matches its filesystem location.
         let mut test_base = output_base.join("src").join("test").join("java");
         for segment in java_group_id.split('.') {

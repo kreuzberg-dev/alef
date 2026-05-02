@@ -76,7 +76,7 @@ The selection feeds every default that calls a package-manager-specific tool —
 | `workspace_root` | string | -- | Workspace root for resolving `pub use` re-exports from sibling crates |
 | `skip_core_import` | bool | `false` | Skip adding `use {core_import};` to generated bindings |
 | `features` | string[] | `[]` | Cargo features treated as always-present (`#[cfg(feature)]` fields are included) |
-| `path_mappings` | map | `{}` | Rewrite extracted Rust path prefixes (e.g., `{ "spikard" = "spikard_http" }`) |
+| `path_mappings` | map | `{}` | Rewrite extracted Rust path prefixes (e.g., `{ "mylib" = "mylib_http" }`) |
 | `extra_dependencies` | map | `{}` | Additional Cargo dependencies added to all binding crate Cargo.tomls (crate name to TOML dep spec) |
 | `auto_path_mappings` | bool | `true` | Auto-derive path_mappings from source file locations (`crates/{name}/src/` to `core_import`) |
 | `source_crates` | array | `[]` | Multi-crate source groups for workspaces (overrides top-level `sources` when non-empty) |

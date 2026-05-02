@@ -83,7 +83,7 @@ impl E2eCodegen for ElixirCodegen {
         };
 
         // Generate mix.exs. The dep atom must match the binding's mix package
-        // name (e.g. `:spikard`), not a hardcoded value, otherwise consumer
+        // name (e.g. `:mylib`), not a hardcoded value, otherwise consumer
         // mix.exs files reference the wrong package.
         let pkg_atom = alef_config.crate_config.name.replace('-', "_");
         files.push(GeneratedFile {

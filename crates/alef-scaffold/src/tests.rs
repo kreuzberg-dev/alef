@@ -216,7 +216,7 @@ fn test_scaffold_ffi_deps_are_pinned() {
 
 #[test]
 fn test_scaffold_ffi_merges_extra_dependencies() {
-    // Multi-crate workspaces (e.g. spikard's spikard-core/-http/-graphql) emit FFI
+    // Multi-crate workspaces (e.g. mylib's mylib-core/-http/-extra) emit FFI
     // bindings that reference qualified crate paths. The scaffold must merge
     // [crate.extra_dependencies] from alef.toml so the generated cdylib can
     // resolve those imports.
