@@ -528,7 +528,11 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
 /// `indent` is the leading whitespace prepended to each line (e.g. `""` for
 /// top-level declarations, `"    "` for class members).  Does nothing when
 /// `doc` is empty.
-pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
+pub(crate) fn gen_builder_class(
+    package: &str,
+    typ: &TypeDef,
+    _options_field_bridges: &[OptionsFieldBridgeInfo],
+) -> String {
     let mut body = String::with_capacity(2048);
 
     emit_javadoc(&mut body, &typ.doc, "");
@@ -642,7 +646,13 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     for (i, field) in non_tuple_fields.iter().enumerate() {
         let field_name = safe_java_field_name(&field.name);
         let comma = if i < non_tuple_fields.len() - 1 { "," } else { "" };
-        writeln!(body, "            {}{}", field_name, comma).ok();
+        // Builder stores Optional fields as Optional<T> but the record constructor
+        // expects the raw type T.  Unwrap with orElse(null) so the types match.
+        if field.optional {
+            writeln!(body, "            {}.orElse(null){}", field_name, comma).ok();
+        } else {
+            writeln!(body, "            {}{}", field_name, comma).ok();
+        }
     }
     writeln!(body, "        );").ok();
     writeln!(body, "    }}").ok();

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e): generate valid Go array guards for length assertions on array element fields.
 - fix(e2e): honor call-level simple/optional result flags in Go tests and render contains assertions for struct slices.
 - fix(e2e): emit nil checks for Go optional simple-result empty assertions.
+- fix(java): pass options-field bridge metadata into generated builder classes.
 
 ### Fixed
 

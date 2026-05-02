@@ -417,6 +417,22 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
     BridgeOutput { imports, code: out }
 }
 
+/// Collect all trait-bridge registration function names that will be emitted by trait bridge codegen.
+///
+/// When a trait bridge has a `register_fn` configured, that function name will be emitted
+/// by `gen_bridge_all`. To avoid duplicate function emission, callers should exclude these names
+/// from `gen_function` processing.
+///
+/// This function takes the trait_bridges config and returns the set of registration function names
+/// that will be auto-emitted (e.g., "register_ocr_backend", "register_post_processor", etc.).
+pub fn collect_trait_bridge_registration_fn_names(trait_bridges: &[TraitBridgeConfig]) -> ahash::AHashSet<String> {
+    trait_bridges
+        .iter()
+        .filter_map(|bridge| bridge.register_fn.as_deref())
+        .map(|name| name.to_string())
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
