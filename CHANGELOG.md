@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/r): `visitor` is now passed inside `options = list(visitor = visitor)` rather than as a
   top-level parameter to `convert()`.
 
+- fix(backend-pyo3): generate `__str__` and `__repr__` for Rust-backed enum wrappers so returned
+  enum values are inspectable from Python.
+
 - fix(e2e/python): render string containment assertions over configured array fields by checking common DTO text
   attributes instead of comparing directly against the object list.
 
