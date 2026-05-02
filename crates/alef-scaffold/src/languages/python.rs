@@ -1,18 +1,19 @@
 use crate::{
     cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta, to_pep440,
 };
+use crate::naming::python_pip_name;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{ResolvedCrateConfig, Language};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_python_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_python_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let module_name = config.python_module_name();
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
+    let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-py"),
         version,
@@ -51,7 +52,7 @@ workspace = true
 "#,
         pkg_header = pkg_header,
         module_name = module_name,
-        crate_name = &config.crate_config.name,
+        crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Python),
         pyo3 = tv::cargo::PYO3,
@@ -66,9 +67,9 @@ workspace = true
     }])
 }
 
-pub(crate) fn scaffold_python(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
-    let pip_name = config.python_pip_name();
+    let pip_name = python_pip_name(config);
     let version = to_pep440(&api.version);
     let module_name = config.python_module_name();
     let core_crate_dir = config.core_crate_dir();

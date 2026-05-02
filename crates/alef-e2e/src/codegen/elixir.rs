@@ -5,7 +5,7 @@ use crate::escape::{escape_elixir, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
@@ -25,7 +25,7 @@ impl E2eCodegen for ElixirCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -89,7 +89,7 @@ impl E2eCodegen for ElixirCodegen {
         // own deps (notably `:rustler_precompiled`) never load during its
         // compilation and the parent build fails with `RustlerPrecompiled
         // is not loaded`.
-        let pkg_atom = alef_config.elixir_app_name();
+        let pkg_atom = config.elixir_app_name();
         files.push(GeneratedFile {
             path: output_base.join("mix.exs"),
             content: render_mix_exs(&pkg_atom, pkg_path, e2e_config.dep_mode, has_http_tests, has_nif_tests),

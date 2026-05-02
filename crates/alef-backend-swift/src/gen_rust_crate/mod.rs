@@ -16,24 +16,24 @@ pub(crate) mod wrappers;
 
 use alef_codegen::generators::type_paths::build_type_path_lookup;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, TraitBridgeConfig};
+use alef_core::config::{ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, TypeDef};
 use alef_core::template_versions;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// Top-level entry point: emit all three files for the swift-bridge crate.
-pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let base = PathBuf::from("packages/swift/rust");
     let crate_name = &api.crate_name;
     let version = &api.version;
 
-    let swift_bridge_ver = template_versions::cargo::SWIFT_BRIDGE;
+    let swift_bridge_ver = crate::naming::swift_bridge_version(config);
     let swift_bridge_build_ver = template_versions::cargo::SWIFT_BRIDGE_BUILD;
     let core_crate_dir = config.core_crate_for_language(alef_core::config::extras::Language::Swift);
     let swift_override = config.swift.as_ref().and_then(|c| c.core_crate_override.as_deref());
     let same_as_workspace =
-        swift_override.is_none() && core_crate_dir == *crate_name && config.crate_config.workspace_root.is_none();
+        swift_override.is_none() && core_crate_dir == *crate_name && config.workspace_root.is_none();
     let core_path = if same_as_workspace {
         "../../..".to_string()
     } else {
@@ -71,7 +71,7 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
         crate_name,
         &core_dep_key,
         version,
-        swift_bridge_ver,
+        &swift_bridge_ver,
         swift_bridge_build_ver,
         &core_path,
         features,
@@ -108,7 +108,7 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
 
 fn emit_lib_rs(
     api: &ApiSurface,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     crate_name: &str,
     exclude_functions: &HashSet<String>,
     exclude_types: &HashSet<String>,

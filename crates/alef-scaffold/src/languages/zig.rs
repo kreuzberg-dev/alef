@@ -1,17 +1,17 @@
 use crate::scaffold_meta;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions::toolchain;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_zig(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let ffi_lib_name = config.ffi_lib_name();
     let module_name = config.zig_module_name();
 
-    let ffi_crate_dir = format!("{}-ffi", config.crate_config.name);
+    let ffi_crate_dir = format!("{}-ffi", config.name);
     let build_zig = format!(
         r#"const std = @import("std");
 

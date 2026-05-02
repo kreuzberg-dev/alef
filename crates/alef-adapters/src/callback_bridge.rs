@@ -1,11 +1,11 @@
-use alef_core::config::{AdapterConfig, AlefConfig, Language};
+use alef_core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 
 /// Generate a callback bridge for the given adapter and language.
 ///
 /// Returns `(struct_code, impl_code)` where:
 /// - `struct_code` is a standalone struct definition for the bridge
 /// - `impl_code` is the trait impl block
-pub fn generate(adapter: &AdapterConfig, language: Language, config: &AlefConfig) -> anyhow::Result<(String, String)> {
+pub fn generate(adapter: &AdapterConfig, language: Language, config: &ResolvedCrateConfig) -> anyhow::Result<(String, String)> {
     let result = match language {
         Language::Python => gen_python_body(adapter, config),
         Language::Node => gen_node_body(adapter, config),
@@ -78,7 +78,7 @@ fn error_type(adapter: &AdapterConfig) -> &str {
 // Python (PyO3)
 // ---------------------------------------------------------------------------
 
-fn gen_python_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, String) {
+fn gen_python_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let struct_name = format!("Py{}Bridge", to_pascal_case(name));
     let trait_nm = trait_name(adapter);
@@ -161,7 +161,7 @@ fn gen_python_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, St
 // Node (NAPI)
 // ---------------------------------------------------------------------------
 
-fn gen_node_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, String) {
+fn gen_node_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let struct_name = format!("Js{}Bridge", to_pascal_case(name));
     let trait_nm = trait_name(adapter);
@@ -217,7 +217,7 @@ fn gen_node_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Stri
 // Ruby (Magnus)
 // ---------------------------------------------------------------------------
 
-fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, String) {
+fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let struct_name = format!("Rb{}Bridge", to_pascal_case(name));
     let trait_nm = trait_name(adapter);
@@ -273,7 +273,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Stri
 // PHP (ext-php-rs)
 // ---------------------------------------------------------------------------
 
-fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, String) {
+fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let struct_name = format!("Php{}Bridge", to_pascal_case(name));
     let trait_nm = trait_name(adapter);
@@ -319,7 +319,7 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Strin
 // Elixir (Rustler)
 // ---------------------------------------------------------------------------
 
-fn gen_elixir_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, String) {
+fn gen_elixir_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let struct_name = format!("Ex{}Bridge", to_pascal_case(name));
     let trait_nm = trait_name(adapter);
@@ -362,7 +362,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, St
 // WASM (wasm-bindgen)
 // ---------------------------------------------------------------------------
 
-fn gen_wasm_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, String) {
+fn gen_wasm_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let struct_name = format!("Wasm{}Bridge", to_pascal_case(name));
     let trait_nm = trait_name(adapter);
@@ -414,7 +414,7 @@ fn gen_wasm_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, Stri
 // FFI (C ABI) — function pointer callback
 // ---------------------------------------------------------------------------
 
-fn gen_ffi_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, String) {
+fn gen_ffi_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let prefix = config.ffi_prefix();
     let struct_name = format!("Ffi{}Bridge", to_pascal_case(name));
@@ -480,7 +480,7 @@ fn gen_ffi_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, String
 // Go (wraps C FFI) — same function pointer pattern as FFI
 // ---------------------------------------------------------------------------
 
-fn gen_go_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, String) {
+fn gen_go_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let prefix = config.ffi_prefix();
     let struct_name = format!("Go{}Bridge", to_pascal_case(name));
@@ -542,7 +542,7 @@ fn gen_go_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, String)
 // Java (Panama FFI) — function pointer pattern
 // ---------------------------------------------------------------------------
 
-fn gen_java_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, String) {
+fn gen_java_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let prefix = config.ffi_prefix();
     let struct_name = format!("Java{}Bridge", to_pascal_case(name));
@@ -604,7 +604,7 @@ fn gen_java_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Strin
 // C# (P/Invoke) — function pointer pattern
 // ---------------------------------------------------------------------------
 
-fn gen_csharp_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, String) {
+fn gen_csharp_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let prefix = config.ffi_prefix();
     let struct_name = format!("Cs{}Bridge", to_pascal_case(name));
@@ -666,7 +666,7 @@ fn gen_csharp_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Str
 // R (extendr)
 // ---------------------------------------------------------------------------
 
-fn gen_r_body(adapter: &AdapterConfig, _config: &AlefConfig) -> (String, String) {
+fn gen_r_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> (String, String) {
     let name = &adapter.name;
     let struct_name = format!("R{}Bridge", to_pascal_case(name));
     let trait_nm = trait_name(adapter);

@@ -1,7 +1,8 @@
 //! README generator for alef.
 
+use alef_backend_gleam::naming::{gleam_app_name, gleam_nif_module};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 use heck::ToUpperCamelCase;
 use minijinja::{Environment, Value};
@@ -16,7 +17,7 @@ use std::path::{Path, PathBuf};
 /// Generate README files for the given languages.
 pub fn generate_readmes(
     api: &ApiSurface,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = vec![];
@@ -26,12 +27,11 @@ pub fn generate_readmes(
     Ok(files)
 }
 
-fn generate_readme(api: &ApiSurface, config: &AlefConfig, lang: Language) -> anyhow::Result<GeneratedFile> {
+fn generate_readme(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Language) -> anyhow::Result<GeneratedFile> {
     // Try template-based generation first when readme config is present
     if let Some(readme_cfg) = &config.readme {
         if let Some(template_dir) = &readme_cfg.template_dir {
             let workspace_root = config
-                .crate_config
                 .workspace_root
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("."));
@@ -54,7 +54,7 @@ fn generate_readme(api: &ApiSurface, config: &AlefConfig, lang: Language) -> any
 /// language-specific template entry is found in the config (signals caller to fall back).
 fn try_template_readme(
     api: &ApiSurface,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     lang: Language,
     readme_cfg: &alef_core::config::ReadmeConfig,
     workspace_root: &Path,
@@ -152,7 +152,7 @@ fn try_template_readme(
     });
 
     // Build template context
-    let name = &config.crate_config.name;
+    let name = &config.name;
     let description = config
         .scaffold
         .as_ref()
@@ -235,7 +235,7 @@ fn try_template_readme(
 
 /// Determine the output path for a language README.
 fn readme_output_path(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     lang: Language,
     readme_cfg: &alef_core::config::ReadmeConfig,
     lang_json: &serde_json::Value,
@@ -259,8 +259,8 @@ fn readme_output_path(
     default_readme_path(config, lang)
 }
 
-fn default_readme_path(config: &AlefConfig, lang: Language) -> PathBuf {
-    let name = &config.crate_config.name;
+fn default_readme_path(config: &ResolvedCrateConfig, lang: Language) -> PathBuf {
+    let name = &config.name;
     match lang {
         Language::Ffi => PathBuf::from(format!("crates/{name}-ffi/README.md")),
         Language::Wasm => PathBuf::from(format!("crates/{name}-wasm/README.md")),
@@ -463,8 +463,8 @@ fn json_to_minijinja_value(json: &serde_json::Value) -> Value {
 // Hardcoded fallback generator (original implementation)
 // ---------------------------------------------------------------------------
 
-fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Language) -> anyhow::Result<GeneratedFile> {
-    let name = &config.crate_config.name;
+fn generate_readme_hardcoded(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Language) -> anyhow::Result<GeneratedFile> {
+    let name = &config.name;
     let description = config
         .scaffold
         .as_ref()
@@ -624,7 +624,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
             )
         }
         Language::Rust => {
-            let import = config.core_import();
+            let import = config.core_import_name();
             let example_body = format!("// {example_pointer}");
             (
                 "Rust",
@@ -634,7 +634,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
             )
         }
         Language::Kotlin => {
-            let module = config.crate_config.name.replace('-', "_");
+            let module = config.name.replace('-', "_");
             (
                 "Kotlin",
                 format!(
@@ -645,8 +645,8 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
                 format!(
                     "```kotlin\nimport {}.{}\n\n// Call generated APIs through the {} object.\n```",
                     config.kotlin_package(),
-                    to_pascal_case(&config.crate_config.name),
-                    to_pascal_case(&config.crate_config.name)
+                    to_pascal_case(&config.name),
+                    to_pascal_case(&config.name)
                 ),
                 "kotlin",
             )
@@ -655,7 +655,7 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
             "Swift",
             format!(
                 "Add to `Package.swift`:\n\n```swift\n.package(url: \"<repo-url>\", from: \"{}\")\n```",
-                config.crate_config.name
+                config.name
             ),
             "```swift\n// Phase 2: Swift bindings via swift-bridge. Skeleton only.\n```".to_string(),
             "swift",
@@ -664,19 +664,19 @@ fn generate_readme_hardcoded(api: &ApiSurface, config: &AlefConfig, lang: Langua
             "Dart",
             format!(
                 "Add to `pubspec.yaml`:\n\n```yaml\ndependencies:\n  {}:\n    git: <repo-url>\n```",
-                config.crate_config.name.replace('-', "_")
+                config.name.replace('-', "_")
             ),
             "```dart\n// Phase 2: Dart bindings via flutter_rust_bridge. Skeleton only.\n```".to_string(),
             "dart",
         ),
         Language::Gleam => {
-            let app = config.gleam_app_name();
+            let app = gleam_app_name(config);
             (
                 "Gleam",
                 format!("```sh\ngleam add {app}\n```"),
                 format!(
                     "```gleam\nimport {app}\n\n// Call functions exported by the generated module.\n// The NIF is loaded via `@external(erlang, \"{}\", ...)`.\n```",
-                    config.gleam_nif_module()
+                    gleam_nif_module(config)
                 ),
                 "gleam",
             )
@@ -770,81 +770,26 @@ fn capitalize_first(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alef_core::config::*;
+    use alef_core::config::{NewAlefConfig, ReadmeConfig, ResolvedCrateConfig};
 
-    fn test_config() -> AlefConfig {
-        AlefConfig {
-            version: None,
-            crate_config: CrateConfig {
-                name: "my-lib".to_string(),
-                sources: vec![],
-                version_from: "Cargo.toml".to_string(),
-                core_import: None,
-                workspace_root: None,
-                skip_core_import: false,
-                features: vec![],
-                path_mappings: std::collections::HashMap::new(),
-                auto_path_mappings: Default::default(),
-                extra_dependencies: Default::default(),
-                source_crates: vec![],
-                error_type: None,
-                error_constructor: None,
-            },
-            languages: vec![Language::Python, Language::Node],
-            exclude: ExcludeConfig::default(),
-            include: IncludeConfig::default(),
-            output: OutputConfig::default(),
-            python: None,
-            node: None,
-            ruby: None,
-            php: None,
-            elixir: None,
-            wasm: None,
-            ffi: None,
-            gleam: None,
+    fn test_config() -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python", "node"]
 
-            go: None,
-            java: None,
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
 
-            kotlin: None,
-            dart: None,
-            swift: None,
-            csharp: None,
-            r: None,
-
-            zig: None,
-            scaffold: Some(ScaffoldConfig {
-                description: Some("Test library".to_string()),
-                license: Some("MIT".to_string()),
-                repository: Some("https://github.com/test/my-lib".to_string()),
-                homepage: None,
-                authors: vec![],
-                keywords: vec![],
-                cargo: None,
-            }),
-            readme: None,
-            lint: None,
-            update: None,
-            test: None,
-            setup: None,
-            clean: None,
-            build_commands: None,
-            publish: None,
-            custom_files: None,
-            adapters: vec![],
-            custom_modules: CustomModulesConfig::default(),
-            custom_registrations: CustomRegistrationsConfig::default(),
-            opaque_types: std::collections::HashMap::new(),
-            generate: GenerateConfig::default(),
-            generate_overrides: std::collections::HashMap::new(),
-            dto: Default::default(),
-            sync: None,
-            e2e: None,
-            trait_bridges: vec![],
-            tools: ToolsConfig::default(),
-            format: FormatConfig::default(),
-            format_overrides: std::collections::HashMap::new(),
-        }
+[crates.scaffold]
+description = "Test library"
+license = "MIT"
+repository = "https://github.com/test/my-lib"
+"#,
+        )
+        .expect("valid toml");
+        cfg.resolve().expect("resolve ok").remove(0)
     }
 
     fn test_api() -> ApiSurface {
@@ -945,7 +890,7 @@ mod tests {
             banner_url: None,
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api(); // version = "0.1.0"
         let files = generate_readmes(&api, &config, &[Language::Java]).unwrap();
@@ -1252,7 +1197,7 @@ mod tests {
             banner_url: None,
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
@@ -1289,7 +1234,7 @@ mod tests {
             banner_url: None,
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
@@ -1323,7 +1268,7 @@ mod tests {
             banner_url: None,
             languages: std::collections::HashMap::new(),
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
@@ -1360,7 +1305,7 @@ languages:
             banner_url: None,
             languages: std::collections::HashMap::new(), // empty — triggers YAML path
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
@@ -1402,7 +1347,7 @@ languages:
             banner_url: Some("https://img.example.com/banner.png".to_string()),
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
@@ -1450,7 +1395,7 @@ languages:
             banner_url: None,
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
@@ -1499,7 +1444,7 @@ languages:
             banner_url: None,
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
@@ -1560,7 +1505,7 @@ languages:
             banner_url: None,
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
@@ -1592,7 +1537,7 @@ languages:
             banner_url: None,
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();
@@ -1646,7 +1591,7 @@ languages:
             banner_url: None,
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         // Must not error even though `snippets` is absent from the language config
@@ -1687,7 +1632,7 @@ languages:
             banner_url: None,
             languages: lang_map,
         });
-        config.crate_config.workspace_root = Some(tmp.clone());
+        config.workspace_root = Some(tmp.clone());
 
         let api = test_api();
         let files = generate_readmes(&api, &config, &[Language::Python]).unwrap();

@@ -13,3 +13,6 @@ homepage.workspace = true
 ahash = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

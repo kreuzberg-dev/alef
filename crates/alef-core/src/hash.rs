@@ -117,6 +117,58 @@ pub fn compute_sources_hash(sources: &[std::path::PathBuf]) -> std::io::Result<S
     Ok(hasher.finalize().to_hex().to_string())
 }
 
+/// Compute a stable hex-encoded Blake3 hash over all Rust source files
+/// belonging to a [`crate::config::resolved::ResolvedCrateConfig`].
+///
+/// Returns a hex string so callers can feed the result directly to
+/// [`compute_file_hash`], matching [`compute_sources_hash`]'s return type.
+///
+/// The hash covers the union of:
+/// - `crate_cfg.sources` (direct sources on the crate)
+/// - every `source_crates[*].sources` entry
+///
+/// All paths are sorted before hashing so the result is independent of the
+/// order they appear in `alef.toml`.  The path string is mixed in alongside
+/// the file content because the same byte-content at a different path produces
+/// different IR (the `rust_path` on extracted types differs).
+///
+/// # Phase 3 migration note
+///
+/// Phase 3 callers should migrate from the per-file `compute_sources_hash` to
+/// this function when they have a `ResolvedCrateConfig` available, so that
+/// multi-source-crate workspaces produce a single stable hash across all
+/// contributing source files.
+///
+/// # Errors
+///
+/// Returns an error if any source file is missing or unreadable.
+pub fn compute_crate_sources_hash(crate_cfg: &crate::config::resolved::ResolvedCrateConfig) -> std::io::Result<String> {
+    let mut all_sources: Vec<&std::path::PathBuf> = Vec::new();
+
+    for src in &crate_cfg.sources {
+        all_sources.push(src);
+    }
+    for sc in &crate_cfg.source_crates {
+        for src in &sc.sources {
+            all_sources.push(src);
+        }
+    }
+
+    // Stable sort by path so the hash is order-independent.
+    all_sources.sort();
+    all_sources.dedup();
+
+    let mut hasher = blake3::Hasher::new();
+    for source in all_sources {
+        let content = std::fs::read(source)?;
+        hasher.update(b"src\0");
+        hasher.update(source.to_string_lossy().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(&content);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
 /// Compute the per-file verify hash that alef embeds in each generated file.
 ///
 /// `sources_hash` comes from [`compute_sources_hash`]. `content` is the file
@@ -409,6 +461,357 @@ mod tests {
         // a future regression that re-introduces a version dimension is caught.
         let h = compute_file_hash("sources_hash", "fn a() {}\n");
         assert_eq!(h.len(), 64, "blake3 hex output is 64 chars");
+    }
+
+    #[test]
+    fn crate_sources_hash_differs_across_crates_with_disjoint_sources() {
+        use crate::config::resolved::ResolvedCrateConfig;
+
+        let dir = tempdir().unwrap();
+        let a = write_file(dir.path(), "a.rs", "fn a() {}");
+        let b = write_file(dir.path(), "b.rs", "fn b() {}");
+
+        // Build two minimal ResolvedCrateConfig values using the builder pattern
+        // isn't available, so we construct via serde round-trip from JSON to avoid
+        // requiring Default on the struct.  Instead, use helper that constructs the
+        // minimal required fields directly.
+        let make_cfg = |name: &str, sources: Vec<std::path::PathBuf>| ResolvedCrateConfig {
+            name: name.to_string(),
+            sources,
+            source_crates: vec![],
+            version_from: "Cargo.toml".to_string(),
+            core_import: None,
+            workspace_root: None,
+            skip_core_import: false,
+            error_type: None,
+            error_constructor: None,
+            features: vec![],
+            path_mappings: Default::default(),
+            extra_dependencies: Default::default(),
+            auto_path_mappings: true,
+            languages: vec![],
+            python: None,
+            node: None,
+            ruby: None,
+            php: None,
+            elixir: None,
+            wasm: None,
+            ffi: None,
+            gleam: None,
+            go: None,
+            java: None,
+            dart: None,
+            kotlin: None,
+            swift: None,
+            csharp: None,
+            r: None,
+            zig: None,
+            exclude: Default::default(),
+            include: Default::default(),
+            output_paths: Default::default(),
+            explicit_output: Default::default(),
+            lint: Default::default(),
+            test: Default::default(),
+            setup: Default::default(),
+            update: Default::default(),
+            clean: Default::default(),
+            build_commands: Default::default(),
+            generate: Default::default(),
+            generate_overrides: Default::default(),
+            format: Default::default(),
+            format_overrides: Default::default(),
+            dto: Default::default(),
+            tools: Default::default(),
+            opaque_types: Default::default(),
+            sync: None,
+            publish: None,
+            e2e: None,
+            adapters: vec![],
+            trait_bridges: vec![],
+            scaffold: None,
+            readme: None,
+            custom_files: Default::default(),
+            custom_modules: Default::default(),
+            custom_registrations: Default::default(),
+        };
+
+        let cfg_a = make_cfg("alpha", vec![a]);
+        let cfg_b = make_cfg("beta", vec![b]);
+
+        let hash_a = compute_crate_sources_hash(&cfg_a).unwrap();
+        let hash_b = compute_crate_sources_hash(&cfg_b).unwrap();
+
+        assert_ne!(
+            hash_a, hash_b,
+            "crates with disjoint sources must produce different hashes"
+        );
+    }
+
+    #[test]
+    fn crate_sources_hash_includes_source_crates() {
+        use crate::config::{SourceCrate, resolved::ResolvedCrateConfig};
+
+        let dir = tempdir().unwrap();
+        let a = write_file(dir.path(), "a.rs", "fn a() {}");
+        let b = write_file(dir.path(), "b.rs", "fn b() {}");
+
+        let make_cfg =
+            |sources: Vec<std::path::PathBuf>, source_crate_sources: Vec<std::path::PathBuf>| -> ResolvedCrateConfig {
+                let source_crates = if source_crate_sources.is_empty() {
+                    vec![]
+                } else {
+                    vec![SourceCrate {
+                        name: "extra-crate".to_string(),
+                        sources: source_crate_sources,
+                    }]
+                };
+                ResolvedCrateConfig {
+                    name: "test".to_string(),
+                    sources,
+                    source_crates,
+                    version_from: "Cargo.toml".to_string(),
+                    core_import: None,
+                    workspace_root: None,
+                    skip_core_import: false,
+                    error_type: None,
+                    error_constructor: None,
+                    features: vec![],
+                    path_mappings: Default::default(),
+                    extra_dependencies: Default::default(),
+                    auto_path_mappings: true,
+                    languages: vec![],
+                    python: None,
+                    node: None,
+                    ruby: None,
+                    php: None,
+                    elixir: None,
+                    wasm: None,
+                    ffi: None,
+                    gleam: None,
+                    go: None,
+                    java: None,
+                    dart: None,
+                    kotlin: None,
+                    swift: None,
+                    csharp: None,
+                    r: None,
+                    zig: None,
+                    exclude: Default::default(),
+                    include: Default::default(),
+                    output_paths: Default::default(),
+                    explicit_output: Default::default(),
+                    lint: Default::default(),
+                    test: Default::default(),
+                    setup: Default::default(),
+                    update: Default::default(),
+                    clean: Default::default(),
+                    build_commands: Default::default(),
+                    generate: Default::default(),
+                    generate_overrides: Default::default(),
+                    format: Default::default(),
+                    format_overrides: Default::default(),
+                    dto: Default::default(),
+                    tools: Default::default(),
+                    opaque_types: Default::default(),
+                    sync: None,
+                    publish: None,
+                    e2e: None,
+                    adapters: vec![],
+                    trait_bridges: vec![],
+                    scaffold: None,
+                    readme: None,
+                    custom_files: Default::default(),
+                    custom_modules: Default::default(),
+                    custom_registrations: Default::default(),
+                }
+            };
+
+        let cfg_without_extra = make_cfg(vec![a.clone()], vec![]);
+        let cfg_with_extra = make_cfg(vec![a.clone()], vec![b.clone()]);
+
+        let hash_without = compute_crate_sources_hash(&cfg_without_extra).unwrap();
+        let hash_with = compute_crate_sources_hash(&cfg_with_extra).unwrap();
+
+        assert_ne!(
+            hash_without, hash_with,
+            "adding a source_crate source file must change the hash"
+        );
+    }
+
+    #[test]
+    fn compute_crate_sources_hash_dedupes_overlapping_paths() {
+        use crate::config::{SourceCrate, resolved::ResolvedCrateConfig};
+        // A source path appearing in both `sources` and a `source_crates` entry
+        // (or repeated within `sources`) is hashed once: the hash equals the
+        // hash of the same crate config with the duplicates removed.
+        let dir = tempdir().unwrap();
+        let a = write_file(dir.path(), "a.rs", "fn a() {}");
+        let b = write_file(dir.path(), "b.rs", "fn b() {}");
+
+        let make_cfg =
+            |sources: Vec<std::path::PathBuf>, source_crate_sources: Vec<std::path::PathBuf>| -> ResolvedCrateConfig {
+                let source_crates = if source_crate_sources.is_empty() {
+                    vec![]
+                } else {
+                    vec![SourceCrate {
+                        name: "extra-crate".to_string(),
+                        sources: source_crate_sources,
+                    }]
+                };
+                ResolvedCrateConfig {
+                    name: "test".to_string(),
+                    sources,
+                    source_crates,
+                    version_from: "Cargo.toml".to_string(),
+                    core_import: None,
+                    workspace_root: None,
+                    skip_core_import: false,
+                    error_type: None,
+                    error_constructor: None,
+                    features: vec![],
+                    path_mappings: Default::default(),
+                    extra_dependencies: Default::default(),
+                    auto_path_mappings: true,
+                    languages: vec![],
+                    python: None,
+                    node: None,
+                    ruby: None,
+                    php: None,
+                    elixir: None,
+                    wasm: None,
+                    ffi: None,
+                    gleam: None,
+                    go: None,
+                    java: None,
+                    dart: None,
+                    kotlin: None,
+                    swift: None,
+                    csharp: None,
+                    r: None,
+                    zig: None,
+                    exclude: Default::default(),
+                    include: Default::default(),
+                    output_paths: Default::default(),
+                    explicit_output: Default::default(),
+                    lint: Default::default(),
+                    test: Default::default(),
+                    setup: Default::default(),
+                    update: Default::default(),
+                    clean: Default::default(),
+                    build_commands: Default::default(),
+                    generate: Default::default(),
+                    generate_overrides: Default::default(),
+                    format: Default::default(),
+                    format_overrides: Default::default(),
+                    dto: Default::default(),
+                    tools: Default::default(),
+                    opaque_types: Default::default(),
+                    sync: None,
+                    publish: None,
+                    e2e: None,
+                    adapters: vec![],
+                    trait_bridges: vec![],
+                    scaffold: None,
+                    readme: None,
+                    custom_files: Default::default(),
+                    custom_modules: Default::default(),
+                    custom_registrations: Default::default(),
+                }
+            };
+
+        // `sources` lists `a` twice and `source_crates` also references `a`.
+        let cfg_with_dupes = make_cfg(vec![a.clone(), a.clone(), b.clone()], vec![a.clone()]);
+        let cfg_unique = make_cfg(vec![a.clone(), b.clone()], vec![]);
+
+        let hash_dup = compute_crate_sources_hash(&cfg_with_dupes).unwrap();
+        let hash_unique = compute_crate_sources_hash(&cfg_unique).unwrap();
+        assert_eq!(
+            hash_dup, hash_unique,
+            "duplicate source paths must not affect the per-crate sources hash"
+        );
+    }
+
+    #[test]
+    fn compute_crate_sources_hash_is_order_independent() {
+        use crate::config::resolved::ResolvedCrateConfig;
+        // Reordering `sources` (or the entries inside a `source_crates` entry)
+        // does not change the per-crate sources hash.
+        let dir = tempdir().unwrap();
+        let a = write_file(dir.path(), "a.rs", "fn a() {}");
+        let b = write_file(dir.path(), "b.rs", "fn b() {}");
+        let c = write_file(dir.path(), "c.rs", "fn c() {}");
+
+        let make_cfg = |sources: Vec<std::path::PathBuf>| -> ResolvedCrateConfig {
+            ResolvedCrateConfig {
+                name: "test".to_string(),
+                sources,
+                source_crates: vec![],
+                version_from: "Cargo.toml".to_string(),
+                core_import: None,
+                workspace_root: None,
+                skip_core_import: false,
+                error_type: None,
+                error_constructor: None,
+                features: vec![],
+                path_mappings: Default::default(),
+                extra_dependencies: Default::default(),
+                auto_path_mappings: true,
+                languages: vec![],
+                python: None,
+                node: None,
+                ruby: None,
+                php: None,
+                elixir: None,
+                wasm: None,
+                ffi: None,
+                gleam: None,
+                go: None,
+                java: None,
+                dart: None,
+                kotlin: None,
+                swift: None,
+                csharp: None,
+                r: None,
+                zig: None,
+                exclude: Default::default(),
+                include: Default::default(),
+                output_paths: Default::default(),
+                explicit_output: Default::default(),
+                lint: Default::default(),
+                test: Default::default(),
+                setup: Default::default(),
+                update: Default::default(),
+                clean: Default::default(),
+                build_commands: Default::default(),
+                generate: Default::default(),
+                generate_overrides: Default::default(),
+                format: Default::default(),
+                format_overrides: Default::default(),
+                dto: Default::default(),
+                tools: Default::default(),
+                opaque_types: Default::default(),
+                sync: None,
+                publish: None,
+                e2e: None,
+                adapters: vec![],
+                trait_bridges: vec![],
+                scaffold: None,
+                readme: None,
+                custom_files: Default::default(),
+                custom_modules: Default::default(),
+                custom_registrations: Default::default(),
+            }
+        };
+
+        let cfg1 = make_cfg(vec![a.clone(), b.clone(), c.clone()]);
+        let cfg2 = make_cfg(vec![c.clone(), a.clone(), b.clone()]);
+        let cfg3 = make_cfg(vec![b.clone(), c.clone(), a.clone()]);
+
+        let h1 = compute_crate_sources_hash(&cfg1).unwrap();
+        let h2 = compute_crate_sources_hash(&cfg2).unwrap();
+        let h3 = compute_crate_sources_hash(&cfg3).unwrap();
+        assert_eq!(h1, h2, "reordering sources must not change the hash");
+        assert_eq!(h2, h3, "reordering sources must not change the hash");
     }
 
     #[test]

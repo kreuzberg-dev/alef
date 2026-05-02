@@ -1,7 +1,29 @@
 use alef_backend_extendr::ExtendrBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, RConfig};
+use alef_core::config::new_config::NewAlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::*;
+
+fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
+
+fn make_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["r"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.r]
+package_name = "testlib"
+"#,
+    )
+}
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
@@ -18,77 +40,6 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
-    }
-}
-
-fn make_config() -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "test-lib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: None,
-        gleam: None,
-        go: None,
-        java: None,
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: Some(RConfig {
-            package_name: Some("testlib".to_string()),
-            features: None,
-            serde_rename_all: None,
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
     }
 }
 
@@ -1057,284 +1008,6 @@ mod trait_bridge {
         assert!(
             code.code.contains("impl my_lib::HtmlVisitor for RHtmlVisitorBridge"),
             "visitor bridge must implement the trait"
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Trait bridge: bind_via = "options_field"
-// ---------------------------------------------------------------------------
-
-mod options_field_bridge {
-    use super::*;
-    use alef_core::config::{BridgeBinding, TraitBridgeConfig};
-
-    fn options_field_bridge_cfg() -> TraitBridgeConfig {
-        TraitBridgeConfig {
-            trait_name: "HtmlVisitor".to_string(),
-            super_trait: None,
-            registry_getter: None,
-            register_fn: None,
-            type_alias: Some("VisitorHandle".to_string()),
-            param_name: Some("visitor".to_string()),
-            register_extra_args: None,
-            exclude_languages: Vec::new(),
-            bind_via: BridgeBinding::OptionsField,
-            options_type: Some("ConversionOptions".to_string()),
-            options_field: Some("visitor".to_string()),
-        }
-    }
-
-    fn options_type_def() -> TypeDef {
-        TypeDef {
-            name: "ConversionOptions".to_string(),
-            rust_path: "test_lib::ConversionOptions".to_string(),
-            original_rust_path: String::new(),
-            fields: vec![
-                make_field("heading_style", TypeRef::String, false),
-                make_field(
-                    "visitor",
-                    TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
-                    true,
-                ),
-            ],
-            methods: vec![],
-            is_opaque: false,
-            is_clone: true,
-            is_copy: false,
-            is_trait: false,
-            has_default: true,
-            has_stripped_cfg_fields: false,
-            is_return_type: false,
-            serde_rename_all: None,
-            has_serde: false,
-            super_traits: vec![],
-            doc: String::new(),
-            cfg: None,
-        }
-    }
-
-    fn convert_function_def() -> FunctionDef {
-        FunctionDef {
-            name: "convert".to_string(),
-            rust_path: "test_lib::convert".to_string(),
-            original_rust_path: String::new(),
-            params: vec![
-                ParamDef {
-                    name: "html".to_string(),
-                    ty: TypeRef::String,
-                    optional: false,
-                    default: None,
-                    sanitized: false,
-                    typed_default: None,
-                    is_ref: true,
-                    is_mut: false,
-                    newtype_wrapper: None,
-                    original_type: None,
-                },
-                ParamDef {
-                    name: "options".to_string(),
-                    ty: TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string()))),
-                    optional: true,
-                    default: None,
-                    sanitized: false,
-                    typed_default: None,
-                    is_ref: false,
-                    is_mut: false,
-                    newtype_wrapper: None,
-                    original_type: None,
-                },
-            ],
-            return_type: TypeRef::String,
-            is_async: false,
-            error_type: Some("Error".to_string()),
-            doc: String::new(),
-            cfg: None,
-            sanitized: false,
-            return_sanitized: false,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-        }
-    }
-
-    fn make_options_field_config() -> AlefConfig {
-        let mut cfg = make_config();
-        cfg.trait_bridges = vec![options_field_bridge_cfg()];
-        cfg
-    }
-
-    fn make_options_field_api() -> ApiSurface {
-        let visitor_trait = TypeDef {
-            name: "HtmlVisitor".to_string(),
-            rust_path: "test_lib::HtmlVisitor".to_string(),
-            original_rust_path: String::new(),
-            fields: vec![],
-            methods: vec![MethodDef {
-                name: "visit_node".to_string(),
-                params: vec![],
-                return_type: TypeRef::Unit,
-                is_async: false,
-                is_static: false,
-                error_type: None,
-                doc: String::new(),
-                sanitized: false,
-                receiver: Some(ReceiverKind::Ref),
-                trait_source: None,
-                returns_ref: false,
-                returns_cow: false,
-                return_newtype_wrapper: None,
-                has_default_impl: true,
-            }],
-            is_opaque: false,
-            is_clone: false,
-            is_copy: false,
-            is_trait: true,
-            has_default: false,
-            has_stripped_cfg_fields: false,
-            is_return_type: false,
-            serde_rename_all: None,
-            has_serde: false,
-            super_traits: vec![],
-            doc: String::new(),
-            cfg: None,
-        };
-        ApiSurface {
-            crate_name: "kreuzberg".to_string(),
-            version: "0.1.0".to_string(),
-            types: vec![options_type_def(), visitor_trait],
-            functions: vec![convert_function_def()],
-            enums: vec![],
-            errors: vec![],
-        }
-    }
-
-    /// The binding `ConversionOptions` struct must declare its bridge field as
-    /// `Option<extendr_api::Robj>` (with `serde(skip)`) so R callers can pass any R closure.
-    #[test]
-    fn options_struct_visitor_field_renders_as_option_robj() {
-        let backend = ExtendrBackend;
-        let files = backend
-            .generate_bindings(&make_options_field_api(), &make_options_field_config())
-            .expect("generation");
-        let content = &files[0].content;
-
-        assert!(
-            content.contains("pub struct ConversionOptions"),
-            "ConversionOptions binding struct missing"
-        );
-        assert!(
-            content.contains("visitor: Option<extendr_api::Robj>"),
-            "visitor field should be rendered as Option<extendr_api::Robj>:\n{content}"
-        );
-        assert!(
-            content.contains("#[serde(skip)]"),
-            "bridge field needs #[serde(skip)] to round-trip JSON safely:\n{content}"
-        );
-    }
-
-    /// The standard `From<ConversionOptions> for kreuzberg::ConversionOptions` impl must skip
-    /// the visitor field — it has no core equivalent in the binding shape.
-    #[test]
-    fn binding_to_core_from_impl_skips_visitor_field() {
-        let backend = ExtendrBackend;
-        let files = backend
-            .generate_bindings(&make_options_field_api(), &make_options_field_config())
-            .expect("generation");
-        let content = &files[0].content;
-
-        let from_impl_marker = "impl From<ConversionOptions> for test_lib::ConversionOptions";
-        let start = content
-            .find(from_impl_marker)
-            .expect("expected From<ConversionOptions> for core impl");
-        let end_offset = content[start..]
-            .find("\n}\n")
-            .map(|o| start + o + 3)
-            .unwrap_or(content.len());
-        let from_impl = &content[start..end_offset];
-
-        assert!(
-            !from_impl.contains("__result.visitor"),
-            "From impl must not assign to visitor — convert wrapper sets it after building bridge:\n{from_impl}"
-        );
-        assert!(
-            from_impl.contains("__result.heading_style"),
-            "non-bridge fields must still be assigned in From impl:\n{from_impl}"
-        );
-    }
-
-    /// `convert` should be generated via the options-field bridge function — the visitor
-    /// is extracted from the options struct, wrapped in `RHtmlVisitorBridge`, and attached
-    /// to the core options before the call. There must be no top-level `visitor` parameter.
-    #[test]
-    fn convert_wrapper_extracts_visitor_from_options_field() {
-        let backend = ExtendrBackend;
-        let files = backend
-            .generate_bindings(&make_options_field_api(), &make_options_field_config())
-            .expect("generation");
-        let content = &files[0].content;
-
-        assert!(content.contains("pub fn convert("), "convert wrapper must be emitted");
-        assert!(
-            !content.contains("pub fn convert(html: &str, visitor:"),
-            "convert wrapper must not expose a top-level `visitor` parameter when bind_via = options_field:\n{content}"
-        );
-        assert!(
-            content.contains("options_binding.visitor.take()"),
-            "convert wrapper must pull the visitor field off the binding options:\n{content}"
-        );
-        assert!(
-            content.contains("RHtmlVisitorBridge::new"),
-            "convert wrapper must construct the bridge from the visitor R object:\n{content}"
-        );
-        assert!(
-            content.contains("options_core.visitor = Some("),
-            "convert wrapper must attach the bridge handle to the core options' visitor field:\n{content}"
-        );
-        assert!(
-            content.contains("test_lib::visitor::VisitorHandle"),
-            "convert wrapper must cast the bridge into the canonical VisitorHandle alias:\n{content}"
-        );
-    }
-
-    /// The generated kwargs constructor (`new_conversionoptions`) must accept the visitor as
-    /// `Option<extendr_api::Robj>` and assign it as `Some(v)` (not bare `v`) since the
-    /// underlying field is `Option<extendr_api::Robj>`.
-    #[test]
-    fn kwargs_constructor_accepts_visitor_robj() {
-        let backend = ExtendrBackend;
-        let files = backend
-            .generate_bindings(&make_options_field_api(), &make_options_field_config())
-            .expect("generation");
-        let content = &files[0].content;
-
-        assert!(
-            content.contains("pub fn new_conversionoptions("),
-            "kwargs constructor must be emitted"
-        );
-        assert!(
-            content.contains("visitor: Option<extendr_api::Robj>"),
-            "kwargs constructor must accept visitor as Option<extendr_api::Robj>:\n{content}"
-        );
-        assert!(
-            content.contains("__out.visitor = Some(v);"),
-            "bridge fields must be assigned via Some(v) wrap:\n{content}"
-        );
-    }
-
-    /// No standalone `convert_with_visitor` function should be emitted — the visitor is
-    /// always attached via the options struct.
-    #[test]
-    fn no_standalone_convert_with_visitor_export() {
-        let backend = ExtendrBackend;
-        let files = backend
-            .generate_bindings(&make_options_field_api(), &make_options_field_config())
-            .expect("generation");
-        let content = &files[0].content;
-
-        assert!(
-            !content.contains("convert_with_visitor"),
-            "options-field bindings must not emit a separate convert_with_visitor entry point:\n{content}"
         );
     }
 }

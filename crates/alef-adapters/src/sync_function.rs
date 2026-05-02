@@ -1,7 +1,7 @@
-use alef_core::config::{AdapterConfig, AlefConfig, Language};
+use alef_core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 
 /// Generate just the function body (what goes inside `{ ... }`) for a sync function adapter.
-pub fn generate_body(adapter: &AdapterConfig, language: Language, config: &AlefConfig) -> anyhow::Result<String> {
+pub fn generate_body(adapter: &AdapterConfig, language: Language, config: &ResolvedCrateConfig) -> anyhow::Result<String> {
     let body = match language {
         Language::Python => gen_python_body(adapter, config),
         Language::Node => gen_node_body(adapter, config),
@@ -41,7 +41,7 @@ fn call_args(adapter: &AdapterConfig) -> Vec<String> {
 // Python (PyO3)
 // ---------------------------------------------------------------------------
 
-fn gen_python_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
+fn gen_python_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
     let returns = adapter.returns.as_deref().unwrap_or("()");
     let gil_release = adapter.gil_release;
@@ -70,7 +70,7 @@ fn gen_python_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
 // Node (NAPI)
 // ---------------------------------------------------------------------------
 
-fn gen_node_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
+fn gen_node_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
     let returns = adapter.returns.as_deref().unwrap_or("()");
 
@@ -88,7 +88,7 @@ fn gen_node_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
 // Ruby (Magnus)
 // ---------------------------------------------------------------------------
 
-fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
+fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
     let returns = adapter.returns.as_deref().unwrap_or("()");
 
@@ -106,7 +106,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
 // PHP (ext-php-rs)
 // ---------------------------------------------------------------------------
 
-fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
+fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
     let returns = adapter.returns.as_deref().unwrap_or("()");
 
@@ -124,7 +124,7 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
 // Elixir (Rustler)
 // ---------------------------------------------------------------------------
 
-fn gen_elixir_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
+fn gen_elixir_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
     let returns = adapter.returns.as_deref().unwrap_or("()");
 
@@ -142,7 +142,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
 // WASM (wasm-bindgen)
 // ---------------------------------------------------------------------------
 
-fn gen_wasm_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
+fn gen_wasm_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
     let returns = adapter.returns.as_deref().unwrap_or("JsValue");
 
@@ -160,7 +160,7 @@ fn gen_wasm_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
 // FFI (C ABI)
 // ---------------------------------------------------------------------------
 
-fn gen_ffi_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
+fn gen_ffi_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
     let prefix = config.ffi_prefix();
     let name = &adapter.name;
@@ -212,7 +212,7 @@ fn gen_ffi_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
 // Go (wraps C FFI)
 // ---------------------------------------------------------------------------
 
-fn gen_go_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
+fn gen_go_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> String {
     let name = &adapter.name;
     let prefix = config.ffi_prefix();
     let returns = adapter.returns.as_deref().unwrap_or("string");
@@ -252,7 +252,7 @@ fn gen_go_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
 // Java (Panama FFI)
 // ---------------------------------------------------------------------------
 
-fn gen_java_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
+fn gen_java_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> String {
     let name = &adapter.name;
     let prefix = config.ffi_prefix();
 
@@ -291,7 +291,7 @@ fn gen_java_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
 // C# (P/Invoke)
 // ---------------------------------------------------------------------------
 
-fn gen_csharp_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
+fn gen_csharp_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> String {
     let name = &adapter.name;
     let prefix = config.ffi_prefix();
 
@@ -311,7 +311,7 @@ fn gen_csharp_body(adapter: &AdapterConfig, config: &AlefConfig) -> String {
 // R (extendr)
 // ---------------------------------------------------------------------------
 
-fn gen_r_body(adapter: &AdapterConfig, _config: &AlefConfig) -> String {
+fn gen_r_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
     let returns = adapter.returns.as_deref().unwrap_or("Robj");
 

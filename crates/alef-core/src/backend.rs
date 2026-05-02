@@ -1,4 +1,4 @@
-use crate::config::{AlefConfig, Language};
+use crate::config::{Language, ResolvedCrateConfig};
 use crate::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -90,20 +90,36 @@ pub trait Backend: Send + Sync {
     fn capabilities(&self) -> Capabilities;
 
     /// Generate binding source code.
-    fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>>;
+    fn generate_bindings(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>>;
 
     /// Generate type stubs (.pyi, .rbs, .d.ts). Optional — default returns empty.
-    fn generate_type_stubs(&self, _api: &ApiSurface, _config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_type_stubs(
+        &self,
+        _api: &ApiSurface,
+        _config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         Ok(vec![])
     }
 
     /// Generate package scaffolding. Optional — default returns empty.
-    fn generate_scaffold(&self, _api: &ApiSurface, _config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_scaffold(
+        &self,
+        _api: &ApiSurface,
+        _config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         Ok(vec![])
     }
 
     /// Generate language-native public API wrappers. Optional — default returns empty.
-    fn generate_public_api(&self, _api: &ApiSurface, _config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(
+        &self,
+        _api: &ApiSurface,
+        _config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         Ok(vec![])
     }
 
@@ -112,3 +128,4 @@ pub trait Backend: Send + Sync {
         None
     }
 }
+

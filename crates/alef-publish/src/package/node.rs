@@ -9,7 +9,7 @@
 
 use super::PackageArtifact;
 use crate::platform::RustTarget;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -34,7 +34,7 @@ const DEFAULT_PLATFORMS: &[&str] = &[
 /// 2. Create `output_dir/npm/{platform}/` with `package.json` + `.node` binary.
 /// 3. Run `npm pack` inside that directory and move the `.tgz` to `output_dir`.
 pub fn package_node(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -58,7 +58,7 @@ pub fn package_node(
 
     // Find the produced .node binary.
     let node_crate = crate::crate_name_from_output(config, alef_core::config::extras::Language::Node)
-        .unwrap_or_else(|| format!("{}-node", config.crate_config.name));
+        .unwrap_or_else(|| format!("{}-node", config.name));
     let node_lib_name = format!("{}.{}.node", base_name, platform);
     let node_lib_simple = format!("{}.node", base_name.replace('-', "_"));
 
@@ -110,7 +110,7 @@ pub fn package_node(
 }
 
 /// Return the configured npm subpackage platforms for Node, or the default set.
-pub fn npm_platforms(config: &AlefConfig) -> Vec<String> {
+pub fn npm_platforms(config: &ResolvedCrateConfig) -> Vec<String> {
     if let Some(publish) = &config.publish {
         if let Some(lang_cfg) = publish.languages.get("node") {
             if let Some(platforms) = &lang_cfg.npm_subpackage_platforms {
@@ -229,18 +229,20 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn minimal_config() -> AlefConfig {
-        toml::from_str(
+    fn minimal_config() -> ResolvedCrateConfig {
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["node"]
-[crate]
+[[crates]]
 name = "my-lib"
 sources = ["src/lib.rs"]
-[node]
+[crates.node]
 package_name = "@myorg/my-lib"
 "#,
         )
-        .unwrap()
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
     }
 
     #[test]
@@ -286,17 +288,19 @@ package_name = "@myorg/my-lib"
 
     #[test]
     fn config_npm_platforms_override() {
-        let config: AlefConfig = toml::from_str(
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["node"]
-[crate]
+[[crates]]
 name = "my-lib"
 sources = ["src/lib.rs"]
-[publish.languages.node]
+[crates.publish.languages.node]
 npm_subpackage_platforms = ["linux-x64-gnu", "darwin-arm64"]
 "#,
         )
         .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
         let platforms = npm_platforms(&config);
         assert_eq!(platforms, vec!["linux-x64-gnu", "darwin-arm64"]);
     }

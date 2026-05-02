@@ -40,7 +40,7 @@ pub mod zig;
 use crate::config::E2eConfig;
 use crate::fixture::FixtureGroup;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::Result;
 
 /// Convert a JSON value's object keys from camelCase to snake_case recursively.
@@ -71,7 +71,7 @@ pub trait E2eCodegen: Send + Sync {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>>;
 
     /// Language name for display and directory naming.

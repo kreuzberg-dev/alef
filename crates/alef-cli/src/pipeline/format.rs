@@ -1,4 +1,4 @@
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{Language, ResolvedCrateConfig};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracing::{debug, warn};
@@ -26,7 +26,7 @@ struct FormatterSpec {
 /// We attach this to `Language::Ffi` because FFI is always present when any of the
 /// C-FFI-bridged languages (Go/Java/C#) are enabled, and harmless when only WASM
 /// or pure-Rust bindings are used.
-fn get_default_formatter(config: &AlefConfig, lang: Language) -> Option<FormatterSpec> {
+fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option<FormatterSpec> {
     match lang {
         // ruff check --fix runs lint autofixes (unused imports, missing TypeAlias
         // annotations, import sorting); ruff format applies whitespace formatting.
@@ -124,7 +124,7 @@ fn get_default_formatter(config: &AlefConfig, lang: Language) -> Option<Formatte
         // Bug fix: derive wasm crate name from config instead of hardcoding "wasm".
         // Runs at workspace root so `cargo fmt -p <pkg>` can resolve the workspace member.
         Language::Wasm => {
-            let wasm_crate = format!("{}-wasm", config.core_crate_dir());
+            let wasm_crate = format!("{}-wasm", config.name);
             Some(FormatterSpec {
                 commands: vec![FormatterCommand {
                     command: "cargo".to_owned(),
@@ -233,7 +233,7 @@ fn collect_java_files(dir: &Path, limit: usize) -> Vec<PathBuf> {
 /// Formatter errors are logged as warnings and do not fail the generate command.
 pub fn format_generated(
     files: &[(Language, Vec<alef_core::backend::GeneratedFile>)],
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     base_dir: &Path,
     only_languages: Option<&std::collections::HashSet<Language>>,
 ) {
@@ -409,48 +409,51 @@ fn run_custom_formatter(cmd: &str, work_dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alef_core::config::{AlefConfig, Language};
+    use alef_core::config::{Language, NewAlefConfig, ResolvedCrateConfig};
 
-    fn make_config(crate_name: &str) -> AlefConfig {
-        toml::from_str(&format!(
+    fn make_config(crate_name: &str) -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(&format!(
             r#"
+[workspace]
 languages = ["rust"]
-
-[crate]
+[[crates]]
 name = "{crate_name}"
 sources = ["src/lib.rs"]
 "#
         ))
-        .expect("valid config")
+        .expect("valid config");
+        cfg.resolve().unwrap().remove(0)
     }
 
-    fn make_config_with_csharp_project(crate_name: &str, project_file: &str) -> AlefConfig {
-        toml::from_str(&format!(
+    fn make_config_with_csharp_project(crate_name: &str, project_file: &str) -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(&format!(
             r#"
+[workspace]
 languages = ["csharp"]
-
-[crate]
+[[crates]]
 name = "{crate_name}"
 sources = ["src/lib.rs"]
-
-[csharp]
+[crates.csharp]
 project_file = "{project_file}"
 "#
         ))
-        .expect("valid config")
+        .expect("valid config");
+        cfg.resolve().unwrap().remove(0)
     }
 
-    fn make_config_with_source(crate_name: &str, source: &str) -> AlefConfig {
-        toml::from_str(&format!(
+    fn make_config_with_source(crate_name: &str, source: &str) -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(&format!(
             r#"
+[workspace]
 languages = ["wasm"]
 
-[crate]
+[[crates]]
 name = "{crate_name}"
 sources = ["{source}"]
 "#
         ))
-        .expect("valid config")
+        .expect("valid config");
+        cfg.resolve().unwrap().remove(0)
     }
 
     // Bug 1: WASM crate name must be derived from the core crate dir, not the
@@ -468,7 +471,9 @@ sources = ["{source}"]
 
     #[test]
     fn test_wasm_formatter_different_crate_name() {
-        let config = make_config_with_source("kreuzberg", "crates/kreuzberg-core/src/lib.rs");
+        // With the new schema the crate name is explicit; the wasm binding crate is
+        // always `{name}-wasm`. Use "kreuzberg-core" directly — no source-path derivation.
+        let config = make_config_with_source("kreuzberg-core", "crates/kreuzberg-core/src/lib.rs");
         let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
         let cmd = &spec.commands[0];
         assert_eq!(cmd.args, vec!["fmt", "-p", "kreuzberg-core-wasm"]);

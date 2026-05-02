@@ -9,7 +9,7 @@
 //!
 //! Ports: `kreuzberg/scripts/publish/go/tag-and-push-go-module.sh`
 
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use serde_json::json;
 
@@ -19,7 +19,7 @@ pub struct GoTagParams<'a> {
     pub remote: &'a str,
     pub dry_run: bool,
     pub output_json: bool,
-    pub config: &'a AlefConfig,
+    pub config: &'a ResolvedCrateConfig,
     /// Working directory (repository root).
     pub workspace_root: &'a std::path::Path,
 }
@@ -187,16 +187,18 @@ mod tests {
             .unwrap();
     }
 
-    fn minimal_config() -> AlefConfig {
-        toml::from_str(
+    fn minimal_config() -> ResolvedCrateConfig {
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["go"]
-[crate]
+[[crates]]
 name = "mylib"
 sources = ["src/lib.rs"]
 "#,
         )
-        .unwrap()
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
     }
 
     #[test]

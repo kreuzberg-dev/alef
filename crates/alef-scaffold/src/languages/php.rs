@@ -1,15 +1,16 @@
+use alef_backend_php::naming::php_autoload_namespace;
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{ResolvedCrateConfig, Language};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
+    let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-php"),
         version,
@@ -46,7 +47,7 @@ extension-module = []
 workspace = true
 "#,
         pkg_header = pkg_header,
-        crate_name = &config.crate_config.name,
+        crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Php),
         ext_php_rs = tv::cargo::EXT_PHP_RS,
@@ -60,14 +61,14 @@ workspace = true
     }])
 }
 
-pub(crate) fn scaffold_php(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let ext_name = config.php_extension_name();
-    let name = &config.crate_config.name;
+    let name = &config.name;
     let pkg_dir = config.package_dir(Language::Php);
     // PSR-4 namespace derived from the extension name (e.g. html_to_markdown_rs -> Html\To\Markdown\Rs).
     // Double backslashes for JSON string literal output.
-    let php_namespace = config.php_autoload_namespace().replace('\\', "\\\\");
+    let php_namespace = php_autoload_namespace(config).replace('\\', "\\\\");
 
     let keywords_json = if meta.keywords.is_empty() {
         String::new()

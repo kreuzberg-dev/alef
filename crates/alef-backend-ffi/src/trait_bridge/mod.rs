@@ -1,0 +1,813 @@
+//! C FFI trait bridge code generation using the vtable + opaque `user_data` pattern.
+//!
+//! For each `[[trait_bridges]]` entry, this module generates:
+//!
+//! 1. A `#[repr(C)]` vtable struct with one `Option<extern "C" fn(...)>` field per method,
+//!    plus `free_user_data`.
+//! 2. A bridge struct holding `vtable`, `user_data: *const c_void`, and `cached_name: String`.
+//! 3. `impl Plugin for FfiBridge` (when a `super_trait` is configured).
+//! 4. `impl Trait for FfiBridge` forwarding each method through the vtable.
+//! 5. A `{prefix}_register_{trait_snake}` `extern "C"` function.
+//! 6. A `{prefix}_unregister_{trait_snake}` `extern "C"` function.
+//!
+//! C has no closures or objects, so thread-safety is the caller's responsibility.
+//! Every generated `unsafe impl Send + Sync` is annotated with a SAFETY comment
+//! explaining this contract.
+
+mod call_body;
+mod helpers;
+mod registration;
+mod vtable;
+
+use alef_codegen::generators::trait_bridge::{TraitBridgeSpec, gen_bridge_plugin_impl, gen_bridge_trait_impl};
+use alef_core::config::TraitBridgeConfig;
+use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
+use heck::ToPascalCase;
+use std::collections::HashMap;
+use std::fmt::Write;
+
+use helpers::prim_to_c;
+
+// ---------------------------------------------------------------------------
+// FfiBridgeGenerator — implements TraitBridgeGenerator for the vtable ABI
+// ---------------------------------------------------------------------------
+
+/// FFI-specific trait bridge generator.
+///
+/// Produces vtable structs and bridge structs that implement Rust traits by
+/// forwarding calls through C function pointers.  The caller owns `user_data`
+/// and guarantees thread-safety.
+pub struct FfiBridgeGenerator {
+    /// FFI function/type prefix (e.g., `"kreuzberg"`).
+    pub prefix: String,
+    /// Core crate import path (e.g., `"kreuzberg"`).
+    pub core_import: String,
+    /// Map of type name → fully-qualified Rust path for qualifying `Named` types.
+    pub type_paths: HashMap<String, String>,
+    /// Error type name (e.g., `"KreuzbergError"`).
+    pub error_type: String,
+}
+
+impl FfiBridgeGenerator {
+    /// VTable struct name: `{PascalPrefix}{TraitName}VTable`.
+    pub(super) fn vtable_name(&self, spec: &TraitBridgeSpec) -> String {
+        let pascal = self.prefix.to_pascal_case();
+        format!("{}{}VTable", pascal, spec.trait_def.name)
+    }
+
+    /// Bridge struct name: `{PascalPrefix}{TraitName}Bridge`.
+    pub(super) fn bridge_name(&self, spec: &TraitBridgeSpec) -> String {
+        let pascal = self.prefix.to_pascal_case();
+        format!("{}{}Bridge", pascal, spec.trait_def.name)
+    }
+
+    /// Map a `TypeRef` to the C-ABI parameter type string.
+    ///
+    /// String params become `*const std::ffi::c_char`.
+    /// Named/complex params become JSON-encoded `*const std::ffi::c_char`.
+    /// Primitives map directly.
+    pub(super) fn c_param_type(ty: &TypeRef) -> String {
+        match ty {
+            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "*const std::ffi::c_char".to_string(),
+            TypeRef::Bytes => "*const u8".to_string(),
+            TypeRef::Primitive(p) => prim_to_c(p).to_string(),
+            TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                // Complex types go over the wire as JSON strings
+                "*const std::ffi::c_char".to_string()
+            }
+            TypeRef::Optional(inner) => {
+                // Optional string/named → nullable pointer; optional primitive → primitive (0 = None)
+                match inner.as_ref() {
+                    TypeRef::Primitive(p) => prim_to_c(p).to_string(),
+                    _ => "*const std::ffi::c_char".to_string(),
+                }
+            }
+            TypeRef::Unit => "()".to_string(),
+            TypeRef::Duration => "u64".to_string(),
+        }
+    }
+
+    /// Map a `TypeRef` return to the C-ABI out-param + return-type convention.
+    ///
+    /// Returns:
+    /// - A list of additional out-parameters to append to the function signature.
+    /// - The C return type (`i32` for fallible, or the direct primitive for infallible simple types).
+    pub(super) fn c_return_convention(ty: &TypeRef, has_error: bool) -> (Vec<String>, String) {
+        let out_params = match ty {
+            TypeRef::Unit => {
+                if has_error {
+                    vec!["out_error: *mut *mut std::ffi::c_char".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => {
+                let mut v = vec!["out_result: *mut *mut std::ffi::c_char".to_string()];
+                if has_error {
+                    v.push("out_error: *mut *mut std::ffi::c_char".to_string());
+                }
+                v
+            }
+            TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                // Complex return: JSON-encode into an out_result string
+                let mut v = vec!["out_result: *mut *mut std::ffi::c_char".to_string()];
+                if has_error {
+                    v.push("out_error: *mut *mut std::ffi::c_char".to_string());
+                }
+                v
+            }
+            _ => {
+                if has_error {
+                    vec!["out_error: *mut *mut std::ffi::c_char".to_string()]
+                } else {
+                    vec![]
+                }
+            }
+        };
+
+        let ret = if has_error {
+            "i32".to_string()
+        } else {
+            match ty {
+                TypeRef::Primitive(p) => prim_to_c(p).to_string(),
+                TypeRef::Unit => "()".to_string(),
+                TypeRef::Duration => "u64".to_string(),
+                TypeRef::Optional(inner) => match inner.as_ref() {
+                    TypeRef::Primitive(p) => prim_to_c(p).to_string(),
+                    _ => "i32".to_string(), // nullable pointer returns 0/1 via out_result
+                },
+                _ => "i32".to_string(),
+            }
+        };
+
+        (out_params, ret)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public entry points
+// ---------------------------------------------------------------------------
+
+/// Generate the shared FFI error-setting helper function (once per module).
+pub fn gen_ffi_set_out_error_helper() -> String {
+    let mut out = String::with_capacity(512);
+    writeln!(out, "/// Write an error message string into an FFI out-error pointer.").ok();
+    writeln!(out, "///").ok();
+    writeln!(out, "/// # Safety").ok();
+    writeln!(out, "///").ok();
+    writeln!(
+        out,
+        "/// `out_error` must be null or a valid writable `*mut *mut c_char` pointer."
+    )
+    .ok();
+    writeln!(
+        out,
+        "unsafe fn ffi_set_out_error(out_error: *mut *mut std::ffi::c_char, msg: &str) {{"
+    )
+    .ok();
+    writeln!(out, "    if !out_error.is_null() {{").ok();
+    writeln!(out, "        if let Ok(cs) = std::ffi::CString::new(msg) {{").ok();
+    writeln!(
+        out,
+        "            // SAFETY: out_error is non-null; caller must free this string."
+    )
+    .ok();
+    writeln!(out, "            unsafe {{ *out_error = cs.into_raw(); }}").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+    out
+}
+
+/// Generate all trait bridge code for a single `[[trait_bridges]]` entry.
+///
+/// This function deliberately does NOT use `gen_bridge_all()` from the shared
+/// infrastructure because the FFI bridge struct has a different layout
+/// (`vtable + user_data + cached_name`) vs. the standard `inner + cached_name`
+/// produced by `gen_bridge_wrapper_struct`.  Instead it calls the shared helpers
+/// individually and generates the struct/constructor/drop manually.
+pub fn gen_trait_bridge(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    prefix: &str,
+    core_import: &str,
+    error_type: &str,
+    error_constructor: &str,
+    api: &ApiSurface,
+) -> String {
+    let type_paths: HashMap<String, String> = api
+        .types
+        .iter()
+        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+        .chain(
+            api.enums
+                .iter()
+                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+        )
+        .collect();
+
+    let generator = FfiBridgeGenerator {
+        prefix: prefix.to_string(),
+        core_import: core_import.to_string(),
+        type_paths: type_paths.clone(),
+        error_type: error_type.to_string(),
+    };
+
+    let spec = TraitBridgeSpec {
+        trait_def: trait_type,
+        bridge_config: bridge_cfg,
+        core_import,
+        wrapper_prefix: &prefix.to_pascal_case(),
+        type_paths,
+        error_type: error_type.to_string(),
+        error_constructor: error_constructor.to_string(),
+    };
+
+    let mut out = String::with_capacity(4096);
+
+    // Note: imports (c_void, c_char, CStr, CString, Arc) are emitted by the caller
+    // via builder.add_import() to avoid duplicates with the main gen_lib_rs imports.
+    // ffi_set_out_error is also emitted once by the caller (gen_lib_rs) for all trait bridges
+
+    // VTable struct
+    out.push_str(&generator.gen_vtable_struct(&spec));
+    writeln!(out).ok();
+
+    // Bridge struct (custom layout: vtable + user_data + cached_name)
+    out.push_str(&generator.gen_bridge_struct(&spec));
+    writeln!(out).ok();
+
+    // Drop impl
+    out.push_str(&generator.gen_bridge_drop(&spec));
+    writeln!(out).ok();
+
+    // Constructor
+    out.push_str(&generator.gen_constructor_impl(&spec));
+    writeln!(out).ok();
+
+    // Plugin / super-trait impl (custom FFI version; do NOT use gen_bridge_plugin_impl
+    // because that generates PyO3-style delegation through generator.gen_sync_method_body
+    // which references `self.inner`, but our bridge uses `self.vtable` directly)
+    if let Some(plugin_impl) = generator.gen_ffi_plugin_impl(&spec) {
+        out.push_str(&plugin_impl);
+        writeln!(out).ok();
+    } else {
+        // Try the shared gen_bridge_plugin_impl as a fallback (no super_trait configured)
+        if let Some(plugin_impl) = gen_bridge_plugin_impl(&spec, &generator) {
+            out.push_str(&plugin_impl);
+            writeln!(out).ok();
+        }
+    }
+
+    // Trait impl — uses shared gen_bridge_trait_impl which calls gen_sync/async_method_body
+    out.push_str(&gen_bridge_trait_impl(&spec, &generator));
+    writeln!(out).ok();
+
+    // Registration + unregistration functions
+    if spec.bridge_config.register_fn.is_some() {
+        writeln!(out).ok();
+        out.push_str(&generator.gen_registration_fn_impl(&spec));
+    }
+
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::*;
+
+    fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("my_lib::{name}"),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods,
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }
+    }
+
+    fn make_method(name: &str, return_type: TypeRef, has_error: bool, has_default: bool) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![],
+            return_type,
+            is_async: false,
+            is_static: false,
+            error_type: if has_error {
+                Some("Box<dyn std::error::Error + Send + Sync>".to_string())
+            } else {
+                None
+            },
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: has_default,
+        }
+    }
+
+    fn sample_api() -> ApiSurface {
+        ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+        }
+    }
+
+    fn sample_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
+        TraitBridgeConfig {
+            trait_name: trait_name.to_string(),
+            super_trait: None,
+            registry_getter: None,
+            register_fn: None,
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+        }
+    }
+
+    #[test]
+    fn test_vtable_struct_is_repr_c() {
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
+        let bridge_cfg = sample_bridge_cfg("OcrBackend");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(code.contains("#[repr(C)]"), "vtable must be #[repr(C)]");
+        assert!(
+            code.contains("MlOcrBackendVTable"),
+            "vtable name must include prefix + trait name"
+        );
+    }
+
+    #[test]
+    fn test_vtable_has_method_fn_ptrs() {
+        let trait_def = make_trait_def(
+            "OcrBackend",
+            vec![
+                make_method("process", TypeRef::String, true, false),
+                make_method("status", TypeRef::Primitive(PrimitiveType::I32), false, true),
+            ],
+        );
+        let bridge_cfg = sample_bridge_cfg("OcrBackend");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(code.contains("pub process:"), "vtable must have fn ptr for 'process'");
+        assert!(code.contains("pub status:"), "vtable must have fn ptr for 'status'");
+        assert!(
+            code.contains("pub free_user_data:"),
+            "vtable must have free_user_data destructor"
+        );
+    }
+
+    #[test]
+    fn test_vtable_fn_ptrs_take_user_data() {
+        let trait_def = make_trait_def(
+            "Checker",
+            vec![make_method(
+                "ping",
+                TypeRef::Primitive(PrimitiveType::Bool),
+                false,
+                false,
+            )],
+        );
+        let bridge_cfg = sample_bridge_cfg("Checker");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "lib",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(
+            code.contains("user_data: *const std::ffi::c_void"),
+            "every vtable fn pointer must accept user_data as first param"
+        );
+    }
+
+    #[test]
+    fn test_bridge_struct_fields() {
+        let trait_def = make_trait_def("Runner", vec![make_method("run", TypeRef::Unit, true, false)]);
+        let bridge_cfg = sample_bridge_cfg("Runner");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "my_lib",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(code.contains("vtable: MyLibRunnerVTable"), "bridge must hold vtable");
+        assert!(
+            code.contains("user_data: *const std::ffi::c_void"),
+            "bridge must hold user_data"
+        );
+        assert!(code.contains("cached_name: String"), "bridge must hold cached_name");
+    }
+
+    #[test]
+    fn test_bridge_is_send_sync() {
+        let trait_def = make_trait_def("Worker", vec![make_method("work", TypeRef::Unit, false, false)]);
+        let bridge_cfg = sample_bridge_cfg("Worker");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "w",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(
+            code.contains("unsafe impl Send for WWorkerBridge"),
+            "bridge must be Send"
+        );
+        assert!(
+            code.contains("unsafe impl Sync for WWorkerBridge"),
+            "bridge must be Sync"
+        );
+    }
+
+    #[test]
+    fn test_bridge_has_drop_impl_for_free_user_data() {
+        let trait_def = make_trait_def("Plugin", vec![make_method("tick", TypeRef::Unit, false, false)]);
+        let bridge_cfg = sample_bridge_cfg("Plugin");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "p",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(
+            code.contains("impl Drop for PPluginBridge"),
+            "bridge must implement Drop"
+        );
+        assert!(code.contains("free_user_data"), "Drop impl must call free_user_data");
+    }
+
+    #[test]
+    fn test_super_trait_generates_plugin_impl() {
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            registry_getter: None,
+            register_fn: None,
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+        };
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "kr",
+            "kreuzberg",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(
+            code.contains("impl kreuzberg::Plugin for KrOcrBackendBridge"),
+            "must generate Plugin impl"
+        );
+        assert!(code.contains("fn name(&self)"), "Plugin impl must have name()");
+        assert!(code.contains("fn version(&self)"), "Plugin impl must have version()");
+        assert!(
+            code.contains("fn initialize(&self)"),
+            "Plugin impl must have initialize()"
+        );
+        assert!(code.contains("fn shutdown(&self)"), "Plugin impl must have shutdown()");
+    }
+
+    #[test]
+    fn test_register_fn_generates_extern_c() {
+        let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            super_trait: None,
+            registry_getter: Some("kreuzberg::registry::get_ocr".to_string()),
+            register_fn: Some("register_ocr_backend".to_string()),
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+        };
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "kr",
+            "kreuzberg",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(
+            code.contains("extern \"C\" fn kr_register_ocr_backend"),
+            "register fn must be extern C with correct name"
+        );
+        assert!(
+            code.contains("extern \"C\" fn kr_unregister_ocr_backend"),
+            "unregister fn must be extern C with correct name"
+        );
+        assert!(code.contains("#[unsafe(no_mangle)]"), "register fn must be no_mangle");
+    }
+
+    #[test]
+    fn test_register_fn_validates_name_null() {
+        let trait_def = make_trait_def("MyTrait", vec![make_method("do_thing", TypeRef::Unit, true, false)]);
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "MyTrait".to_string(),
+            super_trait: None,
+            registry_getter: Some("my_lib::get_registry".to_string()),
+            register_fn: Some("register_my_trait".to_string()),
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+        };
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        // Null name check must be present in register fn
+        assert!(
+            code.contains("if name.is_null()"),
+            "register fn must check for null name"
+        );
+    }
+
+    #[test]
+    fn test_register_fn_validates_required_fn_ptrs() {
+        let trait_def = make_trait_def(
+            "Transform",
+            vec![
+                make_method("transform", TypeRef::String, true, false), // required
+                make_method("describe", TypeRef::String, false, true),  // optional (has default)
+            ],
+        );
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "Transform".to_string(),
+            super_trait: None,
+            registry_getter: Some("my_lib::get_registry".to_string()),
+            register_fn: Some("register_transform".to_string()),
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+        };
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        // Required method fn pointer must be validated; optional one need not be
+        assert!(
+            code.contains("vtable.transform.is_none()"),
+            "required fn ptr must be validated non-null"
+        );
+    }
+
+    #[test]
+    fn test_safety_comments_present() {
+        let trait_def = make_trait_def("Processor", vec![make_method("run", TypeRef::String, true, false)]);
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "Processor".to_string(),
+            super_trait: None,
+            registry_getter: Some("my_lib::get_registry".to_string()),
+            register_fn: Some("register_processor".to_string()),
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+        };
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(
+            code.contains("// SAFETY:"),
+            "generated code must contain SAFETY comments"
+        );
+        assert!(
+            code.contains("unsafe"),
+            "generated code must use unsafe for raw pointer ops"
+        );
+    }
+
+    #[test]
+    fn test_trait_impl_generated() {
+        let trait_def = make_trait_def("Scanner", vec![make_method("scan", TypeRef::String, true, false)]);
+        let bridge_cfg = sample_bridge_cfg("Scanner");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "sc",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        assert!(
+            code.contains("impl my_lib::Scanner for ScScannerBridge"),
+            "must generate trait impl"
+        );
+        assert!(code.contains("fn scan("), "trait impl must contain the method");
+    }
+
+    #[test]
+    fn test_string_param_marshalled_to_c_char() {
+        let trait_def = make_trait_def(
+            "Greeter",
+            vec![MethodDef {
+                name: "greet".to_string(),
+                params: vec![ParamDef {
+                    name: "message".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+            }],
+        );
+        let bridge_cfg = sample_bridge_cfg("Greeter");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "g",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            &api,
+        );
+
+        // The vtable fn pointer for 'greet' must accept *const c_char for the message param
+        assert!(
+            code.contains("*const std::ffi::c_char"),
+            "string param must map to *const c_char in vtable"
+        );
+    }
+
+    #[test]
+    fn test_c_param_type_mappings() {
+        assert_eq!(
+            FfiBridgeGenerator::c_param_type(&TypeRef::String),
+            "*const std::ffi::c_char"
+        );
+        assert_eq!(FfiBridgeGenerator::c_param_type(&TypeRef::Bytes), "*const u8");
+        assert_eq!(
+            FfiBridgeGenerator::c_param_type(&TypeRef::Primitive(PrimitiveType::Bool)),
+            "i32"
+        );
+        assert_eq!(FfiBridgeGenerator::c_param_type(&TypeRef::Duration), "u64");
+    }
+
+    #[test]
+    fn test_c_return_convention_unit_fallible() {
+        let (out_params, ret) = FfiBridgeGenerator::c_return_convention(&TypeRef::Unit, true);
+        assert_eq!(ret, "i32");
+        assert_eq!(out_params.len(), 1);
+        assert!(out_params[0].contains("out_error"));
+    }
+
+    #[test]
+    fn test_c_return_convention_string_infallible() {
+        let (out_params, ret) = FfiBridgeGenerator::c_return_convention(&TypeRef::String, false);
+        // Infallible string: return type is i32 (pointer to out_result pattern)
+        assert_eq!(out_params.len(), 1);
+        assert!(out_params[0].contains("out_result"));
+        // No error out-param
+        assert!(!out_params.iter().any(|p| p.contains("out_error")));
+        let _ = ret;
+    }
+}

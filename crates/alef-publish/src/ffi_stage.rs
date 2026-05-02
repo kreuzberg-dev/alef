@@ -8,14 +8,14 @@
 //! - C#: `packages/csharp/{Project}/runtimes/{rid}/native/`
 
 use crate::platform::RustTarget;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::config::extras::Language;
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Stage the FFI shared library for a specific language and target.
-pub fn stage_ffi(config: &AlefConfig, lang: Language, target: &RustTarget, workspace_root: &Path) -> Result<PathBuf> {
+pub fn stage_ffi(config: &ResolvedCrateConfig, lang: Language, target: &RustTarget, workspace_root: &Path) -> Result<PathBuf> {
     let lib_name = config.ffi_lib_name();
     let shared_lib = target.shared_lib_name(&lib_name);
 
@@ -42,7 +42,7 @@ pub fn stage_ffi(config: &AlefConfig, lang: Language, target: &RustTarget, works
 
 /// Optionally stage the C header alongside the shared library.
 pub fn stage_header(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     lang: Language,
     target: &RustTarget,
     workspace_root: &Path,
@@ -71,7 +71,7 @@ fn find_built_library(workspace_root: &Path, target: &RustTarget, shared_lib: &s
 }
 
 /// Determine the staging directory for a language + target combination.
-fn staging_dir(config: &AlefConfig, lang: Language, target: &RustTarget, workspace_root: &Path) -> Result<PathBuf> {
+fn staging_dir(config: &ResolvedCrateConfig, lang: Language, target: &RustTarget, workspace_root: &Path) -> Result<PathBuf> {
     let pkg_dir = config.package_dir(lang);
     let platform = target.platform_for(lang);
 
@@ -95,13 +95,13 @@ fn staging_dir(config: &AlefConfig, lang: Language, target: &RustTarget, workspa
 }
 
 /// Find the FFI crate directory (for locating the header file). Public alias for use by packagers.
-pub fn find_ffi_crate_dir_pub(config: &AlefConfig, workspace_root: &Path) -> PathBuf {
+pub fn find_ffi_crate_dir_pub(config: &ResolvedCrateConfig, workspace_root: &Path) -> PathBuf {
     find_ffi_crate_dir(config, workspace_root)
 }
 
 /// Find the FFI crate directory (for locating the header file).
-fn find_ffi_crate_dir(config: &AlefConfig, workspace_root: &Path) -> PathBuf {
-    if let Some(ffi_output) = config.output.ffi.as_ref() {
+fn find_ffi_crate_dir(config: &ResolvedCrateConfig, workspace_root: &Path) -> PathBuf {
+    if let Some(ffi_output) = config.explicit_output.ffi.as_ref() {
         // ffi output is like "crates/my-lib-ffi/src/" — walk up to find the crate dir.
         let p = Path::new(ffi_output);
         for ancestor in p.ancestors() {
@@ -116,35 +116,38 @@ fn find_ffi_crate_dir(config: &AlefConfig, workspace_root: &Path) -> PathBuf {
     }
 
     // Default: crates/{name}-ffi
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
     workspace_root.join(format!("crates/{crate_name}-ffi"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alef_core::config::NewAlefConfig;
     use std::fs;
     use tempfile::TempDir;
 
-    fn minimal_config() -> AlefConfig {
-        toml::from_str(
+    fn minimal_config() -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["go", "java", "csharp"]
 
-[crate]
+[[crates]]
 name = "my-lib"
 sources = ["crates/my-lib/src/lib.rs"]
 
-[ffi]
+[crates.ffi]
 prefix = "mylib"
 lib_name = "my_lib_ffi"
 header_name = "my_lib.h"
 
-[csharp]
+[crates.csharp]
 namespace = "MyLib"
 "#,
         )
-        .unwrap()
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
     }
 
     fn setup_built_ffi(root: &Path, target_triple: &str) {

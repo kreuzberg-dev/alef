@@ -35,7 +35,7 @@ use std::fmt::Write;
 #[allow(clippy::too_many_arguments)]
 pub fn gen_trait_bridges_file(
     api: &ApiSurface,
-    config: &alef_core::config::AlefConfig,
+    config: &alef_core::config::ResolvedCrateConfig,
     pkg_name: &str,
     ffi_prefix: &str,
     ffi_header: &str,
@@ -568,11 +568,6 @@ fn rust_to_plain_c_type(ty: &TypeRef) -> String {
         TypeRef::Duration => "uint64_t".to_string(),
         _ => "char*".to_string(),
     }
-}
-
-/// Convert a Rust TypeRef to a Go type string (public re-export for use in gen_bindings).
-pub fn rust_to_go_type_pub(ty: &TypeRef) -> String {
-    rust_to_go_type(ty)
 }
 
 /// Convert a Rust TypeRef to a Go type string.

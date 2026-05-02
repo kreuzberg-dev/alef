@@ -1,12 +1,12 @@
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, scaffold_meta};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{ResolvedCrateConfig, Language};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use alef_core::version::to_r_version;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_r(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_r(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     // R / CRAN rejects SemVer dash-form prereleases; convert to the four-component form.
     let version = to_r_version(&api.version);
@@ -82,11 +82,11 @@ Config/testthat/edition: 3
     ])
 }
 
-pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
+    let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-r"),
         version,
@@ -112,7 +112,7 @@ serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 "#,
         pkg_header = pkg_header,
-        crate_name = &config.crate_config.name,
+        crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::R),
         extendr_api = tv::cargo::EXTENDR_API,

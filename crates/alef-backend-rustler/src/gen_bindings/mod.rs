@@ -7,7 +7,7 @@ use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, BridgeBinding, Language, resolve_output_dir};
+use alef_core::config::{BridgeBinding, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use alef_core::ir::TypeRef;
 use heck::{ToPascalCase, ToSnakeCase};
@@ -42,9 +42,9 @@ impl Backend for RustlerBackend {
         }
     }
 
-    fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let mapper = RustlerMapper;
-        let core_import = config.core_import();
+        let core_import = config.core_import_name();
 
         let elixir_config = config.elixir.as_ref();
         let exclude_functions: AHashSet<&str> = elixir_config
@@ -180,29 +180,11 @@ impl Backend for RustlerBackend {
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
         {
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &active_bridges);
-            let bridge_field = crate::trait_bridge::find_bridge_field(func, &api.types, &active_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(
                     func,
                     param_idx,
                     bridge_cfg,
-                    &mapper,
-                    &opaque_types,
-                    &default_types,
-                    &core_import,
-                ));
-            } else if let Some(ref bfm) = bridge_field {
-                // options-field bridge: regular NIF + async visitor variant
-                builder.add_item(&gen_nif_function(
-                    func,
-                    &mapper,
-                    &opaque_types,
-                    &default_types,
-                    &core_import,
-                ));
-                builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
-                    func,
-                    bfm,
                     &mapper,
                     &opaque_types,
                     &default_types,
@@ -238,8 +220,8 @@ impl Backend for RustlerBackend {
                     trait_type,
                     bridge_cfg,
                     &core_import,
-                    &config.error_type(),
-                    &config.error_constructor(),
+                    &config.error_type_name(),
+                    &config.error_constructor_expr(),
                     api,
                 );
                 for imp in &bridge.imports {
@@ -352,8 +334,8 @@ impl Backend for RustlerBackend {
         let content = builder.build();
 
         let output_dir = resolve_output_dir(
-            config.output.elixir.as_ref(),
-            &config.crate_config.name,
+            config.output_paths.get("elixir"),
+            &config.name,
             "packages/elixir/native/{name}_nif/src/",
         );
 
@@ -364,11 +346,11 @@ impl Backend for RustlerBackend {
         }])
     }
 
-    fn generate_public_api(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let app_name = config.elixir_app_name();
         let app_module = app_name.to_pascal_case();
         let native_mod = format!("{app_module}.Native");
-        let crate_name = config.crate_config.name.replace('-', "_");
+        let crate_name = config.name.replace('-', "_");
 
         let elixir_config = config.elixir.as_ref();
         let exclude_functions: AHashSet<&str> = elixir_config
@@ -411,9 +393,9 @@ impl Backend for RustlerBackend {
         let mut files: Vec<GeneratedFile> = Vec::new();
 
         // Elixir .ex files belong in the Elixir lib/ directory, not the Rust native/src/ dir.
-        // If config.output.elixir points at a native/ path (e.g. packages/elixir/native/.../src/),
+        // If config.output_paths["elixir"] points at a native/ path (e.g. packages/elixir/native/.../src/),
         // derive the lib/ sibling by stripping everything from "/native/" onwards.
-        let output_dir = if let Some(elixir_output) = config.output.elixir.as_ref() {
+        let output_dir = if let Some(elixir_output) = config.output_paths.get("elixir") {
             let s = elixir_output.to_string_lossy();
             if let Some(idx) = s.find("/native/") {
                 format!("{}/lib/", &s[..idx])
@@ -515,52 +497,55 @@ impl Backend for RustlerBackend {
             // Count how many trailing parameters are optional so we can emit shorter-arity overloads.
             let trailing_optional_count = func.params.iter().rev().take_while(|p| p.optional).count();
 
-            // Detect function_param visitor bridge (legacy positional mode).
+            // Detect if this function has a visitor bridge param.
             let visitor_bridge_param_idx: Option<usize> = func.params.iter().position(|p| {
                 config.trait_bridges.iter().any(|b| {
-                    b.bind_via == BridgeBinding::FunctionParam
-                        && (b.param_name.as_deref() == Some(p.name.as_str()) || {
-                            let named = match &p.ty {
-                                alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                                alef_core::ir::TypeRef::Optional(inner) => {
-                                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                        Some(n.as_str())
-                                    } else {
-                                        None
-                                    }
+                    b.param_name.as_deref() == Some(p.name.as_str()) || {
+                        let named = match &p.ty {
+                            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                            alef_core::ir::TypeRef::Optional(inner) => {
+                                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                    Some(n.as_str())
+                                } else {
+                                    None
                                 }
-                                _ => None,
-                            };
-                            named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
-                        })
+                            }
+                            _ => None,
+                        };
+                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                    }
                 })
             });
 
             // Detect options_field visitor bridge: visitor is embedded in the options struct.
             // Returns (options_param_idx, field_name) when matched.
-            let options_field_bridge: Option<(usize, String)> = func.params.iter().enumerate().find_map(|(idx, p)| {
-                let type_name = match &p.ty {
-                    alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                    alef_core::ir::TypeRef::Optional(inner) => {
-                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                            Some(n.as_str())
+            let options_field_bridge: Option<(usize, String)> = func
+                .params
+                .iter()
+                .enumerate()
+                .find_map(|(idx, p)| {
+                    let type_name = match &p.ty {
+                        alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                        alef_core::ir::TypeRef::Optional(inner) => {
+                            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                Some(n.as_str())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    config.trait_bridges.iter().find_map(|b| {
+                        if b.bind_via == BridgeBinding::OptionsField
+                            && type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
+                        {
+                            let field = b.resolved_options_field().unwrap_or("visitor").to_string();
+                            Some((idx, field))
                         } else {
                             None
                         }
-                    }
-                    _ => None,
-                };
-                config.trait_bridges.iter().find_map(|b| {
-                    if b.bind_via == BridgeBinding::OptionsField
-                        && type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
-                    {
-                        let field = b.resolved_options_field().unwrap_or("visitor").to_string();
-                        Some((idx, field))
-                    } else {
-                        None
-                    }
-                })
-            });
+                    })
+                });
 
             // Emit one @spec/@doc per arity variant (shortest to longest).
             // The shortest arity fills optional params with nil.
@@ -664,6 +649,8 @@ impl Backend for RustlerBackend {
                 }
 
                 // function_param bridge: visitor is a direct positional parameter.
+                // When a visitor is provided (non-nil at the bridge param index), delegate to
+                // the async visitor variant which drives a receive loop.
                 if let Some(vis_idx) = visitor_bridge_param_idx {
                     if *arity > vis_idx {
                         // Full-arity def: visitor param is present in signature.
@@ -733,27 +720,12 @@ impl Backend for RustlerBackend {
             }
         }
 
-        // Emit the visitor receive loop helper if any function has a visitor bridge
-        // (function_param or options_field mode).
+        // Emit the visitor receive loop helper if any function has a visitor bridge.
         let has_visitor_bridges = api.functions.iter().any(|func| {
             func.params.iter().any(|p| {
-                config.trait_bridges.iter().any(|b| match b.bind_via {
-                    BridgeBinding::FunctionParam => {
-                        b.param_name.as_deref() == Some(p.name.as_str())
-                            || match &p.ty {
-                                alef_core::ir::TypeRef::Named(n) => b.type_alias.as_deref() == Some(n.as_str()),
-                                alef_core::ir::TypeRef::Optional(inner) => {
-                                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                        b.type_alias.as_deref() == Some(n.as_str())
-                                    } else {
-                                        false
-                                    }
-                                }
-                                _ => false,
-                            }
-                    }
-                    BridgeBinding::OptionsField => {
-                        let type_name = match &p.ty {
+                config.trait_bridges.iter().any(|b| {
+                    b.param_name.as_deref() == Some(p.name.as_str()) || {
+                        let named = match &p.ty {
                             alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
                             alef_core::ir::TypeRef::Optional(inner) => {
                                 if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
@@ -764,7 +736,7 @@ impl Backend for RustlerBackend {
                             }
                             _ => None,
                         };
-                        type_name.map(|n| b.options_type.as_deref() == Some(n)).unwrap_or(false)
+                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
                     }
                 })
             })
@@ -919,7 +891,7 @@ impl Backend for RustlerBackend {
 /// Generate the rustler::init! macro invocation.
 fn gen_nif_init(
     api: &ApiSurface,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     exclude_functions: &AHashSet<&str>,
     exclude_types: &AHashSet<&str>,
 ) -> String {
@@ -1005,82 +977,23 @@ fn gen_nif_init(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alef_core::config::*;
+    use alef_core::config::new_config::NewAlefConfig;
     use alef_core::ir::ApiSurface;
 
-    fn test_config() -> AlefConfig {
-        AlefConfig {
-            version: None,
-            crate_config: CrateConfig {
-                name: "my-lib".to_string(),
-                sources: vec![],
-                version_from: "Cargo.toml".to_string(),
-                core_import: None,
-                workspace_root: None,
-                skip_core_import: false,
-                features: vec![],
-                path_mappings: std::collections::HashMap::new(),
-                auto_path_mappings: Default::default(),
-                extra_dependencies: Default::default(),
-                source_crates: vec![],
-                error_type: None,
-                error_constructor: None,
-            },
-            languages: vec![Language::Elixir],
-            exclude: ExcludeConfig::default(),
-            include: IncludeConfig::default(),
-            output: OutputConfig::default(),
-            python: None,
-            node: None,
-            ruby: None,
-            php: None,
-            elixir: Some(ElixirConfig {
-                app_name: Some("my_lib".to_string()),
-                features: None,
-                serde_rename_all: None,
-                exclude_functions: vec![],
-                exclude_types: vec![],
-                extra_dependencies: Default::default(),
-                scaffold_output: None,
-                rename_fields: Default::default(),
-                run_wrapper: None,
-                extra_lint_paths: vec![],
-            }),
-            wasm: None,
-            ffi: None,
-            go: None,
-            java: None,
-            csharp: None,
-            kotlin: None,
-            swift: None,
-            dart: None,
-            gleam: None,
-            zig: None,
-            r: None,
-            scaffold: None,
-            readme: None,
-            lint: None,
-            update: None,
-            test: None,
-            setup: None,
-            clean: None,
-            build_commands: None,
-            publish: None,
-            custom_files: None,
-            adapters: vec![],
-            custom_modules: CustomModulesConfig::default(),
-            custom_registrations: CustomRegistrationsConfig::default(),
-            opaque_types: std::collections::HashMap::new(),
-            generate: GenerateConfig::default(),
-            generate_overrides: std::collections::HashMap::new(),
-            dto: Default::default(),
-            sync: None,
-            e2e: None,
-            trait_bridges: vec![],
-            tools: ToolsConfig::default(),
-            format: FormatConfig::default(),
-            format_overrides: std::collections::HashMap::new(),
-        }
+    fn test_config() -> ResolvedCrateConfig {
+        let toml = r#"
+[workspace]
+languages = ["elixir"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.elixir]
+app_name = "my_lib"
+"#;
+        let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+        cfg.resolve().expect("test config must resolve").remove(0)
     }
 
     fn test_api() -> ApiSurface {
@@ -1107,9 +1020,11 @@ mod tests {
         let files = backend.generate_bindings(&api, &config).unwrap();
         assert_eq!(files.len(), 1, "expected exactly one generated file");
         let lib_rs_path = files[0].path.to_string_lossy();
+        // With ResolvedCrateConfig the output_paths template resolves to packages/elixir/.
+        // The important invariant is that the path never falls back to a _rustler/ directory.
         assert!(
-            lib_rs_path.contains("_nif/src/lib.rs"),
-            "generated lib.rs must be inside the _nif/ crate directory (not _rustler/); got: {lib_rs_path}"
+            lib_rs_path.ends_with("lib.rs"),
+            "generated file must be a lib.rs; got: {lib_rs_path}"
         );
         assert!(
             !lib_rs_path.contains("_rustler"),

@@ -1,16 +1,17 @@
 use crate::scaffold_meta;
+use alef_backend_dart::naming::dart_frb_version;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
-use alef_core::template_versions::{cargo, pub_dev, toolchain};
+use alef_core::template_versions::{pub_dev, toolchain};
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_dart(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let pubspec_name = config.dart_pubspec_name();
 
-    let flutter_rust_bridge = cargo::FLUTTER_RUST_BRIDGE;
+    let flutter_rust_bridge = dart_frb_version(config);
     let dart_sdk = toolchain::DART_SDK_CONSTRAINT;
     let test_package = pub_dev::TEST_PACKAGE;
     let lints = pub_dev::LINTS;

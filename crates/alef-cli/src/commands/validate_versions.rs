@@ -9,7 +9,7 @@
 //! - `kreuzberg/scripts/publish/validate-version-consistency.sh`
 //! - `kreuzberg/scripts/publish/verify-cargo-version.sh`
 
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::version::{to_r_version, to_rubygems_prerelease};
 use anyhow::{Context, Result};
 use serde_json::json;
@@ -50,7 +50,7 @@ pub struct VersionCheck {
 ///
 /// Returns `(canonical_version, checks)` or an error if the canonical version
 /// cannot be determined.
-pub fn run(config: &AlefConfig, workspace_root: &Path, output_json: bool) -> Result<Vec<VersionCheck>> {
+pub fn run(config: &ResolvedCrateConfig, workspace_root: &Path, output_json: bool) -> Result<Vec<VersionCheck>> {
     let canonical = config
         .resolved_version()
         .context("Cannot read canonical version from Cargo.toml (version_from)")?;
@@ -98,7 +98,7 @@ pub fn run(config: &AlefConfig, workspace_root: &Path, output_json: bool) -> Res
     Ok(checks)
 }
 
-fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -> Vec<VersionCheck> {
+fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical: &str) -> Vec<VersionCheck> {
     let mut checks = Vec::new();
 
     // Python: pyproject.toml `version = "..."` — PEP 440 normalised.
@@ -228,7 +228,7 @@ fn collect_checks(config: &AlefConfig, workspace_root: &Path, canonical: &str) -
     );
 
     // crates/{name}-wasm/package.json and crates/{name}-node/package.json.
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
     for sub in ["wasm", "node"] {
         let path = format!("crates/{crate_name}-{sub}/package.json");
         push_check_if_exists(&mut checks, canonical, &path, workspace_root, read_package_json_version);
@@ -469,18 +469,20 @@ mod tests {
         tmp
     }
 
-    fn minimal_config(root: &Path) -> AlefConfig {
+    fn minimal_config(root: &Path) -> ResolvedCrateConfig {
         let content = format!(
             r#"
+[workspace]
 languages = ["python", "node"]
-[crate]
+[[crates]]
 name = "mylib"
 sources = ["src/lib.rs"]
 version_from = "{root}/Cargo.toml"
 "#,
             root = root.display()
         );
-        toml::from_str(&content).unwrap()
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(&content).unwrap();
+        cfg.resolve().unwrap().remove(0)
     }
 
     #[test]

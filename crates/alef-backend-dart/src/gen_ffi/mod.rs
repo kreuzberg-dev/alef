@@ -15,7 +15,7 @@ mod types;
 
 use alef_codegen::c_consumer;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, resolve_output_dir};
+use alef_core::config::{ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -31,8 +31,8 @@ use types::{emit_enum, emit_type};
 /// 1. `packages/dart/lib/src/<module>_ffi.dart` — the full `dart:ffi` implementation.
 /// 2. `packages/dart/lib/src/<module>.dart` — a thin re-export wrapper so the
 ///    public API surface is the same regardless of bridging mode.
-pub(crate) fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-    let module_name = dart_module_name(&config.crate_config.name);
+pub(crate) fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let module_name = dart_module_name(&config.name);
     let prefix = config.ffi_prefix();
     let lib_name = config.ffi_lib_name();
 
@@ -88,7 +88,7 @@ pub(crate) fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<
         content.push('\n');
     }
 
-    let dir = resolve_output_dir(None, &config.crate_config.name, "packages/dart/lib/src");
+    let dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
     let ffi_path = PathBuf::from(&dir).join(format!("{module_name}_ffi.dart"));
     let wrapper_path = PathBuf::from(&dir).join(format!("{module_name}.dart"));
 

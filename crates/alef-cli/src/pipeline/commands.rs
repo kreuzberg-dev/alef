@@ -1,5 +1,5 @@
 use alef_core::config::output::StringOrVec;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{Language, ResolvedCrateConfig};
 use anyhow::Context as _;
 use rayon::prelude::*;
 use std::path::Path;
@@ -21,7 +21,7 @@ enum LintPhase {
 ///
 /// Returns the subset of languages whose precondition passed (or was absent).
 /// Runs before hooks for each passing language. Fails if any before hook fails.
-fn prepare_lint_languages(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<Vec<Language>> {
+fn prepare_lint_languages(config: &ResolvedCrateConfig, languages: &[Language]) -> anyhow::Result<Vec<Language>> {
     let mut ready = Vec::with_capacity(languages.len());
     for &lang in languages {
         let lang_lint = config.lint_config_for_language(lang);
@@ -35,7 +35,7 @@ fn prepare_lint_languages(config: &AlefConfig, languages: &[Language]) -> anyhow
 }
 
 /// Run a single lint phase across all languages in parallel.
-fn run_phase(config: &AlefConfig, languages: &[Language], phase: LintPhase) -> anyhow::Result<()> {
+fn run_phase(config: &ResolvedCrateConfig, languages: &[Language], phase: LintPhase) -> anyhow::Result<()> {
     let tasks: Vec<(&Language, String)> = languages
         .iter()
         .filter_map(|lang| {
@@ -81,7 +81,7 @@ fn run_phase(config: &AlefConfig, languages: &[Language], phase: LintPhase) -> a
 /// Executes in two waves for correctness:
 /// 1. Format (all languages in parallel) — normalizes code first
 /// 2. Check + Typecheck (all languages in parallel) — validates normalized code
-pub fn lint(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
+pub fn lint(config: &ResolvedCrateConfig, languages: &[Language]) -> anyhow::Result<()> {
     let ready = prepare_lint_languages(config, languages)?;
     // Wave 1: format all languages in parallel
     run_phase(config, &ready, LintPhase::Format)?;
@@ -92,7 +92,7 @@ pub fn lint(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
 }
 
 /// Run only format commands on generated output.
-pub fn fmt(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
+pub fn fmt(config: &ResolvedCrateConfig, languages: &[Language]) -> anyhow::Result<()> {
     let ready = prepare_lint_languages(config, languages)?;
     run_phase(config, &ready, LintPhase::Format)
 }
@@ -104,7 +104,7 @@ pub fn fmt(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
 /// a config issue, or a non-zero exit must not abort the generate run. Each
 /// per-language failure is logged as a warning and processing continues with
 /// the next language.
-pub fn fmt_post_generate(config: &AlefConfig, languages: &[Language]) {
+pub fn fmt_post_generate(config: &ResolvedCrateConfig, languages: &[Language]) {
     for &lang in languages {
         let lang_lint = config.lint_config_for_language(lang);
         if !check_precondition(lang, lang_lint.precondition.as_deref()) {
@@ -150,7 +150,7 @@ fn dedupe_plans(plans: Vec<(Language, Vec<String>)>) -> Vec<(Language, Vec<Strin
 /// Executes in two phases:
 /// 1. Sequential: check preconditions and collect command lists; deduplicate across languages.
 /// 2. Parallel: run each language's deduped command list (within-language order preserved).
-pub fn update(config: &AlefConfig, languages: &[Language], latest: bool) -> anyhow::Result<()> {
+pub fn update(config: &ResolvedCrateConfig, languages: &[Language], latest: bool) -> anyhow::Result<()> {
     // Phase 1 (sequential): check preconditions, run before hooks, collect command lists.
     let mut plans: Vec<(Language, Vec<String>)> = Vec::new();
     for &lang in languages {
@@ -207,7 +207,7 @@ pub fn update(config: &AlefConfig, languages: &[Language], latest: bool) -> anyh
 ///
 /// When `coverage` is true, runs coverage commands instead of regular test commands.
 /// When `e2e` is true, also runs e2e test commands.
-pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool, coverage: bool) -> anyhow::Result<()> {
+pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, coverage: bool) -> anyhow::Result<()> {
     let results: Vec<(Language, anyhow::Result<()>)> = languages
         .par_iter()
         .map(|lang| {
@@ -267,7 +267,11 @@ pub fn test(config: &AlefConfig, languages: &[Language], e2e: bool, coverage: bo
 ///
 /// If `timeout_override` is Some, all languages use that timeout; otherwise each
 /// language uses its configured `timeout_seconds` (defaulting to 600 seconds).
-pub fn setup(config: &AlefConfig, languages: &[Language], timeout_override: Option<u64>) -> anyhow::Result<()> {
+pub fn setup(
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    timeout_override: Option<u64>,
+) -> anyhow::Result<()> {
     let results: Vec<(Language, anyhow::Result<()>)> = languages
         .par_iter()
         .map(|lang| {
@@ -329,7 +333,7 @@ fn run_before_with_timeout(lang: Language, before: Option<&StringOrVec>, timeout
 }
 
 /// Clean build artifacts for each language.
-pub fn clean(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> {
+pub fn clean(config: &ResolvedCrateConfig, languages: &[Language]) -> anyhow::Result<()> {
     let results: Vec<(Language, anyhow::Result<()>)> = languages
         .par_iter()
         .map(|lang| {
@@ -373,8 +377,8 @@ pub fn clean(config: &AlefConfig, languages: &[Language]) -> anyhow::Result<()> 
 /// Uses configurable per-language build commands from `[build_commands.<lang>]`
 /// in alef.toml, falling back to sensible defaults. Resolves build order
 /// (FFI-dependent languages build after FFI).
-pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyhow::Result<()> {
-    let crate_name = &config.crate_config.name;
+pub fn build(config: &ResolvedCrateConfig, languages: &[Language], release: bool) -> anyhow::Result<()> {
+    let crate_name = &config.name;
     let base_dir = std::env::current_dir()?;
 
     // Split into FFI-independent and FFI-dependent languages
@@ -466,12 +470,7 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
             };
             if let Some(cmd_list) = override_cmds {
                 // Use the user-provided build_commands override if the override differs from defaults
-                if config
-                    .build_commands
-                    .as_ref()
-                    .and_then(|m| m.get(&lang.to_string()))
-                    .is_some()
-                {
+                if config.build_commands.contains_key(&lang.to_string()) {
                     let mut combined_output = (String::new(), String::new());
                     for cmd in cmd_list.commands() {
                         info!("Building {lang}: {cmd}");
@@ -519,12 +518,7 @@ pub fn build(config: &AlefConfig, languages: &[Language], release: bool) -> anyh
                 build_cmd_cfg.build.as_ref()
             };
             if let Some(cmd_list) = override_cmds {
-                if config
-                    .build_commands
-                    .as_ref()
-                    .and_then(|m| m.get(&lang.to_string()))
-                    .is_some()
-                {
+                if config.build_commands.contains_key(&lang.to_string()) {
                     let mut combined_output = (String::new(), String::new());
                     for cmd in cmd_list.commands() {
                         info!("Building {lang}: {cmd}");
@@ -569,19 +563,19 @@ fn resolve_crate_dir(output_path: &Path) -> &Path {
 }
 
 /// Get the output path for a language from config.
-fn output_path_for(lang: Language, config: &AlefConfig) -> Option<&Path> {
+fn output_path_for(lang: Language, config: &ResolvedCrateConfig) -> Option<&Path> {
     match lang {
-        Language::Python => config.output.python.as_deref(),
-        Language::Node => config.output.node.as_deref(),
-        Language::Ruby => config.output.ruby.as_deref(),
-        Language::Php => config.output.php.as_deref(),
-        Language::Ffi => config.output.ffi.as_deref(),
-        Language::Go => config.output.go.as_deref(),
-        Language::Java => config.output.java.as_deref(),
-        Language::Csharp => config.output.csharp.as_deref(),
-        Language::Wasm => config.output.wasm.as_deref(),
-        Language::Elixir => config.output.elixir.as_deref(),
-        Language::R => config.output.r.as_deref(),
+        Language::Python => config.explicit_output.python.as_deref(),
+        Language::Node => config.explicit_output.node.as_deref(),
+        Language::Ruby => config.explicit_output.ruby.as_deref(),
+        Language::Php => config.explicit_output.php.as_deref(),
+        Language::Ffi => config.explicit_output.ffi.as_deref(),
+        Language::Go => config.explicit_output.go.as_deref(),
+        Language::Java => config.explicit_output.java.as_deref(),
+        Language::Csharp => config.explicit_output.csharp.as_deref(),
+        Language::Wasm => config.explicit_output.wasm.as_deref(),
+        Language::Elixir => config.explicit_output.elixir.as_deref(),
+        Language::R => config.explicit_output.r.as_deref(),
         // Rust is the core language — no separate output path
         Language::Rust => None,
         Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => None,
@@ -592,7 +586,7 @@ fn output_path_for(lang: Language, config: &AlefConfig) -> Option<&Path> {
 fn build_command_for(
     lang: Language,
     bc: &alef_core::backend::BuildConfig,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     release: bool,
 ) -> String {
     let release_flag = if release { " --release" } else { "" };
@@ -635,7 +629,7 @@ fn build_command_for(
         "mix" => "mix compile".to_string(),
         "mvn" => {
             let dir = config
-                .output
+                .explicit_output
                 .java
                 .as_ref()
                 .and_then(|p| p.to_str())
@@ -644,7 +638,7 @@ fn build_command_for(
         }
         "dotnet" => {
             let dir = config
-                .output
+                .explicit_output
                 .csharp
                 .as_ref()
                 .and_then(|p| p.to_str())
@@ -689,7 +683,7 @@ fn build_command_for(
         }
         "go" => {
             let dir = config
-                .output
+                .explicit_output
                 .go
                 .as_ref()
                 .and_then(|p| p.to_str())
@@ -704,7 +698,7 @@ fn build_command_for(
 fn run_post_build(
     lang: Language,
     bc: &alef_core::backend::BuildConfig,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     base_dir: &Path,
 ) -> anyhow::Result<()> {
     use alef_core::backend::PostBuildStep;
@@ -807,21 +801,20 @@ mod fmt_post_generate_tests {
     // make every test trivially pass for the wrong reason.
     use super::*;
     use alef_core::config::output::{LintConfig, StringOrVec};
-    use std::collections::HashMap;
 
-    fn config_with_lint(lang: Language, cfg: LintConfig) -> AlefConfig {
-        let mut c: AlefConfig = toml::from_str(
+    fn config_with_lint(lang: Language, cfg: LintConfig) -> ResolvedCrateConfig {
+        let alef_cfg: alef_core::config::NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["python"]
-[crate]
+[[crates]]
 name = "test-lib"
 sources = ["src/lib.rs"]
 "#,
         )
         .unwrap();
-        let mut map = HashMap::new();
-        map.insert(lang.to_string(), cfg);
-        c.lint = Some(map);
+        let mut c = alef_cfg.resolve().unwrap().remove(0);
+        c.lint.insert(lang.to_string(), cfg);
         c
     }
 

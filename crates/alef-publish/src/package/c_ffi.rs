@@ -2,7 +2,7 @@
 
 use super::PackageArtifact;
 use crate::platform::RustTarget;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
@@ -16,7 +16,7 @@ use std::path::Path;
 /// - `lib/cmake/` — CMake find module (if `cmake_config` enabled)
 /// - `LICENSE`
 pub fn package_c_ffi(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -24,7 +24,7 @@ pub fn package_c_ffi(
 ) -> Result<PackageArtifact> {
     let lib_name = config.ffi_lib_name();
     let header_name = config.ffi_header_name();
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
     let platform = target.platform_for(alef_core::config::extras::Language::Ffi);
 
     let pkg_name = format!("{crate_name}-ffi-v{version}-{platform}");
@@ -103,7 +103,7 @@ pub fn package_c_ffi(
     })
 }
 
-fn publish_lang_config(config: &AlefConfig) -> alef_core::config::publish::PublishLanguageConfig {
+fn publish_lang_config(config: &ResolvedCrateConfig) -> alef_core::config::publish::PublishLanguageConfig {
     if let Some(publish) = &config.publish {
         if let Some(cfg) = publish.languages.get("c_ffi").or_else(|| publish.languages.get("ffi")) {
             return cfg.clone();

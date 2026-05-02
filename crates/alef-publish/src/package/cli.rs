@@ -2,7 +2,7 @@
 
 use super::PackageArtifact;
 use crate::platform::RustTarget;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,13 +14,13 @@ use std::path::{Path, PathBuf};
 /// - `LICENSE`
 /// - `README.md`
 pub fn package_cli(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
     version: &str,
 ) -> Result<PackageArtifact> {
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
     let binary_name = format!("{crate_name}{}", target.binary_ext());
 
     let pkg_name = format!("{crate_name}-v{version}-{}", target.triple);

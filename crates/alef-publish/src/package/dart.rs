@@ -2,7 +2,7 @@
 
 use super::PackageArtifact;
 use super::util::{copy_dir_recursive, copy_optional_file};
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -19,7 +19,7 @@ use std::path::Path;
 /// are performed by `dart pub publish` from the package directory, which enforces
 /// the pub.dev package layout itself.
 pub fn package_dart(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     workspace_root: &Path,
     output_dir: &Path,
     version: &str,
@@ -66,21 +66,21 @@ pub fn package_dart(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alef_core::config::AlefConfig;
+    use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
     use std::fs;
 
-    fn minimal_config(name: &str) -> AlefConfig {
+    fn minimal_config(name: &str) -> ResolvedCrateConfig {
         let toml = format!(
             r#"
+[workspace]
 languages = ["dart"]
-
-[crate]
+[[crates]]
 name = "{name}"
-version_from = "Cargo.toml"
 sources = []
 "#
         );
-        toml::from_str(&toml).expect("valid config")
+        let cfg: NewAlefConfig = toml::from_str(&toml).expect("valid config");
+        cfg.resolve().unwrap().remove(0)
     }
 
     #[test]

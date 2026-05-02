@@ -1,6 +1,7 @@
+use crate::naming::csharp_package_id;
 use crate::{scaffold_meta, xml_escape};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -15,10 +16,10 @@ use std::path::PathBuf;
 /// This is exposed as a `pub` function so `alef-publish` can regenerate the
 /// csproj before invoking `dotnet pack`, guaranteeing the glob paths are always
 /// in sync with the staging layout regardless of what is committed on disk.
-pub fn render_csharp_csproj(config: &AlefConfig, version: &str) -> String {
+pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> String {
     let meta = scaffold_meta(config);
     let namespace = config.csharp_namespace();
-    let package_id = config.csharp_package_id();
+    let package_id = csharp_package_id(config);
 
     let target_framework = config
         .csharp
@@ -63,7 +64,7 @@ pub fn render_csharp_csproj(config: &AlefConfig, version: &str) -> String {
     )
 }
 
-pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let namespace = config.csharp_namespace();
     let content = render_csharp_csproj(config, &api.version);
 

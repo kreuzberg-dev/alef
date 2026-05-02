@@ -1,14 +1,15 @@
+use alef_backend_gleam::naming::gleam_app_name;
 use crate::scaffold_meta;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions::hex;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_gleam(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_gleam(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
-    let gleam_app = config.gleam_app_name();
+    let gleam_app = gleam_app_name(config);
 
     let gleam_toml = format!(
         r#"name = "{app_name}"

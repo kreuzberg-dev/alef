@@ -2,7 +2,7 @@
 
 use super::PackageArtifact;
 use super::util::copy_dir_recursive;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -16,12 +16,12 @@ use std::path::Path;
 /// `gleam publish` produces internally. Use this artifact for archival and
 /// run `gleam publish` from the package directory for actual Hex uploads.
 pub fn package_gleam(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     workspace_root: &Path,
     output_dir: &Path,
     version: &str,
 ) -> Result<PackageArtifact> {
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
     let pkg_dir = config.package_dir(alef_core::config::extras::Language::Gleam);
 
     let pkg_name = format!("{crate_name}-{version}");

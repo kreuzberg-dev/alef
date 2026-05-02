@@ -11,7 +11,7 @@ mod native_types;
 
 use alef_codegen::c_consumer;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, resolve_output_dir};
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -24,17 +24,17 @@ use crate::gen_bindings::{to_lower_camel, to_pascal_case};
 /// 1. `packages/kotlin-native/src/nativeMain/kotlin/<package>/<Module>.kt`
 /// 2. `packages/kotlin-native/<crate>.def`
 /// 3. `packages/kotlin-native/build.gradle.kts`
-pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let kt = emit_kotlin_source(api, config);
     let def = cinterop_def::emit_def_file(config);
     let gradle = native_build_gradle::emit_gradle_build(config);
 
     let package = config.kotlin_package();
     let package_path = package.replace('.', "/");
-    let module_name = to_pascal_case(&config.crate_config.name);
-    let crate_name = &config.crate_config.name;
+    let module_name = to_pascal_case(&config.name);
+    let crate_name = &config.name;
 
-    let native_root = resolve_output_dir(None, crate_name, "packages/kotlin-native");
+    let native_root = "packages/kotlin-native".to_string();
 
     let kt_path = PathBuf::from(&native_root)
         .join("src/nativeMain/kotlin")
@@ -67,11 +67,11 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
 // Kotlin/Native source file
 // ---------------------------------------------------------------------------
 
-fn emit_kotlin_source(api: &ApiSurface, config: &AlefConfig) -> String {
+fn emit_kotlin_source(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let package = config.kotlin_package();
-    let module_name = to_pascal_case(&config.crate_config.name);
+    let module_name = to_pascal_case(&config.name);
     let prefix = config.ffi_prefix();
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
 
     let exclude_functions: std::collections::HashSet<&str> = config
         .kotlin

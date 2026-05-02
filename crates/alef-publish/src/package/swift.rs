@@ -2,7 +2,7 @@
 
 use super::PackageArtifact;
 use super::util::{copy_dir_recursive, copy_optional_file};
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -123,7 +123,7 @@ this placeholder with the real framework after completing the above steps.\n\
 /// goes; actual XCFramework creation requires `xcodebuild` and is documented in
 /// `xcframework/BUILDING.md`.
 pub fn package_swift(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     workspace_root: &Path,
     output_dir: &Path,
     version: &str,
@@ -180,21 +180,21 @@ pub fn package_swift(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alef_core::config::AlefConfig;
+    use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
     use std::fs;
 
-    fn minimal_config(name: &str) -> AlefConfig {
+    fn minimal_config(name: &str) -> ResolvedCrateConfig {
         let toml = format!(
             r#"
+[workspace]
 languages = ["swift"]
-
-[crate]
+[[crates]]
 name = "{name}"
-version_from = "Cargo.toml"
 sources = []
 "#
         );
-        toml::from_str(&toml).expect("valid config")
+        let cfg: NewAlefConfig = toml::from_str(&toml).expect("valid config");
+        cfg.resolve().unwrap().remove(0)
     }
 
     #[test]
@@ -234,17 +234,16 @@ sources = []
     #[test]
     fn package_swift_module_name_from_config() {
         let toml = r#"
+[workspace]
 languages = ["swift"]
-
-[crate]
+[[crates]]
 name = "my-lib"
-version_from = "Cargo.toml"
 sources = []
-
-[swift]
+[crates.swift]
 module_name = "AlefCore"
 "#;
-        let config: AlefConfig = toml::from_str(toml).expect("valid config");
+        let cfg: NewAlefConfig = toml::from_str(toml).expect("valid config");
+        let config = cfg.resolve().unwrap().remove(0);
         let tmp = tempfile::tempdir().expect("tempdir");
 
         let swift_pkg = tmp.path().join("packages/swift");

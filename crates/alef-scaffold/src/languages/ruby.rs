@@ -1,16 +1,16 @@
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{ResolvedCrateConfig, Language};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_ruby_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_ruby_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let pkg_dir = config.package_dir(Language::Ruby);
-    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
+    let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-rb"),
         version,
@@ -65,7 +65,7 @@ workspace = true
 "#,
         pkg_header = pkg_header,
         lib_name = lib_name,
-        crate_name = &config.crate_config.name,
+        crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Ruby),
         magnus = tv::cargo::MAGNUS,
@@ -83,7 +83,7 @@ workspace = true
     }])
 }
 
-pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let gem_name = config.ruby_gem_name();
     // File paths must use snake_case (Ruby convention), even if gem_name has hyphens.

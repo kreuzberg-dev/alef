@@ -1,19 +1,17 @@
 //! Package scaffolding generator for alef.
 
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language, ScaffoldCargo, ScaffoldCargoEnvValue};
+use alef_core::config::{Language, ResolvedCrateConfig, ScaffoldCargo, ScaffoldCargoEnvValue};
 use alef_core::ir::ApiSurface;
 
 mod languages;
+pub(crate) mod naming;
 
 pub use languages::render_csharp_csproj;
 
 /// Fields available via `[workspace.package]` inheritance detected from the root `Cargo.toml`.
 #[derive(Debug, Default)]
-#[allow(dead_code)]
 struct WorkspacePackageInheritance {
-    /// Whether `[workspace]` exists at all (i.e. this is a Cargo workspace).
-    pub is_workspace: bool,
     /// `version` is declared in `[workspace.package]`.
     pub version: bool,
     /// `readme` is declared in `[workspace.package]`.
@@ -45,7 +43,6 @@ pub(crate) fn detect_workspace_inheritance(workspace_root: Option<&std::path::Pa
     };
     let pkg = workspace.get("package");
     WorkspacePackageInheritance {
-        is_workspace: true,
         version: pkg.map(|p| p.get("version").is_some()).unwrap_or(false),
         readme: pkg.map(|p| p.get("readme").is_some()).unwrap_or(false),
         keywords: pkg.map(|p| p.get("keywords").is_some()).unwrap_or(false),
@@ -138,7 +135,7 @@ pub(crate) fn to_pep440(version: &str) -> String {
 /// - A TOML table (with path/features/etc.): `cratename = { path = "../foo", features = ["bar"] }`
 ///
 /// Returns an empty string if no extra dependencies are configured.
-pub(crate) fn render_extra_deps(config: &AlefConfig, lang: Language) -> String {
+pub(crate) fn render_extra_deps(config: &ResolvedCrateConfig, lang: Language) -> String {
     let deps = config.extra_deps_for_language(lang);
     if deps.is_empty() {
         return String::new();
@@ -163,7 +160,7 @@ pub(crate) fn render_extra_deps(config: &AlefConfig, lang: Language) -> String {
 /// Checks for per-language feature overrides first, then falls back to `[crate] features`.
 /// Returns an empty string if no features are configured, otherwise returns
 /// `, features = ["feat1", "feat2"]`.
-pub(crate) fn core_dep_features(config: &AlefConfig, lang: Language) -> String {
+pub(crate) fn core_dep_features(config: &ResolvedCrateConfig, lang: Language) -> String {
     let features = config.features_for_language(lang);
     if features.is_empty() {
         String::new()
@@ -173,7 +170,7 @@ pub(crate) fn core_dep_features(config: &AlefConfig, lang: Language) -> String {
     }
 }
 
-pub fn scaffold(api: &ApiSurface, config: &AlefConfig, languages: &[Language]) -> anyhow::Result<Vec<GeneratedFile>> {
+pub fn scaffold(api: &ApiSurface, config: &ResolvedCrateConfig, languages: &[Language]) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = vec![];
     for &lang in languages {
         files.extend(scaffold_language(api, config, lang)?);
@@ -323,18 +320,18 @@ pub(crate) struct ScaffoldMeta {
     keywords: Vec<String>,
 }
 
-pub(crate) fn scaffold_meta(config: &AlefConfig) -> ScaffoldMeta {
+pub(crate) fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
     let scaffold = config.scaffold.as_ref();
     ScaffoldMeta {
         description: scaffold
             .and_then(|s| s.description.clone())
-            .unwrap_or_else(|| format!("Bindings for {}", config.crate_config.name)),
+            .unwrap_or_else(|| format!("Bindings for {}", config.name)),
         license: scaffold
             .and_then(|s| s.license.clone())
             .unwrap_or_else(|| "MIT".to_string()),
         repository: scaffold
             .and_then(|s| s.repository.clone())
-            .unwrap_or_else(|| format!("https://github.com/example/{}", config.crate_config.name)),
+            .unwrap_or_else(|| format!("https://github.com/example/{}", config.name)),
         homepage: scaffold.and_then(|s| s.homepage.clone()).unwrap_or_default(),
         authors: scaffold.map(|s| s.authors.clone()).unwrap_or_default(),
         keywords: scaffold.map(|s| s.keywords.clone()).unwrap_or_default(),
@@ -378,7 +375,7 @@ use languages::{
     scaffold_ruby_cargo, scaffold_swift, scaffold_wasm, scaffold_zig,
 };
 
-fn scaffold_language(api: &ApiSurface, config: &AlefConfig, lang: Language) -> anyhow::Result<Vec<GeneratedFile>> {
+fn scaffold_language(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Language) -> anyhow::Result<Vec<GeneratedFile>> {
     match lang {
         Language::Python => {
             let mut files = scaffold_python(api, config)?;

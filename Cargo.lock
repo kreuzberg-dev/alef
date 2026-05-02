@@ -38,6 +38,7 @@ dependencies = [
  "ahash",
  "alef-core",
  "anyhow",
+ "toml",
 ]
 
 [[package]]
@@ -49,6 +50,7 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+ "toml",
 ]
 
 [[package]]
@@ -62,6 +64,7 @@ dependencies = [
  "criterion",
  "heck",
  "insta",
+ "toml",
 ]
 
 [[package]]
@@ -73,6 +76,7 @@ dependencies = [
  "alef-codegen",
  "alef-core",
  "anyhow",
+ "toml",
 ]
 
 [[package]]
@@ -100,6 +104,7 @@ dependencies = [
  "criterion",
  "heck",
  "insta",
+ "toml",
 ]
 
 [[package]]
@@ -111,6 +116,7 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+ "toml",
 ]
 
 [[package]]
@@ -118,11 +124,11 @@ name = "alef-backend-java"
 version = "0.13.10"
 dependencies = [
  "ahash",
- "alef-adapters",
  "alef-codegen",
  "alef-core",
  "anyhow",
  "heck",
+ "toml",
 ]
 
 [[package]]
@@ -135,6 +141,7 @@ dependencies = [
  "anyhow",
  "criterion",
  "insta",
+ "toml",
 ]
 
 [[package]]
@@ -146,6 +153,7 @@ dependencies = [
  "alef-codegen",
  "alef-core",
  "anyhow",
+ "toml",
 ]
 
 [[package]]
@@ -157,6 +165,7 @@ dependencies = [
  "alef-codegen",
  "alef-core",
  "anyhow",
+ "toml",
 ]
 
 [[package]]
@@ -169,6 +178,7 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+ "toml",
 ]
 
 [[package]]
@@ -181,6 +191,7 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+ "toml",
 ]
 
 [[package]]
@@ -193,6 +204,7 @@ dependencies = [
  "alef-core",
  "anyhow",
  "heck",
+ "toml",
 ]
 
 [[package]]
@@ -205,6 +217,7 @@ dependencies = [
  "criterion",
  "heck",
  "insta",
+ "toml",
 ]
 
 [[package]]
@@ -230,6 +243,7 @@ dependencies = [
  "criterion",
  "heck",
  "insta",
+ "toml",
 ]
 
 [[package]]
@@ -268,8 +282,10 @@ dependencies = [
  "regex",
  "semver",
  "serde_json",
+ "similar",
  "tempfile",
  "toml",
+ "toml_edit",
  "tracing",
  "tracing-subscriber",
  "ureq",
@@ -282,6 +298,7 @@ dependencies = [
  "ahash",
  "alef-core",
  "heck",
+ "toml",
 ]
 
 [[package]]
@@ -308,12 +325,14 @@ dependencies = [
  "anyhow",
  "heck",
  "regex",
+ "toml",
 ]
 
 [[package]]
 name = "alef-e2e"
 version = "0.13.10"
 dependencies = [
+ "alef-backend-php",
  "alef-codegen",
  "alef-core",
  "anyhow",
@@ -358,18 +377,23 @@ dependencies = [
 name = "alef-readme"
 version = "0.13.10"
 dependencies = [
+ "alef-backend-gleam",
  "alef-core",
  "anyhow",
  "heck",
  "minijinja",
  "serde_json",
  "serde_yaml",
+ "toml",
 ]
 
 [[package]]
 name = "alef-scaffold"
 version = "0.13.10"
 dependencies = [
+ "alef-backend-dart",
+ "alef-backend-gleam",
+ "alef-backend-php",
  "alef-core",
  "anyhow",
  "heck",

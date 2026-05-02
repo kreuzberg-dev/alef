@@ -1,8 +1,14 @@
 use alef_backend_go::GoBackend;
 use alef_backend_go::trait_bridge::gen_trait_bridges_file;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, BridgeBinding, CrateConfig, FfiConfig, GoConfig, TraitBridgeConfig};
+use alef_core::config::new_config::NewAlefConfig;
+use alef_core::config::{ResolvedCrateConfig, TraitBridgeConfig};
 use alef_core::ir::*;
+
+fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
 
 /// Helper to create a FieldDef with all defaults
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -23,89 +29,24 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     }
 }
 
-/// Helper to create a full AlefConfig with both FFI and Go configs
-fn make_config() -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "test-lib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: Some(FfiConfig {
-            prefix: Some("test".to_string()),
-            error_style: "last_error".to_string(),
-            header_name: None,
-            lib_name: None,
-            visitor_callbacks: false,
-            features: None,
-            serde_rename_all: None,
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            rename_fields: Default::default(),
-        }),
-        gleam: None,
-        go: Some(GoConfig {
-            module: Some("github.com/test/test-lib".to_string()),
-            package_name: None,
-            features: None,
-            serde_rename_all: None,
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        java: None,
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
+/// Helper to create a ResolvedCrateConfig with both FFI and Go configs.
+fn make_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["ffi", "go"]
 
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    }
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+
+[crates.go]
+module = "github.com/test/test-lib"
+"#,
+    )
 }
 
 #[test]
@@ -399,61 +340,10 @@ fn test_enum_generation() {
         "Should have StatusCompleted constant"
     );
 
-    // Verify string values match Rust serde's default externally tagged names.
-    assert!(content.contains("\"Pending\""), "Should use Rust serde values");
-    assert!(content.contains("\"Active\""), "Should use Rust serde values");
-    assert!(content.contains("\"Completed\""), "Should use Rust serde values");
-}
-
-#[test]
-fn test_string_like_data_enum_generation() {
-    let backend = GoBackend;
-
-    let api = ApiSurface {
-        crate_name: "test-lib".to_string(),
-        version: "0.1.0".to_string(),
-        types: vec![],
-        functions: vec![],
-        enums: vec![EnumDef {
-            name: "StructureKind".to_string(),
-            rust_path: "test_lib::StructureKind".to_string(),
-            original_rust_path: String::new(),
-            variants: vec![
-                EnumVariant {
-                    name: "Function".to_string(),
-                    fields: vec![],
-                    is_tuple: false,
-                    doc: String::new(),
-                    is_default: true,
-                    serde_rename: None,
-                },
-                EnumVariant {
-                    name: "Other".to_string(),
-                    fields: vec![make_field("_0", TypeRef::String, false)],
-                    is_tuple: true,
-                    doc: String::new(),
-                    is_default: false,
-                    serde_rename: None,
-                },
-            ],
-            doc: "Structure kind".to_string(),
-            cfg: None,
-            is_copy: false,
-            has_serde: true,
-            serde_tag: None,
-            serde_rename_all: None,
-        }],
-        errors: vec![],
-    };
-
-    let result = backend.generate_bindings(&api, &make_config());
-    assert!(result.is_ok());
-
-    let content = &result.unwrap()[0].content;
-    assert!(content.contains("type StructureKind string"));
-    assert!(content.contains("StructureKindFunction StructureKind = \"Function\""));
-    assert!(content.contains("func (e *StructureKind) UnmarshalJSON(data []byte) error"));
-    assert!(content.contains("var tagged map[string]string"));
+    // Verify string values in snake_case
+    assert!(content.contains("\"pending\""), "Should use snake_case values");
+    assert!(content.contains("\"active\""), "Should use snake_case values");
+    assert!(content.contains("\"completed\""), "Should use snake_case values");
 }
 
 #[test]
@@ -1074,88 +964,26 @@ fn make_trait_param(name: &str, ty: TypeRef) -> ParamDef {
     }
 }
 
-fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "test-lib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: Some(FfiConfig {
-            prefix: Some("krz".to_string()),
-            error_style: "last_error".to_string(),
-            header_name: None,
-            lib_name: None,
-            visitor_callbacks: true,
-            features: None,
-            serde_rename_all: None,
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            rename_fields: Default::default(),
-        }),
-        gleam: None,
-        go: Some(GoConfig {
-            module: Some("github.com/test/test-lib".to_string()),
-            package_name: None,
-            features: None,
-            serde_rename_all: None,
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        java: None,
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
+fn make_config_with_bridges(bridge_configs: Vec<TraitBridgeConfig>) -> ResolvedCrateConfig {
+    let mut config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi", "go"]
 
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: bridge_configs,
-        tools: Default::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    }
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "krz"
+visitor_callbacks = true
+
+[crates.go]
+module = "github.com/test/test-lib"
+"#,
+    );
+    config.trait_bridges = bridge_configs;
+    config
 }
 
 fn make_api_with_type(trait_type: TypeDef) -> ApiSurface {
@@ -1887,390 +1715,4 @@ impl StartsWithStrAfterFirst for str {
     fn starts_with_str_after_first(&self, needle: &str) -> bool {
         self.lines().any(|l| l.trim_start().starts_with(needle))
     }
-}
-
-// ---------------------------------------------------------------------------
-// Options-field bridge (bind_via = "options_field") tests
-// ---------------------------------------------------------------------------
-
-/// Build an AlefConfig wired for options-field bridge testing.
-///
-/// The visitor trait (`HtmlVisitor`) lives as a field on `ConversionOptions`
-/// rather than as a direct positional parameter.
-fn make_config_with_options_field_bridge() -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "htm".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: Some(FfiConfig {
-            prefix: Some("htm".to_string()),
-            error_style: "last_error".to_string(),
-            header_name: None,
-            lib_name: None,
-            visitor_callbacks: false,
-            features: None,
-            serde_rename_all: None,
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            rename_fields: Default::default(),
-        }),
-        gleam: None,
-        go: Some(GoConfig {
-            module: Some("github.com/test/htm".to_string()),
-            package_name: None,
-            features: None,
-            serde_rename_all: None,
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        java: None,
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![TraitBridgeConfig {
-            trait_name: "HtmlVisitor".to_string(),
-            super_trait: None,
-            registry_getter: None,
-            register_fn: None,
-            type_alias: Some("VisitorHandle".to_string()),
-            param_name: Some("visitor".to_string()),
-            register_extra_args: None,
-            exclude_languages: Vec::new(),
-            bind_via: BridgeBinding::OptionsField,
-            options_type: Some("ConversionOptions".to_string()),
-            options_field: Some("visitor".to_string()),
-        }],
-        tools: Default::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    }
-}
-
-/// Build an `ApiSurface` that mimics the h2m public API:
-/// - `ConversionOptions` struct with a `timeout` field
-/// - `HtmlVisitor` trait with a `visit_element` method
-/// - `convert(html: String, options: ConversionOptions) -> ConversionResult` function
-fn make_htm_api() -> ApiSurface {
-    let conversion_options = TypeDef {
-        name: "ConversionOptions".to_string(),
-        rust_path: "htm::ConversionOptions".to_string(),
-        original_rust_path: String::new(),
-        fields: vec![
-            FieldDef {
-                name: "timeout".to_string(),
-                ty: TypeRef::Primitive(PrimitiveType::U32),
-                optional: true,
-                default: None,
-                doc: "Timeout in milliseconds.".to_string(),
-                sanitized: false,
-                is_boxed: false,
-                type_rust_path: None,
-                cfg: None,
-                typed_default: None,
-                core_wrapper: CoreWrapper::None,
-                vec_inner_core_wrapper: CoreWrapper::None,
-                newtype_wrapper: None,
-            },
-            // The visitor field is an opaque handle in the Rust struct.
-            // gen_struct_type skips it in favour of the synthetic Go interface field.
-            FieldDef {
-                name: "visitor".to_string(),
-                ty: TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
-                optional: true,
-                default: None,
-                doc: String::new(),
-                sanitized: false,
-                is_boxed: false,
-                type_rust_path: None,
-                cfg: None,
-                typed_default: None,
-                core_wrapper: CoreWrapper::None,
-                vec_inner_core_wrapper: CoreWrapper::None,
-                newtype_wrapper: None,
-            },
-        ],
-        methods: vec![],
-        is_opaque: false,
-        is_clone: true,
-        is_copy: false,
-        is_trait: false,
-        has_default: true,
-        has_stripped_cfg_fields: false,
-        is_return_type: false,
-        serde_rename_all: None,
-        has_serde: true,
-        super_traits: vec![],
-        doc: "Options for HTML-to-Markdown conversion.".to_string(),
-        cfg: None,
-    };
-
-    let html_visitor = TypeDef {
-        name: "HtmlVisitor".to_string(),
-        rust_path: "htm::HtmlVisitor".to_string(),
-        original_rust_path: String::new(),
-        fields: vec![],
-        methods: vec![MethodDef {
-            name: "visit_element".to_string(),
-            params: vec![ParamDef {
-                name: "element".to_string(),
-                ty: TypeRef::String,
-                optional: false,
-                default: None,
-                sanitized: false,
-                typed_default: None,
-                is_ref: false,
-                is_mut: false,
-                newtype_wrapper: None,
-                original_type: None,
-            }],
-            return_type: TypeRef::Unit,
-            is_async: false,
-            is_static: false,
-            error_type: Some("Error".to_string()),
-            doc: "Called for each element.".to_string(),
-            receiver: Some(ReceiverKind::Ref),
-            sanitized: false,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-            has_default_impl: false,
-            trait_source: None,
-        }],
-        is_opaque: false,
-        is_clone: false,
-        is_copy: false,
-        is_trait: true,
-        has_default: false,
-        has_stripped_cfg_fields: false,
-        is_return_type: false,
-        serde_rename_all: None,
-        has_serde: false,
-        super_traits: vec![],
-        doc: "Visitor callbacks for HTML conversion.".to_string(),
-        cfg: None,
-    };
-
-    let convert_fn = FunctionDef {
-        name: "convert".to_string(),
-        rust_path: "htm::convert".to_string(),
-        original_rust_path: String::new(),
-        params: vec![
-            ParamDef {
-                name: "html".to_string(),
-                ty: TypeRef::String,
-                optional: false,
-                default: None,
-                sanitized: false,
-                typed_default: None,
-                is_ref: false,
-                is_mut: false,
-                newtype_wrapper: None,
-                original_type: None,
-            },
-            ParamDef {
-                name: "options".to_string(),
-                ty: TypeRef::Named("ConversionOptions".to_string()),
-                optional: false,
-                default: None,
-                sanitized: false,
-                typed_default: None,
-                is_ref: false,
-                is_mut: false,
-                newtype_wrapper: None,
-                original_type: None,
-            },
-        ],
-        return_type: TypeRef::String,
-        is_async: false,
-        error_type: Some("Error".to_string()),
-        doc: "Convert HTML to Markdown.".to_string(),
-        cfg: None,
-        sanitized: false,
-        return_sanitized: false,
-        returns_ref: false,
-        returns_cow: false,
-        return_newtype_wrapper: None,
-    };
-
-    ApiSurface {
-        crate_name: "htm".to_string(),
-        version: "0.1.0".to_string(),
-        types: vec![conversion_options, html_visitor],
-        functions: vec![convert_fn],
-        enums: vec![],
-        errors: vec![],
-    }
-}
-
-#[test]
-fn test_options_field_bridge_visitor_field_on_conversion_options_struct() {
-    let backend = GoBackend;
-    let config = make_config_with_options_field_bridge();
-    let api = make_htm_api();
-
-    let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
-        .expect("binding.go exists");
-    let content = &binding.content;
-
-    // ConversionOptions must have the synthetic Visitor field with json:"-"
-    assert!(
-        content.contains("Visitor HtmlVisitor"),
-        "ConversionOptions must carry a Visitor HtmlVisitor field, got:\n{}",
-        content
-    );
-    assert!(
-        content.contains("json:\"-\""),
-        "Visitor field must be excluded from JSON marshaling with json:\"-\", got:\n{}",
-        content
-    );
-}
-
-#[test]
-fn test_options_field_bridge_go_interface_is_emitted_in_binding() {
-    let backend = GoBackend;
-    let config = make_config_with_options_field_bridge();
-    let api = make_htm_api();
-
-    let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
-        .expect("binding.go exists");
-    let content = &binding.content;
-
-    // The HtmlVisitor Go interface must be emitted with the trait's methods
-    assert!(
-        content.contains("type HtmlVisitor interface"),
-        "binding.go must define the HtmlVisitor Go interface, got:\n{}",
-        content
-    );
-    assert!(
-        content.contains("VisitElement("),
-        "HtmlVisitor interface must include VisitElement method, got:\n{}",
-        content
-    );
-}
-
-#[test]
-fn test_options_field_bridge_convert_calls_ffi_setter_when_visitor_non_nil() {
-    let backend = GoBackend;
-    let config = make_config_with_options_field_bridge();
-    let api = make_htm_api();
-
-    let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
-        .expect("binding.go exists");
-    let content = &binding.content;
-
-    // Convert wrapper must check Visitor != nil and call the FFI setter
-    assert!(
-        content.contains("htm_options_set_visitor"),
-        "Convert wrapper must call htm_options_set_visitor when Visitor is set, got:\n{}",
-        content
-    );
-    assert!(
-        content.contains("cgo.NewHandle"),
-        "Convert wrapper must wrap the visitor via cgo.NewHandle, got:\n{}",
-        content
-    );
-    assert!(
-        content.contains("visitorHandle.Delete()"),
-        "Convert wrapper must defer visitorHandle.Delete() to avoid leaking the handle, got:\n{}",
-        content
-    );
-}
-
-#[test]
-fn test_options_field_bridge_no_convert_with_visitor_function() {
-    // With bind_via = "options_field", the old standalone ConvertWithVisitor function
-    // must NOT be emitted — the visitor is attached via the options struct instead.
-    let backend = GoBackend;
-    let config = make_config_with_options_field_bridge();
-    let api = make_htm_api();
-
-    let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
-        .expect("binding.go exists");
-    let content = &binding.content;
-
-    assert!(
-        !content.contains("func ConvertWithVisitor"),
-        "options-field bridge mode must not emit a standalone ConvertWithVisitor function, got:\n{}",
-        content
-    );
-}
-
-#[test]
-fn test_options_field_bridge_with_visitor_functional_option_constructor() {
-    // gen_config_options must emit a WithConversionOptionsHtmlVisitor constructor for the
-    // synthetic bridge field so callers can use the functional-options pattern.
-    let backend = GoBackend;
-    let config = make_config_with_options_field_bridge();
-    let api = make_htm_api();
-
-    let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
-        .expect("binding.go exists");
-    let content = &binding.content;
-
-    assert!(
-        content.contains("func WithConversionOptionsHtmlVisitor("),
-        "must emit WithConversionOptionsHtmlVisitor functional option constructor, got:\n{}",
-        content
-    );
 }

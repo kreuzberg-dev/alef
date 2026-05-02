@@ -1,20 +1,21 @@
+use crate::naming::{swift_min_ios, swift_min_macos};
 use crate::scaffold_meta;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let module = config.swift_module();
     // Strip the minor version component: "13.0" → "13", "16.0" → "16".
     // Swift PackageDescription uses e.g. `.v13` and `.v16`.
-    let min_macos_major = config.swift_min_macos().split('.').next().unwrap_or("13").to_string();
-    let min_ios_major = config.swift_min_ios().split('.').next().unwrap_or("16").to_string();
+    let min_macos_major = swift_min_macos(config).split('.').next().unwrap_or("13").to_string();
+    let min_ios_major = swift_min_ios(config).split('.').next().unwrap_or("16").to_string();
 
     // crate_name is e.g. "kreuzberg", the Cargo crate being wrapped.
     // The swift-bridge output files are named after the *binding* crate, e.g. "kreuzberg-swift".
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
     let binding_crate_name = format!("{crate_name}-swift");
     let binding_crate_underscore = binding_crate_name.replace('-', "_");
 

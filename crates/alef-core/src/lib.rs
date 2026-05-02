@@ -11,6 +11,6 @@ pub mod template_versions;
 pub mod version;
 
 pub use backend::{Backend, Capabilities, GeneratedFile};
-pub use config::{AlefConfig, resolve_output_dir};
+pub use config::resolve_output_dir;
 pub use error::AlefError;
 pub use ir::ApiSurface;

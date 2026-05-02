@@ -4,11 +4,11 @@
 //! to JavaScript objects via NAPI-RS.
 
 use alef_codegen::generators::trait_bridge::{
-    BridgeFieldMatch, BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type,
-    gen_bridge_all, to_camel_case, visitor_param_type,
+    BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
+    to_camel_case, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
-use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -17,12 +17,6 @@ use std::fmt::Write;
 ///
 /// Returns `None` when no bridge applies.
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
-
-/// Find the first function parameter whose IR type carries a bridge field
-/// (`bind_via = "options_field"`).
-///
-/// Returns `None` when no bridge applies.
-pub use alef_codegen::generators::trait_bridge::find_bridge_field;
 
 /// NAPI-specific trait bridge generator.
 /// Implements code generation for bridging JavaScript objects to Rust traits.
@@ -1032,205 +1026,6 @@ pub fn gen_bridge_function(
     let func_name = &func.name;
     writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
     writeln!(out, "    {body}").ok();
-    writeln!(out, "}}").ok();
-
-    out
-}
-
-/// Generate a NAPI free function where the bridge object lives as a field on an options struct
-/// (`bind_via = "options_field"`). The options parameter is passed normally as
-/// `Option<JsOptionsType>`, but the visitor field within it is typed as
-/// `Option<napi::bindgen_prelude::Object<'static>>` in the NAPI struct. This function:
-///
-/// 1. Extracts the visitor object from the JS options before converting to core.
-/// 2. Converts the options struct to core via `Into` (visitor field defaults to `None`).
-/// 3. If the visitor object is present, wraps it in the JS bridge and sets it on core options.
-/// 4. Calls the core function.
-#[allow(clippy::too_many_arguments)]
-pub fn gen_bridge_field_function(
-    func: &FunctionDef,
-    bridge_match: &BridgeFieldMatch<'_>,
-    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
-    opaque_types: &ahash::AHashSet<String>,
-    core_import: &str,
-    prefix: &str,
-) -> String {
-    let struct_name = format!("Js{}Bridge", bridge_match.bridge.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
-
-    let param_name = &bridge_match.param_name;
-    let field_name = &bridge_match.field_name;
-    let options_type = &bridge_match.options_type;
-    let param_is_optional = bridge_match.param_is_optional;
-    let js_options_type = format!("{prefix}{options_type}");
-
-    // Build parameter list — options param is typed as the JS binding struct.
-    let mut sig_parts: Vec<String> = Vec::new();
-    for p in &func.params {
-        if p.name == *param_name {
-            if param_is_optional {
-                sig_parts.push(format!("{param_name}: Option<{js_options_type}>"));
-            } else {
-                sig_parts.push(format!("{param_name}: {js_options_type}"));
-            }
-        } else {
-            let ty = mapper.map_type(&p.ty);
-            if p.optional {
-                sig_parts.push(format!("{}: Option<{ty}>", p.name));
-            } else {
-                sig_parts.push(format!("{}: {ty}", p.name));
-            }
-        }
-    }
-    let params_str = sig_parts.join(", ");
-    let return_type = mapper.map_type(&func.return_type);
-    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
-
-    let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
-
-    let mut body = String::with_capacity(1024);
-
-    if param_is_optional {
-        // Extract the visitor object from the JS options before converting.
-        writeln!(
-            body,
-            "let __visitor_obj = {param_name}.as_ref().and_then(|opts| opts.{field_name}.clone());"
-        )
-        .ok();
-        // Convert JS options to core (visitor field will be None / Default).
-        writeln!(
-            body,
-            "let {param_name}_core: Option<{core_import}::{options_type}> = {param_name}.map(|opts| {{"
-        )
-        .ok();
-        writeln!(body, "    let mut __c: {core_import}::{options_type} = opts.into();").ok();
-        writeln!(body, "    __c.{field_name} = None;").ok();
-        writeln!(body, "    __c").ok();
-        writeln!(body, "}});").ok();
-        // Attach visitor bridge if present.
-        writeln!(body, "let {param_name}_core = if let Some(__obj) = __visitor_obj {{").ok();
-        writeln!(body, "    let __bridge = {struct_name}::new(__obj);").ok();
-        writeln!(
-            body,
-            "    let __handle: {handle_path} = std::rc::Rc::new(std::cell::RefCell::new(__bridge));"
-        )
-        .ok();
-        writeln!(body, "    let mut __opts = {param_name}_core.unwrap_or_default();").ok();
-        writeln!(body, "    __opts.{field_name} = Some(__handle);").ok();
-        writeln!(body, "    Some(__opts)").ok();
-        writeln!(body, "}} else {{").ok();
-        writeln!(body, "    {param_name}_core").ok();
-        writeln!(body, "}};").ok();
-    } else {
-        writeln!(body, "let __visitor_obj = {param_name}.{field_name}.clone();").ok();
-        writeln!(
-            body,
-            "let mut {param_name}_core: {core_import}::{options_type} = {param_name}.into();"
-        )
-        .ok();
-        writeln!(body, "{param_name}_core.{field_name} = None;").ok();
-        writeln!(body, "if let Some(__obj) = __visitor_obj {{").ok();
-        writeln!(body, "    let __bridge = {struct_name}::new(__obj);").ok();
-        writeln!(
-            body,
-            "    let __handle: {handle_path} = std::rc::Rc::new(std::cell::RefCell::new(__bridge));"
-        )
-        .ok();
-        writeln!(body, "    {param_name}_core.{field_name} = Some(__handle);").ok();
-        writeln!(body, "}}").ok();
-    }
-
-    // Build call args, substituting param_name with param_name_core.
-    let call_args: Vec<String> = func
-        .params
-        .iter()
-        .map(|p| {
-            if p.name == *param_name {
-                return format!("{param_name}_core");
-            }
-            match &p.ty {
-                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                    if p.optional {
-                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
-                    } else {
-                        format!("&{}.inner", p.name)
-                    }
-                }
-                TypeRef::String | TypeRef::Char => {
-                    if p.is_ref {
-                        format!("&{}", p.name)
-                    } else {
-                        p.name.clone()
-                    }
-                }
-                _ => p.name.clone(),
-            }
-        })
-        .collect();
-    let call_args_str = call_args.join(", ");
-
-    let core_fn_path = {
-        let path = func.rust_path.replace('-', "_");
-        if path.starts_with(core_import) {
-            path
-        } else {
-            format!("{core_import}::{}", func.name)
-        }
-    };
-    let core_call = format!("{core_fn_path}({call_args_str})");
-
-    let return_wrap = match &func.return_type {
-        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
-        }
-        TypeRef::Named(_) => "val.into()".to_string(),
-        TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
-        _ => "val".to_string(),
-    };
-
-    if func.error_type.is_some() {
-        if return_wrap == "val" {
-            writeln!(body, "{core_call}{err_conv}").ok();
-        } else {
-            writeln!(body, "{core_call}.map(|val| {return_wrap}){err_conv}").ok();
-        }
-    } else {
-        writeln!(body, "{core_call}").ok();
-    }
-
-    let js_name = {
-        let mut result = String::with_capacity(func.name.len());
-        let mut capitalize_next = false;
-        for (i, c) in func.name.chars().enumerate() {
-            if c == '_' {
-                capitalize_next = true;
-            } else if capitalize_next {
-                result.extend(c.to_uppercase());
-                capitalize_next = false;
-            } else if i == 0 {
-                result.extend(c.to_lowercase());
-            } else {
-                result.push(c);
-            }
-        }
-        result
-    };
-    let js_name_attr = if js_name != func.name {
-        format!("(js_name = \"{}\")", js_name)
-    } else {
-        String::new()
-    };
-
-    let mut out = String::with_capacity(2048);
-    if func.error_type.is_some() {
-        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
-    }
-    writeln!(out, "#[napi{js_name_attr}]").ok();
-    let func_name = &func.name;
-    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
-    for line in body.lines() {
-        writeln!(out, "    {line}").ok();
-    }
     writeln!(out, "}}").ok();
 
     out

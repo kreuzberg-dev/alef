@@ -1,15 +1,15 @@
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{ResolvedCrateConfig, Language};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_node_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_node_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
+    let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &format!("{core_crate_dir}-node"),
         version,
@@ -46,7 +46,7 @@ napi-build = "{napi_build}"
 workspace = true
 "#,
         pkg_header = pkg_header,
-        crate_name = &config.crate_config.name,
+        crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Node),
         napi = tv::cargo::NAPI,
@@ -62,10 +62,10 @@ workspace = true
     }])
 }
 
-pub(crate) fn scaffold_node(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let package_name = config.node_package_name();
-    let name = &config.crate_config.name;
+    let name = &config.name;
     let version = &api.version;
     let pkg_dir = config.package_dir(Language::Node);
 

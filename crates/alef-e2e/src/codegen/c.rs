@@ -10,7 +10,7 @@ use crate::escape::{escape_c, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use anyhow::Result;
 use heck::{ToPascalCase, ToSnakeCase};
@@ -28,7 +28,7 @@ impl E2eCodegen for CCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -42,7 +42,7 @@ impl E2eCodegen for CCodegen {
         let prefix = overrides
             .and_then(|o| o.prefix.as_ref())
             .cloned()
-            .or_else(|| alef_config.ffi.as_ref().and_then(|ffi| ffi.prefix.as_ref()).cloned())
+            .or_else(|| config.ffi.as_ref().and_then(|ffi| ffi.prefix.as_ref()).cloned())
             .unwrap_or_default();
         let header = overrides
             .and_then(|o| o.header.as_ref())
@@ -79,7 +79,7 @@ impl E2eCodegen for CCodegen {
             .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
-            .unwrap_or_else(|| format!("../../crates/{}-ffi", alef_config.crate_config.name));
+            .unwrap_or_else(|| format!("../../crates/{}-ffi", config.name));
 
         // Generate Makefile.
         let category_names: Vec<String> = active_groups
@@ -93,8 +93,8 @@ impl E2eCodegen for CCodegen {
         });
 
         // Generate download_ffi.sh for downloading prebuilt FFI from GitHub releases.
-        let github_repo = alef_config.github_repo();
-        let version = alef_config.resolved_version().unwrap_or_else(|| "0.0.0".to_string());
+        let github_repo = config.github_repo();
+        let version = config.resolved_version().unwrap_or_else(|| "0.0.0".to_string());
         let ffi_pkg_name = e2e_config
             .registry
             .packages

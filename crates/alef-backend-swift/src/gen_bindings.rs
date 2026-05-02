@@ -1,7 +1,7 @@
 use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
-use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, TypeDef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
@@ -33,7 +33,7 @@ impl Backend for SwiftBackend {
         }
     }
 
-    fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let module_name = config.swift_module();
         let mapper = SwiftMapper;
 
@@ -105,12 +105,20 @@ impl Backend for SwiftBackend {
         content.push('\n');
         content.push_str(&body);
 
-        let dir = resolve_output_dir(
-            config.output.swift.as_ref(),
-            &config.crate_config.name,
-            &format!("Sources/{module_name}"),
-        );
-        let path = PathBuf::from(dir).join(format!("{module_name}.swift"));
+        let base_dir = resolve_output_dir(config.output_paths.get("swift"), &config.name, "packages/swift");
+        let base_path = PathBuf::from(&base_dir);
+        // Explicit `[crates.output] swift = "..."` is treated as the final
+        // package directory: the user controls layout. Without an override the
+        // backend constructs the canonical SwiftPM `Sources/<Module>/` layout
+        // under the template-derived base.
+        let path = if config.explicit_output.swift.is_some() {
+            base_path.join(format!("{module_name}.swift"))
+        } else {
+            base_path
+                .join("Sources")
+                .join(&module_name)
+                .join(format!("{module_name}.swift"))
+        };
 
         let mut files = vec![GeneratedFile {
             path,

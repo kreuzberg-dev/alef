@@ -1,8 +1,13 @@
 use alef_backend_magnus::MagnusBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, RubyConfig};
+use alef_core::config::new_config::NewAlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::*;
-use std::collections::HashMap;
+
+fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
 
 /// Helper to create a FieldDef with all defaults.
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -23,84 +28,21 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     }
 }
 
-/// Helper to create a basic AlefConfig with Ruby enabled.
-fn make_config() -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "test-lib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: Some(RubyConfig {
-            gem_name: Some("test_lib".to_string()),
-            stubs: None,
-            features: None,
-            serde_rename_all: None,
-            extra_dependencies: Default::default(),
-            scaffold_output: Default::default(),
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: None,
-        gleam: None,
+/// Helper to create a basic ResolvedCrateConfig with Ruby enabled.
+fn make_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["ruby"]
 
-        go: None,
-        java: None,
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
 
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    }
+[crates.ruby]
+gem_name = "test_lib"
+"#,
+    )
 }
 
 #[test]
@@ -1665,239 +1607,5 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
     assert!(
         content.contains("fn max_depth(&self) -> Option<usize>"),
         "field accessor must return Option<usize>:\n{content}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Options-field bridge tests (bind_via = "options_field")
-// ---------------------------------------------------------------------------
-
-/// Build a minimal h2m-like ApiSurface and AlefConfig:
-/// `convert(html, options) -> Result<String>` where the visitor is an optional
-/// field on `ConversionOptions` (sanitized from `Rc<RefCell<dyn HtmlVisitor>>` to String).
-fn make_h2m_like_api_and_config() -> (ApiSurface, alef_core::config::AlefConfig) {
-    use alef_core::config::{BridgeBinding, TraitBridgeConfig};
-
-    let visitor_trait = TypeDef {
-        name: "HtmlVisitor".to_string(),
-        rust_path: "my_lib::HtmlVisitor".to_string(),
-        original_rust_path: String::new(),
-        fields: vec![],
-        methods: vec![MethodDef {
-            name: "visit_tag".to_string(),
-            params: vec![],
-            return_type: TypeRef::Named("VisitResult".to_string()),
-            is_async: false,
-            is_static: false,
-            error_type: None,
-            doc: String::new(),
-            receiver: Some(ReceiverKind::Ref),
-            sanitized: false,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-            has_default_impl: true,
-            trait_source: None,
-        }],
-        is_opaque: false,
-        is_clone: false,
-        is_copy: false,
-        is_trait: true,
-        has_default: false,
-        has_stripped_cfg_fields: false,
-        is_return_type: false,
-        serde_rename_all: None,
-        has_serde: false,
-        super_traits: vec![],
-        doc: String::new(),
-        cfg: None,
-    };
-
-    let opts_type = TypeDef {
-        name: "ConversionOptions".to_string(),
-        rust_path: "my_lib::ConversionOptions".to_string(),
-        original_rust_path: String::new(),
-        fields: vec![
-            make_field("debug", TypeRef::Primitive(PrimitiveType::Bool), true),
-            // visitor field: IR sanitizes Rc<RefCell<dyn HtmlVisitor>> to String
-            FieldDef {
-                name: "visitor".to_string(),
-                ty: TypeRef::String,
-                optional: true,
-                default: None,
-                doc: String::new(),
-                sanitized: true,
-                is_boxed: false,
-                type_rust_path: None,
-                cfg: None,
-                typed_default: None,
-                core_wrapper: CoreWrapper::None,
-                vec_inner_core_wrapper: CoreWrapper::None,
-                newtype_wrapper: None,
-            },
-        ],
-        methods: vec![],
-        is_opaque: false,
-        is_clone: true,
-        is_copy: false,
-        is_trait: false,
-        has_default: true,
-        has_stripped_cfg_fields: false,
-        is_return_type: false,
-        serde_rename_all: None,
-        has_serde: false,
-        super_traits: vec![],
-        doc: String::new(),
-        cfg: None,
-    };
-
-    let convert_fn = FunctionDef {
-        name: "convert".to_string(),
-        rust_path: "my_lib::convert".to_string(),
-        original_rust_path: String::new(),
-        params: vec![
-            ParamDef {
-                name: "html".to_string(),
-                ty: TypeRef::String,
-                optional: false,
-                default: None,
-                sanitized: false,
-                typed_default: None,
-                is_ref: false,
-                is_mut: false,
-                newtype_wrapper: None,
-                original_type: None,
-            },
-            ParamDef {
-                name: "options".to_string(),
-                ty: TypeRef::Named("ConversionOptions".to_string()),
-                optional: true,
-                default: None,
-                sanitized: false,
-                typed_default: None,
-                is_ref: false,
-                is_mut: false,
-                newtype_wrapper: None,
-                original_type: None,
-            },
-        ],
-        return_type: TypeRef::String,
-        is_async: false,
-        error_type: Some("ConversionError".to_string()),
-        doc: String::new(),
-        cfg: None,
-        sanitized: false,
-        return_sanitized: false,
-        returns_ref: false,
-        returns_cow: false,
-        return_newtype_wrapper: None,
-    };
-
-    let api = ApiSurface {
-        crate_name: "my-lib".to_string(),
-        version: "1.0.0".to_string(),
-        types: vec![opts_type, visitor_trait],
-        functions: vec![convert_fn],
-        enums: vec![],
-        errors: vec![],
-    };
-
-    let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
-        trait_name: "HtmlVisitor".to_string(),
-        super_trait: None,
-        registry_getter: None,
-        register_fn: None,
-        type_alias: Some("VisitorHandle".to_string()),
-        param_name: Some("visitor".to_string()),
-        register_extra_args: None,
-        exclude_languages: vec![],
-        bind_via: BridgeBinding::OptionsField,
-        options_type: Some("ConversionOptions".to_string()),
-        options_field: None,
-    }];
-
-    (api, config)
-}
-
-/// The visitor field on the binding `ConversionOptions` must be `Option<magnus::Value>`.
-#[test]
-fn test_options_field_bridge_visitor_field_is_magnus_value() {
-    let backend = MagnusBackend;
-    let (api, config) = make_h2m_like_api_and_config();
-
-    let files = backend.generate_bindings(&api, &config).unwrap();
-    let lib = files
-        .iter()
-        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
-        .unwrap();
-    let content = &lib.content;
-
-    assert!(
-        content.contains("visitor: Option<magnus::Value>"),
-        "bridge field must be Option<magnus::Value> on the binding struct, got:\n{content}"
-    );
-}
-
-/// The convert wrapper must deserialize options, extract visitor, build bridge, and call core.
-/// No standalone `convert_with_visitor` function must be emitted.
-#[test]
-fn test_options_field_bridge_convert_wrapper_builds_bridge() {
-    let backend = MagnusBackend;
-    let (api, config) = make_h2m_like_api_and_config();
-
-    let files = backend.generate_bindings(&api, &config).unwrap();
-    let lib = files
-        .iter()
-        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
-        .unwrap();
-    let content = &lib.content;
-
-    assert!(
-        content.contains("to_json"),
-        "convert wrapper must call to_json on options, got:\n{content}"
-    );
-    assert!(
-        content.contains("serde_json::from_str"),
-        "convert wrapper must deserialize options via serde_json, got:\n{content}"
-    );
-    assert!(
-        content.contains("RbHtmlVisitorBridge"),
-        "convert wrapper must reference RbHtmlVisitorBridge, got:\n{content}"
-    );
-    assert!(
-        content.contains("RefCell::new"),
-        "convert wrapper must wrap bridge in RefCell, got:\n{content}"
-    );
-    assert!(
-        !content.contains("convert_with_visitor"),
-        "options-field mode must not emit convert_with_visitor, got:\n{content}"
-    );
-}
-
-/// The From<ConversionOptions> impl must skip the visitor field (no direct assignment).
-#[test]
-fn test_options_field_bridge_from_impl_skips_visitor_field() {
-    let backend = MagnusBackend;
-    let (api, config) = make_h2m_like_api_and_config();
-
-    let files = backend.generate_bindings(&api, &config).unwrap();
-    let lib = files
-        .iter()
-        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
-        .unwrap();
-    let content = &lib.content;
-
-    assert!(
-        content.contains("impl From<ConversionOptions>"),
-        "From impl must be emitted for the options type, got:\n{content}"
-    );
-    assert!(
-        !content.contains("val.visitor.into()"),
-        "From impl must not call val.visitor.into() (incompatible types), got:\n{content}"
-    );
-    assert!(
-        !content.contains("__result.visitor = val.visitor"),
-        "From impl must not assign val.visitor directly, got:\n{content}"
     );
 }

@@ -8,7 +8,7 @@ use crate::escape::{escape_zig, sanitize_filename};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions::toolchain;
 use anyhow::Result;
@@ -28,7 +28,7 @@ impl E2eCodegen for ZigE2eCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -59,7 +59,7 @@ impl E2eCodegen for ZigE2eCodegen {
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| alef_config.crate_config.name.to_snake_case());
+            .unwrap_or_else(|| config.name.to_snake_case());
 
         // Generate build.zig.zon (Zig package manifest).
         files.push(GeneratedFile {
@@ -69,7 +69,7 @@ impl E2eCodegen for ZigE2eCodegen {
         });
 
         // Get the module name for imports.
-        let module_name = alef_config.zig_module_name();
+        let module_name = config.zig_module_name();
 
         // Generate build.zig - collect test file names first.
         let field_resolver = FieldResolver::new(

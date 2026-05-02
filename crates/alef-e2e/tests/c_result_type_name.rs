@@ -8,27 +8,34 @@
 //! When the correct type differs (e.g. `ConversionResult`), users add an explicit
 //! `result_type` override.
 
-use alef_core::config::AlefConfig;
+use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
 use alef_e2e::codegen::c::CCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
-fn build_c_config_with_prefix_override() -> AlefConfig {
+fn resolve_one(cfg: &NewAlefConfig) -> (alef_core::config::ResolvedCrateConfig, alef_core::config::e2e::E2eConfig) {
+    let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
+    (resolved, e2e)
+}
+
+fn build_c_config_with_prefix_override() -> NewAlefConfig {
     let toml_src = r#"
+[workspace]
 languages = ["ffi"]
 
-[crate]
+[[crates]]
 name = "html-to-markdown-rs"
 sources = ["src/lib.rs"]
 
-[ffi]
+[crates.ffi]
 prefix = "htm"
 
-[e2e]
+[crates.e2e]
 fixtures = "fixtures"
 output = "e2e"
 
-[e2e.call]
+[crates.e2e.call]
 function = "convert"
 module = "htm"
 result_var = "result"
@@ -36,7 +43,7 @@ args = [
   { name = "html", field = "html", type = "string" },
 ]
 
-[e2e.call.overrides.c]
+[crates.e2e.call.overrides.c]
 header = "html_to_markdown.h"
 function = "htm_convert"
 prefix = "htm"
@@ -76,10 +83,11 @@ fn build_simple_fixture() -> FixtureGroup {
 fn c_result_type_does_not_double_prefix() {
     // With function = "htm_convert" and prefix = "htm", the result type must NOT be
     // HTMHtmConvert (doubled prefix).  It should be HTMConvert (base name in PascalCase).
-    let config = build_c_config_with_prefix_override();
+    let cfg = build_c_config_with_prefix_override();
+    let (resolved, e2e) = resolve_one(&cfg);
     let groups = vec![build_simple_fixture()];
     let files = CCodegen
-        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .generate(&groups, &e2e, &resolved)
         .expect("C generation succeeds");
     let test_file = files
         .iter()
@@ -101,20 +109,21 @@ fn c_result_type_explicit_override_wins() {
     // When result_type is set explicitly, that value is used verbatim (no prefix added
     // by the generator — the prefix is only prepended in the type annotation, not here).
     let toml_src = r#"
+[workspace]
 languages = ["ffi"]
 
-[crate]
+[[crates]]
 name = "html-to-markdown-rs"
 sources = ["src/lib.rs"]
 
-[ffi]
+[crates.ffi]
 prefix = "htm"
 
-[e2e]
+[crates.e2e]
 fixtures = "fixtures"
 output = "e2e"
 
-[e2e.call]
+[crates.e2e.call]
 function = "convert"
 module = "htm"
 result_var = "result"
@@ -122,16 +131,17 @@ args = [
   { name = "html", field = "html", type = "string" },
 ]
 
-[e2e.call.overrides.c]
+[crates.e2e.call.overrides.c]
 header = "html_to_markdown.h"
 function = "htm_convert"
 prefix = "htm"
 result_type = "ConversionResult"
 "#;
-    let config: AlefConfig = toml::from_str(toml_src).expect("config parses");
+    let cfg: NewAlefConfig = toml::from_str(toml_src).expect("config parses");
+    let (resolved, e2e) = resolve_one(&cfg);
     let groups = vec![build_simple_fixture()];
     let files = CCodegen
-        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .generate(&groups, &e2e, &resolved)
         .expect("C generation succeeds");
     let test_file = files
         .iter()

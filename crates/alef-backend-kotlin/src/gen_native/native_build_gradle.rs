@@ -1,11 +1,11 @@
 //! Emit the `build.gradle.kts` for a Kotlin/Native project.
 
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::template_versions;
 
 /// Generate the `build.gradle.kts` contents for the Kotlin/Native module.
-pub(super) fn emit_gradle_build(config: &AlefConfig) -> String {
-    let crate_name = &config.crate_config.name;
+pub(super) fn emit_gradle_build(config: &ResolvedCrateConfig) -> String {
+    let crate_name = &config.name;
     let kotlin_version = template_versions::maven::KOTLIN_JVM_PLUGIN;
 
     format!(

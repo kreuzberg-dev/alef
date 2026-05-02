@@ -1,6 +1,6 @@
 use alef_backend_dart::DartBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, TraitBridgeConfig};
+use alef_core::config::{ResolvedCrateConfig, TraitBridgeConfig, new_config::NewAlefConfig};
 use alef_core::ir::{
     ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
     PrimitiveType, ReceiverKind, TypeDef, TypeRef,
@@ -62,68 +62,17 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
     }
 }
 
-fn make_config() -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "demo-crate".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: None,
-        gleam: None,
-        go: None,
-        java: None,
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: ::alef_core::config::FormatConfig::default(),
-        format_overrides: ::std::collections::HashMap::new(),
-    }
+fn make_config() -> ResolvedCrateConfig {
+    let toml = r#"
+[workspace]
+languages = ["dart"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    cfg.resolve().expect("test config must resolve").remove(0)
 }
 
 #[test]
@@ -556,7 +505,7 @@ fn output_path_uses_module_name() {
         errors: vec![],
     };
     let mut config = make_config();
-    config.crate_config.name = "my-lib".to_string();
+    config.name = "my-lib".to_string();
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     // Even empty API generates one file (or zero if we short-circuit)
@@ -610,7 +559,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
     }
 }
 
-fn make_config_with_bridge(bridge_trait_name: &str) -> AlefConfig {
+fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
         trait_name: bridge_trait_name.to_string(),

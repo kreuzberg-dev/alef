@@ -14,3 +14,6 @@ alef-core = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }
 regex = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

@@ -6,7 +6,7 @@
 
 use super::PackageArtifact;
 use crate::platform::RustTarget;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 ///
 /// The `wheel` and `sdist` flags default to `true` when `None`.
 pub fn package_python(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -46,7 +46,7 @@ pub fn package_python(
 }
 
 fn package_wheel(
-    _config: &AlefConfig,
+    _config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -75,9 +75,9 @@ fn package_wheel(
     })
 }
 
-fn package_sdist(config: &AlefConfig, workspace_root: &Path, output_dir: &Path) -> Result<PackageArtifact> {
+fn package_sdist(config: &ResolvedCrateConfig, workspace_root: &Path, output_dir: &Path) -> Result<PackageArtifact> {
     let py_crate = crate::crate_name_from_output(config, alef_core::config::extras::Language::Python)
-        .unwrap_or_else(|| format!("{}-py", config.crate_config.name));
+        .unwrap_or_else(|| format!("{}-py", config.name));
 
     // Run `maturin sdist --manifest-path crates/{py_crate}/Cargo.toml -o {output_dir}`
     let manifest = workspace_root.join("crates").join(&py_crate).join("Cargo.toml");
@@ -153,7 +153,7 @@ fn find_latest_file(dir: &Path, suffix: &str) -> Result<PathBuf> {
         .with_context(|| format!("no file ending with '{suffix}' in {}", dir.display()))
 }
 
-fn publish_lang_config(config: &AlefConfig) -> alef_core::config::publish::PublishLanguageConfig {
+fn publish_lang_config(config: &ResolvedCrateConfig) -> alef_core::config::publish::PublishLanguageConfig {
     if let Some(publish) = &config.publish {
         if let Some(cfg) = publish.languages.get("python") {
             return cfg.clone();
@@ -168,16 +168,18 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn minimal_config() -> AlefConfig {
-        toml::from_str(
+    fn minimal_config() -> ResolvedCrateConfig {
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["python"]
-[crate]
+[[crates]]
 name = "my-lib"
 sources = ["src/lib.rs"]
 "#,
         )
-        .unwrap()
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
     }
 
     #[test]
@@ -214,18 +216,20 @@ sources = ["src/lib.rs"]
 
     #[test]
     fn publish_lang_config_wheel_sdist_flags() {
-        let config: AlefConfig = toml::from_str(
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["python"]
-[crate]
+[[crates]]
 name = "my-lib"
 sources = ["src/lib.rs"]
-[publish.languages.python]
+[crates.publish.languages.python]
 wheel = false
 sdist = true
 "#,
         )
         .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
         let cfg = publish_lang_config(&config);
         assert_eq!(cfg.wheel, Some(false));
         assert_eq!(cfg.sdist, Some(true));

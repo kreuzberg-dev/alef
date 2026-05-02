@@ -1,7 +1,7 @@
 //! Kotlin Maven package — builds and stages the compiled jar artifact.
 
 use super::PackageArtifact;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -13,12 +13,12 @@ use std::path::Path;
 /// `{kotlin_package}:{crate_name}:{version}` — the group comes from
 /// `config.kotlin_package()` and the artifact id is the crate name.
 pub fn package_kotlin(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     workspace_root: &Path,
     output_dir: &Path,
     version: &str,
 ) -> Result<PackageArtifact> {
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
     let pkg_dir = config.package_dir(alef_core::config::extras::Language::Kotlin);
     let pkg_path = workspace_root.join(&pkg_dir);
 

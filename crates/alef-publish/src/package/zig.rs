@@ -3,7 +3,7 @@
 use super::PackageArtifact;
 use super::util::copy_dir_recursive;
 use crate::platform::RustTarget;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -16,7 +16,7 @@ use std::path::Path;
 /// - `include/` — C header
 /// - `build.zig`, `build.zig.zon` — Zig build files
 pub fn package_zig(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -24,7 +24,7 @@ pub fn package_zig(
 ) -> Result<PackageArtifact> {
     let lib_name = config.ffi_lib_name();
     let header_name = config.ffi_header_name();
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
     let pkg_dir = config.package_dir(alef_core::config::extras::Language::Zig);
 
     let pkg_name = format!("{crate_name}-v{version}");

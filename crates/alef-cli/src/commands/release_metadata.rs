@@ -5,7 +5,7 @@
 //! `kreuzberg/scripts/publish/validate-and-compute-release-metadata.sh`
 //! faithfully to Rust.
 
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::Result;
 use serde_json::json;
 use std::collections::HashSet;
@@ -72,7 +72,7 @@ impl ReleaseMetadata {
 /// - `git_ref` — optional ref override (commit SHA, branch, or `refs/...`).
 /// - `event` — GitHub event name (release / workflow_dispatch / repository_dispatch).
 /// - `dry_run`, `force_republish` — workflow inputs.
-/// - `config` — optional `AlefConfig`; when present, valid targets are expanded to
+/// - `config` — optional `ResolvedCrateConfig`; when present, valid targets are expanded to
 ///   include languages present in `config.languages`.
 pub fn compute(
     tag: &str,
@@ -81,7 +81,7 @@ pub fn compute(
     event: &str,
     dry_run: bool,
     force_republish: bool,
-    config: Option<&AlefConfig>,
+    config: Option<&ResolvedCrateConfig>,
 ) -> Result<ReleaseMetadata> {
     // Validate tag format.
     if !tag.starts_with('v') {

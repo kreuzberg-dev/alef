@@ -8,7 +8,7 @@ use crate::escape::{ruby_string_literal, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
@@ -28,7 +28,7 @@ impl E2eCodegen for RubyCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -54,7 +54,7 @@ impl E2eCodegen for RubyCodegen {
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| alef_config.crate_config.name.replace('-', "_"));
+            .unwrap_or_else(|| config.name.replace('-', "_"));
         let gem_path = ruby_pkg
             .as_ref()
             .and_then(|p| p.path.as_ref())

@@ -9,7 +9,7 @@ use crate::escape::{escape_java as escape_swift_str, expand_fixture_templates, s
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions::toolchain;
 use anyhow::Result;
@@ -29,7 +29,7 @@ impl E2eCodegen for SwiftE2eCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -52,7 +52,7 @@ impl E2eCodegen for SwiftE2eCodegen {
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| alef_config.crate_config.name.to_upper_camel_case());
+            .unwrap_or_else(|| config.name.to_upper_camel_case());
         let pkg_path = swift_pkg
             .as_ref()
             .and_then(|p| p.path.as_ref())
@@ -70,7 +70,7 @@ impl E2eCodegen for SwiftE2eCodegen {
         // Resolve the registry URL: derive from the configured repository when
         // available (with a `.git` suffix per SwiftPM convention). Falls back
         // to a vendor-neutral placeholder when no repo is configured.
-        let registry_url = alef_config
+        let registry_url = config
             .try_github_repo()
             .map(|repo| {
                 let base = repo.trim_end_matches('/').trim_end_matches(".git");

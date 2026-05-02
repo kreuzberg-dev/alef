@@ -227,7 +227,7 @@ pub mod maven {
     pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.14";
 
     // renovate: datasource=maven depName=com.puppycrawl.tools:checkstyle
-    pub const CHECKSTYLE: &str = "13.4.2";
+    pub const CHECKSTYLE: &str = "13.4.1";
 
     // renovate: datasource=maven depName=net.sourceforge.pmd:pmd-java
     pub const PMD: &str = "7.24.0";
@@ -367,7 +367,7 @@ pub mod precommit {
     pub const CARGO_DENY_REV: &str = "0.19.4";
 
     // renovate: datasource=github-tags packageName=rvben/rumdl-pre-commit
-    pub const RUMDL_REV: &str = "v0.1.86";
+    pub const RUMDL_REV: &str = "v0.1.85";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
     pub const TYPOS_REV: &str = "v1.46.0";

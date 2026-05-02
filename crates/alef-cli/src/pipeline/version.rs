@@ -1,4 +1,4 @@
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{Language, ResolvedCrateConfig};
 use anyhow::Context as _;
 use std::sync::LazyLock;
 use tracing::{debug, info, warn};
@@ -130,8 +130,8 @@ use alef_core::version::{to_r_version, to_rubygems_prerelease};
 
 /// Verify that all package manifest versions match the Cargo.toml source of truth.
 /// Returns a list of mismatches (empty = all consistent).
-pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
-    let expected = read_version(&config.crate_config.version_from)?;
+pub fn verify_versions(config: &ResolvedCrateConfig) -> anyhow::Result<Vec<String>> {
+    let expected = read_version(&config.version_from)?;
     let expected_pep440 = to_pep440(&expected);
     let expected_rubygems = to_rubygems_prerelease(&expected);
     let mut mismatches = Vec::new();
@@ -256,28 +256,29 @@ pub fn verify_versions(config: &AlefConfig) -> anyhow::Result<Vec<String>> {
 }
 
 /// Set an explicit version in the Cargo.toml (supports pre-release versions like 0.1.0-rc.1).
-pub fn set_version(config: &AlefConfig, version: &str) -> anyhow::Result<()> {
-    write_version_to_cargo_toml(&config.crate_config.version_from, version)
+pub fn set_version(config: &ResolvedCrateConfig, version: &str) -> anyhow::Result<()> {
+    write_version_to_cargo_toml(&config.version_from, version)
         .with_context(|| format!("failed to set version to {version}"))?;
-    info!("Set version to {version} in {}", config.crate_config.version_from);
+    info!("Set version to {version} in {}", config.version_from);
     Ok(())
 }
 
 /// Sync version from Cargo.toml to all package manifest files.
-pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: Option<&str>) -> anyhow::Result<()> {
+pub fn sync_versions(
+    config: &ResolvedCrateConfig,
+    config_path: &std::path::Path,
+    bump: Option<&str>,
+) -> anyhow::Result<()> {
     // If bump is requested, read current version, bump it, and write it back to Cargo.toml.
     if let Some(component) = bump {
-        let current = read_version(&config.crate_config.version_from)?;
+        let current = read_version(&config.version_from)?;
         let bumped = bump_version(&current, component)?;
         info!("Bumping version {current} -> {bumped} ({component})");
-        write_version_to_cargo_toml(&config.crate_config.version_from, &bumped).context("failed to sync versions")?;
-        info!(
-            "Updated {} with bumped version {bumped}",
-            config.crate_config.version_from
-        );
+        write_version_to_cargo_toml(&config.version_from, &bumped).context("failed to sync versions")?;
+        info!("Updated {} with bumped version {bumped}", config.version_from);
     }
 
-    let version = read_version(&config.crate_config.version_from)?;
+    let version = read_version(&config.version_from)?;
 
     // Always do the manifest scan. The previous warm-path short-circuit
     // checked `.alef/last_synced_version` and returned early when the
@@ -627,7 +628,7 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
     let updated_paths: std::collections::HashSet<std::path::PathBuf> =
         updated.iter().map(std::path::PathBuf::from).collect();
     if !updated_paths.is_empty() {
-        match super::super::cache::sources_hash(&config.crate_config.sources) {
+        match super::super::cache::sources_hash(&config.sources) {
             Ok(sources_hash) => match super::generate::finalize_hashes(&updated_paths, &sources_hash) {
                 Ok(n) if n > 0 => {
                     debug!("  Finalized alef:hash in {n} file(s)");
@@ -652,7 +653,7 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
     // a warm rerun should not invoke cargo at all.
     if !updated.is_empty() && config.languages.contains(&Language::Ffi) {
         let ffi_crate = config
-            .output
+            .explicit_output
             .ffi
             .as_ref()
             .and_then(|p| {
@@ -716,13 +717,13 @@ pub fn sync_versions(config: &AlefConfig, config_path: &std::path::Path, bump: O
 
 /// Internal helper to regenerate READMEs after a version sync.
 /// Extracts IR, computes README files, and writes them to disk.
-fn regenerate_readmes(config: &AlefConfig, config_path: &std::path::Path) -> anyhow::Result<usize> {
+fn regenerate_readmes(config: &ResolvedCrateConfig, config_path: &std::path::Path) -> anyhow::Result<usize> {
     let api = extract(config, config_path, false)?;
     let languages = config.languages.clone();
     let readme_files = readme(&api, config, &languages)?;
     let base_dir = std::path::PathBuf::from(".");
     let _ = config_path; // unused now that the embedded hash is per-file content-derived
-    let sources_hash = super::super::cache::sources_hash(&config.crate_config.sources)?;
+    let sources_hash = super::super::cache::sources_hash(&config.sources)?;
     let count = super::generate::write_scaffold_files_with_overwrite(&readme_files, &base_dir, true)?;
     let paths: std::collections::HashSet<std::path::PathBuf> =
         readme_files.iter().map(|f| base_dir.join(&f.path)).collect();

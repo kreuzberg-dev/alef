@@ -134,16 +134,15 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         if references_excluded && typ.has_stripped_cfg_fields {
             continue;
         }
-        let conversion =
-            if field.sanitized || references_excluded || config.force_default_fields.contains(&field.name.as_str()) {
-                format!("{}: Default::default()", field.name)
-            } else if optionalized && !field.optional {
-                // Field was wrapped in Option<T> for JS ergonomics but core expects T.
-                // Use unwrap_or_default() for simple types, unwrap_or_default() + into for Named.
-                gen_optionalized_field_to_core(&field.name, &field.ty, config, false)
-            } else {
-                field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
-            };
+        let conversion = if field.sanitized || references_excluded {
+            format!("{}: Default::default()", field.name)
+        } else if optionalized && !field.optional {
+            // Field was wrapped in Option<T> for JS ergonomics but core expects T.
+            // Use unwrap_or_default() for simple types, unwrap_or_default() + into for Named.
+            gen_optionalized_field_to_core(&field.name, &field.ty, config, false)
+        } else {
+            field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
+        };
         // Newtype wrapping: when the field was resolved from a newtype (e.g. NodeIndex → u32),
         // wrap the binding value back into the newtype for the core struct.
         // e.g. `source: val.source` → `source: kreuzberg::NodeIndex(val.source)`

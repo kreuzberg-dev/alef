@@ -1,4 +1,4 @@
-use alef_core::config::{AdapterConfig, AlefConfig, Language};
+use alef_core::config::{AdapterConfig, Language, ResolvedCrateConfig};
 
 /// Generate the method body and optionally a struct definition for a streaming adapter.
 ///
@@ -8,7 +8,7 @@ use alef_core::config::{AdapterConfig, AlefConfig, Language};
 pub fn generate_body(
     adapter: &AdapterConfig,
     language: Language,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
 ) -> anyhow::Result<(String, Option<String>)> {
     let result = match language {
         Language::Python => gen_python_body(adapter, config),
@@ -99,11 +99,11 @@ fn iterator_name(adapter: &AdapterConfig) -> String {
 // Python (PyO3)
 // ---------------------------------------------------------------------------
 
-fn gen_python_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
+fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
     let error_type = adapter.error_type.as_deref().unwrap_or("anyhow::Error");
-    let core_import = config.core_import();
+    let core_import = config.core_import_name();
     let iter_name = iterator_name(adapter);
 
     let args = call_args(adapter);
@@ -159,7 +159,7 @@ fn gen_python_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
 // Node (NAPI)
 // ---------------------------------------------------------------------------
 
-fn gen_node_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
+fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let prefix = config.node_type_prefix();
     let raw_item = adapter.item_type.as_deref().unwrap_or("()");
@@ -168,7 +168,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
     } else {
         format!("{prefix}{raw_item}")
     };
-    let core_import = config.core_import();
+    let core_import = config.core_import_name();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -202,10 +202,10 @@ fn gen_node_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
 // Ruby (Magnus)
 // ---------------------------------------------------------------------------
 
-fn gen_ruby_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
+fn gen_ruby_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
-    let core_import = config.core_import();
+    let core_import = config.core_import_name();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -243,10 +243,10 @@ fn gen_ruby_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
 // PHP (ext-php-rs)
 // ---------------------------------------------------------------------------
 
-fn gen_php_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
+fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
-    let core_import = config.core_import();
+    let core_import = config.core_import_name();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -283,10 +283,10 @@ fn gen_php_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option
 // Elixir (Rustler)
 // ---------------------------------------------------------------------------
 
-fn gen_elixir_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
+fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("()");
-    let core_import = config.core_import();
+    let core_import = config.core_import_name();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -323,7 +323,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Opt
 // WASM (wasm-bindgen)
 // ---------------------------------------------------------------------------
 
-fn gen_wasm_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
+fn gen_wasm_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let prefix = config.wasm_type_prefix();
     let raw_item = adapter.item_type.as_deref().unwrap_or("JsValue");
@@ -332,7 +332,7 @@ fn gen_wasm_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Optio
     } else {
         format!("{prefix}{raw_item}")
     };
-    let core_import = config.core_import();
+    let core_import = config.core_import_name();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -472,10 +472,10 @@ fn gen_csharp_body(adapter: &AdapterConfig) -> (String, Option<String>) {
 // R (extendr) -- collect stream into Vec
 // ---------------------------------------------------------------------------
 
-fn gen_r_body(adapter: &AdapterConfig, config: &AlefConfig) -> (String, Option<String>) {
+fn gen_r_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String, Option<String>) {
     let core_path = &adapter.core_path;
     let item_type = adapter.item_type.as_deref().unwrap_or("Robj");
-    let core_import = config.core_import();
+    let core_import = config.core_import_name();
 
     let args = call_args(adapter);
     let call_str = args.join(", ");

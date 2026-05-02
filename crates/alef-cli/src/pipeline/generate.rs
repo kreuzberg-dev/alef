@@ -1,5 +1,5 @@
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::hash;
 use alef_core::ir::ApiSurface;
 use anyhow::Context as _;
@@ -10,10 +10,10 @@ use tracing::{debug, info};
 use crate::cache;
 use crate::registry;
 
-/// Generate bindings for given languages.
+/// Generate bindings for given languages using a per-crate resolved config.
 pub fn generate(
     api: &ApiSurface,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     languages: &[Language],
     clean: bool,
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
@@ -29,7 +29,8 @@ pub fn generate(
     }
 
     let ir_json = serde_json::to_string(api)?;
-    let config_toml = toml::to_string(config).unwrap_or_default();
+    let config_toml =
+        toml::to_string(config).with_context(|| "failed to serialize resolved crate config for cache key")?;
 
     let to_generate: Vec<_> = languages
         .par_iter()
@@ -37,7 +38,7 @@ pub fn generate(
             let lang_str = lang.to_string();
             let lang_hash = cache::compute_lang_hash(&ir_json, &lang_str, &config_toml);
 
-            if !clean && cache::is_lang_cached(&lang_str, &lang_hash) {
+            if !clean && cache::is_lang_cached(&config.name, &lang_str, &lang_hash) {
                 debug!("  {}: cached, skipping", lang_str);
                 return None;
             }
@@ -57,7 +58,7 @@ pub fn generate(
                 .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
             let base_dir = std::env::current_dir().unwrap_or_default();
             let output_paths: Vec<std::path::PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
-            cache::write_lang_hash(lang_str, lang_hash, &output_paths)
+            cache::write_lang_hash(&config.name, lang_str, lang_hash, &output_paths)
                 .with_context(|| format!("failed to write language hash for {lang_str}"))?;
             Ok((*lang, files))
         })
@@ -69,7 +70,7 @@ pub fn generate(
 /// Generate type stubs for given languages.
 pub fn generate_stubs(
     api: &ApiSurface,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
@@ -89,7 +90,7 @@ pub fn generate_stubs(
 /// Generate public API wrappers for given languages.
 pub fn generate_public_api(
     api: &ApiSurface,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
@@ -281,12 +282,20 @@ fn normalize_whitespace(content: &str) -> String {
 }
 
 /// Generate scaffold files for given languages.
-pub fn scaffold(api: &ApiSurface, config: &AlefConfig, languages: &[Language]) -> anyhow::Result<Vec<GeneratedFile>> {
+pub fn scaffold(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+) -> anyhow::Result<Vec<GeneratedFile>> {
     alef_scaffold::scaffold(api, config, languages)
 }
 
 /// Generate README files for given languages.
-pub fn readme(api: &ApiSurface, config: &AlefConfig, languages: &[Language]) -> anyhow::Result<Vec<GeneratedFile>> {
+pub fn readme(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+) -> anyhow::Result<Vec<GeneratedFile>> {
     alef_readme::generate_readmes(api, config, languages)
 }
 

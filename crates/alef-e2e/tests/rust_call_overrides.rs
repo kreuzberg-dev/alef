@@ -8,31 +8,39 @@
 //! Without them the generator emits `&options` against an `Option<T>` slot, omits
 //! the trailing arg, and produces uncompilable output (E0061, E0308, E0609).
 
-use alef_core::config::AlefConfig;
+use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_e2e::codegen::E2eCodegen;
 use alef_e2e::codegen::rust::RustE2eCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup};
+use alef_core::config::e2e::E2eConfig;
+
+fn resolve_one(cfg: &NewAlefConfig) -> (ResolvedCrateConfig, E2eConfig) {
+    let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
+    (resolved, e2e)
+}
 
 // ---------------------------------------------------------------------------
 // Bug regression helpers
 // ---------------------------------------------------------------------------
 
-fn build_config_with_optional_array_fields(extra_call_override: &str) -> AlefConfig {
+fn build_config_with_optional_array_fields(extra_call_override: &str) -> NewAlefConfig {
     let toml_src = format!(
         r#"
+[workspace]
 languages = ["rust"]
 
-[crate]
+[[crates]]
 name = "mylib"
 sources = ["src/lib.rs"]
 
-[e2e]
+[crates.e2e]
 fixtures = "fixtures"
 output = "e2e"
 fields_optional = ["metadata.sheet_count", "metadata.output_format", "detected_languages"]
 fields_array = ["detected_languages"]
 
-[e2e.call]
+[crates.e2e.call]
 function = "extract_file"
 module = "mylib"
 result_var = "result"
@@ -42,7 +50,7 @@ args = [
   {{ name = "path", field = "input.path", type = "string" }},
 ]
 
-[e2e.call.overrides.rust]
+[crates.e2e.call.overrides.rust]
 crate_name = "mylib"
 function = "extract_file"
 {extra_call_override}
@@ -76,10 +84,11 @@ fn build_fixture_with_assertions(id: &str, assertions: Vec<Assertion>) -> Fixtur
     }
 }
 
-fn render_smoke_test(config: &AlefConfig, assertions: Vec<Assertion>) -> String {
+fn render_smoke_test(cfg: &NewAlefConfig, assertions: Vec<Assertion>) -> String {
+    let (resolved, e2e) = resolve_one(cfg);
     let groups = vec![build_fixture_with_assertions("bug_regression", assertions)];
     let files = RustE2eCodegen
-        .generate(&groups, &config.e2e.clone().unwrap(), config)
+        .generate(&groups, &e2e, &resolved)
         .expect("generation succeeds");
     let test_file = files
         .iter()
@@ -88,20 +97,21 @@ fn render_smoke_test(config: &AlefConfig, assertions: Vec<Assertion>) -> String 
     test_file.content.clone()
 }
 
-fn build_config(extra_call_override: &str) -> AlefConfig {
+fn build_config(extra_call_override: &str) -> NewAlefConfig {
     let toml_src = format!(
         r#"
+[workspace]
 languages = ["rust"]
 
-[crate]
+[[crates]]
 name = "html-to-markdown-rs"
 sources = ["src/lib.rs"]
 
-[e2e]
+[crates.e2e]
 fixtures = "fixtures"
 output = "e2e"
 
-[e2e.call]
+[crates.e2e.call]
 function = "convert"
 module = "html_to_markdown_rs"
 args = [
@@ -109,7 +119,7 @@ args = [
   {{ name = "options", field = "options", type = "json_object", optional = true }},
 ]
 
-[e2e.call.overrides.rust]
+[crates.e2e.call.overrides.rust]
 crate_name = "html_to_markdown_rs"
 function = "convert"
 {extra_call_override}
@@ -154,10 +164,11 @@ fn build_fixture() -> FixtureGroup {
     }
 }
 
-fn render_rust_test(config: &AlefConfig) -> String {
+fn render_rust_test(cfg: &NewAlefConfig) -> String {
+    let (resolved, e2e) = resolve_one(cfg);
     let groups = vec![build_fixture()];
     let files = RustE2eCodegen
-        .generate(&groups, &config.e2e.clone().unwrap(), config)
+        .generate(&groups, &e2e, &resolved)
         .expect("generation succeeds");
     let test_file = files
         .iter()

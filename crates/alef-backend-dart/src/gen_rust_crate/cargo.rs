@@ -1,18 +1,17 @@
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
-use alef_core::template_versions::cargo as tv;
 use std::path::PathBuf;
 
 pub(crate) fn emit_cargo_toml(
     rust_dir: &str,
     api: &ApiSurface,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     source_crate_name: &str,
 ) -> GeneratedFile {
-    let crate_name = config.crate_config.name.as_str();
+    let crate_name = config.name.as_str();
     let version = &api_version(config);
-    let frb_version = tv::FLUTTER_RUST_BRIDGE;
+    let frb_version = crate::naming::dart_frb_version(config);
     let core_crate_dir = config.core_crate_for_language(alef_core::config::extras::Language::Dart);
     let dart_override = config.dart.as_ref().and_then(|c| c.core_crate_override.as_deref());
     // Cargo dep KEY: when an override is set, use it as-is; otherwise preserve
@@ -23,7 +22,7 @@ pub(crate) fn emit_cargo_toml(
         None => source_crate_name.to_string(),
     };
     let same_as_workspace =
-        dart_override.is_none() && core_crate_dir == *crate_name && config.crate_config.workspace_root.is_none();
+        dart_override.is_none() && core_crate_dir == *crate_name && config.workspace_root.is_none();
     let core_path = if same_as_workspace {
         "../../..".to_string()
     } else {
@@ -152,8 +151,8 @@ pub(crate) fn emit_frb_yaml(rust_dir: &str, module_name: &str) -> GeneratedFile 
     }
 }
 
-fn api_version(config: &AlefConfig) -> String {
-    // Use explicit version override if set, otherwise fall back to "0.1.0" as a
-    // safe default (the real version is resolved from Cargo.toml at publish time).
-    config.version.as_deref().unwrap_or("0.1.0").to_string()
+fn api_version(config: &ResolvedCrateConfig) -> String {
+    // Use the resolved version from Cargo.toml if available, otherwise fall back to "0.1.0"
+    // as a safe default (the real version is resolved from Cargo.toml at publish time).
+    config.resolved_version().unwrap_or_else(|| "0.1.0".to_string())
 }

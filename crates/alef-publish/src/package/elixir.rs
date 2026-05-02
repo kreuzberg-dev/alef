@@ -12,7 +12,7 @@
 
 use super::PackageArtifact;
 use crate::platform::RustTarget;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::fs;
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Returns one `PackageArtifact` per NIF version.
 pub fn package_elixir(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -78,7 +78,7 @@ pub fn package_elixir(
 ///
 /// Walks `output_dir` for files matching `lib{app}*nif*.tar.gz`, computes SHA256 for each,
 /// and writes an Elixir map literal compatible with RustlerPrecompiled.
-pub fn write_elixir_checksums(config: &AlefConfig, output_dir: &Path) -> Result<PathBuf> {
+pub fn write_elixir_checksums(config: &ResolvedCrateConfig, output_dir: &Path) -> Result<PathBuf> {
     let app_name = config.elixir_app_name();
     // Elixir module name convention: capitalise first letter.
     let module_name = {
@@ -124,7 +124,7 @@ fn nif_extension(target: &RustTarget) -> &'static str {
     }
 }
 
-fn resolve_nif_versions(config: &AlefConfig) -> Vec<String> {
+fn resolve_nif_versions(config: &ResolvedCrateConfig) -> Vec<String> {
     if let Some(publish) = &config.publish {
         if let Some(lang_cfg) = publish.languages.get("elixir") {
             if let Some(versions) = &lang_cfg.nif_versions {
@@ -297,15 +297,17 @@ mod tests {
 
     #[test]
     fn resolve_nif_versions_defaults() {
-        let config: AlefConfig = toml::from_str(
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["elixir"]
-[crate]
+[[crates]]
 name = "my-lib"
 sources = ["src/lib.rs"]
 "#,
         )
         .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
         let versions = resolve_nif_versions(&config);
         assert!(!versions.is_empty());
     }
@@ -313,18 +315,20 @@ sources = ["src/lib.rs"]
     #[test]
     fn write_checksums_produces_exs_file() {
         let tmp = TempDir::new().unwrap();
-        let config: AlefConfig = toml::from_str(&format!(
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(&format!(
             r#"
+[workspace]
 languages = ["elixir"]
-[crate]
+[[crates]]
 name = "mylib"
 sources = ["src/lib.rs"]
-[elixir]
+[crates.elixir]
 scaffold_output = "{pkg}"
 "#,
             pkg = tmp.path().display()
         ))
         .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
 
         // Create a fake tarball.
         let tarball = tmp

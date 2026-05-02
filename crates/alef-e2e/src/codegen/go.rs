@@ -6,7 +6,7 @@ use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_codegen::naming::{go_param_name, to_go_name};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use anyhow::Result;
 use heck::ToUpperCamelCase;
@@ -24,7 +24,7 @@ impl E2eCodegen for GoCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -56,7 +56,7 @@ impl E2eCodegen for GoCodegen {
             .and_then(|p| p.version.as_ref())
             .cloned()
             .unwrap_or_else(|| {
-                alef_config
+                config
                     .resolved_version()
                     .map(|v| format!("v{v}"))
                     .unwrap_or_else(|| "v0.0.0".to_string())
@@ -199,29 +199,14 @@ fn render_test_file(
         .iter()
         .any(|f| f.mock_response.is_some() || f.visitor.is_some() || fixture_has_go_callable(f, e2e_config));
 
-    // Determine if we need the "os" import (mock_url args, HTTP fixtures
-    // that read MOCK_SERVER_URL via os.Getenv, or bytes args with file paths).
+    // Determine if we need the "os" import (mock_url args, or HTTP fixtures
+    // that read MOCK_SERVER_URL via os.Getenv).
     let needs_os = fixtures.iter().any(|f| {
         if f.is_http_test() {
             return true;
         }
         let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
-        call_args.iter().any(|a| {
-            // Check for mock_url args
-            if a.arg_type == "mock_url" {
-                return true;
-            }
-            // Check for bytes args with file paths
-            if a.arg_type == "bytes" {
-                let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-                if let Some(serde_json::Value::String(s)) = f.input.get(field) {
-                    if matches!(classify_bytes_value(s), BytesKind::FilePath) {
-                        return true;
-                    }
-                }
-            }
-            false
-        })
+        call_args.iter().any(|a| a.arg_type == "mock_url")
     });
 
     // Determine if we need "encoding/json" (handle args with non-null config,
@@ -280,7 +265,7 @@ fn render_test_file(
         has_handle || has_json_obj
     });
 
-    // Determine if we need "encoding/base64" (bytes-type args with base64 encoding).
+    // Determine if we need "encoding/base64" (bytes-type args decoded at runtime).
     let needs_base64 = fixtures.iter().any(|f| {
         let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
         call_args.iter().any(|a| {
@@ -288,16 +273,11 @@ fn render_test_file(
                 return false;
             }
             let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-            if let Some(serde_json::Value::String(s)) = f.input.get(field) {
-                matches!(classify_bytes_value(s), BytesKind::Base64)
-            } else {
-                false
-            }
+            matches!(f.input.get(field), Some(serde_json::Value::String(_)))
         })
     });
 
-    // Determine if we need the "fmt" import (CustomTemplate visitor actions with placeholders,
-    // or contains assertions over non-string values).
+    // Determine if we need the "fmt" import (CustomTemplate visitor actions with placeholders).
     let needs_fmt = fixtures.iter().any(|f| {
         f.visitor.as_ref().is_some_and(|v| {
             v.callbacks.values().any(|action| {
@@ -307,9 +287,6 @@ fn render_test_file(
                     false
                 }
             })
-        }) || f.assertions.iter().any(|a| {
-            a.field.as_ref().is_some_and(|field| !field.is_empty())
-                && matches!(a.assertion_type.as_str(), "contains" | "contains_all" | "not_contains")
         })
     });
 
@@ -542,14 +519,18 @@ fn render_test_function(
     let returns_void = call_config.returns_void;
 
     // result_is_simple: result is a scalar (*string, *bool, etc.) not a struct.
-    let result_is_simple = call_config.result_is_simple
-        || overrides.is_some_and(|o| o.result_is_simple)
-        || call_config.overrides.get("rust").is_some_and(|o| o.result_is_simple);
+    // Check Go override first, then Rust override as fallback.
+    let result_is_simple = overrides.map(|o| o.result_is_simple).unwrap_or_else(|| {
+        call_config
+            .overrides
+            .get("rust")
+            .map(|o| o.result_is_simple)
+            .unwrap_or(false)
+    });
 
     // result_is_array: the simple result is a slice/array type (e.g., []string).
     // Only relevant when result_is_simple is true.
-    let result_is_array = call_config.result_is_array || overrides.is_some_and(|o| o.result_is_array);
-    let result_is_option = call_config.result_is_option || overrides.is_some_and(|o| o.result_is_option);
+    let result_is_array = overrides.map(|o| o.result_is_array).unwrap_or(false);
 
     // Per-call Go options_type, falling back to the default call's Go override.
     let call_options_type = overrides.and_then(|o| o.options_type.as_deref()).or_else(|| {
@@ -654,16 +635,6 @@ fn render_test_function(
 
     // For result_is_simple functions, the result variable IS the value (e.g. *string, *bool).
     // We create a local `value` that dereferences it so assertions can use a plain type.
-    let simple_option_expects_value = result_is_simple
-        && result_is_option
-        && has_usable_assertion
-        && fixture.assertions.iter().any(|a| {
-            !matches!(
-                a.assertion_type.as_str(),
-                "is_empty" | "not_empty" | "error" | "not_error"
-            )
-        });
-
     // For functions that return (value, error): emit `result, err :=`
     // For functions that return only error: emit `err :=`
     // For functions that return only a value (result_is_simple, no error): emit `result :=`
@@ -680,7 +651,7 @@ fn render_test_function(
             out,
             "\t{result_binding} {assign_op} {import_alias}.{function_name}({final_args})"
         );
-        if has_usable_assertion && result_binding != "_" && (!result_is_option || simple_option_expects_value) {
+        if has_usable_assertion && result_binding != "_" {
             // Emit nil check and dereference for simple pointer results.
             let _ = writeln!(out, "\tif {result_var} == nil {{");
             let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
@@ -711,16 +682,7 @@ fn render_test_function(
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
-        if has_usable_assertion && result_binding != "_" {
-            let _ = writeln!(out, "\tif {result_var} == nil {{");
-            let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
-            let _ = writeln!(out, "\t}}");
-        }
-        if result_is_simple
-            && has_usable_assertion
-            && result_binding != "_"
-            && (!result_is_option || simple_option_expects_value)
-        {
+        if result_is_simple && has_usable_assertion && result_binding != "_" {
             // Emit nil check and dereference for simple pointer results.
             let _ = writeln!(out, "\tif {result_var} == nil {{");
             let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
@@ -729,19 +691,12 @@ fn render_test_function(
         }
     }
 
-    if result_is_simple && result_is_option && has_usable_assertion && !simple_option_expects_value {
-        let _ = writeln!(out, "\tif {result_var} != nil {{");
-        let _ = writeln!(out, "\t\tt.Errorf(\"expected empty value, got %v\", {result_var})");
-        let _ = writeln!(out, "\t}}");
-    }
-
     // For result_is_simple functions, assertions reference `value` (the dereferenced result).
-    let effective_result_var =
-        if result_is_simple && has_usable_assertion && (!result_is_option || simple_option_expects_value) {
-            "value".to_string()
-        } else {
-            result_var.to_string()
-        };
+    let effective_result_var = if result_is_simple && has_usable_assertion {
+        "value".to_string()
+    } else {
+        result_var.to_string()
+    };
 
     // Collect optional fields referenced by assertions and emit nil-safe
     // dereference blocks so that assertions can use plain string locals.
@@ -816,7 +771,6 @@ fn render_test_function(
                             &optional_locals,
                             result_is_simple,
                             result_is_array,
-                            result_is_option,
                         );
                         for line in nil_buf.lines() {
                             let _ = writeln!(out, "\t{line}");
@@ -832,7 +786,6 @@ fn render_test_function(
                             &optional_locals,
                             result_is_simple,
                             result_is_array,
-                            result_is_option,
                         );
                     }
                     continue;
@@ -848,7 +801,6 @@ fn render_test_function(
             &optional_locals,
             result_is_simple,
             result_is_array,
-            result_is_option,
         );
     }
 
@@ -1205,8 +1157,8 @@ fn build_args_and_setup(
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = input.get(field);
 
-        // Handle bytes type: fixture can store file paths, inline text, or base64-encoded bytes.
-        // Classify the value and emit the appropriate Go code.
+        // Handle bytes type: fixture stores base64-encoded bytes.
+        // Emit a Go base64.StdEncoding.DecodeString call to decode at runtime.
         if arg.arg_type == "bytes" {
             let var_name = format!("{}Bytes", arg.name);
             match val {
@@ -1218,29 +1170,9 @@ fn build_args_and_setup(
                     }
                 }
                 Some(serde_json::Value::String(s)) => {
-                    match classify_bytes_value(s) {
-                        BytesKind::FilePath => {
-                            // File path: emit os.ReadFile(...)
-                            let go_path = go_string_literal(s);
-                            setup_lines.push(format!("{var_name}, err := os.ReadFile({go_path})"));
-                            setup_lines.push(format!(
-                                "if err != nil {{ t.Fatalf(\"failed to read fixture file {go_path}: %v\", err) }}"
-                            ));
-                            parts.push(var_name);
-                        }
-                        BytesKind::InlineText => {
-                            // Inline text: emit []byte("...")
-                            let go_str = go_string_literal(s);
-                            setup_lines.push(format!("{var_name} := []byte({go_str})"));
-                            parts.push(var_name);
-                        }
-                        BytesKind::Base64 => {
-                            // Base64-encoded: emit base64.StdEncoding.DecodeString(...)
-                            let go_b64 = go_string_literal(s);
-                            setup_lines.push(format!("{var_name}, _ := base64.StdEncoding.DecodeString({go_b64})"));
-                            parts.push(var_name);
-                        }
-                    }
+                    let go_b64 = go_string_literal(s);
+                    setup_lines.push(format!("{var_name}, _ := base64.StdEncoding.DecodeString({go_b64})"));
+                    parts.push(var_name);
                 }
                 Some(other) => {
                     parts.push(format!("[]byte({})", json_to_go(other)));
@@ -1377,7 +1309,6 @@ fn render_assertion(
     optional_locals: &std::collections::HashMap<String, String>,
     result_is_simple: bool,
     result_is_array: bool,
-    result_is_option: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct field accesses on the result.
@@ -1613,12 +1544,7 @@ fn render_assertion(
     // panic by checking that the array is non-empty first.
     // Extract the array slice expression (everything before `[0]`).
     let array_guard: Option<String> = if let Some(idx) = field_expr.find("[0]") {
-        let guard_source = field_expr
-            .strip_prefix("len(")
-            .and_then(|expr| expr.strip_suffix(')'))
-            .unwrap_or(&field_expr);
-        let idx = guard_source.find("[0]").unwrap_or(idx);
-        let array_expr = &guard_source[..idx];
+        let array_expr = &field_expr[..idx];
         Some(array_expr.to_string())
     } else {
         None
@@ -1674,12 +1600,8 @@ fn render_assertion(
                     format!("string(*{field_expr})")
                 } else if field_is_array {
                     format!("strings.Join({field_expr}, \" \")")
-                } else if result_is_simple {
-                    field_expr.clone()
                 } else {
-                    format!(
-                        "func() string {{ b, err := json.Marshal({field_expr}); if err != nil {{ return fmt.Sprintf(\"%v\", {field_expr}) }}; return string(b) }}()"
-                    )
+                    format!("string({field_expr})")
                 };
                 if is_opt {
                     let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -1715,12 +1637,8 @@ fn render_assertion(
                         format!("string(*{field_expr})")
                     } else if field_is_array {
                         format!("strings.Join({field_expr}, \" \")")
-                    } else if result_is_simple {
-                        field_expr.clone()
                     } else {
-                        format!(
-                            "func() string {{ b, err := json.Marshal({field_expr}); if err != nil {{ return fmt.Sprintf(\"%v\", {field_expr}) }}; return string(b) }}()"
-                        )
+                        format!("string({field_expr})")
                     };
                     if is_opt {
                         let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -1750,12 +1668,8 @@ fn render_assertion(
                     format!("string(*{field_expr})")
                 } else if field_is_array {
                     format!("strings.Join({field_expr}, \" \")")
-                } else if result_is_simple {
-                    field_expr.clone()
                 } else {
-                    format!(
-                        "func() string {{ b, err := json.Marshal({field_expr}); if err != nil {{ return fmt.Sprintf(\"%v\", {field_expr}) }}; return string(b) }}()"
-                    )
+                    format!("string({field_expr})")
                 };
                 let _ = writeln!(out_ref, "\tif strings.Contains({field_for_contains}, {go_val}) {{");
                 let _ = writeln!(
@@ -1766,12 +1680,6 @@ fn render_assertion(
             }
         }
         "not_empty" => {
-            if result_is_simple && result_is_option {
-                let _ = writeln!(out_ref, "\tif {field_expr} == nil {{");
-                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected non-empty value\")");
-                let _ = writeln!(out_ref, "\t}}");
-                return;
-            }
             // For optional struct pointers (not arrays), just check != nil.
             // For optional slice/string pointers, check nil and len.
             let field_is_array = {
@@ -1791,12 +1699,6 @@ fn render_assertion(
             let _ = writeln!(out_ref, "\t}}");
         }
         "is_empty" => {
-            if result_is_simple && result_is_option {
-                let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
-                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected empty value, got %v\", {field_expr})");
-                let _ = writeln!(out_ref, "\t}}");
-                return;
-            }
             let field_is_array = {
                 let rf = assertion.field.as_deref().unwrap_or("");
                 let rn = field_resolver.resolve(rf);
@@ -2592,50 +2494,6 @@ fn method_to_camel(snake: &str) -> String {
     snake.to_upper_camel_case()
 }
 
-/// How to represent a fixture `type = "bytes"` string value in generated Go code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BytesKind {
-    /// A relative file path like `"pdf/fake_memo.pdf"` — read with `os.ReadFile(...)`.
-    FilePath,
-    /// Inline text content like `"<!DOCTYPE html>..."` — encode to `[]byte("...")`.
-    InlineText,
-    /// A base64-encoded blob like `"/9j/4AAQ"` — decode with `base64.StdEncoding.DecodeString(...)`.
-    Base64,
-}
-
-/// Classify a fixture string value that maps to a `bytes` argument.
-///
-/// Rules (in order):
-/// 1. Starts with `<`, `{`, or `[`, or contains whitespace → inline text.
-/// 2. First character is an ASCII letter/digit/underscore AND the value contains
-///    a `/` that is preceded by at least one word character AND the value contains
-///    a `.` after the last `/` → file path.
-/// 3. Everything else → base64.
-#[allow(dead_code)]
-fn classify_bytes_value(s: &str) -> BytesKind {
-    // Rule 1: obvious inline content markers.
-    if s.starts_with('<') || s.starts_with('{') || s.starts_with('[') || s.contains(' ') {
-        return BytesKind::InlineText;
-    }
-
-    // Rule 2: looks like "dir/file.ext" — starts with a word char, has a slash,
-    // and the portion after the last slash contains a dot (file extension).
-    let first = s.chars().next().unwrap_or('\0');
-    if first.is_ascii_alphanumeric() || first == '_' {
-        if let Some(slash_pos) = s.find('/') {
-            if slash_pos > 0 {
-                let after_slash = &s[slash_pos + 1..];
-                if after_slash.contains('.') && !after_slash.is_empty() {
-                    return BytesKind::FilePath;
-                }
-            }
-        }
-    }
-
-    // Rule 3: everything else is treated as base64.
-    BytesKind::Base64
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2707,95 +2565,5 @@ mod tests {
             !out.contains("kreuzberg.clean_extracted_text("),
             "must not emit raw snake_case method name, got:\n{out}"
         );
-    }
-
-    #[test]
-    fn test_go_array_guard_handles_len_wrapped_element_access() {
-        let resolver = FieldResolver::new(
-            &std::collections::HashMap::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::from(["chunks".to_string()]),
-        );
-        let assertion = Assertion {
-            assertion_type: "less_than_or_equal".to_string(),
-            field: Some("chunks.content.length".to_string()),
-            value: Some(serde_json::json!(50)),
-            values: None,
-            method: None,
-            args: None,
-            check: None,
-        };
-        let mut out = String::new();
-
-        render_assertion(
-            &mut out,
-            &assertion,
-            "result",
-            "tspack",
-            &resolver,
-            &std::collections::HashMap::new(),
-            false,
-            false,
-            false,
-        );
-
-        assert!(
-            out.contains("if len(result.Chunks) > 0 {"),
-            "expected guard around result.Chunks, got:\n{out}"
-        );
-        assert!(
-            !out.contains("if len(len("),
-            "must not emit nested len guard, got:\n{out}"
-        );
-    }
-
-    #[test]
-    fn test_classify_bytes_value_file_paths() {
-        // File paths: directory/filename.ext
-        assert!(matches!(classify_bytes_value("pdf/memo.pdf"), BytesKind::FilePath));
-        assert!(matches!(
-            classify_bytes_value("images/hello_world.png"),
-            BytesKind::FilePath
-        ));
-        assert!(matches!(
-            classify_bytes_value("docs/nested/file.docx"),
-            BytesKind::FilePath
-        ));
-        assert!(matches!(
-            classify_bytes_value("_internal/test.bin"),
-            BytesKind::FilePath
-        ));
-    }
-
-    #[test]
-    fn test_classify_bytes_value_inline_text() {
-        // Inline text: HTML/JSON/XML or contains spaces
-        assert!(matches!(classify_bytes_value("<!DOCTYPE html>"), BytesKind::InlineText));
-        assert!(matches!(
-            classify_bytes_value("{\"key\": \"value\"}"),
-            BytesKind::InlineText
-        ));
-        assert!(matches!(classify_bytes_value("[1, 2, 3]"), BytesKind::InlineText));
-        assert!(matches!(
-            classify_bytes_value("plain text content"),
-            BytesKind::InlineText
-        ));
-        assert!(matches!(
-            classify_bytes_value("<html><body>test</body></html>"),
-            BytesKind::InlineText
-        ));
-    }
-
-    #[test]
-    fn test_classify_bytes_value_base64() {
-        // Base64: opaque strings without obvious markers
-        assert!(matches!(classify_bytes_value("/9j/4AAQSkZJRg=="), BytesKind::Base64));
-        assert!(matches!(classify_bytes_value("iVBORw0KGgoAAAANS"), BytesKind::Base64));
-        assert!(matches!(classify_bytes_value("YSBndWllbidzIGd1"), BytesKind::Base64));
-        // Paths without dot don't match (no extension)
-        assert!(matches!(classify_bytes_value("nodot/file"), BytesKind::Base64));
-        // Single word without slash doesn't match path pattern
-        assert!(matches!(classify_bytes_value("singleword"), BytesKind::Base64));
     }
 }

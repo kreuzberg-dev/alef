@@ -10,6 +10,7 @@ description = "Fixture-driven e2e test generator for alef"
 readme = "README.md"
 
 [dependencies]
+alef-backend-php = { workspace = true }
 alef-codegen = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }

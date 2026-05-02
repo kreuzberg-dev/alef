@@ -97,72 +97,19 @@ pub(crate) fn empty_api() -> ApiSurface {
     }
 }
 
-pub(crate) fn make_test_config() -> alef_core::config::AlefConfig {
-    use alef_core::config::*;
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "mylib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![Language::Python],
-        exclude: ExcludeConfig::default(),
-        include: IncludeConfig::default(),
-        output: OutputConfig::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: None,
-        gleam: None,
+pub(crate) fn make_test_config() -> alef_core::config::ResolvedCrateConfig {
+    let cfg: alef_core::config::NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
 
-        go: None,
-        java: None,
-
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: CustomModulesConfig::default(),
-        custom_registrations: CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    }
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+"#,
+    )
+    .expect("valid toml");
+    cfg.resolve().expect("resolve ok").remove(0)
 }
 
 pub(crate) fn make_minimal_api(version: &str) -> ApiSurface {

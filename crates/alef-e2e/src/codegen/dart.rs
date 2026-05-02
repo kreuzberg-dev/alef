@@ -8,7 +8,7 @@ use crate::config::E2eConfig;
 use crate::escape::sanitize_filename;
 use crate::fixture::{Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions::pub_dev;
 use anyhow::Result;
@@ -27,7 +27,7 @@ impl E2eCodegen for DartE2eCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -40,7 +40,7 @@ impl E2eCodegen for DartE2eCodegen {
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| alef_config.dart_pubspec_name());
+            .unwrap_or_else(|| config.dart_pubspec_name());
         let pkg_path = dart_pkg
             .as_ref()
             .and_then(|p| p.path.as_ref())

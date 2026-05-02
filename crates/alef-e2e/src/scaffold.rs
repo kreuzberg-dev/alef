@@ -1,7 +1,7 @@
 //! Fixture scaffolding for `alef e2e init` and `alef e2e scaffold`.
 
 use crate::config::E2eConfig;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::path::Path;
 
@@ -9,7 +9,7 @@ static FIXTURE_SCHEMA: &str = include_str!("../schema/fixture.schema.json");
 
 /// Create the fixtures directory structure and write the schema file.
 /// Called by `alef e2e init`.
-pub fn init_fixtures(e2e_config: &E2eConfig, _alef_config: &AlefConfig) -> Result<Vec<String>> {
+pub fn init_fixtures(e2e_config: &E2eConfig, _config: &ResolvedCrateConfig) -> Result<Vec<String>> {
     let fixtures_dir = Path::new(&e2e_config.fixtures);
     let mut created = Vec::new();
 
@@ -47,7 +47,7 @@ pub fn init_fixtures(e2e_config: &E2eConfig, _alef_config: &AlefConfig) -> Resul
 /// Called by `alef e2e scaffold --id <id> --category <cat> --description <desc>`.
 pub fn scaffold_fixture(
     e2e_config: &E2eConfig,
-    _alef_config: &AlefConfig,
+    _config: &ResolvedCrateConfig,
     id: &str,
     category: &str,
     description: &str,

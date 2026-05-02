@@ -6,6 +6,7 @@
 //! in Phase 1B.
 
 mod gen_bindings;
+pub mod naming;
 mod type_map;
 
 pub use gen_bindings::GleamBackend;

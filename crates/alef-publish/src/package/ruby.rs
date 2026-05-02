@@ -12,7 +12,7 @@
 
 use super::PackageArtifact;
 use crate::platform::RustTarget;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Produces: `{gem_name}-{version}-{platform}.gem`
 pub fn package_ruby(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -38,7 +38,7 @@ pub fn package_ruby(
 
     // Find the compiled native extension.
     let rb_crate = crate::crate_name_from_output(config, alef_core::config::extras::Language::Ruby)
-        .unwrap_or_else(|| format!("{}-rb", config.crate_config.name));
+        .unwrap_or_else(|| format!("{}-rb", config.name));
     let lib_filename = target.shared_lib_name(&rb_crate.replace('-', "_"));
     let native_lib = find_ruby_native_lib(workspace_root, target, &rb_crate, &lib_filename)?;
 

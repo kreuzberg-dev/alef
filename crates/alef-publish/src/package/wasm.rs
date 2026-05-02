@@ -5,7 +5,7 @@
 //! `output_dir`.
 
 use super::PackageArtifact;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,13 +19,13 @@ use std::path::{Path, PathBuf};
 /// 2. `npm pack` inside the produced `pkg/` directory
 /// 3. Move `*.tgz` to `output_dir`
 pub fn package_wasm(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     workspace_root: &Path,
     output_dir: &Path,
     _version: &str,
 ) -> Result<PackageArtifact> {
     let wasm_crate = crate::crate_name_from_output(config, alef_core::config::extras::Language::Wasm)
-        .unwrap_or_else(|| format!("{}-wasm", config.crate_config.name));
+        .unwrap_or_else(|| format!("{}-wasm", config.name));
 
     let crate_dir = workspace_root.join("crates").join(&wasm_crate);
 

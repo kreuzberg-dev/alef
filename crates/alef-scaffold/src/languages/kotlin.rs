@@ -1,17 +1,17 @@
 use crate::scaffold_meta;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions::{maven, toolchain};
 
 const JACKSON_VERSION: &str = "2.18.2";
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_kotlin(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
     let kotlin_package = config.kotlin_package();
-    let project_name = config.crate_config.name.replace('-', "_");
+    let project_name = config.name.replace('-', "_");
 
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
     let kotlinx_coroutines = maven::KOTLINX_COROUTINES_CORE;

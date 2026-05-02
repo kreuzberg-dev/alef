@@ -1,9 +1,9 @@
 //! Emit the cinterop `.def` file for a Kotlin/Native project.
 
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 
 /// Generate the contents of the `<crate>.def` cinterop definition file.
-pub(super) fn emit_def_file(config: &AlefConfig) -> String {
+pub(super) fn emit_def_file(config: &ResolvedCrateConfig) -> String {
     let header = config.ffi_header_name();
     let lib_name = config.ffi_lib_name();
     let prefix = config.ffi_prefix();

@@ -310,10 +310,12 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
     let crate_name = metadata.name.as_str();
     let source_path = format!("crates/{}/src/lib.rs", crate_name);
 
-    let mut config = format!("version = \"{}\"\n", env!("CARGO_PKG_VERSION"));
+    // New multi-crate schema: [workspace] + [[crates]]
+    let mut config = String::new();
 
+    // Workspace section — shared defaults
+    config.push_str("[workspace]\n");
     config.push_str("languages = [");
-
     for (i, lang) in languages.iter().enumerate() {
         if i > 0 {
             config.push_str(", ");
@@ -322,33 +324,47 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
         config.push_str(lang);
         config.push('"');
     }
-    config.push_str("]\n\n");
+    config.push_str("]\n");
+    config.push_str(&format!("alef_version = \"{}\"\n", env!("CARGO_PKG_VERSION")));
 
+    // Global tooling preferences. All fields are optional; the defaults shown
+    // match alef's built-in behavior — uncomment to override.
+    config.push_str(
+        "\n[workspace.tools]\n\
+         # python_package_manager = \"uv\"   # uv | pip | poetry\n\
+         # node_package_manager = \"pnpm\"   # pnpm | npm | yarn\n\
+         # rust_dev_tools = [\"cargo-edit\", \"cargo-sort\", \"cargo-machete\", \"cargo-deny\", \"cargo-llvm-cov\"]\n",
+    );
+
+    // Crate entry
     config.push_str(&format!(
-        "[crate]\nname = \"{}\"\nsources = [\"{}\"]\nversion_from = \"Cargo.toml\"\n",
+        "\n[[crates]]\nname = \"{}\"\nsources = [\"{}\"]\nversion_from = \"Cargo.toml\"\n",
         crate_name, source_path
     ));
 
-    // Optionally seed [scaffold].repository from Cargo.toml's package.repository
+    // Optionally seed [crates.scaffold].repository from Cargo.toml's package.repository
     // — alef's [java]/[kotlin]/[go] accessors derive their defaults from this URL.
     if let Some(repo) = metadata.repository.as_deref() {
-        config.push_str(&format!("\n[scaffold]\nrepository = \"{repo}\"\n"));
+        config.push_str(&format!("\n[crates.scaffold]\nrepository = \"{repo}\"\n"));
     }
 
     // Add language-specific configs
     if languages.contains(&"python".to_string()) {
         config.push_str(&format!(
-            "\n[python]\nmodule_name = \"_{}\"\n",
+            "\n[crates.python]\nmodule_name = \"_{}\"\n",
             crate_name.replace('-', "_")
         ));
     }
 
     if languages.contains(&"node".to_string()) {
-        config.push_str(&format!("\n[node]\npackage_name = \"{crate_name}\"\n"));
+        config.push_str(&format!("\n[crates.node]\npackage_name = \"{crate_name}\"\n"));
     }
 
     if languages.contains(&"ffi".to_string()) {
-        config.push_str(&format!("\n[ffi]\nprefix = \"{}\"\n", crate_name.replace('-', "_")));
+        config.push_str(&format!(
+            "\n[crates.ffi]\nprefix = \"{}\"\n",
+            crate_name.replace('-', "_")
+        ));
     }
 
     if languages.contains(&"go".to_string()) {
@@ -357,13 +373,20 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
             .as_deref()
             .and_then(alef_core::config::derive_go_module_from_repo)
         {
-            Some(module) => config.push_str(&format!("\n[go]\nmodule = \"{module}\"\n")),
-            None => config.push_str("\n[go]\n# module = \"github.com/<org>/<repo>\"  # TODO: set the Go module path\n"),
+            Some(module) => config.push_str(&format!("\n[crates.go]\nmodule = \"{module}\"\n")),
+            None => {
+                config.push_str(
+                    "\n[crates.go]\n# module = \"github.com/<org>/<repo>\"  # TODO: set the Go module path\n",
+                );
+            }
         }
     }
 
     if languages.contains(&"ruby".to_string()) {
-        config.push_str(&format!("\n[ruby]\ngem_name = \"{}\"\n", crate_name.replace('-', "_")));
+        config.push_str(&format!(
+            "\n[crates.ruby]\ngem_name = \"{}\"\n",
+            crate_name.replace('-', "_")
+        ));
     }
 
     if languages.contains(&"java".to_string()) {
@@ -372,23 +395,19 @@ fn generate_init_config(metadata: &CrateMetadata, languages: &[String]) -> Strin
             .as_deref()
             .and_then(alef_core::config::derive_reverse_dns_package)
         {
-            Some(pkg) => config.push_str(&format!("\n[java]\npackage = \"{pkg}\"\n")),
-            None => config.push_str("\n[java]\n# package = \"com.example.<org>\"  # TODO: set the Java package\n"),
+            Some(pkg) => config.push_str(&format!("\n[crates.java]\npackage = \"{pkg}\"\n")),
+            None => {
+                config.push_str("\n[crates.java]\n# package = \"com.example.<org>\"  # TODO: set the Java package\n");
+            }
         }
     }
 
     if languages.contains(&"csharp".to_string()) {
-        config.push_str(&format!("\n[csharp]\nnamespace = \"{}\"\n", to_pascal_case(crate_name)));
+        config.push_str(&format!(
+            "\n[crates.csharp]\nnamespace = \"{}\"\n",
+            to_pascal_case(crate_name)
+        ));
     }
-
-    // Global tooling preferences. All fields are optional; the defaults shown
-    // match alef's built-in behavior — uncomment to override.
-    config.push_str(
-        "\n[tools]\n\
-         # python_package_manager = \"uv\"   # uv | pip | poetry\n\
-         # node_package_manager = \"pnpm\"   # pnpm | npm | yarn\n\
-         # rust_dev_tools = [\"cargo-edit\", \"cargo-sort\", \"cargo-machete\", \"cargo-deny\", \"cargo-llvm-cov\"]\n",
-    );
 
     config
 }
@@ -495,17 +514,21 @@ mod tests {
     #[test]
     fn generate_init_config_includes_version() {
         let config = generate_init_config(&fixture_metadata("my-lib", None), &["python".to_string()]);
-        let expected = format!("version = \"{}\"", env!("CARGO_PKG_VERSION"));
-        assert!(config.starts_with(&expected), "config should start with version key");
+        let expected = format!("alef_version = \"{}\"", env!("CARGO_PKG_VERSION"));
+        assert!(
+            config.contains(&expected),
+            "config should contain alef_version key: {config}"
+        );
     }
 
     #[test]
-    fn generate_init_config_parses_as_valid_alef_config() {
+    fn generate_init_config_parses_as_valid_new_alef_config() {
         let config_str = generate_init_config(&fixture_metadata("my-lib", None), &["python".to_string()]);
-        let config: alef_core::config::AlefConfig =
-            toml::from_str(&config_str).expect("generated config should parse as valid AlefConfig");
-        assert_eq!(config.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
-        assert_eq!(config.crate_config.name, "my-lib");
+        let cfg: alef_core::config::NewAlefConfig =
+            toml::from_str(&config_str).expect("generated config should parse as valid NewAlefConfig");
+        let resolved = cfg.resolve().expect("generated config should resolve");
+        let config = &resolved[0];
+        assert_eq!(config.name, "my-lib");
     }
 
     #[test]

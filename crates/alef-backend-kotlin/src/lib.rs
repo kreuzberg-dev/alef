@@ -8,6 +8,7 @@
 mod gen_bindings;
 mod gen_mpp;
 pub(crate) mod gen_native;
+pub mod naming;
 mod type_map;
 
 pub use gen_bindings::KotlinBackend;

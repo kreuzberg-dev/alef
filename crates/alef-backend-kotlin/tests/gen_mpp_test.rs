@@ -1,6 +1,6 @@
 use alef_backend_kotlin::KotlinBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, FfiConfig, KotlinConfig, KotlinTarget};
+use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
     ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef,
     PrimitiveType, TypeDef, TypeRef,
@@ -9,6 +9,11 @@ use alef_core::ir::{
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
+
+fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
@@ -86,89 +91,26 @@ fn make_function(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_asy
 }
 
 /// Build a multiplatform-target config.
-fn make_mpp_config(crate_name: &str) -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: crate_name.to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: Some(FfiConfig {
-            prefix: Some("demo".to_string()),
-            error_style: "last_error".to_string(),
-            header_name: Some("demo.h".to_string()),
-            lib_name: Some("demo_ffi".to_string()),
-            visitor_callbacks: false,
-            features: None,
-            serde_rename_all: None,
-            exclude_functions: vec![],
-            exclude_types: vec![],
-            rename_fields: std::collections::HashMap::new(),
-        }),
-        gleam: None,
-        go: None,
-        java: None,
-        kotlin: Some(KotlinConfig {
-            package: Some("dev.kreuzberg.demo".to_string()),
-            features: None,
-            serde_rename_all: None,
-            rename_fields: std::collections::HashMap::new(),
-            exclude_functions: vec![],
-            exclude_types: vec![],
-            run_wrapper: None,
-            extra_lint_paths: vec![],
-            target: KotlinTarget::Multiplatform,
-        }),
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: ::alef_core::config::FormatConfig::default(),
-        format_overrides: ::std::collections::HashMap::new(),
-    }
+fn make_mpp_config(crate_name: &str) -> ResolvedCrateConfig {
+    resolved_one(&format!(
+        r#"
+[workspace]
+languages = ["kotlin", "ffi"]
+
+[[crates]]
+name = "{crate_name}"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demo"
+header_name = "demo.h"
+lib_name = "demo_ffi"
+
+[crates.kotlin]
+package = "dev.kreuzberg.demo"
+target = "multiplatform"
+"#
+    ))
 }
 
 // ---------------------------------------------------------------------------

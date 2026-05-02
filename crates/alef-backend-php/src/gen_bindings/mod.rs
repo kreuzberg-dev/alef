@@ -9,13 +9,14 @@ use alef_codegen::conversions::ConversionConfig;
 use alef_codegen::generators::RustBindingConfig;
 use alef_codegen::generators::{self, AsyncPattern};
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, Language, detect_serde_available, resolve_output_dir};
+use alef_core::config::{Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
 use alef_core::ir::{PrimitiveType, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
 use std::path::PathBuf;
 
+use crate::naming::php_autoload_namespace;
 use functions::{gen_async_function_as_static_method, gen_function_as_static_method};
 use helpers::{
     gen_enum_tainted_from_binding_to_core, gen_serde_bridge_from, gen_tokio_runtime, has_enum_named_field,
@@ -73,7 +74,7 @@ impl Backend for PhpBackend {
         }
     }
 
-    fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         // Separate unit-variant enums (→ String) from tagged data enums (→ flat PHP class).
         let data_enum_names: AHashSet<String> = api
             .enums
@@ -91,7 +92,7 @@ impl Backend for PhpBackend {
             enum_names: enum_names.clone(),
             data_enum_names: data_enum_names.clone(),
         };
-        let core_import = config.core_import();
+        let core_import = config.core_import_name();
 
         // Get exclusion lists from PHP config
         let php_config = config.php.as_ref();
@@ -99,8 +100,8 @@ impl Backend for PhpBackend {
         let exclude_types = php_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
 
         let output_dir = resolve_output_dir(
-            config.output.php.as_ref(),
-            &config.crate_config.name,
+            config.output_paths.get("php"),
+            &config.name,
             "crates/{name}-php/src/",
         );
         let has_serde = detect_serde_available(&output_dir);
@@ -159,19 +160,11 @@ impl Backend for PhpBackend {
         if !opaque_types.is_empty() {
             builder.add_import("std::sync::Arc");
         }
-        // Sorted vec so gen_struct_with_per_field_attrs can emit #[serde(skip)] on
-        // fields whose type is an opaque handle (e.g. VisitorHandle), preventing compile
-        // errors when the struct derives serde::Serialize/Deserialize.
-        let opaque_type_names_vec: Vec<String> = {
-            let mut v: Vec<String> = opaque_types.iter().cloned().collect();
-            v.sort();
-            v
-        };
 
         // Compute the PHP namespace for namespaced class registration.
         // Delegates to config so [php].namespace overrides are respected.
         let extension_name = config.php_extension_name();
-        let php_namespace = config.php_autoload_namespace();
+        let php_namespace = php_autoload_namespace(config);
 
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Php)?;
@@ -226,19 +219,7 @@ impl Backend for PhpBackend {
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                // Pass opaque_type_names so gen_struct_with_per_field_attrs can add
-                // #[serde(skip)] to fields whose type is an opaque handle (e.g. VisitorHandle).
-                let struct_cfg = RustBindingConfig {
-                    opaque_type_names: &opaque_type_names_vec,
-                    ..cfg
-                };
-                builder.add_item(&gen_php_struct(
-                    typ,
-                    &mapper,
-                    &struct_cfg,
-                    Some(&php_namespace),
-                    &enum_names,
-                ));
+                builder.add_item(&gen_php_struct(typ, &mapper, &cfg, Some(&php_namespace), &enum_names));
                 builder.add_item(&types::gen_struct_methods_with_exclude(
                     typ,
                     &mapper,
@@ -278,20 +259,11 @@ impl Backend for PhpBackend {
             let mut method_items: Vec<String> = Vec::new();
             for func in included_functions {
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
-                let bridge_field = crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     method_items.push(crate::trait_bridge::gen_bridge_function(
                         func,
                         param_idx,
                         bridge_cfg,
-                        &mapper,
-                        &opaque_types,
-                        &core_import,
-                    ));
-                } else if let Some(ref field_match) = bridge_field {
-                    method_items.push(crate::trait_bridge::gen_bridge_field_function(
-                        func,
-                        field_match,
                         &mapper,
                         &opaque_types,
                         &core_import,
@@ -351,8 +323,8 @@ impl Backend for PhpBackend {
                         trait_type,
                         bridge_cfg,
                         &core_import,
-                        &config.error_type(),
-                        &config.error_constructor(),
+                        &config.error_type_name(),
+                        &config.error_constructor_expr(),
                         api,
                     );
                     for imp in &bridge.imports {
@@ -496,129 +468,7 @@ impl Backend for PhpBackend {
         }])
     }
 
-    fn generate_scaffold(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Generate a global-namespace convenience functions file (`functions.php`) that wraps
-        // the first public API function under a short global name (e.g. `html_to_markdown_convert`).
-        // This file is registered under `autoload.files` in composer.json so it is loaded
-        // automatically; the implementations delegate to the PSR-4 facade class.
-        //
-        // The namespace is read from config (via `php_autoload_namespace`) so it always stays
-        // in sync with the `[php].namespace` / `[php].extension_name` settings in alef.toml,
-        // instead of being derived by mechanical case-splitting at the call site.
-        if api.functions.is_empty() {
-            return Ok(vec![]);
-        }
-        let extension_name = config.php_extension_name();
-        let class_name = extension_name.to_pascal_case();
-        let namespace = config.php_autoload_namespace();
-
-        // Use PHP stubs output path if configured, otherwise fall back to packages/php/src/.
-        let output_dir = config
-            .php
-            .as_ref()
-            .and_then(|p| p.stubs.as_ref())
-            .map(|s| s.output.to_string_lossy().to_string())
-            .unwrap_or_else(|| "packages/php/src/".to_string());
-
-        let mut content = String::from("<?php\n\n");
-        content.push_str(&hash::header(CommentStyle::DoubleSlash));
-        content.push_str("declare(strict_types=1);\n\n");
-        // Emit a bracketed global-namespace block so that PSR-4 `use` imports work correctly
-        // alongside the inline class alias import.
-        content.push_str("namespace {\n\n");
-        content.push_str(&format!("    use {}\\{};\n\n", namespace, class_name));
-
-        for func in &api.functions {
-            // Skip functions that are not suitable for a simple global wrapper
-            // (async, void returns, or functions with more than two params).
-            if func.is_async {
-                continue;
-            }
-            let global_fn_name = format!("{}_{}", extension_name, func.name);
-            let return_php_type = php_type(&func.return_type);
-            let is_void = return_php_type == "void";
-
-            // Build PHPDoc and param list for visible params only.
-            let bridge_param_names: ahash::AHashSet<&str> = config
-                .trait_bridges
-                .iter()
-                .filter_map(|b| b.param_name.as_deref())
-                .collect();
-            let visible_params: Vec<_> = func
-                .params
-                .iter()
-                .filter(|p| !bridge_param_names.contains(p.name.as_str()))
-                .collect();
-
-            content.push_str(&format!("    if (!\\function_exists('{}')) {{\n", global_fn_name));
-            content.push_str("        /**\n");
-            for line in func.doc.lines() {
-                if line.is_empty() {
-                    content.push_str("         *\n");
-                } else {
-                    content.push_str(&format!("         * {}\n", line));
-                }
-            }
-            if func.doc.is_empty() {
-                content.push_str(&format!("         * {}.\n", global_fn_name));
-            }
-            content.push_str("         *\n");
-            for p in &visible_params {
-                let ptype = php_phpdoc_type(&p.ty);
-                let nullable_prefix = if p.optional { "?" } else { "" };
-                content.push_str(&format!("         * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
-            }
-            let return_phpdoc = php_phpdoc_type(&func.return_type);
-            content.push_str(&format!("         * @return {}\n", return_phpdoc));
-            if func.error_type.is_some() {
-                content.push_str(&format!(
-                    "         * @throws \\{}\\{}Exception\n",
-                    namespace, class_name
-                ));
-            }
-            content.push_str("         */\n");
-
-            let mut sorted_params = visible_params.clone();
-            sorted_params.sort_by_key(|p| p.optional);
-            let params_str: Vec<String> = sorted_params
-                .iter()
-                .map(|p| {
-                    let ptype = php_type(&p.ty);
-                    if p.optional {
-                        format!("?{} ${} = null", ptype, p.name)
-                    } else {
-                        format!("{} ${}", ptype, p.name)
-                    }
-                })
-                .collect();
-            let method_name = func.name.to_lower_camel_case();
-            let call_args: Vec<String> = sorted_params.iter().map(|p| format!("${}", p.name)).collect();
-            let call_expr = format!("{}::{}({})", class_name, method_name, call_args.join(", "));
-            content.push_str(&format!(
-                "        function {}({}): {} {{\n",
-                global_fn_name,
-                params_str.join(", "),
-                return_php_type
-            ));
-            if is_void {
-                content.push_str(&format!("            {};\n", call_expr));
-            } else {
-                content.push_str(&format!("            return {};\n", call_expr));
-            }
-            content.push_str("        }\n");
-            content.push_str("    }\n\n");
-        }
-
-        content.push_str("} // end namespace\n");
-
-        Ok(vec![GeneratedFile {
-            path: PathBuf::from(&output_dir).join("functions.php"),
-            content,
-            generated_header: false,
-        }])
-    }
-
-    fn generate_public_api(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_public_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let extension_name = config.php_extension_name();
         let class_name = extension_name.to_pascal_case();
 
@@ -628,7 +478,7 @@ impl Backend for PhpBackend {
         content.push_str("declare(strict_types=1);\n\n");
 
         // Determine namespace — delegates to config so [php].namespace overrides are respected.
-        let namespace = config.php_autoload_namespace();
+        let namespace = php_autoload_namespace(config);
 
         content.push_str(&format!("namespace {};\n\n", namespace));
         content.push_str(&format!("final class {}\n", class_name));
@@ -639,17 +489,6 @@ impl Backend for PhpBackend {
             .trait_bridges
             .iter()
             .filter_map(|b| b.param_name.as_deref())
-            .collect();
-
-        // Build a lookup from function name → BridgeFieldMatch for options-field bridges.
-        // These functions need an extra PHP arg ($options->field) forwarded to the native ext.
-        let bridge_field_funcs_pub: std::collections::HashMap<&str, crate::trait_bridge::BridgeFieldMatch<'_>> = api
-            .functions
-            .iter()
-            .filter_map(|func| {
-                crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges)
-                    .map(|m| (func.name.as_str(), m))
-            })
             .collect();
 
         // Generate wrapper methods for functions
@@ -721,25 +560,16 @@ impl Backend for PhpBackend {
                 func.name.to_lower_camel_case()
             };
             let is_void = matches!(&func.return_type, TypeRef::Unit);
-            // Build the call argument list. For options-field bridge functions, append the
-            // bridge field value from the options object (e.g., `$options->visitor`) so the
-            // native extension receives it as the extra hidden `{field}_obj` parameter.
-            let mut call_arg_parts: Vec<String> =
-                sorted_visible_params.iter().map(|p| format!("${}", p.name)).collect();
-            if let Some(bfm) = bridge_field_funcs_pub.get(func.name.as_str()) {
-                let opts_param_name = &func.params[bfm.param_index].name;
-                // Use the null-safe `?->` operator when the options parameter is optional so
-                // that PHPStan does not report "Cannot access property on null" when the caller
-                // passes `null` for the options argument.
-                let access_op = if bfm.param_is_optional { "?->" } else { "->" };
-                call_arg_parts.push(format!("${}{}{}", opts_param_name, access_op, bfm.field_name));
-            }
             let call_expr = format!(
                 "\\{}\\{}Api::{}({})",
                 namespace,
                 class_name,
                 ext_method_name,
-                call_arg_parts.join(", ")
+                sorted_visible_params
+                    .iter()
+                    .map(|p| format!("${}", p.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             );
             if is_void {
                 content.push_str(&format!(
@@ -774,43 +604,12 @@ impl Backend for PhpBackend {
         }])
     }
 
-    fn generate_type_stubs(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_type_stubs(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let extension_name = config.php_extension_name();
         let class_name = extension_name.to_pascal_case();
 
         // Determine namespace — delegates to config so [php].namespace overrides are respected.
-        let namespace = config.php_autoload_namespace();
-
-        // Build (type_name, field_name) → PHP bridge class name overrides for options-field bridges.
-        let mut bridge_field_overrides: std::collections::HashMap<(String, String), String> =
-            std::collections::HashMap::new();
-        for bridge_cfg in &config.trait_bridges {
-            if bridge_cfg.bind_via != alef_core::config::BridgeBinding::OptionsField {
-                continue;
-            }
-            if let Some(options_type) = bridge_cfg.options_type.as_deref() {
-                let field_name = bridge_cfg
-                    .resolved_options_field()
-                    .unwrap_or(bridge_cfg.trait_name.as_str())
-                    .to_string();
-                let bridge_class = bridge_cfg
-                    .type_alias
-                    .as_deref()
-                    .unwrap_or(bridge_cfg.trait_name.as_str())
-                    .to_string();
-                bridge_field_overrides.insert((options_type.to_string(), field_name), bridge_class);
-            }
-        }
-
-        // Build set of bridge-field function names for stub generation.
-        let bridge_field_funcs_stubs: std::collections::HashMap<&str, crate::trait_bridge::BridgeFieldMatch<'_>> = api
-            .functions
-            .iter()
-            .filter_map(|func| {
-                crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges)
-                    .map(|m| (func.name.as_str(), m))
-            })
-            .collect();
+        let namespace = php_autoload_namespace(config);
 
         // PSR-12 requires a blank line after the opening `<?php` tag.
         // php-cs-fixer enforces this and would insert it post-write,
@@ -875,12 +674,6 @@ impl Backend for PhpBackend {
 
             // Public property declarations (ext-php-rs exposes struct fields as properties)
             for field in &typ.fields {
-                // Check if this field is overridden by an options-field bridge config.
-                let override_key = (typ.name.clone(), field.name.clone());
-                if let Some(bridge_class) = bridge_field_overrides.get(&override_key) {
-                    content.push_str(&format!("    public ?{} ${};\n", bridge_class, field.name));
-                    continue;
-                }
                 let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
                 let prop_type = if field.optional {
                     let inner = php_type(&field.ty);
@@ -927,10 +720,6 @@ impl Backend for PhpBackend {
             let params: Vec<String> = sorted_fields
                 .iter()
                 .map(|f| {
-                    let override_key = (typ.name.clone(), f.name.clone());
-                    if let Some(bridge_class) = bridge_field_overrides.get(&override_key) {
-                        return format!("        ?{} ${} = null", bridge_class, f.name);
-                    }
                     let ptype = php_type(&f.ty);
                     let nullable = if f.optional && !ptype.starts_with('?') {
                         format!("?{ptype}")
@@ -947,16 +736,6 @@ impl Backend for PhpBackend {
 
             // Getter methods for each field
             for field in &typ.fields {
-                let getter_name = field.name.to_lower_camel_case();
-                let override_key = (typ.name.clone(), field.name.clone());
-                if let Some(bridge_class) = bridge_field_overrides.get(&override_key) {
-                    content.push_str(&format!(
-                        "    public function get{}(): ?{} {{ throw new \\RuntimeException('Not implemented.'); }}\n",
-                        getter_name.to_pascal_case(),
-                        bridge_class
-                    ));
-                    continue;
-                }
                 let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
                 let return_type = if field.optional {
                     let inner = php_type(&field.ty);
@@ -968,6 +747,7 @@ impl Backend for PhpBackend {
                 } else {
                     php_type(&field.ty)
                 };
+                let getter_name = field.name.to_lower_camel_case();
                 // Emit PHPDoc for array return types so PHPStan knows the element type.
                 if is_array {
                     let phpdoc = php_phpdoc_type(&field.ty);
@@ -1041,7 +821,7 @@ impl Backend for PhpBackend {
                     content.push_str(&format!("     * @return {}\n", return_phpdoc));
                     content.push_str("     */\n");
                 }
-                let mut params: Vec<String> = sorted_visible_params
+                let params: Vec<String> = sorted_visible_params
                     .iter()
                     .map(|p| {
                         let ptype = php_type_fq(&p.ty, &namespace);
@@ -1052,15 +832,6 @@ impl Backend for PhpBackend {
                         }
                     })
                     .collect();
-                // Bridge-field functions expose an extra visitor param in the native extension.
-                if let Some(bfm) = bridge_field_funcs_stubs.get(func.name.as_str()) {
-                    let bridge_class = bfm
-                        .bridge
-                        .type_alias
-                        .as_deref()
-                        .unwrap_or(bfm.bridge.trait_name.as_str());
-                    params.push(format!("?{} ${}_obj = null", bridge_class, bfm.field_name));
-                }
                 // ext-php-rs auto-converts Rust snake_case to PHP camelCase.
                 let stub_method_name = if func.is_async {
                     format!("{}_async", func.name).to_lower_camel_case()

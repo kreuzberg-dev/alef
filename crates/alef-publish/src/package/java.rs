@@ -13,7 +13,7 @@
 
 use super::PackageArtifact;
 use crate::platform::{Arch, Os, RustTarget};
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Produces a staged directory layout and optionally a classified JAR.
 pub fn package_java(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -63,7 +63,7 @@ pub fn package_java(
 /// Return the JNI classifier string for this target.
 ///
 /// Tries the per-language config override first, then derives from the target triple.
-fn jni_classifier(config: &AlefConfig, target: &RustTarget) -> String {
+fn jni_classifier(config: &ResolvedCrateConfig, target: &RustTarget) -> String {
     // Check for override in publish config.
     if let Some(publish) = &config.publish {
         if let Some(lang_cfg) = publish.languages.get("java") {
@@ -96,7 +96,7 @@ pub fn derive_jni_classifier(target: &RustTarget) -> String {
 }
 
 fn build_maven_jar(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     workspace_root: &Path,
     output_dir: &Path,
     _version: &str,
@@ -181,17 +181,19 @@ mod tests {
 
     #[test]
     fn jni_classifier_config_override() {
-        let config: AlefConfig = toml::from_str(
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["java"]
-[crate]
+[[crates]]
 name = "mylib"
 sources = ["src/lib.rs"]
-[publish.languages.java]
+[crates.publish.languages.java]
 jni_classifier = "linux-x86_64-custom"
 "#,
         )
         .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
         let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         assert_eq!(jni_classifier(&config, &t), "linux-x86_64-custom");
     }

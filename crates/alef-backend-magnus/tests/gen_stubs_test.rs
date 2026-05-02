@@ -15,10 +15,14 @@
 
 use alef_backend_magnus::MagnusBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, RubyConfig, StubsConfig};
+use alef_core::config::new_config::NewAlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::*;
-use std::collections::HashMap;
-use std::path::PathBuf;
+
+fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
 
 /// Helper to create a FieldDef with all defaults.
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
@@ -39,86 +43,24 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     }
 }
 
-/// Helper to create a basic AlefConfig with Ruby and stubs enabled.
-fn make_config_with_stubs() -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "test_lib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: Some(RubyConfig {
-            gem_name: Some("test_lib".to_string()),
-            stubs: Some(StubsConfig {
-                output: PathBuf::from("packages/ruby/sig/"),
-            }),
-            features: None,
-            serde_rename_all: None,
-            extra_dependencies: Default::default(),
-            scaffold_output: Default::default(),
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: None,
-        gleam: None,
+/// Helper to create a basic ResolvedCrateConfig with Ruby and stubs enabled.
+fn make_config_with_stubs() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["ruby"]
 
-        go: None,
-        java: None,
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
 
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
+[crates.ruby]
+gem_name = "test_lib"
 
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    }
+[crates.ruby.stubs]
+output = "packages/ruby/sig/"
+"#,
+    )
 }
 
 #[test]
@@ -612,82 +554,19 @@ fn test_rbs_stubs_without_config() {
     };
 
     // Create config WITHOUT stubs enabled
-    let config = AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "test_lib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: Some(RubyConfig {
-            gem_name: Some("test_lib".to_string()),
-            stubs: None,
-            features: None,
-            serde_rename_all: None,
-            extra_dependencies: Default::default(),
-            scaffold_output: Default::default(),
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: None,
-        gleam: None,
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ruby"]
 
-        go: None,
-        java: None,
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
 
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    };
+[crates.ruby]
+gem_name = "test_lib"
+"#,
+    );
 
     let result = backend.generate_type_stubs(&api, &config);
 
@@ -936,84 +815,22 @@ fn test_module_naming_from_crate_name() {
         errors: vec![],
     };
 
-    let config = AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "my_awesome_lib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: Some(RubyConfig {
-            gem_name: Some("my_awesome_lib".to_string()),
-            stubs: Some(StubsConfig {
-                output: PathBuf::from("packages/ruby/sig/"),
-            }),
-            features: None,
-            serde_rename_all: None,
-            extra_dependencies: Default::default(),
-            scaffold_output: Default::default(),
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: None,
-        gleam: None,
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ruby"]
 
-        go: None,
-        java: None,
+[[crates]]
+name = "my_awesome_lib"
+sources = ["src/lib.rs"]
 
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
+[crates.ruby]
+gem_name = "my_awesome_lib"
 
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    };
+[crates.ruby.stubs]
+output = "packages/ruby/sig/"
+"#,
+    );
 
     let result = backend.generate_type_stubs(&api, &config);
 

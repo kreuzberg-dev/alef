@@ -16,7 +16,7 @@
 
 use super::PackageArtifact;
 use crate::platform::{Os, RustTarget};
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use anyhow::{Result, bail};
 use std::fs;
 use std::io::Read;
@@ -78,7 +78,7 @@ pub struct PiePackageOptions<'a> {
 /// convention and whose `checksum` is set to the SHA-256 hex digest of the
 /// archive (written as `{archive_name}.sha256` next to the archive).
 pub fn package_php(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -258,16 +258,19 @@ mod tests {
     use crate::platform::RustTarget;
     use tempfile::TempDir;
 
-    fn make_config(name: &str) -> alef_core::config::AlefConfig {
-        toml::from_str(&format!(
+    fn make_config(name: &str) -> alef_core::config::ResolvedCrateConfig {
+        let cfg: alef_core::config::NewAlefConfig = toml::from_str(&format!(
             r#"
+[workspace]
 languages = ["php"]
-[crate]
+
+[[crates]]
 name = "{name}"
 sources = ["src/lib.rs"]
 "#
         ))
-        .unwrap()
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
     }
 
     fn nts_options(php_version: &str) -> PiePackageOptions<'_> {

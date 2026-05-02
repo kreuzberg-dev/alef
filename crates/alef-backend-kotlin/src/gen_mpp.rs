@@ -9,7 +9,7 @@
 //! - `build.gradle.kts`                             — KMP project build script
 
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, resolve_output_dir};
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::{ApiSurface, FunctionDef};
 use alef_core::template_versions;
 use std::collections::BTreeSet;
@@ -31,13 +31,13 @@ const BRIDGE_ALIAS: &str = "Bridge";
 /// 3. `packages/kotlin-mpp/src/nativeMain/kotlin/<package>/<Module>.kt`
 /// 4. `packages/kotlin-mpp/<crate>.def`
 /// 5. `packages/kotlin-mpp/build.gradle.kts`
-pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let package = config.kotlin_package();
     let package_path = package.replace('.', "/");
-    let module_name = to_pascal_case(&config.crate_config.name);
-    let crate_name = &config.crate_config.name;
+    let module_name = to_pascal_case(&config.name);
+    let crate_name = &config.name;
 
-    let mpp_root = resolve_output_dir(None, crate_name, "packages/kotlin-mpp");
+    let mpp_root = "packages/kotlin-mpp".to_string();
 
     let common_kt_path = PathBuf::from(&mpp_root)
         .join("src/commonMain/kotlin")
@@ -90,11 +90,11 @@ pub fn emit(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Generat
 // commonMain — shared DTOs + expect object declarations
 // ---------------------------------------------------------------------------
 
-fn emit_common(api: &ApiSurface, config: &AlefConfig) -> String {
+fn emit_common(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let package = config.kotlin_package();
-    let module_name = to_pascal_case(&config.crate_config.name);
+    let module_name = to_pascal_case(&config.name);
 
-    let mut exclude_functions: std::collections::HashSet<&str> = config
+    let exclude_functions: std::collections::HashSet<&str> = config
         .kotlin
         .as_ref()
         .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
@@ -104,14 +104,6 @@ fn emit_common(api: &ApiSurface, config: &AlefConfig) -> String {
         .as_ref()
         .map(|c| c.exclude_types.iter().map(String::as_str).collect())
         .unwrap_or_default();
-
-    // Automatically exclude trait-bridge registration functions to prevent double-emission:
-    // gen_trait_bridge emits them as idiomatic bridge functions, so gen_function should skip them.
-    let trait_bridge_reg_fns =
-        alef_codegen::generators::trait_bridge::collect_trait_bridge_registration_fn_names(&config.trait_bridges);
-    for fn_name in trait_bridge_reg_fns {
-        exclude_functions.insert(Box::leak(fn_name.into_boxed_str()) as &str);
-    }
 
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut body = String::new();
@@ -174,9 +166,9 @@ fn emit_expect_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSe
 // jvmMain — actual object delegating to the JVM Bridge facade
 // ---------------------------------------------------------------------------
 
-fn emit_jvm_actual(api: &ApiSurface, config: &AlefConfig) -> String {
+fn emit_jvm_actual(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let package = config.kotlin_package();
-    let module_name = to_pascal_case(&config.crate_config.name);
+    let module_name = to_pascal_case(&config.name);
     let java_package = config.java_package();
 
     let exclude_functions: std::collections::HashSet<&str> = config
@@ -217,11 +209,11 @@ fn emit_jvm_actual(api: &ApiSurface, config: &AlefConfig) -> String {
 // nativeMain — actual object using kotlinx.cinterop
 // ---------------------------------------------------------------------------
 
-fn emit_native_actual(api: &ApiSurface, config: &AlefConfig) -> String {
+fn emit_native_actual(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let package = config.kotlin_package();
-    let module_name = to_pascal_case(&config.crate_config.name);
+    let module_name = to_pascal_case(&config.name);
     let prefix = config.ffi_prefix();
-    let crate_name = &config.crate_config.name;
+    let crate_name = &config.name;
 
     let exclude_functions: std::collections::HashSet<&str> = config
         .kotlin
@@ -257,7 +249,7 @@ fn emit_native_actual(api: &ApiSurface, config: &AlefConfig) -> String {
 // cinterop .def file (same as Native target)
 // ---------------------------------------------------------------------------
 
-fn emit_def_file(config: &AlefConfig) -> String {
+fn emit_def_file(config: &ResolvedCrateConfig) -> String {
     let header = config.ffi_header_name();
     let lib_name = config.ffi_lib_name();
     let prefix = config.ffi_prefix();
@@ -269,8 +261,8 @@ fn emit_def_file(config: &AlefConfig) -> String {
 // build.gradle.kts — KMP project
 // ---------------------------------------------------------------------------
 
-fn emit_gradle_build(config: &AlefConfig) -> String {
-    let crate_name = &config.crate_config.name;
+fn emit_gradle_build(config: &ResolvedCrateConfig) -> String {
+    let crate_name = &config.name;
     let kotlin_version = template_versions::maven::KOTLIN_JVM_PLUGIN;
 
     format!(

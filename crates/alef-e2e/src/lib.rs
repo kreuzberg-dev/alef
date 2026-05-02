@@ -15,7 +15,7 @@ pub mod validate;
 
 use alef_core::backend::GeneratedFile;
 use alef_core::config::e2e::DependencyMode;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{Language, ResolvedCrateConfig};
 use anyhow::{Context, Result};
 use config::E2eConfig;
 use fixture::{group_fixtures, load_fixtures};
@@ -52,7 +52,7 @@ pub fn default_e2e_languages(scaffolded: &[Language]) -> Vec<String> {
 /// Returns the list of generated files. The caller is responsible for writing
 /// them to disk.
 pub fn generate_e2e(
-    alef_config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     e2e_config: &E2eConfig,
     languages: Option<&[String]>,
 ) -> Result<Vec<GeneratedFile>> {
@@ -77,7 +77,7 @@ pub fn generate_e2e(
     } else if !e2e_config.languages.is_empty() {
         e2e_config.languages.clone()
     } else {
-        default_e2e_languages(&alef_config.languages)
+        default_e2e_languages(&config.languages)
     };
 
     // Run semantic validation against the resolved language set so the
@@ -110,7 +110,7 @@ pub fn generate_e2e(
 
     let mut all_files = Vec::new();
     for generator in &generators {
-        let files = generator.generate(&groups, e2e_config, alef_config)?;
+        let files = generator.generate(&groups, e2e_config, config)?;
         info!("  [{}] generated {} file(s)", generator.language_name(), files.len());
         all_files.extend(files);
     }

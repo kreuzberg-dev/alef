@@ -3,20 +3,20 @@ use crate::{
     scaffold_meta,
 };
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{ResolvedCrateConfig, Language};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use heck::{ToPascalCase, ToSnakeCase};
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_elixir_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let app_name = config.elixir_app_name();
     let nif_name = format!("{app_name}_nif");
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
     let pkg_dir = config.package_dir(Language::Elixir);
-    let ws = detect_workspace_inheritance(config.crate_config.workspace_root.as_deref());
+    let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
     let pkg_header = cargo_package_header(
         &nif_name,
         version,
@@ -75,7 +75,7 @@ serde_json = "1"{async_trait_dep}{tokio_dep}{futures_util_dep}{extra_deps_sectio
 "#,
         pkg_header = pkg_header,
         nif_name = nif_name,
-        crate_name = &config.crate_config.name,
+        crate_name = &config.name,
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Elixir),
         rustler = tv::cargo::RUSTLER,
@@ -92,7 +92,7 @@ serde_json = "1"{async_trait_dep}{tokio_dep}{futures_util_dep}{extra_deps_sectio
     }])
 }
 
-pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let app_name = config.elixir_app_name();
     let version = &api.version;
@@ -100,7 +100,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &AlefConfig) -> anyhow::
 
     // Determine if the generated Elixir source files live outside the default `lib/`
     // subdirectory. If so, emit an `elixirc_paths` entry so Mix can find them.
-    let elixirc_paths_line = if let Some(elixir_out) = config.output.elixir.as_ref() {
+    let elixirc_paths_line = if let Some(elixir_out) = config.explicit_output.elixir.as_ref() {
         let elixir_out_str = elixir_out.to_string_lossy();
         let expected_lib = format!("{pkg_dir}/lib");
         if !elixir_out_str.starts_with(&expected_lib) {

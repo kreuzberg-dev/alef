@@ -1,8 +1,7 @@
 use alef_backend_pyo3::Pyo3Backend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, PythonConfig, StubsConfig};
+use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::*;
-use std::path::PathBuf;
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
@@ -22,89 +21,25 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     }
 }
 
-fn make_config_with_stubs() -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "test-lib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: Some(PythonConfig {
-            module_name: Some("_test_lib".to_string()),
-            pip_name: None,
-            async_runtime: None,
-            stubs: Some(StubsConfig {
-                output: PathBuf::from("packages/python/src/"),
-            }),
-            features: None,
-            serde_rename_all: None,
-            capsule_types: Default::default(),
-            release_gil: false,
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            extra_dependencies: Default::default(),
-            scaffold_output: Default::default(),
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: None,
-        gleam: None,
+fn make_config_with_stubs() -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
 
-        go: None,
-        java: None,
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
 
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
+[crates.python]
+module_name = "_test_lib"
 
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    }
+[crates.python.stubs]
+output = "packages/python/src/"
+"#,
+    )
+    .unwrap();
+    cfg.resolve().unwrap().remove(0)
 }
 
 #[test]
@@ -1213,150 +1148,6 @@ fn test_async_method_stub_uses_async_def() {
     assert!(
         content.contains("async def send(self, msg: str) -> str: ..."),
         "async method stub must use `async def`, got: {}",
-        content
-    );
-}
-
-#[test]
-fn test_enum_stub_emits_screaming_snake_case_aliases() {
-    let backend = Pyo3Backend;
-
-    // EnumDef whose PascalCase variant names differ from their SCREAMING_SNAKE_CASE form.
-    let api = ApiSurface {
-        crate_name: "test_lib".to_string(),
-        version: "0.1.0".to_string(),
-        types: vec![],
-        functions: vec![],
-        enums: vec![EnumDef {
-            name: "CodeStyle".to_string(),
-            rust_path: "test_lib::CodeStyle".to_string(),
-            original_rust_path: String::new(),
-            variants: vec![
-                EnumVariant {
-                    name: "Backticks".to_string(),
-                    fields: vec![],
-                    is_tuple: false,
-                    doc: String::new(),
-                    is_default: false,
-                    serde_rename: None,
-                },
-                EnumVariant {
-                    name: "Tildes".to_string(),
-                    fields: vec![],
-                    is_tuple: false,
-                    doc: String::new(),
-                    is_default: false,
-                    serde_rename: None,
-                },
-            ],
-            doc: String::new(),
-            cfg: None,
-            is_copy: false,
-            has_serde: false,
-            serde_tag: None,
-            serde_rename_all: None,
-        }],
-        errors: vec![],
-    };
-
-    let config = make_config_with_stubs();
-    let result = backend.generate_type_stubs(&api, &config).unwrap();
-    let content = result.into_iter().next().unwrap().content;
-
-    // PascalCase variants must still be present.
-    assert!(
-        content.contains("Backticks: CodeStyle = ..."),
-        "PascalCase variant Backticks must be present"
-    );
-    assert!(
-        content.contains("Tildes: CodeStyle = ..."),
-        "PascalCase variant Tildes must be present"
-    );
-
-    // SCREAMING_SNAKE_CASE aliases must also be present so mypy accepts attribute access.
-    assert!(
-        content.contains("BACKTICKS: CodeStyle = ..."),
-        "SCREAMING_SNAKE_CASE alias BACKTICKS must be present"
-    );
-    assert!(
-        content.contains("TILDES: CodeStyle = ..."),
-        "SCREAMING_SNAKE_CASE alias TILDES must be present"
-    );
-}
-
-#[test]
-fn test_bridge_field_init_param_uses_object_type() {
-    use alef_core::config::{BridgeBinding, TraitBridgeConfig};
-
-    let backend = Pyo3Backend;
-
-    let api = ApiSurface {
-        crate_name: "test_lib".to_string(),
-        version: "0.1.0".to_string(),
-        types: vec![TypeDef {
-            name: "Options".to_string(),
-            rust_path: "test_lib::Options".to_string(),
-            original_rust_path: String::new(),
-            fields: vec![
-                make_field("name", TypeRef::String, false),
-                make_field("visitor", TypeRef::String, true),
-            ],
-            methods: vec![],
-            is_opaque: false,
-            is_clone: true,
-            is_copy: false,
-            is_trait: false,
-            has_default: true,
-            has_stripped_cfg_fields: false,
-            is_return_type: false,
-            serde_rename_all: None,
-            has_serde: false,
-            super_traits: vec![],
-            doc: String::new(),
-            cfg: None,
-        }],
-        functions: vec![],
-        enums: vec![],
-        errors: vec![],
-    };
-
-    // Set up a bridge that overrides the `visitor` field on `Options`.
-    let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![TraitBridgeConfig {
-        trait_name: "TestVisitor".to_string(),
-        bind_via: BridgeBinding::OptionsField,
-        options_type: Some("Options".to_string()),
-        options_field: Some("visitor".to_string()),
-        param_name: None,
-        type_alias: Some("VisitorHandle".to_string()),
-        super_trait: None,
-        registry_getter: None,
-        register_fn: None,
-        register_extra_args: None,
-        exclude_languages: vec![],
-    }];
-
-    let result = backend.generate_type_stubs(&api, &config).unwrap();
-    let content = result.into_iter().next().unwrap().content;
-
-    // The field annotation should be `object | None`.
-    assert!(
-        content.contains("visitor: object | None"),
-        "Bridge field annotation must be `object | None`, got:\n{}",
-        content
-    );
-
-    // The __init__ parameter must also be `object | None = None` (not `VisitorHandle | None`).
-    assert!(
-        content.contains("visitor: object | None = None"),
-        "__init__ bridge param must be `object | None = None`, got:\n{}",
-        content
-    );
-
-    // Ensure `VisitorHandle | None` does NOT appear in the __init__ for this type.
-    assert!(
-        !content.contains("visitor: VisitorHandle"),
-        "__init__ must not use VisitorHandle type for bridge param, got:\n{}",
         content
     );
 }

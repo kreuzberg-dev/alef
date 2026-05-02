@@ -7,9 +7,12 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_php, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
+use crate::fixture::{
+    Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation,
+};
+use alef_backend_php::naming::php_autoload_namespace;
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
@@ -29,7 +32,7 @@ impl E2eCodegen for PhpCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -41,7 +44,7 @@ impl E2eCodegen for PhpCodegen {
         // is resolved inside render_test_method via e2e_config.resolve_call().
         let call = &e2e_config.call;
         let overrides = call.overrides.get(lang);
-        let extension_name = alef_config.php_extension_name();
+        let extension_name = config.php_extension_name();
         let class_name = overrides
             .and_then(|o| o.class.as_ref())
             .cloned()
@@ -72,12 +75,12 @@ impl E2eCodegen for PhpCodegen {
             .unwrap_or_else(|| {
                 // Derive `<org>/<module>` from the configured repository URL —
                 // alef is vendor-neutral, so we don't fall back to a fixed org.
-                let org = alef_config
+                let org = config
                     .try_github_repo()
                     .ok()
                     .as_deref()
                     .and_then(alef_core::config::derive_repo_org)
-                    .unwrap_or_else(|| alef_config.crate_config.name.clone());
+                    .unwrap_or_else(|| config.name.clone());
                 format!("{org}/{}", call.module.replace('_', "-"))
             });
         let pkg_path = php_pkg
@@ -101,7 +104,7 @@ impl E2eCodegen for PhpCodegen {
         // namespace separator must be JSON-escaped (`\` → `\\`). The trailing
         // pair represents the PHP-mandated trailing `\` (which itself escapes
         // to `\\` in JSON).
-        let php_namespace_escaped = alef_config.php_autoload_namespace().replace('\\', "\\\\");
+        let php_namespace_escaped = php_autoload_namespace(config).replace('\\', "\\\\");
         let e2e_autoload_ns = format!("{php_namespace_escaped}\\\\E2e\\\\");
 
         // Generate composer.json.
@@ -678,7 +681,7 @@ fn render_test_method(
     let (mut setup_lines, args_str) =
         build_args_and_setup(&fixture.input, args, class_name, enum_fields, &fixture.id, options_via);
 
-    // Build visitor if present and attach to options
+    // Build visitor if present and add to setup
     let mut visitor_arg = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
         visitor_arg = build_php_visitor(&mut setup_lines, visitor_spec);
@@ -687,9 +690,9 @@ fn render_test_method(
     let final_args = if visitor_arg.is_empty() {
         args_str
     } else if args_str.is_empty() {
-        format!("(object)['visitor' => {visitor_arg}]")
+        visitor_arg
     } else {
-        format!("{args_str}, (object)['visitor' => {visitor_arg}]")
+        format!("{args_str}, {visitor_arg}")
     };
 
     let call_expr = if php_client_factory.is_some() {

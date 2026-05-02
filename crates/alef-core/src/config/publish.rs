@@ -158,22 +158,24 @@ archive_format = "zip"
     }
 
     #[test]
-    fn publish_config_in_alef_config() {
+    fn publish_config_in_new_alef_config() {
+        // Parse via NewAlefConfig (new schema) — publish lives on [[crates]].
         let toml_str = r#"
+[workspace]
 languages = ["python", "ruby"]
 
-[crate]
+[[crates]]
 name = "test-lib"
 sources = ["src/lib.rs"]
 
-[publish]
+[crates.publish]
 core_crate = "crates/test-lib"
 
-[publish.languages.ruby]
+[crates.publish.languages.ruby]
 vendor_mode = "core-only"
 "#;
-        let cfg: super::super::AlefConfig = toml::from_str(toml_str).unwrap();
-        let publish = cfg.publish.unwrap();
+        let cfg: super::super::new_config::NewAlefConfig = toml::from_str(toml_str).unwrap();
+        let publish = cfg.crates[0].publish.as_ref().unwrap();
         assert_eq!(publish.core_crate.as_deref(), Some("crates/test-lib"));
         let ruby = publish.languages.get("ruby").unwrap();
         assert_eq!(ruby.vendor_mode, Some(VendorMode::CoreOnly));

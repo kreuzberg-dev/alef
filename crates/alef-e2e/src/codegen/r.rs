@@ -5,7 +5,7 @@ use crate::escape::{escape_r, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use anyhow::Result;
 use std::fmt::Write as FmtWrite;
@@ -21,7 +21,7 @@ impl E2eCodegen for RCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        _alef_config: &AlefConfig,
+        _config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);

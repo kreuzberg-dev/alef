@@ -237,6 +237,141 @@ fn default_setup_timeout() -> u64 {
     600
 }
 
+/// Per-language output path templates for multi-crate workspaces.
+///
+/// Each entry is a path string that may contain `{crate}` and `{lang}` placeholders.
+/// Resolved by [`OutputTemplate::resolve`] to produce a concrete path for one
+/// `(crate, language)` pair.
+///
+/// Defaults (when a language entry is absent and no per-crate explicit override is set):
+/// - Single-crate workspaces resolve to `packages/{lang}/`.
+/// - Multi-crate workspaces resolve to `packages/{lang}/{crate}/`.
+///
+/// Per-crate explicit paths in [`OutputConfig`] always win over a workspace template.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OutputTemplate {
+    pub python: Option<String>,
+    pub node: Option<String>,
+    pub ruby: Option<String>,
+    pub php: Option<String>,
+    pub elixir: Option<String>,
+    pub wasm: Option<String>,
+    pub ffi: Option<String>,
+    pub gleam: Option<String>,
+    pub go: Option<String>,
+    pub java: Option<String>,
+    pub kotlin: Option<String>,
+    pub dart: Option<String>,
+    pub swift: Option<String>,
+    pub csharp: Option<String>,
+    pub r: Option<String>,
+    pub zig: Option<String>,
+}
+
+impl OutputTemplate {
+    /// Resolve a `(crate, language)` pair to a concrete output path.
+    ///
+    /// Resolution order (highest priority first):
+    /// 1. Per-language template entry on `self`, if set, with `{crate}` and `{lang}`
+    ///    placeholders substituted.
+    /// 2. Default fallback: `packages/{lang}/{crate}/` if `multi_crate`, else
+    ///    language-specific historical defaults (`packages/python`, `packages/node`,
+    ///    `packages/ruby`, `packages/php`, `packages/elixir`) or `packages/{lang}` for
+    ///    languages without a historical default.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `crate_name` contains a NUL byte, path separator (`/`, `\`),
+    /// or is a bare relative reference (`..`), and if the resolved path would
+    /// escape the project root via `..` components or an absolute root.
+    pub fn resolve(&self, crate_name: &str, lang: &str, multi_crate: bool) -> PathBuf {
+        validate_output_segment(crate_name, "crate_name");
+        validate_output_segment(lang, "lang");
+
+        let path = if let Some(template) = self.entry(lang) {
+            PathBuf::from(template.replace("{crate}", crate_name).replace("{lang}", lang))
+        } else if multi_crate {
+            PathBuf::from(format!("packages/{lang}/{crate_name}"))
+        } else {
+            match lang {
+                "python" => PathBuf::from("packages/python"),
+                "node" => PathBuf::from("packages/node"),
+                "ruby" => PathBuf::from("packages/ruby"),
+                "php" => PathBuf::from("packages/php"),
+                "elixir" => PathBuf::from("packages/elixir"),
+                other => PathBuf::from(format!("packages/{other}")),
+            }
+        };
+
+        validate_output_path(&path);
+        path
+    }
+
+    /// Return the raw template string for a language code, if set.
+    pub fn entry(&self, lang: &str) -> Option<&str> {
+        match lang {
+            "python" => self.python.as_deref(),
+            "node" => self.node.as_deref(),
+            "ruby" => self.ruby.as_deref(),
+            "php" => self.php.as_deref(),
+            "elixir" => self.elixir.as_deref(),
+            "wasm" => self.wasm.as_deref(),
+            "ffi" => self.ffi.as_deref(),
+            "gleam" => self.gleam.as_deref(),
+            "go" => self.go.as_deref(),
+            "java" => self.java.as_deref(),
+            "kotlin" => self.kotlin.as_deref(),
+            "dart" => self.dart.as_deref(),
+            "swift" => self.swift.as_deref(),
+            "csharp" => self.csharp.as_deref(),
+            "r" => self.r.as_deref(),
+            "zig" => self.zig.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// Validate that a user-supplied path segment (crate name or language code) does not
+/// contain characters that could enable path traversal.
+///
+/// # Panics
+///
+/// Panics if the segment contains a NUL byte, a forward slash, or a backslash.
+fn validate_output_segment(segment: &str, label: &str) {
+    if segment.contains('\0') {
+        panic!("invalid {label}: NUL byte is not allowed in output path segments (got {segment:?})");
+    }
+    if segment.contains('/') || segment.contains('\\') {
+        panic!("invalid {label}: path separators are not allowed in output path segments (got {segment:?})");
+    }
+}
+
+/// Validate that a resolved output `PathBuf` does not escape the project root.
+///
+/// # Panics
+///
+/// Panics if the path contains a `..` component or is absolute.
+fn validate_output_path(path: &std::path::Path) {
+    use std::path::Component;
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                panic!(
+                    "resolved output path `{}` contains `..` and would escape the project root",
+                    path.display()
+                );
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                panic!(
+                    "resolved output path `{}` is absolute and would escape the project root",
+                    path.display()
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
 /// A single text replacement rule for version sync.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextReplacement {
@@ -470,12 +605,9 @@ coverage = "pytest --cov=. --cov-report=term-missing"
 
     #[test]
     fn full_alef_toml_with_lint_and_update() {
+        // Parse via WorkspaceConfig (new schema) — lint/update maps live there.
         let toml_str = r#"
 languages = ["python", "node"]
-
-[crate]
-name = "test"
-sources = ["src/lib.rs"]
 
 [lint.python]
 format = "ruff format ."
@@ -492,25 +624,23 @@ upgrade = "uv sync --all-packages --all-extras --upgrade"
 update = "pnpm up -r"
 upgrade = ["corepack up", "pnpm up --latest -r -w"]
 "#;
-        let cfg: super::super::AlefConfig = toml::from_str(toml_str).unwrap();
-        let lint_map = cfg.lint.as_ref().unwrap();
-        assert!(lint_map.contains_key("python"));
-        assert!(lint_map.contains_key("node"));
+        let cfg: super::super::workspace::WorkspaceConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.lint.contains_key("python"));
+        assert!(cfg.lint.contains_key("node"));
 
-        let py_lint = lint_map.get("python").unwrap();
+        let py_lint = cfg.lint.get("python").unwrap();
         assert_eq!(py_lint.format.as_ref().unwrap().commands(), vec!["ruff format ."]);
 
-        let node_lint = lint_map.get("node").unwrap();
+        let node_lint = cfg.lint.get("node").unwrap();
         assert_eq!(
             node_lint.format.as_ref().unwrap().commands(),
             vec!["npx oxfmt", "npx oxlint --fix"]
         );
 
-        let update_map = cfg.update.as_ref().unwrap();
-        assert!(update_map.contains_key("python"));
-        assert!(update_map.contains_key("node"));
+        assert!(cfg.update.contains_key("python"));
+        assert!(cfg.update.contains_key("node"));
 
-        let node_update = update_map.get("node").unwrap();
+        let node_update = cfg.update.get("node").unwrap();
         assert_eq!(node_update.update.as_ref().unwrap().commands(), vec!["pnpm up -r"]);
         assert_eq!(
             node_update.upgrade.as_ref().unwrap().commands(),
@@ -598,12 +728,9 @@ update = "cargo update"
 
     #[test]
     fn full_alef_toml_with_precondition_and_before_across_sections() {
+        // Parse via WorkspaceConfig (new schema).
         let toml_str = r#"
 languages = ["go", "python"]
-
-[crate]
-name = "mylib"
-sources = ["src/lib.rs"]
 
 [lint.go]
 precondition = "test -f target/release/libmylib_ffi.so"
@@ -641,11 +768,10 @@ install = "cd packages/python && uv sync"
 before = "echo cleaning go"
 clean = "cd packages/go && go clean -cache"
 "#;
-        let cfg: super::super::AlefConfig = toml::from_str(toml_str).unwrap();
+        let cfg: super::super::workspace::WorkspaceConfig = toml::from_str(toml_str).unwrap();
 
         // lint.go: precondition and before set
-        let lint_map = cfg.lint.as_ref().unwrap();
-        let go_lint = lint_map.get("go").unwrap();
+        let go_lint = cfg.lint.get("go").unwrap();
         assert_eq!(
             go_lint.precondition.as_deref(),
             Some("test -f target/release/libmylib_ffi.so"),
@@ -660,7 +786,7 @@ clean = "cd packages/go && go clean -cache"
         assert!(go_lint.check.is_some());
 
         // lint.python: no precondition or before
-        let py_lint = lint_map.get("python").unwrap();
+        let py_lint = cfg.lint.get("python").unwrap();
         assert!(
             py_lint.precondition.is_none(),
             "lint.python should have no precondition"
@@ -668,8 +794,7 @@ clean = "cd packages/go && go clean -cache"
         assert!(py_lint.before.is_none(), "lint.python should have no before");
 
         // test.go: precondition and multi-command before
-        let test_map = cfg.test.as_ref().unwrap();
-        let go_test = test_map.get("go").unwrap();
+        let go_test = cfg.test.get("go").unwrap();
         assert_eq!(
             go_test.precondition.as_deref(),
             Some("test -f target/release/libmylib_ffi.so"),
@@ -685,8 +810,7 @@ clean = "cd packages/go && go clean -cache"
         );
 
         // build_commands.go: precondition and before
-        let build_map = cfg.build_commands.as_ref().unwrap();
-        let go_build = build_map.get("go").unwrap();
+        let go_build = cfg.build_commands.get("go").unwrap();
         assert_eq!(
             go_build.precondition.as_deref(),
             Some("which go"),
@@ -699,8 +823,7 @@ clean = "cd packages/go && go clean -cache"
         );
 
         // update.go: precondition only, no before
-        let update_map = cfg.update.as_ref().unwrap();
-        let go_update = update_map.get("go").unwrap();
+        let go_update = cfg.update.get("go").unwrap();
         assert_eq!(
             go_update.precondition.as_deref(),
             Some("test -d packages/go"),
@@ -709,8 +832,7 @@ clean = "cd packages/go && go clean -cache"
         assert!(go_update.before.is_none(), "update.go before should be None");
 
         // setup.python: precondition only
-        let setup_map = cfg.setup.as_ref().unwrap();
-        let py_setup = setup_map.get("python").unwrap();
+        let py_setup = cfg.setup.get("python").unwrap();
         assert_eq!(
             py_setup.precondition.as_deref(),
             Some("which uv"),
@@ -719,14 +841,120 @@ clean = "cd packages/go && go clean -cache"
         assert!(py_setup.before.is_none(), "setup.python before should be None");
 
         // clean.go: before only, no precondition
-        let clean_map = cfg.clean.as_ref().unwrap();
-        let go_clean = clean_map.get("go").unwrap();
+        let go_clean = cfg.clean.get("go").unwrap();
         assert!(go_clean.precondition.is_none(), "clean.go precondition should be None");
         assert_eq!(
             go_clean.before.as_ref().unwrap().commands(),
             vec!["echo cleaning go"],
             "clean.go before should be preserved"
         );
+    }
+
+    #[test]
+    fn output_template_resolves_explicit_entry() {
+        let tmpl = OutputTemplate {
+            python: Some("crates/{crate}-py/src/".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            tmpl.resolve("spikard", "python", true),
+            PathBuf::from("crates/spikard-py/src/")
+        );
+    }
+
+    #[test]
+    fn output_template_substitutes_lang_and_crate() {
+        let tmpl = OutputTemplate {
+            go: Some("packages/{lang}/{crate}/".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            tmpl.resolve("spikard-runtime", "go", true),
+            PathBuf::from("packages/go/spikard-runtime/")
+        );
+    }
+
+    #[test]
+    fn output_template_falls_back_to_multi_crate_default() {
+        let tmpl = OutputTemplate::default();
+        assert_eq!(
+            tmpl.resolve("spikard-runtime", "python", true),
+            PathBuf::from("packages/python/spikard-runtime")
+        );
+    }
+
+    #[test]
+    fn output_template_falls_back_to_single_crate_historical_default() {
+        let tmpl = OutputTemplate::default();
+        assert_eq!(
+            tmpl.resolve("spikard", "python", false),
+            PathBuf::from("packages/python")
+        );
+        assert_eq!(tmpl.resolve("spikard", "node", false), PathBuf::from("packages/node"));
+        assert_eq!(tmpl.resolve("spikard", "ruby", false), PathBuf::from("packages/ruby"));
+        assert_eq!(tmpl.resolve("spikard", "php", false), PathBuf::from("packages/php"));
+        assert_eq!(
+            tmpl.resolve("spikard", "elixir", false),
+            PathBuf::from("packages/elixir")
+        );
+    }
+
+    #[test]
+    fn output_template_falls_back_to_lang_dir_for_unknown_languages() {
+        let tmpl = OutputTemplate::default();
+        assert_eq!(tmpl.resolve("spikard", "go", false), PathBuf::from("packages/go"));
+        assert_eq!(tmpl.resolve("spikard", "swift", false), PathBuf::from("packages/swift"));
+    }
+
+    #[test]
+    fn output_template_deserializes_from_toml() {
+        let toml_str = r#"
+python = "packages/python/{crate}/"
+go     = "packages/go/{crate}/"
+"#;
+        let tmpl: OutputTemplate = toml::from_str(toml_str).unwrap();
+        assert_eq!(tmpl.python.as_deref(), Some("packages/python/{crate}/"));
+        assert_eq!(tmpl.go.as_deref(), Some("packages/go/{crate}/"));
+        assert!(tmpl.node.is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "path separators are not allowed")]
+    fn resolve_rejects_crate_name_with_path_separator() {
+        let tmpl = OutputTemplate::default();
+        tmpl.resolve("../foo", "python", false);
+    }
+
+    #[test]
+    #[should_panic(expected = "path separators are not allowed")]
+    fn resolve_rejects_crate_name_with_backslash() {
+        let tmpl = OutputTemplate::default();
+        tmpl.resolve("..\\foo", "python", false);
+    }
+
+    #[test]
+    #[should_panic(expected = "NUL byte is not allowed")]
+    fn resolve_rejects_crate_name_with_nul_byte() {
+        let tmpl = OutputTemplate::default();
+        tmpl.resolve("foo\0bar", "python", false);
+    }
+
+    #[test]
+    #[should_panic(expected = "would escape the project root")]
+    fn resolve_rejects_template_that_produces_parent_dir() {
+        // A malicious template that uses .. directly.
+        let tmpl = OutputTemplate {
+            python: Some("../../etc/{crate}".to_string()),
+            ..Default::default()
+        };
+        tmpl.resolve("mylib", "python", false);
+    }
+
+    #[test]
+    fn resolve_accepts_normal_crate_name() {
+        let tmpl = OutputTemplate::default();
+        let path = tmpl.resolve("my-lib", "python", false);
+        assert_eq!(path, PathBuf::from("packages/python"));
     }
 }
 

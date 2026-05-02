@@ -101,10 +101,33 @@ fn write_per_file_memo(entries: &[(String, u64, u64)], aggregate: &str) -> anyho
     Ok(())
 }
 
-/// Check if cached IR is still valid.
-pub fn is_ir_cached(source_hash: &str) -> bool {
-    let hash_path = Path::new(CACHE_DIR).join("ir.hash");
-    let ir_path = Path::new(CACHE_DIR).join("ir.json");
+/// Validate a crate name before using it as a filesystem path component.
+///
+/// Returns an error if the name contains path separators, NUL bytes, `..`,
+/// or is a bare `.` — any of which could be used to escape the cache directory.
+pub fn validate_cache_crate_name(crate_name: &str) -> anyhow::Result<()> {
+    if crate_name.contains('\0') {
+        anyhow::bail!("invalid crate name for cache: NUL byte not allowed in {crate_name:?}");
+    }
+    if crate_name.contains('/') || crate_name.contains('\\') {
+        anyhow::bail!("invalid crate name for cache: path separator not allowed in {crate_name:?}");
+    }
+    if crate_name == ".." || crate_name == "." {
+        anyhow::bail!("invalid crate name for cache: {crate_name:?} is not a valid crate name");
+    }
+    Ok(())
+}
+
+/// Return the per-crate IR cache directory, e.g. `.alef/<crate_name>/`.
+fn ir_cache_dir(crate_name: &str) -> PathBuf {
+    Path::new(CACHE_DIR).join(crate_name)
+}
+
+/// Check if cached IR is still valid for the given crate.
+pub fn is_ir_cached(crate_name: &str, source_hash: &str) -> bool {
+    let dir = ir_cache_dir(crate_name);
+    let hash_path = dir.join("ir.hash");
+    let ir_path = dir.join("ir.json");
     if !ir_path.exists() {
         return false;
     }
@@ -114,17 +137,17 @@ pub fn is_ir_cached(source_hash: &str) -> bool {
     }
 }
 
-/// Read cached IR.
-pub fn read_cached_ir() -> anyhow::Result<alef_core::ir::ApiSurface> {
-    let ir_path = Path::new(CACHE_DIR).join("ir.json");
+/// Read cached IR for the given crate.
+pub fn read_cached_ir(crate_name: &str) -> anyhow::Result<alef_core::ir::ApiSurface> {
+    let ir_path = ir_cache_dir(crate_name).join("ir.json");
     let content = fs::read_to_string(&ir_path)?;
     Ok(serde_json::from_str(&content)?)
 }
 
-/// Write IR to cache.
-pub fn write_ir_cache(api: &alef_core::ir::ApiSurface, source_hash: &str) -> anyhow::Result<()> {
-    let cache_dir = Path::new(CACHE_DIR);
-    fs::create_dir_all(cache_dir)?;
+/// Write IR to cache for the given crate.
+pub fn write_ir_cache(crate_name: &str, api: &alef_core::ir::ApiSurface, source_hash: &str) -> anyhow::Result<()> {
+    let cache_dir = ir_cache_dir(crate_name);
+    fs::create_dir_all(&cache_dir)?;
     fs::write(cache_dir.join("ir.json"), serde_json::to_string_pretty(api)?)?;
     fs::write(cache_dir.join("ir.hash"), source_hash)?;
     Ok(())
@@ -139,12 +162,18 @@ pub fn compute_lang_hash(ir_json: &str, lang: &str, config_toml: &str) -> String
     hasher.finalize().to_hex().to_string()
 }
 
-/// Check if a language's output is cached.
+/// Per-crate hashes directory: `.alef/<crate>/hashes/`.
+fn hashes_dir(crate_name: &str) -> PathBuf {
+    ir_cache_dir(crate_name).join("hashes")
+}
+
+/// Check if a language's output is cached for the given crate.
 /// Returns false if the hash doesn't match OR if any previously-generated
 /// output files are missing from disk.
-pub fn is_lang_cached(lang: &str, lang_hash: &str) -> bool {
-    let hash_path = Path::new(CACHE_DIR).join("hashes").join(format!("{lang}.hash"));
-    let manifest_path = Path::new(CACHE_DIR).join("hashes").join(format!("{lang}.manifest"));
+pub fn is_lang_cached(crate_name: &str, lang: &str, lang_hash: &str) -> bool {
+    let dir = hashes_dir(crate_name);
+    let hash_path = dir.join(format!("{lang}.hash"));
+    let manifest_path = dir.join(format!("{lang}.manifest"));
     match fs::read_to_string(&hash_path) {
         Ok(cached) => {
             if cached.trim() != lang_hash {
@@ -157,12 +186,12 @@ pub fn is_lang_cached(lang: &str, lang_hash: &str) -> bool {
     }
 }
 
-/// Write language hash and output file manifest.
-pub fn write_lang_hash(lang: &str, lang_hash: &str, output_paths: &[PathBuf]) -> anyhow::Result<()> {
-    let hashes_dir = Path::new(CACHE_DIR).join("hashes");
-    fs::create_dir_all(&hashes_dir)?;
-    fs::write(hashes_dir.join(format!("{lang}.hash")), lang_hash)?;
-    write_manifest(&hashes_dir.join(format!("{lang}.manifest")), output_paths)?;
+/// Write language hash and output file manifest for the given crate.
+pub fn write_lang_hash(crate_name: &str, lang: &str, lang_hash: &str, output_paths: &[PathBuf]) -> anyhow::Result<()> {
+    let dir = hashes_dir(crate_name);
+    fs::create_dir_all(&dir)?;
+    fs::write(dir.join(format!("{lang}.hash")), lang_hash)?;
+    write_manifest(&dir.join(format!("{lang}.manifest")), output_paths)?;
     Ok(())
 }
 
@@ -179,12 +208,13 @@ pub fn compute_stage_hash(ir_json: &str, stage: &str, config_toml: &str, extra: 
     hasher.finalize().to_hex().to_string()
 }
 
-/// Check if a stage's output is cached.
+/// Check if a stage's output is cached for the given crate.
 /// Returns false if the hash doesn't match OR if any previously-generated
 /// output files are missing from disk.
-pub fn is_stage_cached(stage: &str, stage_hash: &str) -> bool {
-    let hash_path = Path::new(CACHE_DIR).join("hashes").join(format!("{stage}.hash"));
-    let manifest_path = Path::new(CACHE_DIR).join("hashes").join(format!("{stage}.manifest"));
+pub fn is_stage_cached(crate_name: &str, stage: &str, stage_hash: &str) -> bool {
+    let dir = hashes_dir(crate_name);
+    let hash_path = dir.join(format!("{stage}.hash"));
+    let manifest_path = dir.join(format!("{stage}.manifest"));
     match fs::read_to_string(&hash_path) {
         Ok(cached) => {
             if cached.trim() != stage_hash {
@@ -197,12 +227,17 @@ pub fn is_stage_cached(stage: &str, stage_hash: &str) -> bool {
     }
 }
 
-/// Write stage hash and output file manifest.
-pub fn write_stage_hash(stage: &str, stage_hash: &str, output_paths: &[PathBuf]) -> anyhow::Result<()> {
-    let hashes_dir = Path::new(CACHE_DIR).join("hashes");
-    fs::create_dir_all(&hashes_dir)?;
-    fs::write(hashes_dir.join(format!("{stage}.hash")), stage_hash)?;
-    write_manifest(&hashes_dir.join(format!("{stage}.manifest")), output_paths)?;
+/// Write stage hash and output file manifest for the given crate.
+pub fn write_stage_hash(
+    crate_name: &str,
+    stage: &str,
+    stage_hash: &str,
+    output_paths: &[PathBuf],
+) -> anyhow::Result<()> {
+    let dir = hashes_dir(crate_name);
+    fs::create_dir_all(&dir)?;
+    fs::write(dir.join(format!("{stage}.hash")), stage_hash)?;
+    write_manifest(&dir.join(format!("{stage}.manifest")), output_paths)?;
     Ok(())
 }
 
@@ -345,5 +380,42 @@ pub fn show_status() {
         }
     } else {
         println!("  language hashes: none");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_cache_crate_name_accepts_normal_names() {
+        validate_cache_crate_name("my-lib").unwrap();
+        validate_cache_crate_name("kreuzberg").unwrap();
+        validate_cache_crate_name("html_to_markdown").unwrap();
+    }
+
+    #[test]
+    fn validate_cache_crate_name_rejects_path_separators() {
+        assert!(validate_cache_crate_name("../escape").is_err());
+        assert!(validate_cache_crate_name("foo/bar").is_err());
+        assert!(validate_cache_crate_name("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn validate_cache_crate_name_rejects_dot_aliases() {
+        assert!(validate_cache_crate_name("..").is_err());
+        assert!(validate_cache_crate_name(".").is_err());
+    }
+
+    #[test]
+    fn validate_cache_crate_name_rejects_nul_byte() {
+        assert!(validate_cache_crate_name("foo\0bar").is_err());
+    }
+
+    #[test]
+    fn ir_cache_dir_scopes_by_crate_name() {
+        assert_eq!(ir_cache_dir("crate-a"), Path::new(CACHE_DIR).join("crate-a"));
+        assert_eq!(ir_cache_dir("crate-b"), Path::new(CACHE_DIR).join("crate-b"));
+        assert_ne!(ir_cache_dir("crate-a"), ir_cache_dir("crate-b"));
     }
 }

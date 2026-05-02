@@ -50,19 +50,6 @@ pub fn gen_from_core_to_binding_cfg(
         {
             continue;
         }
-        // Bridge fields: the binding struct stores a different type (e.g. Object<'static>)
-        // that cannot be round-tripped from the core type. Leave at Default::default(); the
-        // convert wrapper manages the actual bridge setup.
-        if config.force_default_fields.contains(&field.name.as_str()) {
-            let needs_some_wrap = !field.optional && (config.optionalize_defaults && typ.has_default);
-            let expr = if needs_some_wrap {
-                format!("{}: Some(Default::default())", field.name)
-            } else {
-                format!("{}: Default::default()", field.name)
-            };
-            writeln!(out, "            {expr},").ok();
-            continue;
-        }
         let base_conversion = field_conversion_from_core_cfg(
             &field.name,
             &field.ty,
@@ -450,13 +437,6 @@ pub fn field_conversion_from_core_cfg(
                     }
                     return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
                 }
-            }
-            // Named or Optional(Named) sanitized → the binding field is Option<JsValue> (bridge
-            // field). No automatic conversion from a Rust handle to JsValue exists; emit None.
-            let is_handle_type = matches!(ty, TypeRef::Named(_))
-                || matches!(ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)));
-            if is_handle_type {
-                return format!("{name}: None");
             }
         }
         return field_conversion_from_core(name, ty, optional, sanitized, opaque_types);

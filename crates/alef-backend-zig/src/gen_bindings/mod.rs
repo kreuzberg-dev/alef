@@ -1,5 +1,5 @@
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
@@ -42,8 +42,8 @@ impl Backend for ZigBackend {
         }
     }
 
-    fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let module_name = zig_module_name(&config.crate_config.name);
+    fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let module_name = zig_module_name(&config.name);
         let header = config.ffi_header_name();
         let prefix = config.ffi_prefix();
 
@@ -150,7 +150,7 @@ impl Backend for ZigBackend {
             }
         }
 
-        let dir = resolve_output_dir(None, &config.crate_config.name, "packages/zig/src");
+        let dir = resolve_output_dir(None, &config.name, "packages/zig/src");
         let path = PathBuf::from(dir).join(format!("{module_name}.zig"));
 
         Ok(vec![GeneratedFile {

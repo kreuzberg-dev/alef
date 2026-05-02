@@ -1,12 +1,12 @@
 use crate::{parse_author, scaffold_meta, xml_escape};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_java(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
-    let name = &config.crate_config.name;
+    let name = &config.name;
     let version = &api.version;
 
     // Derive SCM URLs from repository URL

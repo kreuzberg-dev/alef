@@ -417,22 +417,6 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
     BridgeOutput { imports, code: out }
 }
 
-/// Collect all trait-bridge registration function names that will be emitted by trait bridge codegen.
-///
-/// When a trait bridge has a `register_fn` configured, that function name will be emitted
-/// by `gen_bridge_all`. To avoid duplicate function emission, callers should exclude these names
-/// from `gen_function` processing.
-///
-/// This function takes the trait_bridges config and returns the set of registration function names
-/// that will be auto-emitted (e.g., "register_ocr_backend", "register_post_processor", etc.).
-pub fn collect_trait_bridge_registration_fn_names(trait_bridges: &[TraitBridgeConfig]) -> ahash::AHashSet<String> {
-    trait_bridges
-        .iter()
-        .filter_map(|bridge| bridge.register_fn.as_deref())
-        .map(|name| name.to_string())
-        .collect()
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -737,9 +721,7 @@ pub fn find_bridge_field<'a>(
                         param_index: idx,
                         param_name: param.name.clone(),
                         options_type: type_name.to_string(),
-                        // param.optional covers the case where the IR stores the type as
-                        // Named("T") with optional=true, rather than Optional(Named("T")).
-                        param_is_optional: is_optional || param.optional,
+                        param_is_optional: is_optional,
                         field_name: field.name.clone(),
                         field,
                         bridge,
@@ -1592,67 +1574,6 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
-    // collect_trait_bridge_registration_fn_names
-    // ---------------------------------------------------------------------------
-
-    #[test]
-    fn test_collect_trait_bridge_registration_fn_names_empty() {
-        let bridges = vec![];
-        let result = collect_trait_bridge_registration_fn_names(&bridges);
-        assert!(result.is_empty(), "should return empty set when no bridges configured");
-    }
-
-    #[test]
-    fn test_collect_trait_bridge_registration_fn_names_collects_register_fns() {
-        let bridges = vec![
-            TraitBridgeConfig {
-                trait_name: "OcrBackend".to_string(),
-                super_trait: None,
-                registry_getter: None,
-                register_fn: Some("register_ocr_backend".to_string()),
-                type_alias: None,
-                param_name: None,
-                register_extra_args: None,
-                bind_via: alef_core::config::BridgeBinding::FunctionParam,
-                options_type: None,
-                options_field: None,
-                exclude_languages: vec![],
-            },
-            TraitBridgeConfig {
-                trait_name: "PostProcessor".to_string(),
-                super_trait: None,
-                registry_getter: None,
-                register_fn: Some("register_post_processor".to_string()),
-                type_alias: None,
-                param_name: None,
-                register_extra_args: None,
-                bind_via: alef_core::config::BridgeBinding::FunctionParam,
-                options_type: None,
-                options_field: None,
-                exclude_languages: vec![],
-            },
-            TraitBridgeConfig {
-                trait_name: "Validator".to_string(),
-                super_trait: None,
-                registry_getter: None,
-                register_fn: None, // No register_fn for this one
-                type_alias: None,
-                param_name: None,
-                register_extra_args: None,
-                bind_via: alef_core::config::BridgeBinding::FunctionParam,
-                options_type: None,
-                options_field: None,
-                exclude_languages: vec![],
-            },
-        ];
-        let result = collect_trait_bridge_registration_fn_names(&bridges);
-        assert_eq!(result.len(), 2, "should collect only bridges with register_fn set");
-        assert!(result.contains("register_ocr_backend"));
-        assert!(result.contains("register_post_processor"));
-        assert!(!result.contains("register_validator"));
-    }
-
-    // ---------------------------------------------------------------------------
     // gen_bridge_all
     // ---------------------------------------------------------------------------
 
@@ -1901,7 +1822,8 @@ mod tests {
             Some("ConversionOptions"),
             None,
         )];
-        let m = find_bridge_field(&func, std::slice::from_ref(&opts_type), &bridges).expect("bridge field match");
+        let m = find_bridge_field(&func, std::slice::from_ref(&opts_type), &bridges)
+            .expect("bridge field match");
         assert_eq!(m.param_index, 1);
         assert_eq!(m.param_name, "options");
         assert_eq!(m.options_type, "ConversionOptions");

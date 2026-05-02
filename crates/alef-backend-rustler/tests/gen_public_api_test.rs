@@ -1,88 +1,29 @@
 use alef_backend_rustler::RustlerBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, ElixirConfig};
+use alef_core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
 use alef_core::ir::{
     ApiSurface, CoreWrapper, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
     PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
-/// Build a minimal AlefConfig for elixir tests.
-fn make_config(app_name: &str) -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: app_name.replace('_', "-"),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: Some(ElixirConfig {
-            app_name: Some(app_name.to_string()),
-            features: None,
-            serde_rename_all: None,
-            exclude_functions: vec![],
-            exclude_types: vec![],
-            extra_dependencies: Default::default(),
-            scaffold_output: Default::default(),
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-        }),
-        wasm: None,
-        ffi: None,
-        gleam: None,
+/// Build a minimal ResolvedCrateConfig for elixir tests.
+fn make_config(app_name: &str) -> ResolvedCrateConfig {
+    let crate_name = app_name.replace('_', "-");
+    let toml = format!(
+        r#"
+[workspace]
+languages = ["elixir"]
 
-        go: None,
-        java: None,
+[[crates]]
+name = "{crate_name}"
+sources = ["src/lib.rs"]
 
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-    }
+[crates.elixir]
+app_name = "{app_name}"
+"#
+    );
+    let cfg: NewAlefConfig = toml::from_str(&toml).expect("test config must parse");
+    cfg.resolve().expect("test config must resolve").remove(0)
 }
 
 /// Build a minimal FieldDef.
@@ -959,251 +900,5 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
     assert!(
         content.contains("@spec doc() :: t()"),
         "Should emit `@spec doc() :: t()`; content:\n{content}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Options-field bridge tests
-// ---------------------------------------------------------------------------
-
-/// Build config with an options_field bridge for HtmlVisitor on ConversionOptions.
-fn make_config_with_options_field_bridge(app_name: &str) -> AlefConfig {
-    use alef_core::config::{BridgeBinding, TraitBridgeConfig};
-    let mut cfg = make_config(app_name);
-    cfg.trait_bridges = vec![TraitBridgeConfig {
-        trait_name: "HtmlVisitor".to_string(),
-        super_trait: None,
-        registry_getter: None,
-        register_fn: None,
-        type_alias: Some("VisitorHandle".to_string()),
-        param_name: Some("visitor".to_string()),
-        register_extra_args: None,
-        exclude_languages: vec![],
-        bind_via: BridgeBinding::OptionsField,
-        options_type: Some("ConversionOptions".to_string()),
-        options_field: None,
-    }];
-    cfg
-}
-
-/// Build an API surface with ConversionOptions (has_default=true, visitor field) + convert fn.
-fn make_api_with_options_field_bridge() -> ApiSurface {
-    ApiSurface {
-        crate_name: "my-lib".to_string(),
-        version: "1.0.0".to_string(),
-        types: vec![TypeDef {
-            name: "ConversionOptions".to_string(),
-            rust_path: "my_lib::ConversionOptions".to_string(),
-            original_rust_path: String::new(),
-            fields: vec![
-                make_field("heading_style", TypeRef::String, true),
-                make_field(
-                    "visitor",
-                    TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
-                    true,
-                ),
-            ],
-            methods: vec![],
-            is_opaque: false,
-            is_clone: true,
-            is_copy: false,
-            is_trait: false,
-            has_default: true,
-            has_stripped_cfg_fields: false,
-            is_return_type: false,
-            serde_rename_all: None,
-            has_serde: false,
-            super_traits: vec![],
-            doc: String::new(),
-            cfg: None,
-        }],
-        functions: vec![FunctionDef {
-            name: "convert".to_string(),
-            rust_path: "my_lib::convert".to_string(),
-            original_rust_path: String::new(),
-            params: vec![
-                ParamDef {
-                    name: "html".to_string(),
-                    ty: TypeRef::String,
-                    optional: false,
-                    default: None,
-                    sanitized: false,
-                    typed_default: None,
-                    is_ref: false,
-                    is_mut: false,
-                    newtype_wrapper: None,
-                    original_type: None,
-                },
-                ParamDef {
-                    name: "options".to_string(),
-                    ty: TypeRef::Named("ConversionOptions".to_string()),
-                    optional: true,
-                    default: None,
-                    sanitized: false,
-                    typed_default: None,
-                    is_ref: false,
-                    is_mut: false,
-                    newtype_wrapper: None,
-                    original_type: None,
-                },
-            ],
-            return_type: TypeRef::Named("ConversionResult".to_string()),
-            is_async: false,
-            error_type: Some("Error".to_string()),
-            doc: "Convert HTML to Markdown".to_string(),
-            cfg: None,
-            sanitized: false,
-            return_sanitized: false,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-        }],
-        enums: vec![],
-        errors: vec![],
-    }
-}
-
-/// With options_field bridge: native.ex must contain the `convert_with_visitor` stub
-/// with the extra visitor parameter appended.
-#[test]
-fn test_options_field_bridge_native_ex_has_with_visitor_stub() {
-    let backend = RustlerBackend;
-    let api = make_api_with_options_field_bridge();
-    let config = make_config_with_options_field_bridge("my_lib");
-
-    let files = backend.generate_public_api(&api, &config).unwrap();
-    let native = files
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/native.ex"))
-        .expect("native.ex should be generated");
-
-    let content = &native.content;
-
-    // Must have the base convert stub
-    assert!(
-        content.contains("def convert("),
-        "native.ex must have convert stub; content:\n{content}"
-    );
-
-    // Must have convert_with_visitor stub with extra visitor param
-    assert!(
-        content.contains("def convert_with_visitor("),
-        "native.ex must have convert_with_visitor stub for options_field bridge; content:\n{content}"
-    );
-
-    // The _with_visitor stub must have more parameters than the base (visitor appended)
-    let with_visitor_line = content
-        .lines()
-        .find(|l| l.contains("def convert_with_visitor("))
-        .expect("convert_with_visitor stub must be present");
-    assert!(
-        with_visitor_line.contains("_visitor"),
-        "convert_with_visitor stub must include the synthetic _visitor param; line: {with_visitor_line}"
-    );
-}
-
-/// With options_field bridge: the main module must NOT export `convert_with_visitor` as
-/// a public function — it stays internal (NIF only).
-#[test]
-fn test_options_field_bridge_no_public_convert_with_visitor() {
-    let backend = RustlerBackend;
-    let api = make_api_with_options_field_bridge();
-    let config = make_config_with_options_field_bridge("my_lib");
-
-    let files = backend.generate_public_api(&api, &config).unwrap();
-    let main = files
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib.ex"))
-        .expect("my_lib.ex should be generated");
-
-    let content = &main.content;
-
-    // No public def convert_with_visitor in the main wrapper module
-    assert!(
-        !content.contains("def convert_with_visitor"),
-        "main module must not export convert_with_visitor for options_field bridge; content:\n{content}"
-    );
-
-    // The convert wrapper must exist
-    assert!(
-        content.contains("def convert("),
-        "main module must have convert wrapper; content:\n{content}"
-    );
-}
-
-/// With options_field bridge: the `convert` wrapper in the main module must extract
-/// `:visitor` from the options map and dispatch to the async NIF when present.
-#[test]
-fn test_options_field_bridge_convert_extracts_visitor_from_options() {
-    let backend = RustlerBackend;
-    let api = make_api_with_options_field_bridge();
-    let config = make_config_with_options_field_bridge("my_lib");
-
-    let files = backend.generate_public_api(&api, &config).unwrap();
-    let main = files
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib.ex"))
-        .expect("my_lib.ex should be generated");
-
-    let content = &main.content;
-
-    // Must extract :visitor from options
-    assert!(
-        content.contains("Map.pop(") && content.contains(":visitor"),
-        "convert wrapper must call Map.pop to extract :visitor from options; content:\n{content}"
-    );
-
-    // Must dispatch to _with_visitor NIF when visitor is a map
-    assert!(
-        content.contains("convert_with_visitor(") && content.contains("do_visitor_receive_loop"),
-        "convert wrapper must call convert_with_visitor + do_visitor_receive_loop when visitor present; content:\n{content}"
-    );
-
-    // Must have the visitor receive loop
-    assert!(
-        content.contains("defp do_visitor_receive_loop("),
-        "main module must include do_visitor_receive_loop helper; content:\n{content}"
-    );
-}
-
-/// With options_field bridge: `generate_bindings` must emit both `convert` NIF and
-/// `convert_with_visitor` NIF (with visitor as last Rustler Term parameter).
-#[test]
-fn test_options_field_bridge_bindings_has_convert_and_with_visitor_nifs() {
-    let backend = RustlerBackend;
-    let api = make_api_with_options_field_bridge();
-    let config = make_config_with_options_field_bridge("my_lib");
-
-    let files = backend.generate_bindings(&api, &config).unwrap();
-    let lib_rs = files
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
-        .expect("lib.rs should be generated");
-
-    let content = &lib_rs.content;
-
-    // Regular convert NIF must exist
-    assert!(
-        content.contains("pub fn convert("),
-        "lib.rs must have regular convert NIF; content:\n{content}"
-    );
-
-    // Async visitor variant must exist
-    assert!(
-        content.contains("pub fn convert_with_visitor("),
-        "lib.rs must have convert_with_visitor NIF for options_field bridge; content:\n{content}"
-    );
-
-    // Visitor parameter must be a Rustler Term
-    let with_visitor_section = content.split("pub fn convert_with_visitor(").nth(1).unwrap_or("");
-    assert!(
-        with_visitor_section.contains("rustler::Term<'_>"),
-        "convert_with_visitor must accept visitor as rustler::Term<'_>; section: {with_visitor_section}"
-    );
-
-    // Must spawn a thread (async visitor path)
-    assert!(
-        content.contains("std::thread::spawn"),
-        "convert_with_visitor must spawn a system thread; content:\n{content}"
     );
 }

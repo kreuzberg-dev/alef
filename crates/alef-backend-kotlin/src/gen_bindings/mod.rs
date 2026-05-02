@@ -10,8 +10,9 @@ mod traits;
 mod typealiases;
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, KotlinTarget, Language, resolve_output_dir};
+use alef_core::config::{KotlinTarget, Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+use crate::naming::kotlin_target;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -75,8 +76,8 @@ impl Backend for KotlinBackend {
         }
     }
 
-    fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        match config.kotlin_target() {
+    fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        match kotlin_target(config) {
             KotlinTarget::Jvm => generate_jvm(api, config),
             KotlinTarget::Native => crate::gen_native::emit(api, config),
             KotlinTarget::Multiplatform => crate::gen_mpp::emit(api, config),
@@ -97,9 +98,9 @@ impl Backend for KotlinBackend {
 // JVM code generation
 // ---------------------------------------------------------------------------
 
-fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let java_package = config.java_package();
-    let module_name = to_pascal_case(&config.crate_config.name);
+    let module_name = to_pascal_case(&config.name);
     // If the user's Kotlin and Java packages collide on the same FQN as the
     // generated module, the Kotlin object would shadow the Java facade class
     // (both compile to `<package>/<module>.class`). Push the Kotlin code into
@@ -191,12 +192,23 @@ fn generate_jvm(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<Gen
     content.push_str(&body);
 
     let package_path = package.replace('.', "/");
-    let dir = resolve_output_dir(
-        None,
-        &config.crate_config.name,
-        &format!("packages/kotlin/src/main/kotlin/{package_path}"),
-    );
-    let path = PathBuf::from(dir).join(format!("{module_name}.kt"));
+    let kotlin_root = config
+        .output_for("kotlin")
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "packages/kotlin".to_string());
+    let kotlin_root_path = PathBuf::from(&kotlin_root);
+    // Explicit `[crates.output] kotlin = "..."` is treated as the final
+    // package directory. Without an override the backend constructs the
+    // canonical Maven-style `src/main/kotlin/<package>/` layout under the
+    // template-derived base.
+    let path = if config.explicit_output.kotlin.is_some() {
+        kotlin_root_path.join(format!("{module_name}.kt"))
+    } else {
+        kotlin_root_path
+            .join("src/main/kotlin")
+            .join(&package_path)
+            .join(format!("{module_name}.kt"))
+    };
 
     Ok(vec![GeneratedFile {
         path,

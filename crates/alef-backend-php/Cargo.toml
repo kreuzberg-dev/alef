@@ -16,3 +16,6 @@ alef-codegen = { workspace = true }
 alef-core = { workspace = true }
 anyhow = { workspace = true }
 heck = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

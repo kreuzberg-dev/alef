@@ -1,5 +1,5 @@
 use ahash::{AHashMap, AHashSet};
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
 use anyhow::Context as _;
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ use super::version::read_version;
 
 /// Ensure required entries are in `.gitignore` — creates the file if absent.
 /// Adds `.alef/` (cache) and language-specific build artifacts based on config.
-pub fn ensure_gitignore(base_dir: &Path, config: &AlefConfig) {
+pub fn ensure_gitignore(base_dir: &Path, config: &ResolvedCrateConfig) {
     use alef_core::config::Language;
 
     let gitignore_path = base_dir.join(".gitignore");
@@ -66,17 +66,18 @@ pub fn ensure_gitignore(base_dir: &Path, config: &AlefConfig) {
 }
 
 /// Run extraction, with caching.
-pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::Result<ApiSurface> {
+pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) -> anyhow::Result<ApiSurface> {
     // Ensure .gitignore has required entries
     if let Some(parent) = config_path.parent() {
         ensure_gitignore(parent, config);
     }
 
-    let source_hash = cache::sources_hash(&config.crate_config.sources).context("failed to compute sources hash")?;
+    cache::validate_cache_crate_name(&config.name).context("invalid crate name for cache")?;
+    let source_hash = cache::sources_hash(&config.sources).context("failed to compute sources hash")?;
 
-    if !clean && cache::is_ir_cached(&source_hash) {
+    if !clean && cache::is_ir_cached(&config.name, &source_hash) {
         info!("Using cached IR");
-        return cache::read_cached_ir().context("failed to read cached IR");
+        return cache::read_cached_ir(&config.name).context("failed to read cached IR");
     }
 
     let mut api = extract_raw(config, config_path)?;
@@ -90,7 +91,7 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
     // Remove cfg-gated fields unless their feature is in [crate].features.
     // Binding crates may have different features enabled than the core crate,
     // so cfg-gated fields are only included when explicitly listed.
-    strip_cfg_fields(&mut api, &config.crate_config.features);
+    strip_cfg_fields(&mut api, &config.features);
 
     // Replace references to types not in the API surface with String
     sanitize_unknown_types(&mut api);
@@ -104,7 +105,7 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
     // rewritten paths are used for the shortest-path preference heuristic).
     dedup_api_surface(&mut api);
 
-    cache::write_ir_cache(&api, &source_hash).context("failed to write IR cache")?;
+    cache::write_ir_cache(&config.name, &api, &source_hash).context("failed to write IR cache")?;
     info!(
         "Extracted {} types, {} functions, {} enums",
         api.types.len(),
@@ -121,24 +122,24 @@ pub fn extract(config: &AlefConfig, config_path: &Path, clean: bool) -> anyhow::
 /// patterns) and extracts each group with the correct crate name. This ensures types
 /// get accurate `rust_path` values reflecting their actual defining crate, not the
 /// facade crate name from config.
-fn extract_raw(config: &AlefConfig, _config_path: &Path) -> anyhow::Result<ApiSurface> {
+fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> anyhow::Result<ApiSurface> {
     info!("Extracting API surface from Rust source...");
-    let version = read_version(&config.crate_config.version_from)?;
-    let workspace_root = config.crate_config.workspace_root.as_deref();
-    let default_name = &config.crate_config.name;
+    let version = read_version(&config.version_from)?;
+    let workspace_root = config.workspace_root.as_deref();
+    let default_name = &config.name;
 
     // Build source groups: use explicit source_crates config when available,
     // otherwise derive crate names from file paths in the flat sources list.
     let mut groups: std::collections::BTreeMap<String, Vec<&Path>> = std::collections::BTreeMap::new();
-    if !config.crate_config.source_crates.is_empty() {
-        for sc in &config.crate_config.source_crates {
+    if !config.source_crates.is_empty() {
+        for sc in &config.source_crates {
             let crate_name = sc.name.replace('-', "_");
             for source in &sc.sources {
                 groups.entry(crate_name.clone()).or_default().push(source.as_path());
             }
         }
     } else {
-        for source in &config.crate_config.sources {
+        for source in &config.sources {
             let crate_name = derive_crate_name_from_path(source, default_name);
             groups.entry(crate_name).or_default().push(source.as_path());
         }
@@ -185,7 +186,7 @@ fn derive_crate_name_from_path(path: &Path, default: &str) -> String {
 
 /// Inject declared opaque types from config into the API surface.
 /// These are external crate types that alef can't extract but needs to generate wrappers for.
-fn inject_declared_opaque_types(api: &mut ApiSurface, config: &AlefConfig) {
+fn inject_declared_opaque_types(api: &mut ApiSurface, config: &ResolvedCrateConfig) {
     let mut sorted_opaques: Vec<_> = config.opaque_types.iter().collect();
     sorted_opaques.sort_by_key(|(name, _)| (*name).clone());
     for (name, rust_path) in sorted_opaques {
@@ -613,7 +614,7 @@ fn dedup_api_surface(api: &mut ApiSurface) {
 /// but live in different modules, e.g.:
 ///
 /// ```toml
-/// [exclude]
+/// [crates.exclude]
 /// types = [
 ///   "kreuzberg::core::config::formats::OutputFormat",  # internal; matched by rust_path
 ///   "OutputFormat",                                    # would match by name (all variants)
@@ -632,7 +633,7 @@ fn is_type_excluded(name: &str, rust_path: &str, exclude_list: &[String]) -> boo
     })
 }
 
-fn apply_filters(mut api: ApiSurface, config: &AlefConfig) -> ApiSurface {
+fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurface {
     let exclude = &config.exclude;
     let include = &config.include;
 
@@ -741,9 +742,9 @@ fn rewrite_path(path: &str, mappings: &HashMap<String, String>) -> String {
 
 /// Apply path_mappings to rewrite all rust_path fields in the API surface.
 ///
-/// Uses [`AlefConfig::effective_path_mappings`] which merges auto-derived mappings
+/// Uses [`ResolvedCrateConfig::effective_path_mappings`] which merges auto-derived mappings
 /// (from `auto_path_mappings`) with explicit `path_mappings` entries.
-fn apply_path_mappings(api: &mut ApiSurface, config: &AlefConfig) {
+fn apply_path_mappings(api: &mut ApiSurface, config: &ResolvedCrateConfig) {
     let mappings = config.effective_path_mappings();
     if mappings.is_empty() {
         return;

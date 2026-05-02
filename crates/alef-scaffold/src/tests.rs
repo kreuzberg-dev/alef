@@ -1,81 +1,28 @@
 use super::*;
 use crate::languages::generate_pre_commit_config;
-use alef_core::config::*;
+use alef_core::config::{Language, NewAlefConfig, PythonConfig, ResolvedCrateConfig, ScaffoldCargoTargets, ScaffoldConfig};
 use std::path::{Path, PathBuf};
 
-fn test_config() -> AlefConfig {
-    AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "my-lib".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![Language::Python, Language::Node],
-        exclude: ExcludeConfig::default(),
-        include: IncludeConfig::default(),
-        output: OutputConfig::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: None,
-        gleam: None,
+fn test_config() -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python", "node"]
 
-        go: None,
-        java: None,
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
 
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-
-        zig: None,
-        scaffold: Some(ScaffoldConfig {
-            description: Some("Test library".to_string()),
-            license: Some("MIT".to_string()),
-            repository: Some("https://github.com/test/my-lib".to_string()),
-            homepage: None,
-            authors: vec!["Alice".to_string()],
-            keywords: vec!["test".to_string()],
-            cargo: None,
-        }),
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: CustomModulesConfig::default(),
-        custom_registrations: CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: ToolsConfig::default(),
-        format: FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    }
+[crates.scaffold]
+description = "Test library"
+license = "MIT"
+repository = "https://github.com/test/my-lib"
+authors = ["Alice"]
+keywords = ["test"]
+"#,
+    )
+    .expect("valid toml");
+    cfg.resolve().expect("resolve ok").remove(0)
 }
 
 fn test_api() -> ApiSurface {
@@ -240,7 +187,7 @@ fn test_scaffold_ffi_merges_extra_dependencies() {
         .unwrap(),
     );
     deps.insert("anyhow".to_string(), toml::Value::String("1.0".to_string()));
-    config.crate_config.extra_dependencies = deps;
+    config.extra_dependencies = deps;
 
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
@@ -644,13 +591,12 @@ fn test_render_csharp_csproj_runtimes_glob_is_relative() {
     );
 }
 
-fn config_with_extra_deps() -> AlefConfig {
+fn config_with_extra_deps() -> ResolvedCrateConfig {
     let mut config = test_config();
     config
-        .crate_config
         .extra_dependencies
         .insert("anyhow".to_string(), toml::Value::String("1.0".to_string()));
-    config.crate_config.extra_dependencies.insert(
+    config.extra_dependencies.insert(
         "tracing".to_string(),
         toml::Value::Table({
             let mut t = toml::map::Map::new();
@@ -801,7 +747,6 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
     let mut config = test_config();
     // Crate-level dep with version "1.0"
     config
-        .crate_config
         .extra_dependencies
         .insert("shared-dep".to_string(), toml::Value::String("1.0".to_string()));
     // Python-level override with a different version; inject via extra_deps_for_language
@@ -1058,7 +1003,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
     use alef_core::config::TraitBridgeConfig;
 
     let mut config = test_config();
-    config.crate_config.name = "html-to-markdown".to_string();
+    config.name = "html-to-markdown".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(alef_core::config::ElixirConfig {
         app_name: Some("html_to_markdown".to_string()),
@@ -1112,7 +1057,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_c
     use alef_core::config::TraitBridgeConfig;
 
     let mut config = test_config();
-    config.crate_config.name = "tree-sitter-language-pack".to_string();
+    config.name = "tree-sitter-language-pack".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(alef_core::config::ElixirConfig {
         app_name: Some("tree_sitter_language_pack".to_string()),
@@ -1466,7 +1411,7 @@ fn test_scaffold_zig() {
 // `[scaffold.cargo]` workspace `.cargo/config.toml` rendering tests.
 // ---------------------------------------------------------------------------
 
-fn cargo_only_config(cargo: ScaffoldCargo) -> AlefConfig {
+fn cargo_only_config(cargo: ScaffoldCargo) -> ResolvedCrateConfig {
     let mut cfg = test_config();
     cfg.scaffold = Some(ScaffoldConfig {
         description: Some("Test library".to_string()),

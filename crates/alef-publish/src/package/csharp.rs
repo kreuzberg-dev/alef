@@ -10,7 +10,7 @@
 
 use super::PackageArtifact;
 use crate::platform::RustTarget;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_scaffold::render_csharp_csproj;
 use anyhow::{Context, Result};
 use std::fs;
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Produces: `{namespace}.{version}.nupkg` (moved to `output_dir`).
 pub fn package_csharp(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     target: &RustTarget,
     workspace_root: &Path,
     output_dir: &Path,
@@ -95,7 +95,7 @@ pub fn package_csharp(
 }
 
 /// Return the NuGet RID for this target.
-fn csharp_rid(config: &AlefConfig, target: &RustTarget) -> String {
+fn csharp_rid(config: &ResolvedCrateConfig, target: &RustTarget) -> String {
     // Check for override in publish config.
     if let Some(publish) = &config.publish {
         if let Some(lang_cfg) = publish.languages.get("csharp") {
@@ -159,19 +159,22 @@ fn find_nupkg(output_dir: &Path, namespace: &str, version: &str) -> Result<PathB
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alef_core::config::NewAlefConfig;
 
-    fn minimal_config() -> AlefConfig {
-        toml::from_str(
+    fn minimal_config() -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["csharp"]
-[crate]
+[[crates]]
 name = "mylib"
 sources = ["src/lib.rs"]
-[csharp]
+[crates.csharp]
 namespace = "MyLib"
 "#,
         )
-        .unwrap()
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
     }
 
     #[test]
@@ -204,17 +207,19 @@ namespace = "MyLib"
 
     #[test]
     fn rid_config_override() {
-        let config: AlefConfig = toml::from_str(
+        let cfg: NewAlefConfig = toml::from_str(
             r#"
+[workspace]
 languages = ["csharp"]
-[crate]
+[[crates]]
 name = "mylib"
 sources = ["src/lib.rs"]
-[publish.languages.csharp]
+[crates.publish.languages.csharp]
 csharp_rid = "linux-x64-custom"
 "#,
         )
         .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
         let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         assert_eq!(csharp_rid(&config, &t), "linux-x64-custom");
     }

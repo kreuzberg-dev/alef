@@ -7,7 +7,7 @@ pub mod streaming;
 pub mod sync_function;
 
 use ahash::AHashMap;
-use alef_core::config::{AdapterPattern, AlefConfig, Language};
+use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig};
 
 /// Key: "TypeName.method_name" for methods, "function_name" for free functions.
 /// For streaming adapters, an additional entry "ItemType.__stream_struct__" holds
@@ -15,7 +15,7 @@ use alef_core::config::{AdapterPattern, AlefConfig, Language};
 pub type AdapterBodies = AHashMap<String, String>;
 
 /// Build a map of adapter-generated method/function bodies for a language.
-pub fn build_adapter_bodies(config: &AlefConfig, language: Language) -> anyhow::Result<AdapterBodies> {
+pub fn build_adapter_bodies(config: &ResolvedCrateConfig, language: Language) -> anyhow::Result<AdapterBodies> {
     let mut bodies = AHashMap::new();
 
     for adapter in &config.adapters {

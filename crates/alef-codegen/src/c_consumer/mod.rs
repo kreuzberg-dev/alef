@@ -8,13 +8,13 @@
 //! - A symbol prefix (`config.ffi_prefix()`)
 //! - Standard helper symbols: `{prefix}_free_string`, `{prefix}_last_error_code`, `{prefix}_last_error_context`
 
-use alef_core::config::{AlefConfig, resolve_output_dir};
+use alef_core::config::{ResolvedCrateConfig, resolve_output_dir};
 use std::path::PathBuf;
 
 /// Context capturing the shared FFI consumer inputs across all language backends.
 pub struct CConsumerContext<'a> {
-    /// Reference to the Alef configuration.
-    pub config: &'a AlefConfig,
+    /// Reference to the resolved crate configuration.
+    pub config: &'a ResolvedCrateConfig,
     /// C header filename (e.g., "html_to_markdown.h").
     pub header: String,
     /// C library name used for linking (e.g., "html_to_markdown").
@@ -24,8 +24,8 @@ pub struct CConsumerContext<'a> {
 }
 
 impl<'a> CConsumerContext<'a> {
-    /// Create a new CConsumerContext from the Alef configuration.
-    pub fn from_config(config: &'a AlefConfig) -> Self {
+    /// Create a new CConsumerContext from the resolved crate configuration.
+    pub fn from_config(config: &'a ResolvedCrateConfig) -> Self {
         Self {
             config,
             header: config.ffi_header_name(),
@@ -85,7 +85,60 @@ pub fn last_error_context_symbol(prefix: &str) -> String {
 ///
 /// # Returns
 /// A PathBuf representing the resolved output directory.
-pub fn default_output_dir(config: &AlefConfig, default: &str) -> PathBuf {
-    let resolved = resolve_output_dir(None, &config.crate_config.name, default);
+pub fn default_output_dir(config: &ResolvedCrateConfig, default: &str) -> PathBuf {
+    let resolved = resolve_output_dir(None, &config.name, default);
     PathBuf::from(resolved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::NewAlefConfig;
+
+    fn make_config() -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
+    }
+
+    #[test]
+    fn free_string_symbol_produces_expected_format() {
+        assert_eq!(free_string_symbol("htm"), "htm_free_string");
+    }
+
+    #[test]
+    fn last_error_code_symbol_produces_expected_format() {
+        assert_eq!(last_error_code_symbol("krz"), "krz_last_error_code");
+    }
+
+    #[test]
+    fn last_error_context_symbol_produces_expected_format() {
+        assert_eq!(last_error_context_symbol("krz"), "krz_last_error_context");
+    }
+
+    #[test]
+    fn from_config_reads_ffi_fields() {
+        let config = make_config();
+        let ctx = CConsumerContext::from_config(&config);
+        assert!(!ctx.header.is_empty());
+        assert!(!ctx.lib_name.is_empty());
+        assert!(!ctx.prefix.is_empty());
+    }
+
+    #[test]
+    fn default_output_dir_uses_provided_default() {
+        let config = make_config();
+        let dir = default_output_dir(&config, "packages/go/");
+        // The result should include "packages/go/" as the default.
+        assert!(dir.to_string_lossy().contains("go"));
+    }
 }

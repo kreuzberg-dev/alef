@@ -1,13 +1,13 @@
 use ahash::AHashSet;
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::config::{AlefConfig, BridgeBinding};
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{FieldDef, TypeDef, TypeRef};
 use heck::{ToPascalCase, ToSnakeCase};
 use std::collections::HashMap;
 
 /// Get module name and prefix from config or derive from crate name.
-pub(super) fn get_module_info(_api: &alef_core::ir::ApiSurface, config: &AlefConfig) -> (String, String) {
+pub(super) fn get_module_info(_api: &alef_core::ir::ApiSurface, config: &ResolvedCrateConfig) -> (String, String) {
     let app_name = config.elixir_app_name();
     let module_prefix = app_name.to_pascal_case();
     (app_name, module_prefix)
@@ -55,7 +55,7 @@ pub(super) fn gen_native_ex(
     app_name: &str,
     app_module: &str,
     _crate_name: &str,
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     exclude_functions: &AHashSet<&str>,
     exclude_types: &AHashSet<&str>,
 ) -> String {
@@ -109,29 +109,12 @@ pub(super) fn gen_native_ex(
             .collect();
         last_was_multiline = write_nif_stub(&mut out, &fn_name, &underscored_params, last_was_multiline);
 
-        // For functions that have a visitor bridge (function_param OR options_field),
-        // emit the async visitor variant stub.
-        let function_param_bridge = config.trait_bridges.iter().find(|b| {
-            b.bind_via == BridgeBinding::FunctionParam
-                && func.params.iter().any(|p| {
-                    b.param_name.as_deref() == Some(p.name.as_str())
-                        || match &p.ty {
-                            TypeRef::Named(n) => b.type_alias.as_deref() == Some(n.as_str()),
-                            TypeRef::Optional(inner) => {
-                                if let TypeRef::Named(n) = inner.as_ref() {
-                                    b.type_alias.as_deref() == Some(n.as_str())
-                                } else {
-                                    false
-                                }
-                            }
-                            _ => false,
-                        }
-                })
-        });
-        let options_field_bridge = config.trait_bridges.iter().find(|b| {
-            b.bind_via == BridgeBinding::OptionsField
-                && func.params.iter().any(|p| {
-                    let type_name = match &p.ty {
+        // For functions that have a visitor bridge, also emit the async visitor variant stub
+        // plus the visitor_reply NIF stub (once, for the first such function).
+        let has_visitor_bridge = config.trait_bridges.iter().any(|b| {
+            func.params.iter().any(|p| {
+                b.param_name.as_deref() == Some(p.name.as_str()) || {
+                    let named = match &p.ty {
                         TypeRef::Named(n) => Some(n.as_str()),
                         TypeRef::Optional(inner) => {
                             if let TypeRef::Named(n) = inner.as_ref() {
@@ -142,32 +125,17 @@ pub(super) fn gen_native_ex(
                         }
                         _ => None,
                     };
-                    type_name.map(|n| b.options_type.as_deref() == Some(n)).unwrap_or(false)
-                })
+                    named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                }
+            })
         });
-
-        if function_param_bridge.is_some() {
-            // function_param: same params as the base function.
+        if has_visitor_bridge {
+            // Params for convert_with_visitor: same as convert but visitor is required (not optional).
             let with_visitor_params: Vec<String> = func
                 .params
                 .iter()
                 .map(|p| format!("_{}", p.name.to_snake_case()))
                 .collect();
-            last_was_multiline = write_nif_stub(
-                &mut out,
-                &format!("{fn_name}_with_visitor"),
-                &with_visitor_params,
-                last_was_multiline,
-            );
-        } else if let Some(b) = options_field_bridge {
-            // options_field: same params as the base function + synthetic visitor param.
-            let field_name = b.resolved_options_field().unwrap_or("visitor");
-            let mut with_visitor_params: Vec<String> = func
-                .params
-                .iter()
-                .map(|p| format!("_{}", p.name.to_snake_case()))
-                .collect();
-            with_visitor_params.push(format!("_{field_name}"));
             last_was_multiline = write_nif_stub(
                 &mut out,
                 &format!("{fn_name}_with_visitor"),

@@ -9,24 +9,25 @@
 //! against that: a fixture with no `http` block must materialise as an
 //! invocation of the binding under test.
 
-use alef_core::config::AlefConfig;
+use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
 use alef_e2e::codegen::wasm::WasmCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup};
 
-fn build_config() -> AlefConfig {
+fn build_config() -> (alef_e2e::config::E2eConfig, alef_core::config::ResolvedCrateConfig) {
     let toml_src = r#"
+[workspace]
 languages = ["wasm"]
 
-[crate]
+[[crates]]
 name = "mylib"
 sources = ["src/lib.rs"]
 
-[e2e]
+[crates.e2e]
 fixtures = "fixtures"
 output = "e2e"
 
-[e2e.call]
+[crates.e2e.call]
 function = "extract_file"
 module = "mylib"
 result_var = "result"
@@ -37,10 +38,13 @@ args = [
   { name = "mime_type", field = "input.mime_type", type = "string", optional = true },
 ]
 
-[e2e.call.overrides.wasm]
+[crates.e2e.call.overrides.wasm]
 options_type = "WasmExtractionConfig"
 "#;
-    toml::from_str(toml_src).expect("config parses")
+    let cfg: NewAlefConfig = toml::from_str(toml_src).expect("config parses");
+    let e2e = cfg.crates[0].e2e.clone().unwrap();
+    let resolved = cfg.resolve().expect("resolves").remove(0);
+    (e2e, resolved)
 }
 
 fn smoke_fixture() -> FixtureGroup {
@@ -73,10 +77,10 @@ fn smoke_fixture() -> FixtureGroup {
 
 #[test]
 fn wasm_codegen_emits_extract_file_call_for_non_http_fixture() {
-    let config = build_config();
+    let (e2e, resolved) = build_config();
     let groups = vec![smoke_fixture()];
     let files = WasmCodegen
-        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .generate(&groups, &e2e, &resolved)
         .expect("generation succeeds");
 
     let smoke = files
@@ -105,10 +109,10 @@ fn wasm_codegen_emits_extract_file_call_for_non_http_fixture() {
 
 #[test]
 fn wasm_codegen_emits_setup_ts_when_file_path_args_are_used() {
-    let config = build_config();
+    let (e2e, resolved) = build_config();
     let groups = vec![smoke_fixture()];
     let files = WasmCodegen
-        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .generate(&groups, &e2e, &resolved)
         .expect("generation succeeds");
 
     // setup.ts must be emitted so that vitest chdir's to test_documents
@@ -132,10 +136,10 @@ fn wasm_codegen_emits_setup_ts_when_file_path_args_are_used() {
 
 #[test]
 fn wasm_codegen_skips_globalsetup_when_no_http_fixtures() {
-    let config = build_config();
+    let (e2e, resolved) = build_config();
     let groups = vec![smoke_fixture()];
     let files = WasmCodegen
-        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .generate(&groups, &e2e, &resolved)
         .expect("generation succeeds");
 
     // Without any HTTP fixtures, we must not emit globalSetup.ts (which spawns

@@ -10,7 +10,7 @@ pub mod package;
 pub mod platform;
 pub mod vendor;
 
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::config::extras::Language;
 use alef_core::config::publish::{PublishLanguageConfig, VendorMode};
 use anyhow::{Context, Result};
@@ -18,7 +18,7 @@ use platform::RustTarget;
 use std::path::Path;
 
 /// Prepare a language package for publishing: vendor dependencies, stage FFI artifacts.
-pub fn prepare(config: &AlefConfig, languages: &[Language], target: Option<&RustTarget>, dry_run: bool) -> Result<()> {
+pub fn prepare(config: &ResolvedCrateConfig, languages: &[Language], target: Option<&RustTarget>, dry_run: bool) -> Result<()> {
     for &lang in languages {
         let lang_config = publish_config_for_language(config, lang);
 
@@ -116,8 +116,8 @@ fn validate_identifier(s: &str, label: &str) -> Result<()> {
 }
 
 /// Build release artifacts for a specific platform.
-pub fn build(config: &AlefConfig, languages: &[Language], target: Option<&RustTarget>, use_cross: bool) -> Result<()> {
-    let crate_name = &config.crate_config.name;
+pub fn build(config: &ResolvedCrateConfig, languages: &[Language], target: Option<&RustTarget>, use_cross: bool) -> Result<()> {
+    let crate_name = &config.name;
     validate_identifier(crate_name, "crate_name")?;
     if let Some(t) = target {
         validate_identifier(&t.triple, "target.triple")?;
@@ -151,8 +151,7 @@ pub fn build(config: &AlefConfig, languages: &[Language], target: Option<&RustTa
             substitute_target(&custom.commands().join(" && "), target)
         } else if let Some(build_cmd_cfg) = config
             .build_commands
-            .as_ref()
-            .and_then(|m| m.get(&lang.to_string()))
+            .get(&lang.to_string())
             .and_then(|c| c.build_release.as_ref())
         {
             substitute_target(&build_cmd_cfg.commands().join(" && "), target)
@@ -183,22 +182,22 @@ fn substitute_target(cmd: &str, target: Option<&RustTarget>) -> String {
 /// Extract the Rust crate name from an output path in the config.
 ///
 /// `"crates/html-to-markdown-ffi/src/"` → `Some("html-to-markdown-ffi")`
-pub(crate) fn crate_name_from_output(config: &AlefConfig, lang: Language) -> Option<String> {
+pub(crate) fn crate_name_from_output(config: &ResolvedCrateConfig, lang: Language) -> Option<String> {
     let output_path = match lang {
-        Language::Python => config.output.python.as_deref(),
-        Language::Node => config.output.node.as_deref(),
-        Language::Ruby => config.output.ruby.as_deref(),
-        Language::Php => config.output.php.as_deref(),
-        Language::Elixir => config.output.elixir.as_deref(),
-        Language::Wasm => config.output.wasm.as_deref(),
-        Language::Ffi => config.output.ffi.as_deref(),
-        Language::Go => config.output.go.as_deref(),
-        Language::Java => config.output.java.as_deref(),
-        Language::Csharp => config.output.csharp.as_deref(),
-        Language::R => config.output.r.as_deref(),
-        Language::Kotlin => config.output.kotlin.as_deref(),
-        Language::Gleam => config.output.gleam.as_deref(),
-        Language::Zig => config.output.zig.as_deref(),
+        Language::Python => config.explicit_output.python.as_deref(),
+        Language::Node => config.explicit_output.node.as_deref(),
+        Language::Ruby => config.explicit_output.ruby.as_deref(),
+        Language::Php => config.explicit_output.php.as_deref(),
+        Language::Elixir => config.explicit_output.elixir.as_deref(),
+        Language::Wasm => config.explicit_output.wasm.as_deref(),
+        Language::Ffi => config.explicit_output.ffi.as_deref(),
+        Language::Go => config.explicit_output.go.as_deref(),
+        Language::Java => config.explicit_output.java.as_deref(),
+        Language::Csharp => config.explicit_output.csharp.as_deref(),
+        Language::R => config.explicit_output.r.as_deref(),
+        Language::Kotlin => config.explicit_output.kotlin.as_deref(),
+        Language::Gleam => config.explicit_output.gleam.as_deref(),
+        Language::Zig => config.explicit_output.zig.as_deref(),
         Language::Rust => None,
         Language::Swift | Language::Dart => None,
     }?;
@@ -215,8 +214,8 @@ pub(crate) fn crate_name_from_output(config: &AlefConfig, lang: Language) -> Opt
 /// Generate the build command for a language, deriving crate names from output path config.
 ///
 /// Falls back to `{crate_name}-{suffix}` when no output path is configured.
-fn build_command_for_lang(lang: Language, config: &AlefConfig, target: Option<&RustTarget>, use_cross: bool) -> String {
-    let crate_name = &config.crate_config.name;
+fn build_command_for_lang(lang: Language, config: &ResolvedCrateConfig, target: Option<&RustTarget>, use_cross: bool) -> String {
+    let crate_name = &config.name;
     let cargo = if use_cross { "cross" } else { "cargo" };
     let target_flag = target.map(|t| format!(" --target {}", t.triple)).unwrap_or_default();
 
@@ -314,7 +313,7 @@ pub struct PackageOptions<'a> {
 
 /// Package built artifacts into distributable archives.
 pub fn package(
-    config: &AlefConfig,
+    config: &ResolvedCrateConfig,
     languages: &[Language],
     target: Option<&RustTarget>,
     output_dir: &Path,
@@ -453,12 +452,12 @@ pub fn package(
 /// - All required package directories exist
 /// - Key manifest files are present (pyproject.toml, package.json, gemspec, etc.)
 /// - Cargo.toml version can be read
-pub fn validate(config: &AlefConfig, languages: &[Language]) -> Result<Vec<String>> {
+pub fn validate(config: &ResolvedCrateConfig, languages: &[Language]) -> Result<Vec<String>> {
     let mut issues = Vec::new();
 
     // Check version is readable.
     if config.resolved_version().is_none() {
-        issues.push(format!("cannot read version from {}", config.crate_config.version_from));
+        issues.push(format!("cannot read version from {}", config.version_from));
     }
 
     // Check package directories and key manifest files exist.
@@ -507,7 +506,7 @@ pub fn validate(config: &AlefConfig, languages: &[Language]) -> Result<Vec<Strin
 }
 
 /// Get the publish configuration for a language, falling back to defaults.
-fn publish_config_for_language(config: &AlefConfig, lang: Language) -> PublishLanguageConfig {
+fn publish_config_for_language(config: &ResolvedCrateConfig, lang: Language) -> PublishLanguageConfig {
     if let Some(publish) = &config.publish {
         let lang_str = lang.to_string();
         if let Some(lang_config) = publish.languages.get(&lang_str) {
@@ -518,7 +517,7 @@ fn publish_config_for_language(config: &AlefConfig, lang: Language) -> PublishLa
 }
 
 /// Resolve the core crate directory path.
-fn resolve_core_crate_dir(config: &AlefConfig) -> String {
+fn resolve_core_crate_dir(config: &ResolvedCrateConfig) -> String {
     if let Some(publish) = &config.publish {
         if let Some(core_crate) = &publish.core_crate {
             return core_crate.clone();
@@ -526,8 +525,8 @@ fn resolve_core_crate_dir(config: &AlefConfig) -> String {
     }
     // Fall back to deriving from [crate].sources.
     let dir = config.core_crate_dir();
-    if !config.crate_config.sources.is_empty() {
-        let first = config.crate_config.sources[0].to_string_lossy();
+    if !config.sources.is_empty() {
+        let first = config.sources[0].to_string_lossy();
         if first.contains("crates/") {
             return format!("crates/{dir}");
         }
@@ -536,9 +535,8 @@ fn resolve_core_crate_dir(config: &AlefConfig) -> String {
 }
 
 /// Resolve the workspace root directory.
-fn resolve_workspace_root(config: &AlefConfig) -> String {
+fn resolve_workspace_root(config: &ResolvedCrateConfig) -> String {
     config
-        .crate_config
         .workspace_root
         .as_ref()
         .map(|p| p.to_string_lossy().to_string())
@@ -546,7 +544,7 @@ fn resolve_workspace_root(config: &AlefConfig) -> String {
 }
 
 /// Resolve the vendor destination directory for a language.
-fn resolve_vendor_dest(config: &AlefConfig, lang: Language) -> String {
+fn resolve_vendor_dest(config: &ResolvedCrateConfig, lang: Language) -> String {
     let pkg_dir = config.package_dir(lang);
     match lang {
         Language::Ruby => format!("{pkg_dir}/vendor"),

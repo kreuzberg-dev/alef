@@ -1,11 +1,16 @@
 /// Test that generates and displays sample Java code output.
 use alef_backend_java::JavaBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{AlefConfig, CrateConfig, FfiConfig, JavaConfig};
+use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
     ApiSurface, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef,
     TypeRef,
 };
+
+fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
 
 #[test]
 #[ignore] // Run with: cargo test -- --ignored --nocapture
@@ -267,87 +272,22 @@ fn print_generated_java_code() {
         }],
     };
 
-    let config = AlefConfig {
-        version: None,
-        crate_config: CrateConfig {
-            name: "kreuzberg".to_string(),
-            sources: vec![],
-            version_from: "Cargo.toml".to_string(),
-            core_import: None,
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: std::collections::HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages: vec![],
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: Some(FfiConfig {
-            prefix: Some("kreuzberg".to_string()),
-            error_style: "last_error".to_string(),
-            header_name: None,
-            lib_name: None,
-            visitor_callbacks: false,
-            features: None,
-            serde_rename_all: None,
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            rename_fields: Default::default(),
-        }),
-        gleam: None,
-        go: None,
-        java: Some(JavaConfig {
-            package: Some("dev.kreuzberg.extraction".to_string()),
-            ffi_style: "panama".to_string(),
-            features: None,
-            serde_rename_all: None,
-            rename_fields: Default::default(),
-            run_wrapper: None,
-            extra_lint_paths: Vec::new(),
-            project_file: None,
-        }),
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        adapters: vec![],
-        custom_modules: alef_core::config::CustomModulesConfig::default(),
-        custom_registrations: alef_core::config::CustomRegistrationsConfig::default(),
-        opaque_types: std::collections::HashMap::new(),
-        generate: alef_core::config::GenerateConfig::default(),
-        generate_overrides: std::collections::HashMap::new(),
-        dto: Default::default(),
-        sync: None,
-        e2e: None,
-        trait_bridges: vec![],
-        tools: alef_core::config::ToolsConfig::default(),
-        format: alef_core::config::FormatConfig::default(),
-        format_overrides: std::collections::HashMap::new(),
-    };
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "kreuzberg"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "kreuzberg"
+
+[crates.java]
+package = "dev.kreuzberg.extraction"
+"#,
+    );
 
     let result = backend.generate_bindings(&api, &config).unwrap();
 

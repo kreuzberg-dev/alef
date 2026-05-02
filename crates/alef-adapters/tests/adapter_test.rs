@@ -1,86 +1,27 @@
 //! Test suite for alef-adapters crate covering all adapter patterns and languages.
 
 use alef_adapters::build_adapter_bodies;
-use alef_core::config::{AdapterConfig, AdapterParam, AdapterPattern, AlefConfig, Language};
+use alef_core::config::{AdapterConfig, AdapterParam, AdapterPattern, Language, NewAlefConfig, ResolvedCrateConfig};
 
-/// Helper to create a minimal AlefConfig with specified languages.
-fn make_config(languages: Vec<Language>) -> AlefConfig {
-    use alef_core::config::{CustomModulesConfig, CustomRegistrationsConfig};
-    use std::collections::HashMap;
-    use std::path::PathBuf;
+/// Helper to create a minimal ResolvedCrateConfig with the given languages.
+fn make_config(languages: Vec<Language>) -> ResolvedCrateConfig {
+    let lang_strs: Vec<String> = languages.iter().map(|l| format!("\"{l}\"")).collect();
+    let langs_toml = lang_strs.join(", ");
+    let toml_str = format!(
+        r#"
+[workspace]
+languages = [{langs_toml}]
 
-    AlefConfig {
-        version: None,
-        crate_config: alef_core::config::CrateConfig {
-            name: "test_crate".to_string(),
-            sources: vec![PathBuf::from("src")],
-            version_from: "Cargo.toml".to_string(),
-            core_import: Some("test_core".to_string()),
-            workspace_root: None,
-            skip_core_import: false,
-            features: vec![],
-            path_mappings: HashMap::new(),
-            auto_path_mappings: Default::default(),
-            extra_dependencies: Default::default(),
-            source_crates: vec![],
-            error_type: None,
-            error_constructor: None,
-        },
-        languages,
-        exclude: Default::default(),
-        include: Default::default(),
-        output: Default::default(),
-        python: None,
-        node: None,
-        ruby: None,
-        php: None,
-        elixir: None,
-        wasm: None,
-        ffi: Some(alef_core::config::FfiConfig {
-            prefix: Some("test".to_string()),
-            error_style: "result".to_string(),
-            header_name: None,
-            lib_name: None,
-            visitor_callbacks: false,
-            features: None,
-            serde_rename_all: None,
-            exclude_functions: Vec::new(),
-            exclude_types: Vec::new(),
-            rename_fields: Default::default(),
-        }),
-        gleam: None,
-        go: None,
-        java: None,
-        kotlin: None,
-        dart: None,
-        swift: None,
-        csharp: None,
-        r: None,
-        zig: None,
-        scaffold: None,
-        readme: None,
-        lint: None,
-        update: None,
-        test: None,
-        setup: None,
-        clean: None,
-        build_commands: None,
-        publish: None,
-        custom_files: None,
-        custom_modules: CustomModulesConfig::default(),
-        custom_registrations: CustomRegistrationsConfig::default(),
-        sync: None,
-        opaque_types: HashMap::new(),
-        generate: Default::default(),
-        generate_overrides: HashMap::new(),
-        dto: Default::default(),
-        e2e: None,
-        trait_bridges: vec![],
-        adapters: vec![],
-        tools: Default::default(),
-        format: Default::default(),
-        format_overrides: HashMap::new(),
-    }
+[[crates]]
+name = "test-crate"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+"#
+    );
+    let cfg: NewAlefConfig = toml::from_str(&toml_str).expect("valid toml");
+    cfg.resolve().expect("resolve ok").remove(0)
 }
 
 /// Test SyncFunction adapter with Python.

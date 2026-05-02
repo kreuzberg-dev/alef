@@ -1,9 +1,9 @@
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::ir::ApiSurface;
 use std::path::PathBuf;
 
-pub(crate) fn scaffold_go(api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(crate) fn scaffold_go(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let go_module = config.go_module();
     let version = &api.version;
     let _ = version; // go.mod doesn't embed the package version

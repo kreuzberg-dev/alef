@@ -1,6 +1,7 @@
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, Language, TraitBridgeConfig, resolve_output_dir};
+use alef_core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir};
 use alef_core::ir::ApiSurface;
+use crate::naming::gleam_nif_module;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -40,9 +41,9 @@ impl Backend for GleamBackend {
         }
     }
 
-    fn generate_bindings(&self, api: &ApiSurface, config: &AlefConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let module_name = gleam_module_name(&config.crate_config.name);
-        let nif_module = config.gleam_nif_module();
+    fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let module_name = gleam_module_name(&config.name);
+        let nif_module = gleam_nif_module(config);
 
         let exclude_functions: std::collections::HashSet<&str> = config
             .gleam
@@ -122,7 +123,7 @@ impl Backend for GleamBackend {
         }
         content.push_str(&body);
 
-        let dir = resolve_output_dir(None, &config.crate_config.name, "packages/gleam/src");
+        let dir = resolve_output_dir(None, &config.name, "packages/gleam/src");
         let path = PathBuf::from(dir).join(format!("{module_name}.gleam"));
 
         Ok(vec![GeneratedFile {

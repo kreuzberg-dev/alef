@@ -8,7 +8,7 @@ use crate::escape::{escape_java, sanitize_filename};
 use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture};
 use alef_core::backend::GeneratedFile;
-use alef_core::config::AlefConfig;
+use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
@@ -28,7 +28,7 @@ impl E2eCodegen for JavaCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        alef_config: &AlefConfig,
+        config: &ResolvedCrateConfig,
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -49,7 +49,7 @@ impl E2eCodegen for JavaCodegen {
         let class_name = overrides
             .and_then(|o| o.class.as_ref())
             .cloned()
-            .unwrap_or_else(|| alef_config.crate_config.name.to_upper_camel_case());
+            .unwrap_or_else(|| config.name.to_upper_camel_case());
         let result_is_simple = overrides.is_some_and(|o| o.result_is_simple);
         let result_var = &call.result_var;
 
@@ -59,11 +59,11 @@ impl E2eCodegen for JavaCodegen {
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| alef_config.crate_config.name.clone());
+            .unwrap_or_else(|| config.name.clone());
 
         // Resolve Java package info for the dependency.
-        let java_group_id = alef_config.java_group_id();
-        let pkg_version = alef_config.resolved_version().unwrap_or_else(|| "0.1.0".to_string());
+        let java_group_id = config.java_group_id();
+        let pkg_version = config.resolved_version().unwrap_or_else(|| "0.1.0".to_string());
 
         // Generate pom.xml.
         files.push(GeneratedFile {
