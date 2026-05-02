@@ -1496,6 +1496,10 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         super_trait: None,
         registry_getter: None,
         register_fn: None,
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1745,6 +1749,10 @@ fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
         super_trait: None,
         registry_getter: None,
         register_fn: None,
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1781,6 +1789,10 @@ fn test_gen_registration_fn_validates_required_methods() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1835,6 +1847,10 @@ fn test_gen_registration_fn_calls_registry_getter() {
         super_trait: None,
         registry_getter: Some("my_lib::registry::get_processors".to_string()),
         register_fn: Some("register_processor".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1869,6 +1885,91 @@ fn test_gen_registration_fn_calls_registry_getter() {
     );
 }
 
+#[test]
+fn test_gen_unregistration_fn_emits_typed_pyfunction_when_configured() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def(
+        "OcrBackend",
+        "my_lib::OcrBackend",
+        vec![make_method_def("run", vec![], TypeRef::Unit, false, true, false)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::plugins::registry::get_ocr_backend_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    };
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
+    };
+
+    let unreg = generator.gen_unregistration_fn(&spec);
+    assert!(unreg.contains("#[pyfunction]"), "unreg must be a pyfunction: {unreg}");
+    assert!(unreg.contains("name: String"), "unreg takes name as String: {unreg}");
+    assert!(
+        unreg.contains("my_lib::plugins::ocr_backend::unregister_ocr_backend"),
+        "unreg must call the host plugin module fn: {unreg}"
+    );
+
+    let clear = generator.gen_clear_fn(&spec);
+    assert!(clear.contains("#[pyfunction]"), "clear must be a pyfunction: {clear}");
+    assert!(
+        clear.contains("my_lib::plugins::ocr_backend::clear_ocr_backends"),
+        "clear must call the host plugin module fn: {clear}"
+    );
+}
+
+#[test]
+fn test_gen_unregistration_fn_returns_empty_when_unset() {
+    let generator = make_bridge_generator("my_lib");
+    let trait_def = make_trait_def(
+        "OcrBackend",
+        "my_lib::OcrBackend",
+        vec![make_method_def("run", vec![], TypeRef::Unit, false, true, false)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    };
+    let spec = TraitBridgeSpec {
+        trait_def: &trait_def,
+        bridge_config: &bridge_cfg,
+        core_import: "my_lib",
+        wrapper_prefix: "Py",
+        type_paths: HashMap::new(),
+        error_type: "Error".to_string(),
+        error_constructor: "Error::from({msg})".to_string(),
+    };
+    assert!(generator.gen_unregistration_fn(&spec).is_empty());
+    assert!(generator.gen_clear_fn(&spec).is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // gen_trait_bridge (the main entry point)
 // ---------------------------------------------------------------------------
@@ -1882,6 +1983,10 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1918,6 +2023,10 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
         super_trait: None,
         registry_getter: Some("my_lib::get_workers".to_string()),
         register_fn: Some("register_worker".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1950,6 +2059,10 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
         super_trait: None,
         registry_getter: Some("my_lib::get_inference_registry".to_string()),
         register_fn: Some("register_inference_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1994,6 +2107,10 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
         super_trait: None,
         registry_getter: Some("my_lib::get_hybrid_registry".to_string()),
         register_fn: Some("register_hybrid_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -2611,6 +2728,10 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             super_trait: None,
             registry_getter: Some("test_lib::get_ocr_registry".to_string()),
             register_fn: Some("register_ocr_backend".to_string()),
+
+            unregister_fn: None,
+
+            clear_fn: None,
             type_alias: None,
             param_name: None,
             register_extra_args: None,
@@ -2624,6 +2745,10 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             super_trait: None,
             registry_getter: Some("test_lib::get_embedding_registry".to_string()),
             register_fn: Some("register_embedding_backend".to_string()),
+
+            unregister_fn: None,
+
+            clear_fn: None,
             type_alias: None,
             param_name: None,
             register_extra_args: None,

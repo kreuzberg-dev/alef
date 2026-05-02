@@ -387,7 +387,11 @@ impl Backend for WasmBackend {
             source_crate_remaps: &source_remaps_borrowed,
             // Treat bridge type aliases (e.g. VisitorHandle) as opaque so binding→core
             // From impls emit Default::default() instead of val.visitor.map(Into::into).
-            opaque_types: if opaque_names_set.is_empty() { None } else { Some(&opaque_names_set) },
+            opaque_types: if opaque_names_set.is_empty() {
+                None
+            } else {
+                Some(&opaque_names_set)
+            },
             ..Default::default()
         };
         let convertible = alef_codegen::conversions::convertible_types(api);
@@ -462,7 +466,7 @@ impl Backend for WasmBackend {
         // with .visitor(None) to skip setting the visitor on the core builder.
         for bridge in &config.trait_bridges {
             if let Some(field_name) = bridge.resolved_options_field() {
-                let param_name = bridge.param_name.as_deref().unwrap_or(&field_name);
+                let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
                 let pattern = format!(".{}({}.as_ref().map(|v| &v.inner))", field_name, param_name);
                 let replacement = format!(".{}(None)", field_name);
                 content = content.replace(&pattern, &replacement);

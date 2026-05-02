@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Configuration for generating trait bridge code that allows foreign language
 /// objects to implement Rust traits via FFI.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TraitBridgeConfig {
     /// Name of the Rust trait to bridge (e.g., `"OcrBackend"`).
     pub trait_name: String,
@@ -21,6 +21,20 @@ pub struct TraitBridgeConfig {
     /// When absent, only the wrapper struct and trait impl are emitted (per-call bridge pattern).
     #[serde(default)]
     pub register_fn: Option<String>,
+    /// Name of the unregister function to generate
+    /// (e.g., `"unregister_ocr_backend"`).
+    /// Optional — when set, a host-language wrapper that removes a previously
+    /// registered plugin from the registry is emitted alongside `register_fn`.
+    /// The function takes the plugin name as a string.
+    #[serde(default)]
+    pub unregister_fn: Option<String>,
+    /// Name of the clear function to generate
+    /// (e.g., `"clear_ocr_backends"`).
+    /// Optional — when set, a host-language wrapper that removes ALL registered
+    /// plugins of this type is emitted alongside `register_fn`. The function
+    /// takes no arguments and is typically used in test teardown.
+    #[serde(default)]
+    pub clear_fn: Option<String>,
     /// Named type alias in the IR that maps to this bridge (e.g., `"VisitorHandle"`).
     ///
     /// When a function parameter has a `TypeRef::Named` matching this alias, code
@@ -136,6 +150,29 @@ options_type = "ConversionOptions"
 "#;
         let cfg: TraitBridgeConfig = toml::from_str(toml_src).unwrap();
         assert_eq!(cfg.resolved_options_field(), Some("visitor"));
+    }
+
+    #[test]
+    fn parses_unregister_and_clear_fns() {
+        let toml_src = r#"
+trait_name = "OcrBackend"
+register_fn = "register_ocr_backend"
+unregister_fn = "unregister_ocr_backend"
+clear_fn = "clear_ocr_backends"
+"#;
+        let cfg: TraitBridgeConfig = toml::from_str(toml_src).unwrap();
+        assert_eq!(cfg.unregister_fn.as_deref(), Some("unregister_ocr_backend"));
+        assert_eq!(cfg.clear_fn.as_deref(), Some("clear_ocr_backends"));
+    }
+
+    #[test]
+    fn unregister_and_clear_default_to_none() {
+        let toml_src = r#"
+trait_name = "OcrBackend"
+"#;
+        let cfg: TraitBridgeConfig = toml::from_str(toml_src).unwrap();
+        assert!(cfg.unregister_fn.is_none());
+        assert!(cfg.clear_fn.is_none());
     }
 
     #[test]

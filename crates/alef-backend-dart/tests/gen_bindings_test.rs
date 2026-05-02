@@ -566,6 +566,10 @@ fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
         super_trait: None,
         registry_getter: None,
         register_fn: None,
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -717,6 +721,10 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
             super_trait: None,
             registry_getter: None,
             register_fn: None,
+
+            unregister_fn: None,
+
+            clear_fn: None,
             type_alias: None,
             param_name: None,
             register_extra_args: None,
@@ -730,6 +738,10 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
             super_trait: None,
             registry_getter: None,
             register_fn: None,
+
+            unregister_fn: None,
+
+            clear_fn: None,
             type_alias: None,
             param_name: None,
             register_extra_args: None,
@@ -788,6 +800,10 @@ fn excluded_trait_bridge_does_not_appear_in_traits_dart() {
         super_trait: None,
         registry_getter: None,
         register_fn: None,
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -985,10 +1001,11 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
 }
 
 #[test]
-fn error_message_template_escapes_single_quotes() {
-    // Thiserror templates like "Plugin error in '{plugin_name}': {message}" contain literal
-    // single-quotes that must be escaped as \' when emitted inside a Dart single-quoted string.
-    // Also verify that backslashes are escaped and $ is escaped (not treated as interpolation).
+fn error_message_template_strips_placeholders_and_escapes_special_chars() {
+    // Templates carry `thiserror`-style `{name}` placeholders. The Dart Display
+    // string must not leak those placeholders to runtime users — the resolved
+    // string only ever contains the prose with the holes removed. Escaping
+    // (single-quote, backslash, dollar) still applies to the surviving prose.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1038,24 +1055,26 @@ fn error_message_template_escapes_single_quotes() {
     let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
 
-    // Single quotes must be escaped with backslash inside the dart string literal.
+    // No `{name}` substitution markers anywhere in emitted message strings.
     assert!(
-        content.contains(r"String get message => 'Plugin error in \'{plugin_name}\': {message}';"),
-        "single quotes in template must be escaped as \\': {content}"
+        !content.contains("{plugin_name}") && !content.contains("{message}") && !content.contains("{amount}"),
+        "thiserror placeholders must be stripped from runtime messages: {content}"
     );
-    // Unescaped single quote must not appear inside the string literal.
+    // The Plugin variant's prose was `Plugin error in '...': ...` — after
+    // placeholder removal and trailing-punctuation cleanup it collapses to
+    // `Plugin error in`. (No surviving stray quote, no leak.)
     assert!(
-        !content.contains("=> 'Plugin error in '{plugin_name}'"),
-        "unescaped single quote must not appear: {content}"
+        content.contains("String get message => 'Plugin error in';"),
+        "expected stripped Plugin message: {content}"
     );
-    // Backslashes must be doubled.
+    // Backslash in surviving prose is doubled so Dart doesn't treat it as escape.
     assert!(
-        content.contains(r"String get message => 'Path C:\\Users\\{name}';"),
-        "backslashes in template must be escaped as \\\\: {content}"
+        content.contains(r"String get message => 'Path C:\\Users\\';"),
+        "backslashes in surviving prose must be escaped as \\\\: {content}"
     );
-    // Dollar signs must be escaped so Dart doesn't treat them as string interpolation.
+    // Dollar sign survives as prose; must be `\$` so Dart doesn't interpolate.
     assert!(
-        content.contains(r"String get message => 'Cost: \${amount}';"),
-        "dollar signs in template must be escaped as \\$: {content}"
+        content.contains(r"String get message => 'Cost: \$';"),
+        "dollar sign in surviving prose must be escaped as \\$: {content}"
     );
 }

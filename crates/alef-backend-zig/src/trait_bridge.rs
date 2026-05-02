@@ -118,7 +118,9 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
     out.push_str("///\n");
     out.push_str("/// # Usage\n");
     out.push_str("/// ```zig\n");
-    out.push_str("/// const vtable = make_{snake}_vtable(MyType, &my_instance);\n");
+    out.push_str(&format!(
+        "/// const vtable = make_{snake}_vtable(MyType, &my_instance);\n"
+    ));
     out.push_str(&format!(
         "/// _ = register_{snake}(\"my-impl\", vtable, &my_instance, &out_error);\n"
     ));
@@ -500,6 +502,10 @@ mod tests {
             super_trait: super_trait.map(|s| s.to_string()),
             registry_getter: None,
             register_fn: None,
+
+            unregister_fn: None,
+
+            clear_fn: None,
             type_alias: None,
             param_name: None,
             register_extra_args: None,

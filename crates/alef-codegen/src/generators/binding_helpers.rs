@@ -971,7 +971,9 @@ fn gen_lossy_binding_to_core_fields_inner(
         // This covers both bare Named opaque fields and Optional<Named opaque> fields.
         let is_opaque_named = match &field.ty {
             TypeRef::Named(n) => opaque_types.contains(n.as_str()),
-            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if opaque_types.contains(n.as_str())),
+            TypeRef::Optional(inner) => {
+                matches!(inner.as_ref(), TypeRef::Named(n) if opaque_types.contains(n.as_str()))
+            }
             _ => false,
         };
         if is_opaque_named {
@@ -979,138 +981,138 @@ fn gen_lossy_binding_to_core_fields_inner(
             continue;
         }
         let expr = match &field.ty {
-                TypeRef::Primitive(_) => format!("self.{name}"),
-                TypeRef::Duration => {
-                    if field.optional {
-                        format!("self.{name}.map(std::time::Duration::from_millis)")
-                    } else if option_duration_on_defaults && typ.has_default {
-                        // When option_duration_on_defaults is true, non-optional Duration fields
-                        // on has_default types are stored as Option<u64> in the binding struct.
-                        // Use .map(...).unwrap_or_default() so that None falls back to the core
-                        // type's Default (e.g. Duration::from_secs(30)) rather than Duration::ZERO.
-                        format!("self.{name}.map(std::time::Duration::from_millis).unwrap_or_default()")
-                    } else {
-                        format!("std::time::Duration::from_millis(self.{name})")
-                    }
+            TypeRef::Primitive(_) => format!("self.{name}"),
+            TypeRef::Duration => {
+                if field.optional {
+                    format!("self.{name}.map(std::time::Duration::from_millis)")
+                } else if option_duration_on_defaults && typ.has_default {
+                    // When option_duration_on_defaults is true, non-optional Duration fields
+                    // on has_default types are stored as Option<u64> in the binding struct.
+                    // Use .map(...).unwrap_or_default() so that None falls back to the core
+                    // type's Default (e.g. Duration::from_secs(30)) rather than Duration::ZERO.
+                    format!("self.{name}.map(std::time::Duration::from_millis).unwrap_or_default()")
+                } else {
+                    format!("std::time::Duration::from_millis(self.{name})")
                 }
-                TypeRef::String => {
-                    if field.core_wrapper == CoreWrapper::Cow {
-                        format!("self.{name}.clone().into()")
-                    } else {
-                        format!("self.{name}.clone()")
-                    }
+            }
+            TypeRef::String => {
+                if field.core_wrapper == CoreWrapper::Cow {
+                    format!("self.{name}.clone().into()")
+                } else {
+                    format!("self.{name}.clone()")
                 }
-                // Bytes: binding stores Vec<u8>. When core_wrapper == Bytes, core expects
-                // bytes::Bytes so we must call .into() to convert Vec<u8> → Bytes.
-                // When core_wrapper == None, the core field is also Vec<u8> (plain clone).
-                TypeRef::Bytes => {
-                    if field.core_wrapper == CoreWrapper::Bytes {
-                        format!("self.{name}.clone().into()")
-                    } else {
-                        format!("self.{name}.clone()")
-                    }
+            }
+            // Bytes: binding stores Vec<u8>. When core_wrapper == Bytes, core expects
+            // bytes::Bytes so we must call .into() to convert Vec<u8> → Bytes.
+            // When core_wrapper == None, the core field is also Vec<u8> (plain clone).
+            TypeRef::Bytes => {
+                if field.core_wrapper == CoreWrapper::Bytes {
+                    format!("self.{name}.clone().into()")
+                } else {
+                    format!("self.{name}.clone()")
                 }
-                TypeRef::Char => {
-                    if field.optional {
-                        format!("self.{name}.as_ref().and_then(|s| s.chars().next())")
-                    } else {
-                        format!("self.{name}.chars().next().unwrap_or('*')")
-                    }
+            }
+            TypeRef::Char => {
+                if field.optional {
+                    format!("self.{name}.as_ref().and_then(|s| s.chars().next())")
+                } else {
+                    format!("self.{name}.chars().next().unwrap_or('*')")
                 }
-                TypeRef::Path => {
-                    if field.optional {
-                        format!("self.{name}.clone().map(Into::into)")
-                    } else {
-                        format!("self.{name}.clone().into()")
-                    }
+            }
+            TypeRef::Path => {
+                if field.optional {
+                    format!("self.{name}.clone().map(Into::into)")
+                } else {
+                    format!("self.{name}.clone().into()")
                 }
+            }
+            TypeRef::Named(_) => {
+                if field.optional {
+                    format!("self.{name}.clone().map(Into::into)")
+                } else {
+                    format!("self.{name}.clone().into()")
+                }
+            }
+            TypeRef::Vec(inner) => match inner.as_ref() {
                 TypeRef::Named(_) => {
                     if field.optional {
-                        format!("self.{name}.clone().map(Into::into)")
+                        // Option<Vec<Named(T)>>: map over the Option, then convert each element
+                        format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
                     } else {
-                        format!("self.{name}.clone().into()")
+                        format!("self.{name}.clone().into_iter().map(Into::into).collect()")
                     }
                 }
-                TypeRef::Vec(inner) => match inner.as_ref() {
+                _ => format!("self.{name}.clone()"),
+            },
+            TypeRef::Optional(inner) => {
+                // When field.optional is also true, the binding field was flattened from
+                // Option<Option<T>> to Option<T>. Core expects Option<Option<T>>, so wrap
+                // with .map(Some) to reconstruct the double-optional.
+                let base = match inner.as_ref() {
                     TypeRef::Named(_) => {
-                        if field.optional {
-                            // Option<Vec<Named(T)>>: map over the Option, then convert each element
-                            format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
-                        } else {
-                            format!("self.{name}.clone().into_iter().map(Into::into).collect()")
-                        }
+                        format!("self.{name}.clone().map(Into::into)")
+                    }
+                    TypeRef::Duration => {
+                        format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
+                    }
+                    TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
+                        format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
                     }
                     _ => format!("self.{name}.clone()"),
-                },
-                TypeRef::Optional(inner) => {
-                    // When field.optional is also true, the binding field was flattened from
-                    // Option<Option<T>> to Option<T>. Core expects Option<Option<T>>, so wrap
-                    // with .map(Some) to reconstruct the double-optional.
-                    let base = match inner.as_ref() {
-                        TypeRef::Named(_) => {
-                            format!("self.{name}.clone().map(Into::into)")
-                        }
-                        TypeRef::Duration => {
-                            format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
-                        }
-                        TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
-                            format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
-                        }
-                        _ => format!("self.{name}.clone()"),
-                    };
-                    if field.optional {
-                        format!("({base}).map(Some)")
-                    } else {
-                        base
-                    }
+                };
+                if field.optional {
+                    format!("({base}).map(Some)")
+                } else {
+                    base
                 }
-                TypeRef::Map(_, v) => match v.as_ref() {
-                    TypeRef::Json => {
-                        // HashMap<String, String> (binding) → HashMap<K, Value> (core).
-                        // Emit `k.into()` so wrapped string keys (`Cow`, `Box<str>`, `Arc<str>`)
-                        // — which the type resolver collapses to `TypeRef::String` — convert
-                        // correctly. For a real `String` core key it is a no-op.
-                        if field.optional {
-                            format!(
-                                "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| \
-                                 (k.into(), serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)))).collect())"
-                            )
-                        } else {
-                            format!(
-                                "self.{name}.clone().into_iter().map(|(k, v)| \
-                                 (k.into(), serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)))).collect()"
-                            )
-                        }
-                    }
-                    // Named values: each value needs Into conversion to bridge the binding wrapper
-                    // type into the core type (e.g. PyExtractionPattern → ExtractionPattern).
-                    TypeRef::Named(_) => {
-                        if field.optional {
-                            format!(
-                                "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k.into(), v.into())).collect())"
-                            )
-                        } else {
-                            format!("self.{name}.clone().into_iter().map(|(k, v)| (k.into(), v.into())).collect()")
-                        }
-                    }
-                    // Collect to handle HashMap↔BTreeMap conversion
-                    _ => {
-                        if field.optional {
-                            format!("self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k.into(), v)).collect())")
-                        } else {
-                            format!("self.{name}.clone().into_iter().map(|(k, v)| (k.into(), v)).collect()")
-                        }
-                    }
-                },
-                TypeRef::Unit => format!("self.{name}.clone()"),
+            }
+            TypeRef::Map(_, v) => match v.as_ref() {
                 TypeRef::Json => {
-                    // String (binding) → serde_json::Value (core)
+                    // HashMap<String, String> (binding) → HashMap<K, Value> (core).
+                    // Emit `k.into()` so wrapped string keys (`Cow`, `Box<str>`, `Arc<str>`)
+                    // — which the type resolver collapses to `TypeRef::String` — convert
+                    // correctly. For a real `String` core key it is a no-op.
                     if field.optional {
-                        format!("self.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())")
+                        format!(
+                            "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| \
+                                 (k.into(), serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)))).collect())"
+                        )
                     } else {
-                        format!("serde_json::from_str(&self.{name}).unwrap_or_default()")
+                        format!(
+                            "self.{name}.clone().into_iter().map(|(k, v)| \
+                                 (k.into(), serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)))).collect()"
+                        )
                     }
                 }
+                // Named values: each value needs Into conversion to bridge the binding wrapper
+                // type into the core type (e.g. PyExtractionPattern → ExtractionPattern).
+                TypeRef::Named(_) => {
+                    if field.optional {
+                        format!(
+                            "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k.into(), v.into())).collect())"
+                        )
+                    } else {
+                        format!("self.{name}.clone().into_iter().map(|(k, v)| (k.into(), v.into())).collect()")
+                    }
+                }
+                // Collect to handle HashMap↔BTreeMap conversion
+                _ => {
+                    if field.optional {
+                        format!("self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k.into(), v)).collect())")
+                    } else {
+                        format!("self.{name}.clone().into_iter().map(|(k, v)| (k.into(), v)).collect()")
+                    }
+                }
+            },
+            TypeRef::Unit => format!("self.{name}.clone()"),
+            TypeRef::Json => {
+                // String (binding) → serde_json::Value (core)
+                if field.optional {
+                    format!("self.{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())")
+                } else {
+                    format!("serde_json::from_str(&self.{name}).unwrap_or_default()")
+                }
+            }
         };
         // Newtype wrapping: when the field was resolved from a newtype (e.g. NodeIndex → u32),
         // re-wrap the binding value into the newtype for the core struct literal.

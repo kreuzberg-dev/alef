@@ -111,6 +111,26 @@ pub trait TraitBridgeGenerator {
     /// so the generator owns the full function.
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String;
 
+    /// Generate an unregistration function for the bridge.
+    ///
+    /// Default implementation returns an empty string — backends opt in by
+    /// emitting a function whose name is `spec.bridge_config.unregister_fn`
+    /// (when set) and whose body calls into the host crate's
+    /// `unregister_*(name)` plugin entry point.
+    fn gen_unregistration_fn(&self, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    /// Generate a clear-all-plugins function for the bridge.
+    ///
+    /// Default implementation returns an empty string — backends opt in by
+    /// emitting a function whose name is `spec.bridge_config.clear_fn`
+    /// (when set) and whose body calls into the host crate's `clear_*()`
+    /// plugin entry point. Typically used in test teardown.
+    fn gen_clear_fn(&self, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
     /// Whether the `#[async_trait]` macro should require `Send` on its futures.
     ///
     /// Returns `true` (default) for most targets. WASM is single-threaded so its
@@ -369,6 +389,30 @@ pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitB
     Some(generator.gen_registration_fn(spec))
 }
 
+/// Generate the `unregister_xxx(name)` function that removes a previously
+/// registered plugin from the registry.
+///
+/// Returns `None` when `bridge_config.unregister_fn` is absent or when the
+/// backend hasn't opted in (returns the empty string from
+/// [`TraitBridgeGenerator::gen_unregistration_fn`]).
+pub fn gen_bridge_unregistration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
+    spec.bridge_config.unregister_fn.as_deref()?;
+    let body = generator.gen_unregistration_fn(spec);
+    if body.is_empty() { None } else { Some(body) }
+}
+
+/// Generate the `clear_xxx()` function that removes all registered plugins
+/// of this type.
+///
+/// Returns `None` when `bridge_config.clear_fn` is absent or when the
+/// backend hasn't opted in (returns the empty string from
+/// [`TraitBridgeGenerator::gen_clear_fn`]).
+pub fn gen_bridge_clear_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
+    spec.bridge_config.clear_fn.as_deref()?;
+    let body = generator.gen_clear_fn(spec);
+    if body.is_empty() { None } else { Some(body) }
+}
+
 /// Result of trait bridge generation: imports (to be added via `builder.add_import`)
 /// and the code body (to be added via `builder.add_item`).
 pub struct BridgeOutput {
@@ -412,6 +456,22 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
         writeln!(out).ok();
         writeln!(out).ok();
         out.push_str(&reg_fn_code);
+    }
+
+    // Unregistration function — only when unregister_fn is configured AND
+    // the backend has opted in (non-empty body).
+    if let Some(unreg_fn_code) = gen_bridge_unregistration_fn(spec, generator) {
+        writeln!(out).ok();
+        writeln!(out).ok();
+        out.push_str(&unreg_fn_code);
+    }
+
+    // Clear-all function — only when clear_fn is configured AND the backend
+    // has opted in (non-empty body).
+    if let Some(clear_fn_code) = gen_bridge_clear_fn(spec, generator) {
+        writeln!(out).ok();
+        writeln!(out).ok();
+        out.push_str(&clear_fn_code);
     }
 
     BridgeOutput { imports, code: out }
@@ -776,6 +836,8 @@ mod tests {
             super_trait: super_trait.map(str::to_string),
             registry_getter: None,
             register_fn: register_fn.map(str::to_string),
+            unregister_fn: None,
+            clear_fn: None,
             type_alias: None,
             param_name: None,
             register_extra_args: None,
@@ -1725,6 +1787,8 @@ mod tests {
             super_trait: None,
             registry_getter: None,
             register_fn: None,
+            unregister_fn: None,
+            clear_fn: None,
             type_alias: type_alias.map(str::to_string),
             param_name: param_name.map(str::to_string),
             register_extra_args: None,

@@ -98,7 +98,10 @@ impl Backend for Pyo3Backend {
                 }
             }
         }
-        let mapper = Pyo3Mapper { trait_type_names, bridge_type_names: AHashSet::new() };
+        let mapper = Pyo3Mapper {
+            trait_type_names,
+            bridge_type_names: AHashSet::new(),
+        };
         let core_import = config.core_import_name();
 
         // Detect serde availability from the output crate's Cargo.toml
@@ -691,7 +694,7 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
         // with .visitor(None) to skip setting the visitor on the core builder.
         for bridge in &config.trait_bridges {
             if let Some(field_name) = bridge.resolved_options_field() {
-                let param_name = bridge.param_name.as_deref().unwrap_or(&field_name);
+                let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
                 // Simple string replacement for the pattern:
                 // .visitor(visitor.as_ref().map(|v| &v.inner))  →  .visitor(None)
                 let pattern = format!(".{}({}.as_ref().map(|v| &v.inner))", field_name, param_name);
@@ -712,7 +715,7 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
             for param in &func.params {
                 if let alef_core::ir::TypeRef::Named(name) = &param.ty {
                     // Check if this is a has_default type
-                    if let Some(typ) = api.types.iter().find(|t| &t.name == name && t.has_default) {
+                    if let Some(_typ) = api.types.iter().find(|t| &t.name == name && t.has_default) {
                         // Generate the variable name (param_name + "_core")
                         let core_var = format!("{}_core", param.name);
                         // Pattern: ..., {core_var}) where it appears in a function call

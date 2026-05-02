@@ -166,9 +166,12 @@ fn transform_rustdoc_for_java(doc: &str) -> String {
         let trimmed = line.trim();
 
         // Skip Rust-specific headers and code blocks.
-        if trimmed.starts_with('#') && (trimmed.starts_with("# Arguments") ||
-            trimmed.starts_with("# Errors") || trimmed.starts_with("# Example") ||
-            trimmed.starts_with("# Returns")) {
+        if trimmed.starts_with('#')
+            && (trimmed.starts_with("# Arguments")
+                || trimmed.starts_with("# Errors")
+                || trimmed.starts_with("# Example")
+                || trimmed.starts_with("# Returns"))
+        {
             skip_line = true;
             continue;
         }

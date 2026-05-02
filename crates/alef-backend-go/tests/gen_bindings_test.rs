@@ -1012,6 +1012,10 @@ fn test_gen_trait_bridges_file_produces_go_interface() {
         super_trait: None,
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1042,6 +1046,10 @@ fn test_gen_trait_bridges_file_interface_includes_plugin_lifecycle_methods() {
         super_trait: None,
         registry_getter: Some("my_lib::get_scanner_registry".to_string()),
         register_fn: Some("register_scanner".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1093,6 +1101,10 @@ fn test_gen_trait_bridges_file_interface_includes_trait_methods_in_pascal_case()
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_image_processor".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1130,6 +1142,10 @@ fn test_gen_trait_bridges_file_interface_method_with_error_returns_tuple_or_erro
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_analyzer".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1169,6 +1185,10 @@ fn test_gen_trait_bridges_file_generates_exported_trampolines() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1213,6 +1233,10 @@ fn test_gen_trait_bridges_file_trampolines_retrieve_go_object_via_cgo_handle() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_scanner".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1252,6 +1276,10 @@ fn test_gen_trait_bridges_file_trampoline_converts_string_param_from_c() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_greeter".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1286,6 +1314,10 @@ fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_registe
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1332,6 +1364,10 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_scanner".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1374,6 +1410,10 @@ fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1418,6 +1458,10 @@ fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_analyzer".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1459,6 +1503,10 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,

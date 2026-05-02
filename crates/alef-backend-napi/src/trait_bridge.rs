@@ -18,6 +18,22 @@ use std::fmt::Write;
 /// Returns `None` when no bridge applies.
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
 
+/// Resolve the FQN of a host-crate plugin function from the bridge's
+/// `registry_getter` path. See `host_function_path` in the pyo3 backend
+/// for the rewriting convention.
+fn napi_host_function_path(spec: &TraitBridgeSpec, fn_name: &str) -> String {
+    if let Some(getter) = spec.bridge_config.registry_getter.as_deref() {
+        let last = getter.rsplit("::").next().unwrap_or("");
+        if let Some(sub) = last.strip_prefix("get_").and_then(|s| s.strip_suffix("_registry")) {
+            let prefix_end = getter.len() - last.len();
+            let prefix = &getter[..prefix_end];
+            let prefix = prefix.trim_end_matches("registry::");
+            return format!("{prefix}{sub}::{fn_name}");
+        }
+    }
+    format!("{}::plugins::{}", spec.core_import, fn_name)
+}
+
 /// NAPI-specific trait bridge generator.
 /// Implements code generation for bridging JavaScript objects to Rust traits.
 pub struct NapiBridgeGenerator {
@@ -328,6 +344,40 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         writeln!(out, "// across threads.").ok();
         writeln!(out, "unsafe impl Send for {wrapper} {{}}").ok();
         writeln!(out, "unsafe impl Sync for {wrapper} {{}}").ok();
+        out
+    }
+
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = napi_host_function_path(spec, unregister_fn);
+        let camel = to_camel_case(unregister_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "#[napi(js_name = \"{camel}\")]").ok();
+        writeln!(out, "pub fn _alef_{unregister_fn}(name: String) -> napi::Result<()> {{").ok();
+        writeln!(out, "    {host_path}(&name).map_err(|e| napi::Error::new(").ok();
+        writeln!(out, "        napi::Status::GenericFailure,").ok();
+        writeln!(out, "        format!(\"{{}}\", e),").ok();
+        writeln!(out, "    ))").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = napi_host_function_path(spec, clear_fn);
+        let camel = to_camel_case(clear_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "#[napi(js_name = \"{camel}\")]").ok();
+        writeln!(out, "pub fn _alef_{clear_fn}() -> napi::Result<()> {{").ok();
+        writeln!(out, "    {host_path}().map_err(|e| napi::Error::new(").ok();
+        writeln!(out, "        napi::Status::GenericFailure,").ok();
+        writeln!(out, "        format!(\"{{}}\", e),").ok();
+        writeln!(out, "    ))").ok();
+        writeln!(out, "}}").ok();
         out
     }
 
