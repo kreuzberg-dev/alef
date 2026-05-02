@@ -549,10 +549,13 @@ fn main() -> Result<()> {
                     any_written = true;
                     let _ = cache::write_generation_hashes("stubs", &stub_hashes);
 
-                    for (_, files) in &stub_files {
+                    for (lang, files) in &stub_files {
                         for file in files {
                             current_gen_paths.insert(base_dir.join(&file.path));
                         }
+                        // Track stub-changed languages so formatters run even when
+                        // no bindings changed for this language (e.g. ruff on .pyi).
+                        changed_languages.insert(*lang);
                     }
                 } else {
                     eprintln!("  [stubs] up to date (skipping)");
@@ -623,7 +626,19 @@ fn main() -> Result<()> {
 
             let count = pipeline::write_files(&files, &base_dir)?;
             let _ = cache::write_generation_hashes("stubs", &hashes);
-            // Finalise per-file hashes for the freshly written stubs.
+
+            // Run language-native formatters on the freshly written stubs before
+            // computing the embedded hash.  Without this step, `alef:hash:` is
+            // computed over the raw codegen output (e.g. with unused `Any` imports
+            // or brace-heavy PHP style); when host-language tools (ruff, php-cs-fixer,
+            // mix format, …) reformat those files the hash no longer matches and
+            // `alef verify` reports them as stale.  Formatter failures are warnings —
+            // they must not abort the stubs command.
+            let stub_langs: Vec<alef_core::config::Language> = files.iter().map(|(lang, _)| *lang).collect();
+            pipeline::format_generated(&files, &config, &base_dir, None);
+            pipeline::fmt_post_generate(&config, &stub_langs);
+
+            // Finalise per-file hashes for the freshly written (and formatted) stubs.
             let stub_paths: std::collections::HashSet<PathBuf> = files
                 .iter()
                 .flat_map(|(_, fs)| fs.iter().map(|f| base_dir.join(&f.path)))
