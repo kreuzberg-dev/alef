@@ -77,12 +77,27 @@ impl Backend for Pyo3Backend {
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         // Build trait type names set so the mapper can emit Py<PyAny> for trait parameters
         // instead of bare trait names (which cause E0782 "bare trait used as type").
-        let trait_type_names: ahash::AHashSet<String> = api
+        //
+        // Also include type_alias names from options-field bridges (e.g. `VisitorHandle`).
+        // These are opaque types (is_opaque=true, is_trait=false) but they represent visitor
+        // handles embedded as fields in has_default structs.  When they appear as struct field
+        // types (e.g. ConversionOptions.visitor: Option<VisitorHandle>), the binding struct
+        // should store them as `Option<Py<PyAny>>` with `#[serde(skip)]` so the visitor can
+        // be extracted before the serde round-trip in the bridge function.  Without this, the
+        // mapper emits `Option<VisitorHandle>` which cannot implement `serde::Serialize`.
+        let mut trait_type_names: ahash::AHashSet<String> = api
             .types
             .iter()
             .filter(|t| t.is_trait)
             .map(|t| t.name.clone())
             .collect();
+        for bridge in &config.trait_bridges {
+            if bridge.bind_via == alef_core::config::BridgeBinding::OptionsField {
+                if let Some(alias) = &bridge.type_alias {
+                    trait_type_names.insert(alias.clone());
+                }
+            }
+        }
         let mapper = Pyo3Mapper { trait_type_names };
         let core_import = config.core_import_name();
 
