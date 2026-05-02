@@ -61,7 +61,7 @@ pub(crate) fn gen_record_type(
 
         let mut decl = String::new();
         if has_nullable {
-            decl.push_str("@org.jetbrains.annotations.Nullable ");
+            decl.push_str("@Nullable ");
         }
         if needs_non_null {
             decl.push_str("@JsonInclude(JsonInclude.Include.NON_NULL) ");
@@ -166,6 +166,7 @@ pub(crate) fn gen_record_type(
     let needs_json_property = fields_joined.contains("@JsonProperty(");
     // @JsonInclude may appear in field annotations OR as a class-level annotation in record_block.
     let needs_json_include = fields_joined.contains("@JsonInclude(") || record_block.contains("@JsonInclude(");
+    let needs_nullable = fields_joined.contains("@Nullable");
     let mut out = String::with_capacity(record_block.len() + 512);
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     writeln!(out, "package {};", package).ok();
@@ -184,6 +185,9 @@ pub(crate) fn gen_record_type(
     }
     if needs_json_include {
         writeln!(out, "import com.fasterxml.jackson.annotation.JsonInclude;").ok();
+    }
+    if needs_nullable {
+        writeln!(out, "import org.jetbrains.annotations.Nullable;").ok();
     }
     writeln!(out).ok();
     write!(out, "{}", record_block).ok();

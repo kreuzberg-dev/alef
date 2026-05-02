@@ -221,10 +221,12 @@ fn test_basic_rbs_stubs() {
         "Should have process function stub with correct signature"
     );
 
-    // Check for enum stub
+    // Check for enum stub — unit-variant enums emit a symbol literal union
     assert!(content.contains("class Backend"), "Should contain Backend enum class");
-    assert!(content.contains("Tesseract: Integer"), "Should have Tesseract variant");
-    assert!(content.contains("PaddleOcr: Integer"), "Should have PaddleOcr variant");
+    assert!(
+        content.contains("type instance = :tesseract | :paddle_ocr"),
+        "Should have symbol union for Backend variants"
+    );
 
     // Check for closing module
     assert!(content.contains("end"), "Should have module closing");
@@ -398,23 +400,10 @@ fn test_enum_stubs() {
         "Should include enum documentation"
     );
 
-    // Check all variants are defined as Integer constants
-    assert!(content.contains("Pending: Integer"), "Should have Pending variant");
+    // Unit-variant enums emit a symbol literal union in order
     assert!(
-        content.contains("Processing: Integer"),
-        "Should have Processing variant"
-    );
-    assert!(content.contains("Complete: Integer"), "Should have Complete variant");
-    assert!(content.contains("Failed: Integer"), "Should have Failed variant");
-
-    // Verify enum variants are in correct order
-    let pending_idx = content.find("Pending: Integer").unwrap();
-    let processing_idx = content.find("Processing: Integer").unwrap();
-    let complete_idx = content.find("Complete: Integer").unwrap();
-    let failed_idx = content.find("Failed: Integer").unwrap();
-    assert!(
-        pending_idx < processing_idx && processing_idx < complete_idx && complete_idx < failed_idx,
-        "Enum variants should be in order"
+        content.contains("type instance = :pending | :processing | :complete | :failed"),
+        "Should have symbol union for Status variants in order"
     );
 }
 
