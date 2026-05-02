@@ -199,14 +199,29 @@ fn render_test_file(
         .iter()
         .any(|f| f.mock_response.is_some() || f.visitor.is_some() || fixture_has_go_callable(f, e2e_config));
 
-    // Determine if we need the "os" import (mock_url args, or HTTP fixtures
-    // that read MOCK_SERVER_URL via os.Getenv).
+    // Determine if we need the "os" import (mock_url args, HTTP fixtures
+    // that read MOCK_SERVER_URL via os.Getenv, or bytes args with file paths).
     let needs_os = fixtures.iter().any(|f| {
         if f.is_http_test() {
             return true;
         }
         let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
-        call_args.iter().any(|a| a.arg_type == "mock_url")
+        call_args.iter().any(|a| {
+            // Check for mock_url args
+            if a.arg_type == "mock_url" {
+                return true;
+            }
+            // Check for bytes args with file paths
+            if a.arg_type == "bytes" {
+                let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
+                if let Some(serde_json::Value::String(s)) = f.input.get(field) {
+                    if matches!(classify_bytes_value(s), BytesKind::FilePath) {
+                        return true;
+                    }
+                }
+            }
+            false
+        })
     });
 
     // Determine if we need "encoding/json" (handle args with non-null config,
@@ -265,7 +280,7 @@ fn render_test_file(
         has_handle || has_json_obj
     });
 
-    // Determine if we need "encoding/base64" (bytes-type args decoded at runtime).
+    // Determine if we need "encoding/base64" (bytes-type args with base64 encoding).
     let needs_base64 = fixtures.iter().any(|f| {
         let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
         call_args.iter().any(|a| {
@@ -273,7 +288,11 @@ fn render_test_file(
                 return false;
             }
             let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-            matches!(f.input.get(field), Some(serde_json::Value::String(_)))
+            if let Some(serde_json::Value::String(s)) = f.input.get(field) {
+                matches!(classify_bytes_value(s), BytesKind::Base64)
+            } else {
+                false
+            }
         })
     });
 
@@ -692,6 +711,11 @@ fn render_test_function(
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
+        if has_usable_assertion && result_binding != "_" {
+            let _ = writeln!(out, "\tif {result_var} == nil {{");
+            let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
+            let _ = writeln!(out, "\t}}");
+        }
         if result_is_simple
             && has_usable_assertion
             && result_binding != "_"
@@ -1181,8 +1205,8 @@ fn build_args_and_setup(
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = input.get(field);
 
-        // Handle bytes type: fixture stores base64-encoded bytes.
-        // Emit a Go base64.StdEncoding.DecodeString call to decode at runtime.
+        // Handle bytes type: fixture can store file paths, inline text, or base64-encoded bytes.
+        // Classify the value and emit the appropriate Go code.
         if arg.arg_type == "bytes" {
             let var_name = format!("{}Bytes", arg.name);
             match val {
@@ -1194,9 +1218,29 @@ fn build_args_and_setup(
                     }
                 }
                 Some(serde_json::Value::String(s)) => {
-                    let go_b64 = go_string_literal(s);
-                    setup_lines.push(format!("{var_name}, _ := base64.StdEncoding.DecodeString({go_b64})"));
-                    parts.push(var_name);
+                    match classify_bytes_value(s) {
+                        BytesKind::FilePath => {
+                            // File path: emit os.ReadFile(...)
+                            let go_path = go_string_literal(s);
+                            setup_lines.push(format!("{var_name}, err := os.ReadFile({go_path})"));
+                            setup_lines.push(format!(
+                                "if err != nil {{ t.Fatalf(\"failed to read fixture file {go_path}: %v\", err) }}"
+                            ));
+                            parts.push(var_name);
+                        }
+                        BytesKind::InlineText => {
+                            // Inline text: emit []byte("...")
+                            let go_str = go_string_literal(s);
+                            setup_lines.push(format!("{var_name} := []byte({go_str})"));
+                            parts.push(var_name);
+                        }
+                        BytesKind::Base64 => {
+                            // Base64-encoded: emit base64.StdEncoding.DecodeString(...)
+                            let go_b64 = go_string_literal(s);
+                            setup_lines.push(format!("{var_name}, _ := base64.StdEncoding.DecodeString({go_b64})"));
+                            parts.push(var_name);
+                        }
+                    }
                 }
                 Some(other) => {
                     parts.push(format!("[]byte({})", json_to_go(other)));
@@ -2540,6 +2584,50 @@ fn template_to_sprintf(template: &str, ptr_params: &std::collections::HashSet<&s
 fn method_to_camel(snake: &str) -> String {
     use heck::ToUpperCamelCase;
     snake.to_upper_camel_case()
+}
+
+/// How to represent a fixture `type = "bytes"` string value in generated Go code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BytesKind {
+    /// A relative file path like `"pdf/fake_memo.pdf"` — read with `os.ReadFile(...)`.
+    FilePath,
+    /// Inline text content like `"<!DOCTYPE html>..."` — encode to `[]byte("...")`.
+    InlineText,
+    /// A base64-encoded blob like `"/9j/4AAQ"` — decode with `base64.StdEncoding.DecodeString(...)`.
+    Base64,
+}
+
+/// Classify a fixture string value that maps to a `bytes` argument.
+///
+/// Rules (in order):
+/// 1. Starts with `<`, `{`, or `[`, or contains whitespace → inline text.
+/// 2. First character is an ASCII letter/digit/underscore AND the value contains
+///    a `/` that is preceded by at least one word character AND the value contains
+///    a `.` after the last `/` → file path.
+/// 3. Everything else → base64.
+#[allow(dead_code)]
+fn classify_bytes_value(s: &str) -> BytesKind {
+    // Rule 1: obvious inline content markers.
+    if s.starts_with('<') || s.starts_with('{') || s.starts_with('[') || s.contains(' ') {
+        return BytesKind::InlineText;
+    }
+
+    // Rule 2: looks like "dir/file.ext" — starts with a word char, has a slash,
+    // and the portion after the last slash contains a dot (file extension).
+    let first = s.chars().next().unwrap_or('\0');
+    if first.is_ascii_alphanumeric() || first == '_' {
+        if let Some(slash_pos) = s.find('/') {
+            if slash_pos > 0 {
+                let after_slash = &s[slash_pos + 1..];
+                if after_slash.contains('.') && !after_slash.is_empty() {
+                    return BytesKind::FilePath;
+                }
+            }
+        }
+    }
+
+    // Rule 3: everything else is treated as base64.
+    BytesKind::Base64
 }
 
 #[cfg(test)]
