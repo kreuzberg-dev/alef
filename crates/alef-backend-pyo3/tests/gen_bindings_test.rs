@@ -2807,6 +2807,141 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
     );
 }
 
+#[test]
+fn test_options_py_imports_unit_enums_referenced_by_data_enum_aliases() {
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "ChatOptions".to_string(),
+                rust_path: "test_lib::ChatOptions".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field(
+                    "tool_choice",
+                    TypeRef::Named("ToolChoice".to_string()),
+                    true,
+                )],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+            },
+            TypeDef {
+                name: "SpecificToolChoice".to_string(),
+                rust_path: "test_lib::SpecificToolChoice".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("name", TypeRef::String, false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: String::new(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+            },
+        ],
+        functions: vec![],
+        enums: vec![
+            EnumDef {
+                name: "ToolChoice".to_string(),
+                rust_path: "test_lib::ToolChoice".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Mode".to_string(),
+                        fields: vec![make_field("mode", TypeRef::Named("ToolChoiceMode".to_string()), false)],
+                        is_tuple: false,
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                    },
+                    EnumVariant {
+                        name: "Specific".to_string(),
+                        fields: vec![make_field(
+                            "tool",
+                            TypeRef::Named("SpecificToolChoice".to_string()),
+                            false,
+                        )],
+                        is_tuple: false,
+                        doc: String::new(),
+                        is_default: false,
+                        serde_rename: None,
+                    },
+                ],
+                doc: String::new(),
+                cfg: None,
+                is_copy: false,
+                has_serde: true,
+                serde_tag: Some("type".to_string()),
+                serde_rename_all: None,
+            },
+            EnumDef {
+                name: "ToolChoiceMode".to_string(),
+                rust_path: "test_lib::ToolChoiceMode".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![EnumVariant {
+                    name: "Auto".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                }],
+                doc: String::new(),
+                cfg: None,
+                is_copy: true,
+                has_serde: true,
+                serde_tag: None,
+                serde_rename_all: None,
+            },
+        ],
+        errors: vec![],
+    };
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).expect("generate public API");
+    let options_py = files.iter().find(|f| f.path.ends_with("options.py")).unwrap();
+
+    assert!(
+        !options_py.content.contains("from ._test_lib import (\n    ToolChoice,"),
+        "data enum alias must not be imported from the native module;\ncontent:\n{}",
+        options_py.content
+    );
+    assert!(
+        options_py.content.contains("    ToolChoiceMode,\n"),
+        "unit enum referenced by data enum alias must be imported at runtime;\ncontent:\n{}",
+        options_py.content
+    );
+    assert!(
+        options_py.content.contains("ToolChoiceMode.AUTO = ToolChoiceMode.Auto"),
+        "runtime enum aliases must be patched on the imported native enum;\ncontent:\n{}",
+        options_py.content
+    );
+    assert!(
+        options_py
+            .content
+            .contains("ToolChoice = ToolChoiceMode | str | SpecificToolChoice"),
+        "data enum alias should reference the imported unit enum;\ncontent:\n{}",
+        options_py.content
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Options-field bridge (bind_via = "options_field") tests
 // ---------------------------------------------------------------------------
