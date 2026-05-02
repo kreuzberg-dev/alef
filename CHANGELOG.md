@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(codegen): use generated `From` conversions for named reference parameters instead of JSON round-tripping when a
   direct let-binding is possible. This preserves fields such as Python `ProcessConfig.language` in free functions.
+- fix(codegen): convert Cow-backed string fields with `.into()` when reconstructing `core_self` for binding methods.
 
 - fix(cli): run language-native formatters on stubs before finalising the embedded `alef:hash:` line.
   `alef stubs` previously skipped the format step and computed the hash over raw codegen output.
