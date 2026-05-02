@@ -73,9 +73,19 @@ impl E2eCodegen for GoCodegen {
             crate::config::DependencyMode::Registry => None,
             crate::config::DependencyMode::Local => replace_path.as_deref().map(String::from),
         };
+        // In local mode with a `replace` directive the version in `require` is a
+        // placeholder.  Go requires that for a major-version module path (`/vN`, N ≥ 2)
+        // the placeholder version must start with `vN.`, e.g. `v3.0.0`.  A version like
+        // `v0.0.0` is rejected with "should be v3, not v0".  Fix the placeholder when the
+        // module path ends with `/vN` and the configured version doesn't match.
+        let effective_go_version = if effective_replace.is_some() {
+            fix_go_major_version(&go_module_path, &go_version)
+        } else {
+            go_version.clone()
+        };
         files.push(GeneratedFile {
             path: output_base.join("go.mod"),
-            content: render_go_mod(&go_module_path, effective_replace.as_deref(), &go_version),
+            content: render_go_mod(&go_module_path, effective_replace.as_deref(), &effective_go_version),
             generated_header: false,
         });
 
@@ -113,6 +123,34 @@ impl E2eCodegen for GoCodegen {
     fn language_name(&self) -> &'static str {
         "go"
     }
+}
+
+/// Fix a Go module version so it is valid for a major-version module path.
+///
+/// Go requires that a module path ending in `/vN` (N ≥ 2) uses a version
+/// whose major component matches N.  In local-replace mode we use a synthetic
+/// placeholder version; if that placeholder (e.g. `v0.0.0`) doesn't match the
+/// major suffix, fix it to `vN.0.0` so `go mod` accepts the go.mod.
+fn fix_go_major_version(module_path: &str, version: &str) -> String {
+    // Extract `/vN` suffix from the module path (N must be ≥ 2).
+    let major = module_path
+        .rsplit('/')
+        .next()
+        .and_then(|seg| seg.strip_prefix('v'))
+        .and_then(|n| n.parse::<u64>().ok())
+        .filter(|&n| n >= 2);
+
+    let Some(n) = major else {
+        return version.to_string();
+    };
+
+    // If the version already starts with `vN.`, it is valid — leave it alone.
+    let expected_prefix = format!("v{n}.");
+    if version.starts_with(&expected_prefix) {
+        return version.to_string();
+    }
+
+    format!("v{n}.0.0")
 }
 
 fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str) -> String {
@@ -154,9 +192,11 @@ fn render_test_file(
     // used" compile error. Visitor fixtures reference the package types (NodeContext,
     // VisitResult, VisitResult* helpers) in struct method signatures emitted at file scope,
     // so they also require the import even when the test body itself is a Skip stub.
+    // Direct-callable fixtures (non-HTTP, non-mock, with a resolved Go function) also
+    // reference the package when a Go override function is configured.
     let needs_pkg = fixtures
         .iter()
-        .any(|f| f.mock_response.is_some() || f.visitor.is_some());
+        .any(|f| f.mock_response.is_some() || f.visitor.is_some() || fixture_has_go_callable(f, e2e_config));
 
     // Determine if we need the "os" import (mock_url args, or HTTP fixtures
     // that read MOCK_SERVER_URL via os.Getenv).
@@ -378,11 +418,12 @@ fn render_test_function(
         return;
     }
 
-    // The Go binding wraps a C FFI layer and does not expose a HandleRequest
-    // (or equivalent) callable. Non-HTTP non-mock_response fixtures cannot be
-    // tested via Go — emit a documented stub to keep the generated package
-    // compilable. HTTP fixtures dispatch to the HTTP renderer above.
-    if fixture.mock_response.is_none() {
+    // Non-HTTP, non-mock fixtures can be tested directly if the call config
+    // provides a callable Go function (via [e2e.call.overrides.go] `function`
+    // or the base call `function`). Only emit a t.Skip stub when there is no
+    // usable callable — this keeps the package compilable while being honest
+    // about what can and cannot be exercised.
+    if fixture.mock_response.is_none() && !fixture_has_go_callable(fixture, e2e_config) {
         let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
         let _ = writeln!(out, "\t// {description}");
         let _ = writeln!(
@@ -1998,13 +2039,13 @@ fn emit_go_visitor_method(
     );
     match action {
         CallbackAction::Skip => {
-            let _ = writeln!(out, "\treturn {import_alias}.VisitResultSkip");
+            let _ = writeln!(out, "\treturn {import_alias}.VisitResultSkip()");
         }
         CallbackAction::Continue => {
-            let _ = writeln!(out, "\treturn {import_alias}.VisitResultContinue");
+            let _ = writeln!(out, "\treturn {import_alias}.VisitResultContinue()");
         }
         CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "\treturn {import_alias}.VisitResultPreserveHtml");
+            let _ = writeln!(out, "\treturn {import_alias}.VisitResultPreserveHTML()");
         }
         CallbackAction::Custom { output } => {
             let escaped = go_string_literal(output);
