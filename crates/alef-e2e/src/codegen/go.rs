@@ -1544,8 +1544,11 @@ fn render_assertion(
     // panic by checking that the array is non-empty first.
     // Extract the array slice expression (everything before `[0]`).
     let array_guard: Option<String> = if let Some(idx) = field_expr.find("[0]") {
-        let array_expr = &field_expr[..idx];
-        Some(array_expr.to_string())
+        let mut array_expr = field_expr[..idx].to_string();
+        if let Some(stripped) = array_expr.strip_prefix("len(") {
+            array_expr = stripped.to_string();
+        }
+        Some(array_expr)
     } else {
         None
     };
@@ -1999,6 +2002,11 @@ fn render_assertion(
                             "\t\tassert.GreaterOrEqual(t, len(*{field_expr}), {n}, \"expected length >= {n}\")"
                         );
                         let _ = writeln!(out_ref, "\t}}");
+                    } else if field_expr.starts_with("len(") {
+                        let _ = writeln!(
+                            out_ref,
+                            "\tassert.GreaterOrEqual(t, {field_expr}, {n}, \"expected length >= {n}\")"
+                        );
                     } else {
                         let _ = writeln!(
                             out_ref,
@@ -2018,6 +2026,11 @@ fn render_assertion(
                             "\t\tassert.LessOrEqual(t, len(*{field_expr}), {n}, \"expected length <= {n}\")"
                         );
                         let _ = writeln!(out_ref, "\t}}");
+                    } else if field_expr.starts_with("len(") {
+                        let _ = writeln!(
+                            out_ref,
+                            "\tassert.LessOrEqual(t, {field_expr}, {n}, \"expected length <= {n}\")"
+                        );
                     } else {
                         let _ = writeln!(
                             out_ref,
