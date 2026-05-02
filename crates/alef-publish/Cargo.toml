@@ -13,7 +13,7 @@ alef-core = { workspace = true }
 alef-scaffold = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10"
+sha2 = "0.11"
 toml = { workspace = true }
 toml_edit = { workspace = true }
 tracing = { workspace = true }
