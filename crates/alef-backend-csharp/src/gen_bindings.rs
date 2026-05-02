@@ -2,12 +2,82 @@ use crate::type_map::csharp_type;
 use alef_codegen::doc_emission;
 use alef_codegen::naming::to_csharp_name;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AdapterPattern, AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{AdapterPattern, AlefConfig, BridgeBinding, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
 use std::path::PathBuf;
+
+/// Collected once in `generate_bindings` and threaded through to generators that need it.
+///
+/// Describes a trait bridge whose handle lives as a field on an options struct rather than
+/// as a standalone function parameter (`bind_via = "options_field"`).
+#[derive(Clone, Debug)]
+struct OptionsFieldBridgeInfo {
+    /// IR type name that owns the bridge field (e.g. `"ConversionOptions"`).
+    options_type: String,
+    /// Field name on that type that holds the bridge handle (e.g. `"visitor"`).
+    field_name: String,
+    /// C# bridge type derived from the trait name (e.g. `"HtmlVisitor"` → `"HtmlVisitorBridge"`).
+    bridge_cs_type: String,
+    /// FFI prefix for symbol derivation (e.g. `"htm"` → `htm_conversion_options_set_visitor`).
+    ffi_prefix: String,
+}
+
+impl OptionsFieldBridgeInfo {
+    /// Returns the C# P/Invoke method name for the FFI setter, e.g. `ConversionOptionsSetVisitor`.
+    fn cs_setter_name(&self) -> String {
+        let opts_pascal = self.options_type.to_pascal_case();
+        let field_pascal = self.field_name.to_pascal_case();
+        format!("{}Set{}", opts_pascal, field_pascal)
+    }
+
+    /// Returns the FFI entry-point symbol name, e.g. `htm_conversion_options_set_visitor`.
+    fn ffi_symbol(&self) -> String {
+        let opts_snake = self.options_type.to_snake_case();
+        let field_snake = self.field_name.to_snake_case();
+        format!("{}_{}_set_{}", self.ffi_prefix, opts_snake, field_snake).replace("__", "_")
+    }
+}
+
+/// Collect all `options_field` bridge descriptors from the config, skipping bridges
+/// that exclude the C# language.
+fn collect_options_field_bridges(config: &AlefConfig, api: &ApiSurface) -> Vec<OptionsFieldBridgeInfo> {
+    let prefix = config.ffi_prefix();
+    let mut result = Vec::new();
+    for bridge_cfg in &config.trait_bridges {
+        if bridge_cfg.bind_via != BridgeBinding::OptionsField {
+            continue;
+        }
+        if bridge_cfg.exclude_languages.contains(&"csharp".to_string()) {
+            continue;
+        }
+        let options_type = match bridge_cfg.options_type.as_deref() {
+            Some(t) => t.to_string(),
+            None => continue,
+        };
+        let field_name = match bridge_cfg.resolved_options_field() {
+            Some(f) => f.to_string(),
+            None => continue,
+        };
+        // Use trait_name for the C# Bridge class (not type_alias).
+        // E.g. trait_name = "HtmlVisitor" → bridge class = "HtmlVisitorBridge".
+        let bridge_cs_type = bridge_cfg.trait_name.clone();
+
+        // Guard: options_type must exist in the IR.
+        if !api.types.iter().any(|t| t.name == options_type) {
+            continue;
+        }
+        result.push(OptionsFieldBridgeInfo {
+            options_type,
+            field_name,
+            bridge_cs_type,
+            ffi_prefix: prefix.clone(),
+        });
+    }
+    result
+}
 
 pub struct CsharpBackend;
 
@@ -55,6 +125,9 @@ impl Backend for CsharpBackend {
         // Only emit ConvertWithVisitor method if visitor_callbacks is explicitly enabled in FFI config
         let has_visitor_callbacks = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
 
+        // Collect options-field bridge descriptors (bind_via = "options_field").
+        let options_field_bridges = collect_options_field_bridges(config, api);
+
         // Streaming adapter methods use a callback-based C signature that P/Invoke can't call
         // directly. Skip them in all generated method loops.
         let streaming_methods: HashSet<String> = config
@@ -95,6 +168,7 @@ impl Backend for CsharpBackend {
                 &config.trait_bridges,
                 &streaming_methods,
                 &exclude_functions,
+                &options_field_bridges,
             )),
             generated_header: true,
         });
@@ -674,6 +748,20 @@ fn gen_native_methods(
         }
     }
 
+    // Inject options-field bridge setter P/Invoke declarations.
+    // E.g. `htm_conversion_options_set_visitor(IntPtr options, IntPtr vtable)`.
+    for bridge in options_field_bridges {
+        let entry_point = bridge.ffi_symbol();
+        let cs_name = bridge.cs_setter_name();
+        out.push_str("\n    // Options-field bridge setter\n");
+        out.push_str(&format!(
+            "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{entry_point}\")]\n"
+        ));
+        out.push_str(&format!(
+            "    internal static extern void {cs_name}(IntPtr options, IntPtr vtable);\n"
+        ));
+    }
+
     out.push_str("}\n");
 
     out
@@ -816,6 +904,7 @@ fn gen_wrapper_class(
     has_visitor_callbacks: bool,
     streaming_methods: &HashSet<String>,
     exclude_functions: &HashSet<String>,
+    options_field_bridges: &[OptionsFieldBridgeInfo],
 ) -> String {
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
@@ -848,6 +937,19 @@ fn gen_wrapper_class(
 
     // Generate wrapper methods for functions
     for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
+        // Check whether this function carries an options-field bridge parameter.
+        let bridge_info = options_field_bridges.iter().find(|b| {
+            func.params.iter().any(|p| {
+                let type_name = match &p.ty {
+                    TypeRef::Named(n) => Some(n.as_str()),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                    }
+                    _ => None,
+                };
+                type_name == Some(b.options_type.as_str())
+            })
+        });
         out.push_str(&gen_wrapper_function(
             func,
             exception_name,
@@ -856,6 +958,7 @@ fn gen_wrapper_class(
             &true_opaque_types,
             bridge_param_names,
             bridge_type_aliases,
+            bridge_info,
         ));
     }
 
@@ -1105,6 +1208,7 @@ fn gen_wrapper_function(
     true_opaque_types: &HashSet<String>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
+    options_field_bridge: Option<&OptionsFieldBridgeInfo>,
 ) -> String {
     let mut out = String::with_capacity(1024);
 
@@ -1173,6 +1277,59 @@ fn gen_wrapper_function(
 
     // Serialize Named (opaque handle) params to JSON and obtain native handles.
     emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
+
+    // Options-field bridge: if the function takes an options param that carries a bridge
+    // handle (e.g. `options.Visitor`), extract it, create the native bridge object, and
+    // attach it to the serialized options handle via the FFI setter before calling convert.
+    if let Some(bridge) = options_field_bridge {
+        let options_param = visible_params.iter().find(|p| {
+            let type_name = match &p.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                }
+                _ => None,
+            };
+            type_name == Some(bridge.options_type.as_str())
+        });
+        if let Some(opts_param) = options_param {
+            let opts_name = opts_param.name.to_lower_camel_case();
+            let opts_handle = format!("{opts_name}Handle");
+            let field_pascal = bridge.field_name.to_pascal_case();
+            let bridge_type = &bridge.bridge_cs_type;
+            let setter = bridge.cs_setter_name();
+            // Check nullability: if options param is optional, guard the entire block.
+            if opts_param.optional {
+                out.push_str(&format!(
+                    "        // options-field bridge: attach visitor when present\n"
+                ));
+                out.push_str(&format!(
+                    "        if ({opts_name} != null && {opts_name}.{field_pascal} != null)\n        {{\n"
+                ));
+                out.push_str(&format!(
+                    "            using var _{bridge_type}Bridge = new {bridge_type}Bridge({opts_name}.{field_pascal});\n"
+                ));
+                out.push_str(&format!(
+                    "            NativeMethods.{setter}({opts_handle}, _{bridge_type}Bridge._vtable);\n"
+                ));
+                out.push_str("        }\n");
+            } else {
+                out.push_str(&format!(
+                    "        // options-field bridge: attach visitor when present\n"
+                ));
+                out.push_str(&format!(
+                    "        if ({opts_name}.{field_pascal} != null)\n        {{\n"
+                ));
+                out.push_str(&format!(
+                    "            using var _{bridge_type}Bridge = new {bridge_type}Bridge({opts_name}.{field_pascal});\n"
+                ));
+                out.push_str(&format!(
+                    "            NativeMethods.{setter}({opts_handle}, _{bridge_type}Bridge._vtable);\n"
+                ));
+                out.push_str("        }\n");
+            }
+        }
+    }
 
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
@@ -1671,7 +1828,11 @@ fn gen_record_type(
     complex_enums: &HashSet<String>,
     custom_converter_enums: &HashSet<String>,
     _lang_rename_all: &str,
+    options_field_bridges: &[OptionsFieldBridgeInfo],
 ) -> String {
+    // Find a bridge that targets this type (if any).
+    let bridge_for_type = options_field_bridges.iter().find(|b| b.options_type == typ.name);
+
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Collections.Generic;\n");
@@ -1696,6 +1857,14 @@ fn gen_record_type(
         // Skip unnamed tuple struct fields (e.g., _0, _1, 0, 1, etc.)
         if is_tuple_field(field) {
             continue;
+        }
+
+        // Skip bridge fields on options types — they are opaque handles managed via
+        // the setter FFI and must not appear in JSON serialization.
+        if let Some(b) = bridge_for_type {
+            if field.name == b.field_name {
+                continue;
+            }
         }
 
         // Doc comment for field
@@ -1884,6 +2053,26 @@ fn gen_record_type(
         }
 
         out.push('\n');
+    }
+
+    // Inject a [JsonIgnore] bridge property for options-field bridges targeting this type.
+    // The property uses the bridge type directly (e.g. `HtmlVisitorBridge?`) so callers
+    // can set `options.Visitor = new HtmlVisitorBridge(myVisitorImpl)` before converting.
+    // JSON serialization ignores it — the wrapper class reads it and calls the FFI setter.
+    if let Some(b) = bridge_for_type {
+        let prop_name = b.field_name.to_pascal_case();
+        let bridge_type = &b.bridge_cs_type;
+        out.push_str("    /// <summary>\n");
+        out.push_str(&format!(
+            "    /// Optional {bridge_type} bridge. When set, the native converter will call back\n"
+        ));
+        out.push_str("    /// into the managed implementation for each visited node.\n");
+        out.push_str("    /// Not serialized to JSON — attached via the FFI setter before conversion.\n");
+        out.push_str("    /// </summary>\n");
+        out.push_str("    [JsonIgnore]\n");
+        out.push_str(&format!(
+            "    public {bridge_type}Bridge? {prop_name} {{ get; set; }} = null;\n\n"
+        ));
     }
 
     out.push_str("}\n");

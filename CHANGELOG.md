@@ -45,6 +45,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extracts it, builds the `JsHtmlVisitorBridge`, sets it on core options, and calls core;
   the `.d.ts` interface shows `visitor?: HtmlVisitor`; no separate `convertWithVisitor`
   export is emitted in this mode.
+- feat(backend-extendr): support `bind_via = "options_field"` in `[[trait_bridges]]`.
+  When a visitor bridge is configured in options-field mode the R/extendr backend now:
+  - Renders the bridge field as `Option<extendr_api::Robj>` on the binding options struct
+    (with `#[serde(skip)]` so JSON round-trips ignore it).
+  - Emits a custom `From<BindingOptions> for core::Options` impl that leaves the bridge
+    field at `Default::default()`; the convert wrapper sets it explicitly after building
+    the bridge from the R object.
+  - Updates the `new_<options>` kwargs constructor to accept the visitor as
+    `Option<extendr_api::Robj>` and assign it via `Some(v)`.
+  - Emits a `convert` wrapper (via `gen_bridge_field_function`) that takes
+    `options: Option<ConversionOptions>`, pulls the visitor field off the binding,
+    constructs `RHtmlVisitorBridge`, attaches it to `options_core.visitor` as
+    `Rc<RefCell<...>> as VisitorHandle`, and calls core convert.
+  - Does NOT emit a separate `convert_with_visitor` extendr export.
+  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+  the extendr `trait_bridge` module.
 - feat(backend-rustler): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a visitor bridge is configured in options-field mode the Elixir Rustler backend
   now emits:
@@ -82,6 +98,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `find_bridge_param` to skip bridges configured for options-field binding.
   Existing configs default to `function_param` (the legacy mode), so this is
   fully backwards compatible.
+- feat(backend-wasm): support `bind_via = "options_field"` in `[[trait_bridges]]`.
+  When a visitor bridge is configured in options-field mode the WASM/wasm-bindgen backend now:
+  - Emits the bridge field as `Option<JsValue>` on the binding struct (e.g. `visitor` on
+    `WasmConversionOptions`) with a matching `#[wasm_bindgen(getter)]` / `setter`.
+  - Excludes the bridge field from the `new()` constructor — callers set it via the setter.
+  - Marks the bridge field `sanitized` in the cloned IR so the auto-generated
+    `From<WasmConversionOptions>` emits `Default::default()` for it.
+  - Generates a `convert` wrapper (via `gen_bridge_field_function`) that extracts the
+    `Option<JsValue>` from the binding options, converts the rest to core options via
+    `From`, builds `WasmHtmlVisitorBridge`, wraps it as
+    `Rc<RefCell<...>> as VisitorHandle`, sets it on core options, and calls core convert.
+  - Does NOT emit a standalone `convertWithVisitor` function in this mode.
+  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+  the wasm `trait_bridge` module.
+- feat(backend-csharp): support `bind_via = "options_field"` in `[[trait_bridges]]`.
+  When a visitor bridge is configured in options-field mode the C# backend now:
+  - Emits a `[JsonIgnore] public {Trait}Bridge? {Field}` property on the options
+    record type so the bridge object is excluded from JSON serialization.
+  - Declares an `internal static extern void {Options}Set{Field}(IntPtr options, IntPtr vtable)`
+    P/Invoke entry-point in `NativeMethods.cs` whose FFI symbol is
+    `{prefix}_{options_snake}_set_{field_snake}`.
+  - Injects a bridge-attachment block in the wrapper `Convert` method: when
+    `options.Visitor != null`, creates the bridge, calls the setter, then calls the
+    standard two-arg `convert(html, options)` FFI function.
+  - Does NOT emit a separate `ConvertWithVisitor` overload in this mode.
 - feat(backend-magnus): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a visitor bridge is configured in options-field mode the Ruby/Magnus backend now:
   - Renders the bridge field as `Option<magnus::Value>` on the binding options struct
