@@ -199,9 +199,9 @@ fn render_test_case(
     let final_args = if let Some(visitor_spec) = &fixture.visitor {
         build_r_visitor(&mut setup_lines, visitor_spec);
         if args_str.is_empty() {
-            "visitor".to_string()
+            "options = list(visitor = visitor)".to_string()
         } else {
-            format!("{args_str}, visitor = visitor")
+            format!("{args_str}, options = list(visitor = visitor)")
         }
     } else {
         args_str
@@ -771,11 +771,11 @@ fn emit_r_visitor_method(out: &mut String, method_name: &str, action: &CallbackA
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_r(output);
-            let _ = writeln!(out, "      list(custom = {escaped})");
+            let _ = writeln!(out, "      list(custom = \"{escaped}\")");
         }
         CallbackAction::CustomTemplate { template } => {
             let escaped = escape_r(template);
-            let _ = writeln!(out, "      list(custom = {escaped})");
+            let _ = writeln!(out, "      list(custom = \"{escaped}\")");
         }
     }
     let _ = writeln!(out, "    }},");

@@ -1,12 +1,30 @@
 //! Python type generation: `options.py` (enums, dataclasses, TypedDicts) and helpers.
 
 use ahash::{AHashMap, AHashSet};
+use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::generators;
 use alef_core::config::{DtoConfig, PythonDtoStyle};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
 
 use super::enums::{EmitContext, class_name_to_docstring, sanitize_python_doc};
+
+/// Convert a Rust variant name to SCREAMING_SNAKE_CASE for Python (str, Enum) members.
+///
+/// Handles acronym-style names correctly: names with 2+ leading uppercase characters
+/// followed only by lowercase (e.g. `RDFa`) are fully uppercased to `RDFA` rather than
+/// incorrectly split to `RD_FA` by `to_shouty_snake_case`.
+fn to_python_screaming(name: &str) -> String {
+    use heck::ToShoutySnakeCase;
+    let chars: Vec<char> = name.chars().collect();
+    let upper_prefix_len = chars.iter().take_while(|c| c.is_uppercase()).count();
+    // Acronym: 2+ leading uppercase chars with only lowercase (or empty) remainder
+    if upper_prefix_len >= 2 && chars[upper_prefix_len..].iter().all(|c| c.is_lowercase()) {
+        name.to_ascii_uppercase()
+    } else {
+        name.to_shouty_snake_case()
+    }
+}
 
 /// Generate options.py — Python-side enums (StrEnum) and @dataclass / TypedDict config types.
 ///
@@ -18,7 +36,7 @@ use super::enums::{EmitContext, class_name_to_docstring, sanitize_python_doc};
 /// it is emitted as a `TypedDict` (with `total=False`) instead of a `@dataclass`.
 pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> String {
     use alef_core::ir::TypeRef;
-    use heck::{ToShoutySnakeCase, ToSnakeCase};
+    use heck::ToSnakeCase;
 
     // Collect enum names for type detection (plain unit enums vs data enums)
     let enum_names: AHashSet<&str> = api.enums.iter().map(|e| e.name.as_str()).collect();
@@ -234,7 +252,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             // `setattr` + `getattr` to bridge the keyword.
             for variant in &enum_def.variants {
                 let rust_name = &variant.name;
-                let py_name = rust_name.to_shouty_snake_case();
+                let py_name = to_python_screaming(rust_name);
                 // PyO3 escapes Python-keyword variant names by appending `_`
                 // (matching `python_safe_name`), so `None` becomes `None_` on
                 // the runtime class. We must `getattr` from the escaped form.
@@ -268,7 +286,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         }
         out.push_str(&format!("class {}(str, Enum):\n", enum_def.name));
         let enum_doc = if !enum_def.doc.is_empty() {
-            let raw = enum_def.doc.lines().next().unwrap_or("").trim().to_string();
+            let raw = doc_first_paragraph_joined(&enum_def.doc);
             let first = sanitize_python_doc(&raw);
             let content = if first.len() > 89 {
                 first[..89].to_string()
@@ -288,7 +306,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             let value = variant.name.to_snake_case();
             out.push_str(&format!(
                 "    {} = \"{}\"\n",
-                variant.name.to_shouty_snake_case(),
+                to_python_screaming(&variant.name),
                 value
             ));
         }
@@ -323,7 +341,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             out.push_str("@dataclass\n");
             out.push_str(&format!("class {}:\n", typ.name));
             let class_doc = if !typ.doc.is_empty() {
-                let raw = typ.doc.lines().next().unwrap_or("").trim().to_string();
+                let raw = doc_first_paragraph_joined(&typ.doc);
                 let first = sanitize_python_doc(&raw);
                 let content = if first.len() > 89 {
                     first[..89].to_string()
@@ -396,7 +414,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
                 let safe_name = alef_core::keywords::python_ident(&field.name);
                 if !field.doc.is_empty() {
                     out.push_str(&format!("    {}: {} = {}\n", safe_name, type_hint_with_none, default));
-                    let doc_line = sanitize_python_doc(field.doc.lines().next().unwrap_or(""));
+                    let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
                     // Avoid `""""` when docstring ends with `"` — add trailing space.
                     let safe_doc = if doc_line.ends_with('"') {
                         format!("{doc_line} ")
@@ -491,7 +509,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         }
 
         let doc = if !enum_def.doc.is_empty() {
-            let raw = enum_def.doc.lines().next().unwrap_or("").trim().to_string();
+            let raw = doc_first_paragraph_joined(&enum_def.doc);
             let first = sanitize_python_doc(&raw);
             let content = if first.len() > 89 {
                 first[..89].to_string()
@@ -547,7 +565,7 @@ fn gen_typeddict(
     let mut out = String::new();
     out.push_str(&format!("class {}(TypedDict, total=False):\n", typ.name));
     let typeddict_doc = if !typ.doc.is_empty() {
-        let raw = typ.doc.lines().next().unwrap_or("").trim().to_string();
+        let raw = doc_first_paragraph_joined(&typ.doc);
         let first = sanitize_python_doc(&raw);
         let content = if first.len() > 89 {
             first[..89].to_string()
@@ -584,7 +602,7 @@ fn gen_typeddict(
         let safe_name = alef_core::keywords::python_ident(&field.name);
         if !field.doc.is_empty() {
             out.push_str(&format!("    {}: {}\n", safe_name, type_hint_with_none));
-            let doc_line = sanitize_python_doc(field.doc.lines().next().unwrap_or(""));
+            let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
             // A triple-quoted docstring that ends with `"` would produce `""""` (4 quotes),
             // which Python parses as an empty string followed by a stray `"`.
             // Add a trailing space to prevent the collision.

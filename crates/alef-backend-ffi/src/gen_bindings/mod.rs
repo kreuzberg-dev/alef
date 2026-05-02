@@ -7,6 +7,7 @@ use alef_codegen::generators;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
+use heck::ToPascalCase;
 use std::path::PathBuf;
 
 use alef_adapters::AdapterBodies;
@@ -413,6 +414,14 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
 
     let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
 
+    // Detect whether any options_field bridge is configured.  When true, visitor callbacks
+    // are handled via gen_bridge_field (VTable + options setter) rather than the legacy
+    // gen_visitor path (VisitorCallbacks struct + convert_with_visitor).
+    let has_options_field_bridge = config
+        .trait_bridges
+        .iter()
+        .any(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField);
+
     let ffi_exclude_functions: ahash::AHashSet<String> = config
         .ffi
         .as_ref()
@@ -424,22 +433,64 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         if ffi_exclude_functions.contains(&func.name) {
             continue;
         }
-        // When visitor_callbacks is enabled, the core `convert` function has a visitor
-        // parameter that causes the IR sanitizer to mark the function as unimplementable
-        // (the visitor trait type is unknown to the IR).  Skip the sanitized stub here;
-        // the proper no-visitor implementation is emitted below via gen_convert_no_visitor.
-        if visitor_callbacks_enabled && func.sanitized && func.name == "convert" {
+        // When visitor callbacks are enabled, the core `convert` function has a visitor
+        // parameter that the IR sanitizer marks as unimplementable.  Skip the sanitized
+        // stub — the real implementation is emitted below (either via gen_convert_no_visitor
+        // for the legacy FunctionParam path, or gen_convert_with_options_field_bridge for
+        // the OptionsField path).
+        if (visitor_callbacks_enabled || has_options_field_bridge) && func.sanitized && func.name == "convert" {
             continue;
         }
         builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map, &enum_names));
     }
 
-    // Visitor/callback FFI support — generated when `[ffi] visitor_callbacks = true`.
-    // Note: the generated code uses std::rc::Rc fully qualified, so no extra import needed.
-    if visitor_callbacks_enabled {
-        // Emit the real {prefix}_convert implementation (no-visitor path) before the visitor
-        // bindings so that {prefix}_convert_with_visitor can document itself as the visitor
-        // counterpart.
+    // Visitor/callback FFI support.
+    // - OptionsField bridge: VTable + options setter + correct convert implementation.
+    // - FunctionParam bridge (legacy): VisitorCallbacks struct + convert_with_visitor.
+    if has_options_field_bridge {
+        // Build a type_paths map for delegation method signature generation.
+        let type_paths: std::collections::HashMap<String, String> = path_map
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        let trait_map: ahash::AHashMap<&str, &alef_core::ir::TypeDef> = api
+            .types
+            .iter()
+            .filter(|t| t.is_trait)
+            .map(|t| (t.name.as_str(), t))
+            .collect();
+
+        for bridge_cfg in &config.trait_bridges {
+            if bridge_cfg.bind_via != alef_core::config::BridgeBinding::OptionsField {
+                continue;
+            }
+            let Some(trait_def) = trait_map.get(bridge_cfg.trait_name.as_str()) else {
+                continue;
+            };
+            let Some(options_type_name) = bridge_cfg.options_type.as_deref() else {
+                continue;
+            };
+            let Some(field_name) = bridge_cfg.resolved_options_field() else {
+                continue;
+            };
+
+            builder.add_item(&crate::gen_bridge_field::gen_options_set_bridge(
+                prefix,
+                &core_import,
+                trait_def,
+                &bridge_cfg.trait_name,
+                field_name,
+                options_type_name,
+                &type_paths,
+            ));
+        }
+
+        // Emit the correct {prefix}_convert that passes options (with embedded visitor) to core.
+        builder.add_item(&crate::gen_bridge_field::gen_convert_with_options_field_bridge(prefix, &core_import));
+    } else if visitor_callbacks_enabled {
+        // Legacy FunctionParam path: emit the real {prefix}_convert (no-visitor) and then
+        // the visitor bindings with {prefix}_convert_with_visitor.
         builder.add_item(&crate::gen_visitor::gen_convert_no_visitor(prefix, &core_import));
         builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import));
     }
@@ -476,6 +527,20 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                     api,
                 );
                 builder.add_item(&bridge_code);
+
+                // For options-field bridges, emit exported C constructor/destructor so that
+                // non-Rust callers (Go, Java, C#) can create and free bridge handles entirely
+                // through the C ABI.  The exported function signature also forces cbindgen to
+                // emit the full vtable struct definition in the generated C header, which
+                // callers must fill in before invoking `bridge_new`.
+                if bridge_cfg.bind_via == alef_core::config::BridgeBinding::OptionsField {
+                    let pascal_prefix = prefix.to_pascal_case();
+                    builder.add_item(&crate::trait_bridge::gen_bridge_new_free(
+                        prefix,
+                        &pascal_prefix,
+                        &bridge_cfg.trait_name,
+                    ));
+                }
             }
         }
     }

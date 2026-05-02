@@ -42,6 +42,16 @@ impl Pyo3Backend {
             opaque_type_names: &[],
         }
     }
+
+    /// Variant of `binding_config` that uses `unsendable` instead of `frozen` for types
+    /// that contain `Rc<...>`-based handles (e.g. visitor handles).  PyO3 requires either
+    /// `Send + Sync` (for `frozen`) or the `unsendable` marker (for single-threaded types).
+    fn unsendable_binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
+        RustBindingConfig {
+            struct_attrs: &["pyclass(unsendable, from_py_object)"],
+            ..Self::binding_config(core_import, has_serde)
+        }
+    }
 }
 
 impl Backend for Pyo3Backend {
@@ -80,6 +90,7 @@ impl Backend for Pyo3Backend {
         let output_dir = resolve_output_dir(config.output_paths.get("python"), &config.name, "crates/{name}-py/src/");
         let has_serde = detect_serde_available(&output_dir);
         let mut cfg = Self::binding_config(&core_import, has_serde);
+        let cfg_unsendable = Self::unsendable_binding_config(&core_import, has_serde);
 
         // Build adapter body map for method body substitution
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Python)?;
@@ -316,10 +327,18 @@ impl Backend for Pyo3Backend {
             if !emitted_pyclass_names.insert(typ.name.as_str()) {
                 continue;
             }
+            // Types in opaque_names_set transitively contain Rc<...>-based handles (e.g.
+            // visitor handles) which are not Send + Sync.  PyO3 frozen classes require
+            // Send + Sync, so we must use `unsendable` for those types instead.
+            let type_cfg = if opaque_names_set.contains(typ.name.as_str()) {
+                &cfg_unsendable
+            } else {
+                &cfg
+            };
             if typ.is_opaque {
-                let mut struct_code = generators::gen_opaque_struct(typ, &cfg);
+                let mut struct_code = generators::gen_opaque_struct(typ, type_cfg);
                 let mut impl_block =
-                    generators::gen_opaque_impl_block(typ, &mapper, &cfg, &opaque_types, &mutex_types, &adapter_bodies);
+                    generators::gen_opaque_impl_block(typ, &mapper, type_cfg, &opaque_types, &mutex_types, &adapter_bodies);
                 if tokio_mutex_types.contains(&typ.name) {
                     struct_code = rewrite_to_tokio_mutex_struct(&struct_code);
                     impl_block = rewrite_to_tokio_mutex_impl(&impl_block);
@@ -342,7 +361,7 @@ impl Backend for Pyo3Backend {
                 builder.add_item(&generators::gen_struct_with_rename(
                     typ,
                     &mapper,
-                    &cfg,
+                    type_cfg,
                     |field| {
                         // When the field needs a keyword-escape rename, replace the default
                         // `pyo3(get)` with `pyo3(get, name = "original")` and add a serde
@@ -382,7 +401,7 @@ impl Backend for Pyo3Backend {
                 let impl_block = generators::gen_impl_block_with_renames(
                     typ,
                     &mapper,
-                    &cfg,
+                    type_cfg,
                     &adapter_bodies,
                     &opaque_types,
                     renames_ref,
@@ -403,9 +422,14 @@ impl Backend for Pyo3Backend {
             if py_exclude_functions.contains(&f.name) {
                 continue;
             }
-            // Check whether any parameter's type matches a trait bridge type_alias.
-            // When it does, generate a bridge-aware function instead of the generic one.
+            // Check whether any parameter's type matches a trait bridge type_alias (function-param binding).
             let bridge_param = crate::trait_bridge::find_bridge_param(f, &config.trait_bridges);
+            // Check whether any parameter's type carries a bridge field (options-field binding).
+            let bridge_field = alef_codegen::generators::trait_bridge::find_bridge_field(
+                f,
+                &api.types,
+                &config.trait_bridges,
+            );
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(
                     f,
@@ -414,6 +438,16 @@ impl Backend for Pyo3Backend {
                     &mapper,
                     &cfg,
                     &adapter_bodies,
+                    &opaque_types,
+                    &core_import,
+                ));
+            } else if let Some(ref bm) = bridge_field {
+                builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
+                    f,
+                    bm,
+                    bm.bridge,
+                    &mapper,
+                    &cfg,
                     &opaque_types,
                     &core_import,
                 ));

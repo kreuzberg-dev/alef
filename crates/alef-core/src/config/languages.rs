@@ -222,6 +222,11 @@ pub struct ElixirConfig {
     /// Extra paths to append to default lint commands (format, check, typecheck).
     #[serde(default)]
     pub extra_lint_paths: Vec<String>,
+    /// Functions that should be scheduled on the dirty CPU scheduler.
+    /// HTML parsing and other CPU-intensive NIFs should be listed here to avoid
+    /// blocking BEAM scheduler threads.
+    #[serde(default)]
+    pub cpu_bound_functions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

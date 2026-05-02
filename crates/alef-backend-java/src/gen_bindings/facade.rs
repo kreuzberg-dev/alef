@@ -16,7 +16,7 @@ pub(crate) fn gen_facade_class(
     _prefix: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
-    has_visitor_pattern: bool,
+    _has_visitor_pattern: bool,
 ) -> String {
     let mut body = String::with_capacity(4096);
 
@@ -211,12 +211,6 @@ pub(crate) fn gen_facade_class(
             writeln!(body, "    }}").ok();
             writeln!(body).ok();
         }
-    }
-
-    // When visitor support is enabled, add a convert overload that accepts TestVisitor.
-    if has_visitor_pattern {
-        body.push_str(&crate::gen_visitor::gen_convert_with_test_visitor_method(raw_class));
-        writeln!(body).ok();
     }
 
     writeln!(body, "}}").ok();

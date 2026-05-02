@@ -25,11 +25,13 @@ pub(super) fn build_typescript_visitor(
 /// Emit a TypeScript visitor method for a callback action.
 pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str, action: &CallbackAction) {
     let camel_method = method_name.to_lower_camel_case();
+    // All parameters are typed as `any` — visitor methods are untyped in e2e tests
+    // because `JsNodeContext` is not importable without the built native module.
     let params = match method_name {
-        "visit_link" => "ctx, href, text, title",
-        "visit_image" => "ctx, src, alt, title",
-        "visit_heading" => "ctx, level, text, id",
-        "visit_code_block" => "ctx, lang, code",
+        "visit_link" => "ctx: any, href: any, text: any, title: any",
+        "visit_image" => "ctx: any, src: any, alt: any, title: any",
+        "visit_heading" => "ctx: any, level: any, text: any, id: any",
+        "visit_code_block" => "ctx: any, lang: any, code: any",
         "visit_code_inline"
         | "visit_strong"
         | "visit_emphasis"
@@ -42,25 +44,27 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
         | "visit_summary"
         | "visit_figcaption"
         | "visit_definition_term"
-        | "visit_definition_description" => "ctx, text",
-        "visit_text" => "ctx, text",
-        "visit_list_item" => "ctx, ordered, marker, text",
-        "visit_blockquote" => "ctx, content, depth",
-        "visit_table_row" => "ctx, cells, isHeader",
-        "visit_custom_element" => "ctx, tagName, html",
-        "visit_form" => "ctx, actionUrl, method",
-        "visit_input" => "ctx, inputType, name, value",
-        "visit_audio" | "visit_video" | "visit_iframe" => "ctx, src",
-        "visit_details" => "ctx, isOpen",
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => "ctx, output",
-        "visit_list_start" => "ctx, ordered",
-        "visit_list_end" => "ctx, ordered, output",
-        _ => "ctx",
+        | "visit_definition_description" => "ctx: any, text: any",
+        "visit_text" => "ctx: any, text: any",
+        "visit_list_item" => "ctx: any, ordered: any, marker: any, text: any",
+        "visit_blockquote" => "ctx: any, content: any, depth: any",
+        "visit_table_row" => "ctx: any, cells: any, isHeader: any",
+        "visit_custom_element" => "ctx: any, tagName: any, html: any",
+        "visit_form" => "ctx: any, actionUrl: any, method: any",
+        "visit_input" => "ctx: any, inputType: any, name: any, value: any",
+        "visit_audio" | "visit_video" | "visit_iframe" => "ctx: any, src: any",
+        "visit_details" => "ctx: any, isOpen: any",
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
+            "ctx: any, output: any"
+        }
+        "visit_list_start" => "ctx: any, ordered: any",
+        "visit_list_end" => "ctx: any, ordered: any, output: any",
+        _ => "ctx: any",
     };
 
     let _ = writeln!(
         out,
-        "    {camel_method}({params}): string | {{{{ custom: string }}}} {{"
+        "    {camel_method}({params}): string | {{ custom: string }} {{"
     );
     match action {
         CallbackAction::Skip => {
@@ -74,7 +78,7 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_js(output);
-            let _ = writeln!(out, "        return {{ custom: {escaped} }};");
+            let _ = writeln!(out, "        return {{ custom: \"{escaped}\" }};");
         }
         CallbackAction::CustomTemplate { template } => {
             let _ = writeln!(out, "        return {{ custom: `{template}` }};");

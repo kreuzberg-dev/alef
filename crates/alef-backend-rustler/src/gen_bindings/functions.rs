@@ -73,6 +73,7 @@ pub(super) fn gen_nif_function(
     opaque_types: &AHashSet<String>,
     default_types: &AHashSet<String>,
     core_import: &str,
+    cpu_bound_functions: &AHashSet<String>,
 ) -> String {
     let params_str = func
         .params
@@ -336,7 +337,11 @@ pub(super) fn gen_nif_function(
     };
     let mut out = String::new();
     doc_emission::emit_rustdoc(&mut out, &func.doc, "");
-    out.push_str("#[rustler::nif]\npub fn ");
+    if cpu_bound_functions.contains(func.name.as_str()) {
+        out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
+    } else {
+        out.push_str("#[rustler::nif]\npub fn ");
+    }
     out.push_str(&func.name);
     out.push('(');
     out.push_str(&params_str);

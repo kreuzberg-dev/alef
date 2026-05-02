@@ -1113,3 +1113,309 @@ pub fn gen_bridge_function(
 
     out
 }
+
+/// Generate a PyO3 function wrapper for a bridge whose handle lives as a field
+/// on an options struct (`bind_via = "options_field"`).
+///
+/// The generated function adds an extra `visitor: Option<Py<PyAny>>` parameter.
+/// When the caller supplies `visitor`, it is wrapped in `Py{Trait}Bridge`, boxed
+/// into the core `VisitorHandle`, and injected onto a copy of the options struct
+/// before the core function is called.  When `visitor` is `None` the options
+/// struct is forwarded unchanged.
+///
+/// Error dispatch: uses the dedicated `{snake_error}_to_py_err` converter when
+/// the IR error type is a known PascalCase name; falls back to `PyRuntimeError`
+/// for generic/path-qualified types.
+pub fn gen_bridge_field_function(
+    func: &alef_core::ir::FunctionDef,
+    bridge_match: &alef_codegen::generators::trait_bridge::BridgeFieldMatch<'_>,
+    bridge_cfg: &TraitBridgeConfig,
+    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    cfg: &alef_codegen::generators::RustBindingConfig<'_>,
+    opaque_types: &ahash::AHashSet<String>,
+    core_import: &str,
+) -> String {
+    use alef_codegen::generators::AsyncPattern;
+    use alef_core::ir::TypeRef;
+
+    let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
+    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+
+    // Name of the visitor kwarg that will be appended to the Rust function signature.
+    let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
+    // Name of the options parameter (e.g. "options")
+    let options_param = &bridge_match.param_name;
+    // Rust type of the options parameter (e.g. "ConversionOptions")
+    let options_type = &bridge_match.options_type;
+    // The field on the options struct that holds the bridge handle (e.g. "visitor")
+    let field_name = &bridge_match.field_name;
+    let param_is_optional = bridge_match.param_is_optional;
+
+    let func_needs_py = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+    let lifetime = if func_needs_py { "<'py>" } else { "" };
+
+    // Build parameter list: same as gen_function but append the extra visitor kwarg.
+    let mut sig_parts = Vec::new();
+    if func_needs_py {
+        sig_parts.push("py: Python<'py>".to_string());
+    }
+    for p in func.params.iter() {
+        let ty = if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+            format!("Option<{}>", mapper.map_type(&p.ty))
+        } else {
+            mapper.map_type(&p.ty)
+        };
+        sig_parts.push(format!("{}: {}", p.name, ty));
+    }
+    // Extra visitor kwarg — always optional
+    sig_parts.push(format!("{visitor_kwarg}: Option<Py<PyAny>>"));
+
+    let params_str = sig_parts.join(", ");
+    let return_type = mapper.map_type(&func.return_type);
+    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let ret = if func_needs_py {
+        "PyResult<Bound<'py, PyAny>>".to_string()
+    } else {
+        ret
+    };
+
+    // --- Build function body ---
+
+    // 1. Wrap the visitor kwarg into a VisitorHandle
+    let visitor_wrap = format!(
+        "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n        \
+         let bridge = {struct_name}::new(v);\n        \
+         std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
+         }});"
+    );
+
+    // 2. Build serde-based conversion for non-options Named params.
+    let serde_err_conv = ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))";
+    let serde_bindings: String = func
+        .params
+        .iter()
+        .filter(|p| {
+            // Only process Named or Optional<Named> types that are not opaque and not the
+            // options param (which is handled separately).
+            if p.name == *options_param {
+                return false;
+            }
+            let named = match &p.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            named.is_some_and(|n| !opaque_types.contains(n))
+        })
+        .map(|p| {
+            let name = &p.name;
+            let core_type_name = match &p.ty {
+                TypeRef::Named(n) => n.clone(),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        n.clone()
+                    } else {
+                        String::new()
+                    }
+                }
+                _ => String::new(),
+            };
+            let core_path = format!("{core_import}::{core_type_name}");
+            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                format!(
+                    "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
+                     let json = serde_json::to_string(&v){serde_err_conv}?;\n        \
+                     serde_json::from_str(&json){serde_err_conv}\n    \
+                     }}).transpose()?;\n    "
+                )
+            } else {
+                format!(
+                    "let {name}_json = serde_json::to_string(&{name}){serde_err_conv}?;\n    \
+                     let {name}_core: {core_path} = serde_json::from_str(&{name}_json){serde_err_conv}?;\n    "
+                )
+            }
+        })
+        .collect();
+
+    // 3. Build the options-core conversion, injecting the visitor handle.
+    //
+    // The visitor field is sanitized in the IR (its type collapsed to String), so we
+    // cannot use the serde round-trip path for it — we inject it directly.
+    //
+    // If the options param is `Option<OptionsType>`:
+    //   - When both options and visitor are provided: serde-convert options, then
+    //     override the field.
+    //   - When only visitor is provided: construct a default OptionsType and set the field.
+    //   - When neither is provided: pass None.
+    //
+    // If the options param is `OptionsType` (non-optional): serde-convert and inject.
+    let core_options_type = format!("{core_import}::{options_type}");
+    let options_core_binding = if param_is_optional {
+        format!(
+            // 3a. Serde-convert the Python options to core (visitor field excluded via serde skip).
+            "let {options_param}_core: Option<{core_options_type}> = {options_param}.map(|v| {{\n        \
+             let json = serde_json::to_string(&v){serde_err_conv}?;\n        \
+             serde_json::from_str::<{core_options_type}>(&json){serde_err_conv}\n    \
+             }}).transpose()?;\n    \
+             // Inject the visitor handle: upgrade existing options or construct defaults.\n    \
+             let {options_param}_core: Option<{core_options_type}> = if let Some(handle) = {visitor_kwarg}_handle {{\n        \
+             let mut opts = {options_param}_core.unwrap_or_default();\n        \
+             opts.{field_name} = Some(handle);\n        \
+             Some(opts)\n    \
+             }} else {{\n        \
+             {options_param}_core\n    \
+             }};"
+        )
+    } else {
+        format!(
+            "let {options_param}_json = serde_json::to_string(&{options_param}){serde_err_conv}?;\n    \
+             let mut {options_param}_core: {core_options_type} = serde_json::from_str(&{options_param}_json){serde_err_conv}?;\n    \
+             if let Some(handle) = {visitor_kwarg}_handle {{\n        \
+             {options_param}_core.{field_name} = Some(handle);\n    \
+             }}"
+        )
+    };
+
+    // 4. Build the core function call args.
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            if p.name == *options_param {
+                return format!("{options_param}_core");
+            }
+            match &p.ty {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if p.optional {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                    } else {
+                        format!("&{}.inner", p.name)
+                    }
+                }
+                TypeRef::Named(_) => format!("{}_core", p.name),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        if opaque_types.contains(n.as_str()) {
+                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                        } else {
+                            format!("{}_core", p.name)
+                        }
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                TypeRef::String | TypeRef::Char => {
+                    if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                _ => p.name.clone(),
+            }
+        })
+        .collect();
+    let call_args_str = call_args.join(", ");
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+    let core_call = format!("{core_fn_path}({call_args_str})");
+
+    // 5. Build return expression.
+    let return_wrap = match &func.return_type {
+        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+        }
+        TypeRef::Named(_) => "val.into()".to_string(),
+        TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
+        _ => "val".to_string(),
+    };
+
+    // 6. Build error conversion.
+    let body = if let Some(ref error_type) = func.error_type {
+        let core_err_conv = if error_type.contains("::") || error_type == "Error" {
+            ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
+        } else {
+            let snake_error = {
+                let mut s = String::with_capacity(error_type.len() + 4);
+                for (i, c) in error_type.chars().enumerate() {
+                    if c.is_uppercase() {
+                        if i > 0 {
+                            s.push('_');
+                        }
+                        s.push(c.to_ascii_lowercase());
+                    } else {
+                        s.push(c);
+                    }
+                }
+                s
+            };
+            format!(".map_err({snake_error}_to_py_err)")
+        };
+        if return_wrap == "val" {
+            format!(
+                "{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}{core_err_conv}"
+            )
+        } else {
+            format!(
+                "{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}.map(|val| {return_wrap}){core_err_conv}"
+            )
+        }
+    } else {
+        format!(
+            "{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}"
+        )
+    };
+
+    // Build PyO3 attributes.
+    let attr_inner = cfg
+        .function_attr
+        .trim_start_matches('#')
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+
+    let mut out = String::with_capacity(1024);
+    if func.error_type.is_some() {
+        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
+    }
+    writeln!(out, "#[{attr_inner}]").ok();
+    if cfg.needs_signature {
+        // #[pyo3(signature = (...))] — all params from the IR plus the extra visitor kwarg.
+        let mut seen_optional = false;
+        let mut sig_items: Vec<String> = func
+            .params
+            .iter()
+            .map(|p| {
+                if p.optional {
+                    seen_optional = true;
+                }
+                if p.optional || seen_optional {
+                    format!("{}=None", p.name)
+                } else {
+                    p.name.clone()
+                }
+            })
+            .collect();
+        // visitor kwarg is always optional
+        sig_items.push(format!("{visitor_kwarg}=None"));
+        let sig_str = sig_items.join(", ");
+        writeln!(out, "{}{}{}", cfg.signature_prefix, sig_str, cfg.signature_suffix).ok();
+    }
+    let func_name = &func.name;
+    writeln!(out, "pub fn {func_name}{lifetime}({params_str}) -> {ret} {{").ok();
+    writeln!(out, "    {body}").ok();
+    writeln!(out, "}}").ok();
+    out
+}

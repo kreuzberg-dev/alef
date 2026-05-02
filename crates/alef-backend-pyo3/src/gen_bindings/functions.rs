@@ -1,6 +1,7 @@
 //! Python API wrapper function generation: `api.py`.
 
 use ahash::{AHashMap, AHashSet};
+use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::generators;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
@@ -450,8 +451,8 @@ pub(super) fn gen_api_py(
         }
         {
             let doc_with_period = if !func.doc.is_empty() {
-                let doc_first_line = func.doc.lines().next().unwrap_or("");
-                let doc_sanitized = sanitize_python_doc(doc_first_line.trim());
+                let doc_first_para = doc_first_paragraph_joined(&func.doc);
+                let doc_sanitized = sanitize_python_doc(&doc_first_para);
                 // `    """..."""` is 10 chars of overhead; period may add 1 more char.
                 // Limit content to 89 chars so that with a trailing period the full line stays ≤100.
                 let doc_content = if doc_sanitized.len() > 89 {

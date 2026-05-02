@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(extendr): `generate_public_api` no longer emits a duplicate `convert()` wrapper calling
+  `.Call("htm_convert", ...)`. extendr generates `extendr-wrappers.R` with the correct
+  `.Call(wrap__convert, ...)` symbol; the backend now emits only `@useDynLib` + `options.R`.
+
+- fix(extendr): generated `options.R` now includes all `ConversionOptions` fields from the IR,
+  including `exclude_selectors`, `max_image_size`, `capture_svg`, `infer_dimensions`, `max_depth`,
+  `skip_images`, `link_style`, `output_format`, `include_document_structure`, `extract_images`,
+  and `visitor` (previously missing).
+
+- fix(extendr): visitor pairlist keys no longer carry a leading underscore. Rust uses `_ctx` /
+  `_href` for unused default-impl parameters; R callers write `function(ctx, ...)` without the
+  prefix. Keys are now trimmed of leading `_`.
+
+- fix(e2e/r): `CallbackAction::Custom` / `CustomTemplate` output values are now quoted in generated
+  R: `list(custom = "[AUDIO: podcast.mp3]")` instead of the previous unquoted form that caused a
+  parse error.
+
+- fix(e2e/r): `visitor` is now passed inside `options = list(visitor = visitor)` rather than as a
+  top-level parameter to `convert()`.
+
 - fix(alef-cli/format): format WASM binding crates with `cargo fmt --manifest-path`
   derived from the resolved output path so renamed or workspace-excluded crates are handled correctly.
 

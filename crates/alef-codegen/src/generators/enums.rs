@@ -154,12 +154,20 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     // The Rust identifier stays unchanged; only the Python-exposed attribute name gets the suffix.
     let is_pyo3 = cfg.enum_attrs.iter().any(|a| a.contains("pyclass"));
     writeln!(out, "pub enum {} {{", enum_def.name).ok();
+    // Determine which variant carries #[default].
+    // Prefer the variant that has is_default=true in the source (mirrors the Rust core's
+    // #[default] attribute); fall back to the first variant when none is explicitly marked.
+    let default_idx = enum_def
+        .variants
+        .iter()
+        .position(|v| v.is_default)
+        .unwrap_or(0);
     for (idx, variant) in enum_def.variants.iter().enumerate() {
         if is_pyo3 && PYTHON_KEYWORDS.contains(&variant.name.as_str()) {
             writeln!(out, "    #[pyo3(name = \"{}_\")]", variant.name).ok();
         }
-        // Mark the first variant as #[default] so derive(Default) works
-        if idx == 0 {
+        // Mark the correct variant as #[default] so derive(Default) matches the core.
+        if idx == default_idx {
             writeln!(out, "    #[default]").ok();
         }
         writeln!(out, "    {} = {idx},", variant.name).ok();
@@ -167,4 +175,92 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig) -> String {
     writeln!(out, "}}").ok();
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::generators::{AsyncPattern, RustBindingConfig};
+    use alef_core::ir::{EnumDef, EnumVariant};
+
+    fn make_variant(name: &str, is_default: bool) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            fields: vec![],
+            doc: String::new(),
+            is_default,
+            serde_rename: None,
+            is_tuple: false,
+        }
+    }
+
+    fn test_cfg<'a>() -> RustBindingConfig<'a> {
+        RustBindingConfig {
+            struct_attrs: &[],
+            field_attrs: &[],
+            struct_derives: &[],
+            method_block_attr: None,
+            constructor_attr: "",
+            static_attr: None,
+            function_attr: "",
+            enum_attrs: &[],
+            enum_derives: &[],
+            needs_signature: false,
+            signature_prefix: "",
+            signature_suffix: "",
+            core_import: "",
+            async_pattern: AsyncPattern::TokioBlockOn,
+            has_serde: false,
+            type_name_prefix: "",
+            option_duration_on_defaults: false,
+            opaque_type_names: &[],
+        }
+    }
+
+    #[test]
+    fn test_gen_enum_default_variant_first_when_none_marked() {
+        let enum_def = EnumDef {
+            name: "Color".to_string(),
+            variants: vec![make_variant("Red", false), make_variant("Green", false)],
+            doc: String::new(),
+            serde_rename_all: None,
+            serde_tag: None,
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+        };
+        let cfg = test_cfg();
+        let output = gen_enum(&enum_def, &cfg);
+        assert!(output.contains("#[default]\n    Red"));
+        assert!(!output.contains("#[default]\n    Green"));
+    }
+
+    #[test]
+    fn test_gen_enum_default_variant_respects_is_default() {
+        // HeadingStyle: Underlined(0), Atx(1, is_default), AtxClosed(2)
+        let enum_def = EnumDef {
+            name: "HeadingStyle".to_string(),
+            variants: vec![
+                make_variant("Underlined", false),
+                make_variant("Atx", true),
+                make_variant("AtxClosed", false),
+            ],
+            doc: String::new(),
+            serde_rename_all: None,
+            serde_tag: None,
+            rust_path: String::new(),
+            original_rust_path: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+        };
+        let cfg = test_cfg();
+        let output = gen_enum(&enum_def, &cfg);
+        // Atx (idx 1) should be #[default], not Underlined (idx 0)
+        assert!(output.contains("#[default]\n    Atx"));
+        assert!(!output.contains("#[default]\n    Underlined"));
+        assert!(!output.contains("#[default]\n    AtxClosed"));
+    }
 }

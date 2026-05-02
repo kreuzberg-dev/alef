@@ -33,7 +33,12 @@ pub(super) fn gen_wrapper_class(
     out.push_str("using System.Runtime.InteropServices;\n");
     out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n");
-    out.push_str("using System.Threading.Tasks;\n\n");
+    let has_async = api.functions.iter().any(|f| f.is_async)
+        || api.types.iter().flat_map(|t| t.methods.iter()).any(|m| m.is_async);
+    if has_async {
+        out.push_str("using System.Threading.Tasks;\n");
+    }
+    out.push('\n');
 
     out.push_str(&format!("namespace {};\n\n", namespace));
 
@@ -101,13 +106,23 @@ pub(super) fn gen_wrapper_class(
         ));
     }
 
-    // Add error handling helper
-    out.push_str("    private static ");
-    out.push_str(&format!("{} GetLastError()\n", exception_name));
+    // Add error handling helper — dispatches typed exceptions by error code
+    out.push_str("    private static Exception GetLastError()\n");
     out.push_str("    {\n");
     out.push_str("        var code = NativeMethods.LastErrorCode();\n");
     out.push_str("        var ctxPtr = NativeMethods.LastErrorContext();\n");
-    out.push_str("        var message = Marshal.PtrToStringAnsi(ctxPtr) ?? \"Unknown error\";\n");
+    out.push_str("        var message = Marshal.PtrToStringUTF8(ctxPtr) ?? \"Unknown error\";\n");
+    // Dispatch typed exceptions: code 1 → InvalidInputException (if present in IR errors),
+    // code 2 → base error exception class, fallback → generic exception with code.
+    if !api.errors.is_empty() {
+        let base_error = &api.errors[0];
+        let base_ex = format!("{}Exception", base_error.name.to_pascal_case());
+        let has_invalid_input = base_error.variants.iter().any(|v| v.name.to_pascal_case() == "InvalidInput");
+        if has_invalid_input {
+            out.push_str("        if (code == 1) return new InvalidInputException(message);\n");
+        }
+        out.push_str(&format!("        if (code == 2) return new {base_ex}(message);\n"));
+    }
     out.push_str(&format!("        return new {}(code, message);\n", exception_name));
     out.push_str("    }\n");
 
@@ -233,7 +248,7 @@ fn gen_wrapper_function(
         // Check for FFI error (null result means the call failed).
         if func.return_type != TypeRef::Unit {
             out.push_str(
-                "            if (nativeResult == IntPtr.Zero)\n            {\n                var err = GetLastError();\n                if (err.Code != 0)\n                {\n                    throw err;\n                }\n            }\n",
+                "            if (nativeResult == IntPtr.Zero)\n            {\n                throw GetLastError();\n            }\n",
             );
         }
 
@@ -277,7 +292,7 @@ fn gen_wrapper_function(
         // don't use IntPtr.Zero as an error sentinel.
         if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             out.push_str(
-                "        if (nativeResult == IntPtr.Zero)\n        {\n            var err = GetLastError();\n            if (err.Code != 0)\n            {\n                throw err;\n            }\n        }\n",
+                "        if (nativeResult == IntPtr.Zero)\n        {\n            throw GetLastError();\n        }\n",
             );
         }
 

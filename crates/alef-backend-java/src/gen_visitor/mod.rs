@@ -35,7 +35,6 @@ pub use callbacks::{CALLBACKS, CallbackSpec, ExtraParam};
 pub fn gen_visitor_files(package: &str, class_name: &str) -> Vec<(String, String)> {
     vec![
         ("NodeContext.java".to_string(), files::gen_node_context(package)),
-        ("VisitContext.java".to_string(), files::gen_visit_context(package)),
         ("VisitResult.java".to_string(), files::gen_visit_result(package)),
         (
             "Visitor.java".to_string(),
@@ -44,14 +43,6 @@ pub fn gen_visitor_files(package: &str, class_name: &str) -> Vec<(String, String
         (
             "VisitorBridge.java".to_string(),
             files::gen_visitor_bridge(package, class_name),
-        ),
-        (
-            "TestVisitor.java".to_string(),
-            files::gen_test_visitor_interface(package),
-        ),
-        (
-            "TestVisitorAdapter.java".to_string(),
-            files::gen_test_visitor_adapter(package),
         ),
     ]
 }
@@ -128,7 +119,7 @@ pub fn gen_convert_with_visitor_method(class_name: &str, prefix: &str) -> String
     writeln!(out, "            if (options != null) {{").ok();
     writeln!(
         out,
-        "                var optJson = arena.allocateFrom(createObjectMapper().writeValueAsString(options));"
+        "                var optJson = arena.allocateFrom(MAPPER.writeValueAsString(options));"
     )
     .ok();
     writeln!(
@@ -187,6 +178,7 @@ pub fn gen_convert_with_visitor_method(class_name: &str, prefix: &str) -> String
         "                NativeLib.{pu}_VISITOR_FREE.invoke(visitorHandle);"
     )
     .ok();
+    writeln!(out, "                bridge.rethrowVisitorError();").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "        }} catch ({exc} e) {{").ok();
     writeln!(out, "            throw e;").ok();
@@ -198,43 +190,24 @@ pub fn gen_convert_with_visitor_method(class_name: &str, prefix: &str) -> String
     out
 }
 
-/// Generate the `convert(html, options, TestVisitor)` overload injected into the public facade.
-pub fn gen_convert_with_test_visitor_method(raw_class: &str) -> String {
-    let mut out = String::with_capacity(512);
-    let exc = format!("{raw_class}Exception");
-    writeln!(
-        out,
-        "    public static ConversionResult convert(final String html, final ConversionOptions options,"
-    )
-    .ok();
-    writeln!(out, "            final TestVisitor visitor) throws {exc} {{").ok();
-    writeln!(
-        out,
-        "        return {raw_class}.convertWithVisitor(html, options, new TestVisitorAdapter(visitor));"
-    )
-    .ok();
-    writeln!(out, "    }}").ok();
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn gen_visitor_files_returns_seven_files() {
+    fn gen_visitor_files_returns_four_files() {
         let files = gen_visitor_files("dev.kreuzberg", "Demo");
-        assert_eq!(files.len(), 7, "must return 7 files");
+        assert_eq!(files.len(), 4, "must return 4 files");
         let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"NodeContext.java"), "must include NodeContext.java");
-        assert!(names.contains(&"VisitContext.java"), "must include VisitContext.java");
         assert!(names.contains(&"VisitResult.java"), "must include VisitResult.java");
         assert!(names.contains(&"Visitor.java"), "must include Visitor.java");
         assert!(names.contains(&"VisitorBridge.java"), "must include VisitorBridge.java");
-        assert!(names.contains(&"TestVisitor.java"), "must include TestVisitor.java");
+        assert!(!names.contains(&"VisitContext.java"), "must NOT include VisitContext.java");
+        assert!(!names.contains(&"TestVisitor.java"), "must NOT include TestVisitor.java");
         assert!(
-            names.contains(&"TestVisitorAdapter.java"),
-            "must include TestVisitorAdapter.java"
+            !names.contains(&"TestVisitorAdapter.java"),
+            "must NOT include TestVisitorAdapter.java"
         );
     }
 

@@ -11,7 +11,13 @@ use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 
 use super::functions::{napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_wrap_return};
 
-pub(super) fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str, has_serde: bool) -> String {
+pub(super) fn gen_struct(
+    typ: &TypeDef,
+    mapper: &NapiMapper,
+    prefix: &str,
+    has_serde: bool,
+    opaque_types: &ahash::AHashSet<String>,
+) -> String {
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
     struct_builder.add_attr("napi(object)");
@@ -29,14 +35,37 @@ pub(super) fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str, has_s
     }
 
     for field in &typ.fields {
-        let mapped_type = mapper.map_type(&field.ty);
+        // Opaque NAPI classes (e.g. JsVisitorHandle) cannot be embedded in `#[napi(object)]`
+        // structs because they don't implement `FromNapiValue`. Use a raw JavaScript object
+        // (`napi::bindgen_prelude::Object<'static>`) as the field type instead — the convert
+        // function bridges the JS object to the Rust opaque type at call time.
+        //
+        // Returns (base_type, already_optional) where already_optional means the base_type
+        // already includes the Option<> wrapper (either from TypeRef::Optional or opaque handling).
+        let (base_type, already_optional): (String, bool) = match &field.ty {
+            TypeRef::Named(name) if opaque_types.contains(name) => {
+                ("napi::bindgen_prelude::Object<'static>".to_string(), false)
+            }
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    if opaque_types.contains(name) {
+                        // Optional<OpaqueClass> → Option<Object<'static>>
+                        ("Option<napi::bindgen_prelude::Object<'static>>".to_string(), true)
+                    } else {
+                        (mapper.map_type(&field.ty), true)
+                    }
+                } else {
+                    (mapper.map_type(&field.ty), true)
+                }
+            }
+            _ => (mapper.map_type(&field.ty), false),
+        };
         // For types with Default, make all fields optional so JS callers
         // can pass partial objects (missing fields get defaults).
-        // When field.ty is already Optional(T), mapped_type is already Option<T> — don't double-wrap.
-        let field_type = if (field.optional || typ.has_default) && !matches!(field.ty, TypeRef::Optional(_)) {
-            format!("Option<{}>", mapped_type)
+        let field_type = if (field.optional || typ.has_default) && !already_optional {
+            format!("Option<{base_type}>")
         } else {
-            mapped_type
+            base_type
         };
         let js_name = to_node_name(&field.name);
         let attrs = if js_name != field.name {

@@ -188,7 +188,7 @@ impl Backend for NapiBackend {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
                 // gen_struct adds Default to derives when typ.has_default is true.
-                builder.add_item(&types::gen_struct(typ, &mapper, &prefix, has_serde));
+                builder.add_item(&types::gen_struct(typ, &mapper, &prefix, has_serde, &opaque_types));
             }
         }
 
@@ -348,8 +348,10 @@ impl Backend for NapiBackend {
         let mut type_exports = vec![];
         let mut function_exports = vec![];
 
-        // Collect all types (exported with prefix from native module) - export type
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        // Collect all types (exported with prefix from native module) - export type.
+        // Include opaque trait types (e.g. JsHtmlVisitor) — they have a concrete NAPI class
+        // binding and must be exported. Non-opaque trait types (pure Rust traits) are skipped.
+        for typ in api.types.iter().filter(|typ| !typ.is_trait || typ.is_opaque) {
             type_exports.push(format!("{prefix}{}", typ.name));
         }
 
