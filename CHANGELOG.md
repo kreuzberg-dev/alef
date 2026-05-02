@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`if any_written && !changed_languages.is_empty()`) would skip formatting entirely,
   leaving stub files unformatted and the hash stale after the next formatter run.
 
+- fix(cli): always register stub paths in `current_gen_paths` during `alef generate`.
+  When the stub cache was warm (`stubs_match = true`) the stub file paths were never
+  added to the keep-set, so the orphan-sweep pass deleted them as stale leftovers.
+  The next `alef verify` run would report the missing files as stale.
+
 ## [0.13.10] - 2026-05-02
 
 ### Added
