@@ -356,15 +356,20 @@ pub(super) fn render_test_file(
     for fixture in fixtures.iter().filter(|f| !f.is_http_test()) {
         let resolved = e2e_config.resolve_call(fixture.call.as_deref());
         let call_args = if fixture.call.is_some() { &resolved.args } else { args };
-        let fixture_options_type: Option<String> = if fixture.call.is_some() {
-            resolved.overrides.get(lang).and_then(|o| o.options_type.clone())
-        } else {
-            options_type.map(|s| s.to_string())
-        };
+        // Resolve options_type using the same fallback as render_test_case:
+        // per-call language override first, top-level override second. Keeps
+        // the fixture compile-clean even when a `[e2e.calls.<n>]` entry omits
+        // `options_type` because it shares the default config shape.
+        let per_call_options_type = resolved.overrides.get(lang).and_then(|o| o.options_type.clone());
+        let fixture_options_type: Option<String> =
+            per_call_options_type.or_else(|| options_type.map(|s| s.to_string()));
         let Some(opts_type) = fixture_options_type else {
             continue;
         };
-        let any_object_arg = call_args.iter().any(|arg| {
+        // Whether any json_object arg in this fixture's call needs the options_type
+        // import: either the value is an object (cast applied to the literal), or
+        // the value is missing for an optional arg (we emit `{} as unknown as <T>`).
+        let any_object_or_missing_optional = call_args.iter().any(|arg| {
             if arg.arg_type != "json_object" {
                 return false;
             }
@@ -374,9 +379,13 @@ pub(super) fn render_test_file(
             } else {
                 fixture.input.get(field)
             };
-            val.is_some_and(|v| v.is_object())
+            match val {
+                Some(v) if v.is_object() => true,
+                None | Some(serde_json::Value::Null) => arg.optional,
+                _ => false,
+            }
         });
-        if any_object_arg {
+        if any_object_or_missing_optional {
             push_unique(&mut needed_options_types, opts_type);
         }
     }
@@ -702,16 +711,44 @@ fn render_test_case(
     let is_async = call_config.r#async;
     let args = &call_config.args;
 
-    // Resolve options_type per-fixture: when the fixture overrides the call
-    // (`fixture.call = "..."`), pull the language override from the named call;
-    // otherwise fall back to the top-level `[e2e.call.overrides.<lang>]` value
-    // already passed into render_test_file.
-    let fixture_options_type: Option<String> = if fixture.call.is_some() {
-        call_config.overrides.get(lang).and_then(|o| o.options_type.clone())
-    } else {
-        options_type.map(|s| s.to_string())
-    };
+    // Resolve options_type per-fixture. Lookup order:
+    //   1. Per-call language override (`[e2e.calls.<name>.overrides.<lang>].options_type`)
+    //   2. Top-level call language override (`[e2e.call.overrides.<lang>].options_type`)
+    // When the fixture uses the default call (no `fixture.call`), only step 2
+    // applies. The fallback ensures a per-call entry that omits `options_type`
+    // (because the call shares the default `JsExtractionConfig` shape) still
+    // gets the cast/import emission needed for strict TypeScript.
+    let per_call_options_type = call_config.overrides.get(lang).and_then(|o| o.options_type.clone());
+    let fixture_options_type: Option<String> =
+        per_call_options_type.or_else(|| options_type.map(|s| s.to_string()));
     let options_type = fixture_options_type.as_deref();
+
+    // When the binding's return type is a primitive (e.g. `string`, `boolean`,
+    // `number`) and not a struct, accessing `result.<field>` triggers TS2339.
+    // The per-call override `result_is_simple = true` indicates the function
+    // returns a scalar; in that case, every assertion should target the result
+    // value directly. We pass this flag through to render_assertion below.
+    let result_is_simple = call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
+
+    // Apply per-language `arg_order` reordering. NAPI-RS often reshuffles
+    // parameters relative to the canonical Rust signature (e.g. extract_file
+    // takes `(path, mime_type, config)` in Rust but `(path, config, mime_type?)`
+    // via NAPI), and the alef.toml override declares the binding's order.
+    let arg_order = call_config
+        .overrides
+        .get(lang)
+        .map(|o| o.arg_order.as_slice())
+        .unwrap_or(&[]);
+    let reordered_args: Vec<crate::config::ArgMapping>;
+    let args: &[crate::config::ArgMapping] = if arg_order.is_empty() {
+        args
+    } else {
+        reordered_args = arg_order
+            .iter()
+            .filter_map(|name| args.iter().find(|a| &a.name == name).cloned())
+            .collect();
+        &reordered_args
+    };
 
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('\'', "\\'");
@@ -788,7 +825,16 @@ fn render_test_case(
             return false;
         }
         match &a.field {
-            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            Some(f) if !f.is_empty() => {
+                // When the result is a primitive, the only "valid" assertion is
+                // one with no field (whole-result) or one targeting the synthetic
+                // marker `"result"` — every other path would dereference a scalar.
+                if result_is_simple {
+                    f == "result"
+                } else {
+                    field_resolver.is_valid_for_result(f)
+                }
+            }
             _ => true,
         }
     });
@@ -805,7 +851,7 @@ fn render_test_case(
         if assertion.assertion_type == "not_error" && !call_config.returns_result {
             continue;
         }
-        render_assertion(out, assertion, result_var, field_resolver);
+        render_assertion(out, assertion, result_var, field_resolver, result_is_simple);
     }
 
     let _ = writeln!(out, "  }});");
@@ -884,9 +930,19 @@ fn build_args_and_setup(
         };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                // Optional arg with no fixture value — check if any later arg has a value.
-                // If so, emit `undefined` as a placeholder to preserve positional order.
-                if has_later_arg_value(args, idx + 1, input) {
+                // Optional arg with no fixture value. NAPI-RS marks Rust `Option<T>`
+                // params as `T | undefined | null` in TypeScript and bare `T` as required
+                // — alef.toml's `optional` flag does not always match the binding's
+                // strictness. To stay compile-safe under strict tsconfig, emit a typed
+                // empty literal whenever an `options_type` cast is configured for
+                // json_object args (the binding will accept `{}` since every field of
+                // a config struct is itself optional in serde-deserialized form).
+                // For other arg types, keep the legacy behavior: emit `undefined` only
+                // when a later arg needs to be positioned.
+                if arg.arg_type == "json_object" && options_type.is_some() {
+                    let opts_type = options_type.unwrap();
+                    parts.push(format!("{{}} as unknown as {opts_type}"));
+                } else if has_later_arg_value(args, idx + 1, input) {
                     parts.push("undefined".to_string());
                 }
                 // Otherwise skip entirely (trailing optional args need no placeholder).
@@ -937,7 +993,12 @@ fn build_args_and_setup(
                 if arg.arg_type == "json_object" {
                     if v.is_object() {
                         if let Some(opts_type) = options_type {
-                            parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
+                            // Cast through `unknown` so partial config literals are
+                            // accepted by strict tsconfig — fixture configs almost
+                            // never set every required field of the binding type, so
+                            // `as <Type>` triggers TS2352 "neither type sufficiently
+                            // overlaps". The runtime binding still validates fields.
+                            parts.push(format!("{} as unknown as {opts_type}", json_to_js_camel(v)));
                         } else {
                             parts.push(json_to_js_camel(v));
                         }
@@ -954,7 +1015,13 @@ fn build_args_and_setup(
     (setup_lines, parts.join(", "))
 }
 
-fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
+fn render_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    field_resolver: &FieldResolver,
+    result_is_simple: bool,
+) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
     if let Some(f) = &assertion.field {
@@ -1102,14 +1169,28 @@ fn render_assertion(out: &mut String, assertion: &Assertion, result_var: &str, f
 
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+        if !f.is_empty() && !result_is_simple && !field_resolver.is_valid_for_result(f) {
             let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
+            return;
+        }
+        // When result_is_simple is true, only the synthetic field `"result"` is
+        // valid (whole-result assertion). Any other field would dereference a
+        // primitive and TS would reject it.
+        if !f.is_empty() && result_is_simple && f != "result" {
+            let _ = writeln!(
+                out,
+                "    // skipped: field '{f}' not available on simple/scalar result type"
+            );
             return;
         }
     }
 
     let field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => field_resolver.accessor(f, "typescript", result_var),
+        // When the binding returns a primitive, every assertion targets the bare
+        // `result` variable — never `result.<field>`.
+        Some(f) if !f.is_empty() && !result_is_simple => {
+            field_resolver.accessor(f, "typescript", result_var)
+        }
         _ => result_var.to_string(),
     };
 
@@ -1544,7 +1625,7 @@ fn emit_typescript_visitor_method(out: &mut String, method_name: &str, action: &
 
     let _ = writeln!(
         out,
-        "    {camel_method}({params}): string | {{{{ custom: string }}}} {{"
+        "    {camel_method}({params}): string | {{ custom: string }} {{"
     );
     match action {
         CallbackAction::Skip => {
@@ -1558,7 +1639,7 @@ fn emit_typescript_visitor_method(out: &mut String, method_name: &str, action: &
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_js(output);
-            let _ = writeln!(out, "        return {{ custom: {escaped} }};");
+            let _ = writeln!(out, "        return {{ custom: \"{escaped}\" }};");
         }
         CallbackAction::CustomTemplate { template } => {
             let _ = writeln!(out, "        return {{ custom: `{template}` }};");
