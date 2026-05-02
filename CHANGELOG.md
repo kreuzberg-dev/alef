@@ -9,8 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(e2e): honor call-level Rust option result flags and use the crate version for registry-mode Rust e2e dependencies when no package override is set.
 - fix(e2e): generate valid Go array guards for length assertions on array element fields.
+- fix(e2e): honor call-level simple/optional result flags in Go tests and render contains assertions for struct slices.
 
 ### Fixed
+
+- fix(backend-pyo3): emit SCREAMING_SNAKE_CASE aliases alongside PascalCase variants in
+  `.pyi` enum stubs so mypy resolves `CodeBlockStyle.BACKTICKS` without `attr-defined`
+  errors. Previously only the raw PyO3 names (e.g. `Backticks`) were declared in the stub
+  while `options.py` adds the aliases at runtime.
+
+- fix(backend-pyo3): use `object | None` for bridge fields in the `__init__` stub parameter
+  list, matching the field annotation. Previously the constructor parameter was typed
+  `VisitorHandle | None`, causing a mypy `arg-type` error when passing `value.visitor`
+  (typed `object`) from the generated `api.py` conversion helper.
 
 - fix(backend-rustler): wrap inline `if/do/else` JSON-encoding expressions in parentheses
   so the generated NIF call args parse as Elixir when the conditional is followed by a

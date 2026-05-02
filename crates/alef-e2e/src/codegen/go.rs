@@ -277,7 +277,8 @@ fn render_test_file(
         })
     });
 
-    // Determine if we need the "fmt" import (CustomTemplate visitor actions with placeholders).
+    // Determine if we need the "fmt" import (CustomTemplate visitor actions with placeholders,
+    // or contains assertions over non-string values).
     let needs_fmt = fixtures.iter().any(|f| {
         f.visitor.as_ref().is_some_and(|v| {
             v.callbacks.values().any(|action| {
@@ -287,7 +288,10 @@ fn render_test_file(
                     false
                 }
             })
-        })
+        }) || f
+            .assertions
+            .iter()
+            .any(|a| matches!(a.assertion_type.as_str(), "contains" | "contains_all" | "not_contains"))
     });
 
     // Determine if we need the "strings" import.
@@ -519,18 +523,14 @@ fn render_test_function(
     let returns_void = call_config.returns_void;
 
     // result_is_simple: result is a scalar (*string, *bool, etc.) not a struct.
-    // Check Go override first, then Rust override as fallback.
-    let result_is_simple = overrides.map(|o| o.result_is_simple).unwrap_or_else(|| {
-        call_config
-            .overrides
-            .get("rust")
-            .map(|o| o.result_is_simple)
-            .unwrap_or(false)
-    });
+    let result_is_simple = call_config.result_is_simple
+        || overrides.is_some_and(|o| o.result_is_simple)
+        || call_config.overrides.get("rust").is_some_and(|o| o.result_is_simple);
 
     // result_is_array: the simple result is a slice/array type (e.g., []string).
     // Only relevant when result_is_simple is true.
-    let result_is_array = overrides.map(|o| o.result_is_array).unwrap_or(false);
+    let result_is_array = call_config.result_is_array || overrides.is_some_and(|o| o.result_is_array);
+    let result_is_option = call_config.result_is_option || overrides.is_some_and(|o| o.result_is_option);
 
     // Per-call Go options_type, falling back to the default call's Go override.
     let call_options_type = overrides.and_then(|o| o.options_type.as_deref()).or_else(|| {
@@ -635,6 +635,14 @@ fn render_test_function(
 
     // For result_is_simple functions, the result variable IS the value (e.g. *string, *bool).
     // We create a local `value` that dereferences it so assertions can use a plain type.
+    let simple_option_expects_value = result_is_simple
+        && result_is_option
+        && has_usable_assertion
+        && fixture
+            .assertions
+            .iter()
+            .any(|a| !matches!(a.assertion_type.as_str(), "is_empty" | "error" | "not_error"));
+
     // For functions that return (value, error): emit `result, err :=`
     // For functions that return only error: emit `err :=`
     // For functions that return only a value (result_is_simple, no error): emit `result :=`
@@ -651,7 +659,7 @@ fn render_test_function(
             out,
             "\t{result_binding} {assign_op} {import_alias}.{function_name}({final_args})"
         );
-        if has_usable_assertion && result_binding != "_" {
+        if has_usable_assertion && result_binding != "_" && (!result_is_option || simple_option_expects_value) {
             // Emit nil check and dereference for simple pointer results.
             let _ = writeln!(out, "\tif {result_var} == nil {{");
             let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
@@ -682,7 +690,11 @@ fn render_test_function(
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
-        if result_is_simple && has_usable_assertion && result_binding != "_" {
+        if result_is_simple
+            && has_usable_assertion
+            && result_binding != "_"
+            && (!result_is_option || simple_option_expects_value)
+        {
             // Emit nil check and dereference for simple pointer results.
             let _ = writeln!(out, "\tif {result_var} == nil {{");
             let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
@@ -692,11 +704,12 @@ fn render_test_function(
     }
 
     // For result_is_simple functions, assertions reference `value` (the dereferenced result).
-    let effective_result_var = if result_is_simple && has_usable_assertion {
-        "value".to_string()
-    } else {
-        result_var.to_string()
-    };
+    let effective_result_var =
+        if result_is_simple && has_usable_assertion && (!result_is_option || simple_option_expects_value) {
+            "value".to_string()
+        } else {
+            result_var.to_string()
+        };
 
     // Collect optional fields referenced by assertions and emit nil-safe
     // dereference blocks so that assertions can use plain string locals.
@@ -771,6 +784,7 @@ fn render_test_function(
                             &optional_locals,
                             result_is_simple,
                             result_is_array,
+                            result_is_option,
                         );
                         for line in nil_buf.lines() {
                             let _ = writeln!(out, "\t{line}");
@@ -786,6 +800,7 @@ fn render_test_function(
                             &optional_locals,
                             result_is_simple,
                             result_is_array,
+                            result_is_option,
                         );
                     }
                     continue;
@@ -801,6 +816,7 @@ fn render_test_function(
             &optional_locals,
             result_is_simple,
             result_is_array,
+            result_is_option,
         );
     }
 
@@ -1309,6 +1325,7 @@ fn render_assertion(
     optional_locals: &std::collections::HashMap<String, String>,
     result_is_simple: bool,
     result_is_array: bool,
+    result_is_option: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct field accesses on the result.
@@ -1605,8 +1622,10 @@ fn render_assertion(
                     format!("string(*{field_expr})")
                 } else if field_is_array {
                     format!("strings.Join({field_expr}, \" \")")
+                } else if result_is_simple {
+                    field_expr.clone()
                 } else {
-                    format!("string({field_expr})")
+                    format!("fmt.Sprintf(\"%v\", {field_expr})")
                 };
                 if is_opt {
                     let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -1642,8 +1661,10 @@ fn render_assertion(
                         format!("string(*{field_expr})")
                     } else if field_is_array {
                         format!("strings.Join({field_expr}, \" \")")
+                    } else if result_is_simple {
+                        field_expr.clone()
                     } else {
-                        format!("string({field_expr})")
+                        format!("fmt.Sprintf(\"%v\", {field_expr})")
                     };
                     if is_opt {
                         let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -1673,8 +1694,10 @@ fn render_assertion(
                     format!("string(*{field_expr})")
                 } else if field_is_array {
                     format!("strings.Join({field_expr}, \" \")")
+                } else if result_is_simple {
+                    field_expr.clone()
                 } else {
-                    format!("string({field_expr})")
+                    format!("fmt.Sprintf(\"%v\", {field_expr})")
                 };
                 let _ = writeln!(out_ref, "\tif strings.Contains({field_for_contains}, {go_val}) {{");
                 let _ = writeln!(
@@ -1685,6 +1708,12 @@ fn render_assertion(
             }
         }
         "not_empty" => {
+            if result_is_simple && result_is_option {
+                let _ = writeln!(out_ref, "\tif {field_expr} == nil {{");
+                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected non-empty value\")");
+                let _ = writeln!(out_ref, "\t}}");
+                return;
+            }
             // For optional struct pointers (not arrays), just check != nil.
             // For optional slice/string pointers, check nil and len.
             let field_is_array = {
@@ -1704,6 +1733,12 @@ fn render_assertion(
             let _ = writeln!(out_ref, "\t}}");
         }
         "is_empty" => {
+            if result_is_simple && result_is_option {
+                let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected empty value, got %v\", {field_expr})");
+                let _ = writeln!(out_ref, "\t}}");
+                return;
+            }
             let field_is_array = {
                 let rf = assertion.field.as_deref().unwrap_or("");
                 let rn = field_resolver.resolve(rf);
@@ -2598,6 +2633,7 @@ mod tests {
             "tspack",
             &resolver,
             &std::collections::HashMap::new(),
+            false,
             false,
             false,
         );
