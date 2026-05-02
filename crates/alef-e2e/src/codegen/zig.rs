@@ -18,6 +18,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+use super::client;
 
 /// Zig e2e code generator.
 pub struct ZigE2eCodegen;
@@ -232,6 +233,190 @@ pub fn build(b: *std.Build) void {
     content
 }
 
+// ---------------------------------------------------------------------------
+// HTTP server test rendering — shared-driver integration
+// ---------------------------------------------------------------------------
+
+/// Renderer that emits Zig `test "..." { ... }` blocks targeting a mock server
+/// via `std.http.Client`. Satisfies [`client::TestClientRenderer`] so the shared
+/// [`client::http_call::render_http_test`] driver drives the call sequence.
+struct ZigTestClientRenderer;
+
+impl client::TestClientRenderer for ZigTestClientRenderer {
+    fn language_name(&self) -> &'static str {
+        "zig"
+    }
+
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        if let Some(reason) = skip_reason {
+            let _ = writeln!(out, "test \"{fn_name}\" {{");
+            let _ = writeln!(out, "    // {description}");
+            let _ = writeln!(out, "    // skipped: {reason}");
+            let _ = writeln!(out, "    return error.SkipZigTest;");
+        } else {
+            let _ = writeln!(out, "test \"{fn_name}\" {{");
+            let _ = writeln!(out, "    // {description}");
+        }
+    }
+
+    fn render_test_close(&self, out: &mut String) {
+        let _ = writeln!(out, "}}");
+    }
+
+    fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
+        let method = ctx.method.to_uppercase();
+        let fixture_id = ctx.path.trim_start_matches("/fixtures/");
+
+        let _ = writeln!(out, "    var gpa: std.heap.DebugAllocator(.{{}}) = .init;");
+        let _ = writeln!(out, "    defer _ = gpa.deinit();");
+        let _ = writeln!(out, "    const allocator = gpa.allocator();");
+
+        let _ = writeln!(out, "    var url_buf: [512]u8 = undefined;");
+        let _ = writeln!(
+            out,
+            "    const url = try std.fmt.bufPrint(&url_buf, \"{{s}}/fixtures/{fixture_id}\", .{{std.posix.getenv(\"MOCK_SERVER_URL\") orelse \"http://localhost:8080\"}});"
+        );
+
+        // Headers
+        if !ctx.headers.is_empty() {
+            let mut header_pairs: Vec<(&String, &String)> = ctx.headers.iter().collect();
+            header_pairs.sort_by_key(|(k, _)| k.as_str());
+            let _ = writeln!(out, "    const headers = [_]std.http.Header{{");
+            for (k, v) in &header_pairs {
+                let ek = escape_zig(k);
+                let ev = escape_zig(v);
+                let _ = writeln!(out, "        .{{ .name = \"{ek}\", .value = \"{ev}\" }},");
+            }
+            let _ = writeln!(out, "    }};");
+        }
+
+        // Body
+        if let Some(body) = ctx.body {
+            let json_str = serde_json::to_string(body).unwrap_or_default();
+            let escaped = escape_zig(&json_str);
+            let _ = writeln!(out, "    const body_bytes: []const u8 = \"{escaped}\";");
+        }
+
+        let headers_arg = if ctx.headers.is_empty() { "&.{}" } else { "&headers" };
+        let has_body = ctx.body.is_some();
+
+        let _ = writeln!(
+            out,
+            "    var http_client = std.http.Client{{ .allocator = allocator }};"
+        );
+        let _ = writeln!(out, "    defer http_client.deinit();");
+        let _ = writeln!(out, "    var response_body = std.ArrayList(u8).init(allocator);");
+        let _ = writeln!(out, "    defer response_body.deinit();");
+
+        let method_zig = match method.as_str() {
+            "GET" => ".GET",
+            "POST" => ".POST",
+            "PUT" => ".PUT",
+            "DELETE" => ".DELETE",
+            "PATCH" => ".PATCH",
+            "HEAD" => ".HEAD",
+            "OPTIONS" => ".OPTIONS",
+            _ => ".GET",
+        };
+
+        let payload_field = if has_body { ", .payload = body_bytes" } else { "" };
+        let _ = writeln!(
+            out,
+            "    const {rv} = try http_client.fetch(.{{ .location = .{{ .url = url }}, .method = {method_zig}, .extra_headers = {headers_arg}{payload_field}, .response_storage = .{{ .dynamic = &response_body }} }});",
+            rv = ctx.response_var,
+        );
+    }
+
+    fn render_assert_status(&self, out: &mut String, response_var: &str, status: u16) {
+        let _ = writeln!(
+            out,
+            "    try testing.expectEqual(@as(u10, {status}), @intFromEnum({response_var}.status));"
+        );
+    }
+
+    fn render_assert_header(&self, out: &mut String, _response_var: &str, name: &str, expected: &str) {
+        let ename = escape_zig(&name.to_lowercase());
+        match expected {
+            "<<present>>" => {
+                let _ = writeln!(
+                    out,
+                    "    // assert header '{ename}' is present (header inspection not yet implemented)"
+                );
+            }
+            "<<absent>>" => {
+                let _ = writeln!(
+                    out,
+                    "    // assert header '{ename}' is absent (header inspection not yet implemented)"
+                );
+            }
+            "<<uuid>>" => {
+                let _ = writeln!(
+                    out,
+                    "    // assert header '{ename}' matches UUID pattern (header inspection not yet implemented)"
+                );
+            }
+            exact => {
+                let evalue = escape_zig(exact);
+                let _ = writeln!(
+                    out,
+                    "    // assert header '{ename}' == \"{evalue}\" (header inspection not yet implemented)"
+                );
+            }
+        }
+    }
+
+    fn render_assert_json_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        let json_str = serde_json::to_string(expected).unwrap_or_default();
+        let escaped = escape_zig(&json_str);
+        let _ = writeln!(
+            out,
+            "    try testing.expectEqualStrings(\"{escaped}\", response_body.items);"
+        );
+    }
+
+    fn render_assert_partial_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        if let Some(obj) = expected.as_object() {
+            for (key, val) in obj {
+                let ekey = escape_zig(key);
+                let eval = escape_zig(&serde_json::to_string(val).unwrap_or_default());
+                let _ = writeln!(
+                    out,
+                    "    // assert body contains field \"{ekey}\" = \"{eval}\" (partial JSON not yet implemented)"
+                );
+            }
+        }
+    }
+
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        _response_var: &str,
+        errors: &[crate::fixture::ValidationErrorExpectation],
+    ) {
+        for ve in errors {
+            let loc = ve.loc.join(".");
+            let escaped_loc = escape_zig(&loc);
+            let escaped_msg = escape_zig(&ve.msg);
+            let _ = writeln!(
+                out,
+                "    // assert validation error at \"{escaped_loc}\": \"{escaped_msg}\" (not yet implemented)"
+            );
+        }
+    }
+}
+
+/// Render a Zig `test "..." { ... }` block for an HTTP server fixture.
+///
+/// Delegates to the shared [`client::http_call::render_http_test`] driver via
+/// [`ZigTestClientRenderer`].
+fn render_http_test_case(out: &mut String, fixture: &Fixture) {
+    client::http_call::render_http_test(out, &ZigTestClientRenderer, fixture);
+}
+
+// ---------------------------------------------------------------------------
+// Function-call test rendering
+// ---------------------------------------------------------------------------
+
 #[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
@@ -255,17 +440,21 @@ fn render_test_file(
     let _ = writeln!(out);
 
     for fixture in fixtures {
-        render_test_fn(
-            &mut out,
-            fixture,
-            e2e_config,
-            function_name,
-            result_var,
-            args,
-            field_resolver,
-            enum_fields,
-            module_name,
-        );
+        if fixture.http.is_some() {
+            render_http_test_case(&mut out, fixture);
+        } else {
+            render_test_fn(
+                &mut out,
+                fixture,
+                e2e_config,
+                function_name,
+                result_var,
+                args,
+                field_resolver,
+                enum_fields,
+                module_name,
+            );
+        }
         let _ = writeln!(out);
     }
 

@@ -243,7 +243,13 @@ fn sha256_file(path: &Path) -> Result<String> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest.iter() {
+        use std::fmt::Write as _;
+        write!(&mut hex, "{byte:02x}").expect("writing to String never fails");
+    }
+    Ok(hex)
 }
 
 #[cfg(test)]

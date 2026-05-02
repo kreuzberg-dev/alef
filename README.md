@@ -337,7 +337,7 @@ node = "interface"
 | `workspace_root` | string | -- | Workspace root for resolving `pub use` re-exports from sibling crates |
 | `skip_core_import` | bool | `false` | Skip adding `use {core_import};` to generated bindings |
 | `features` | string[] | `[]` | Cargo features treated as always-present (`#[cfg(feature)]` fields are included) |
-| `path_mappings` | map | `{}` | Rewrite extracted Rust path prefixes (e.g., `{ "spikard" = "spikard_http" }`) |
+| `path_mappings` | map | `{}` | Rewrite extracted Rust path prefixes (e.g., `{ "mylib" = "mylib_http" }`) |
 
 ### `languages` -- Target Languages
 

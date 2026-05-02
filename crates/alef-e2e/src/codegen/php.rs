@@ -7,9 +7,7 @@
 use crate::config::E2eConfig;
 use crate::escape::{escape_php, sanitize_filename};
 use crate::field_access::FieldResolver;
-use crate::fixture::{
-    Assertion, CallbackAction, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpRequest,
-};
+use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::AlefConfig;
 use alef_core::hash::{self, CommentStyle};
@@ -21,6 +19,7 @@ use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
+use super::client;
 
 /// PHP e2e code generator.
 pub struct PhpCodegen;
@@ -399,211 +398,135 @@ fn render_test_file(
 }
 
 // ---------------------------------------------------------------------------
-// HTTP test rendering
+// HTTP test rendering — shared-driver integration
 // ---------------------------------------------------------------------------
 
-/// Render a PHPUnit test method for an HTTP server test fixture.
-fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
-    let method_name = sanitize_filename(&fixture.id);
-    let description = &fixture.description;
-    let fixture_id = &fixture.id;
+/// Thin renderer that emits PHPUnit test methods targeting a mock server via
+/// Guzzle. Satisfies [`client::TestClientRenderer`] so the shared
+/// [`client::http_call::render_http_test`] driver drives the call sequence.
+struct PhpTestClientRenderer;
 
-    // HTTP 101 (WebSocket upgrade) causes cURL to treat the connection as an upgrade
-    // and fail with "empty reply from server". Skip these tests in the PHP e2e suite
-    // since Guzzle cannot assert on WebSocket upgrade responses via regular HTTP.
-    let status = http.expected_response.status_code;
-    if status == 101 {
-        let _ = writeln!(out, "    /** {description} */");
-        let _ = writeln!(out, "    public function test_{method_name}(): void");
-        let _ = writeln!(out, "    {{");
-        let _ = writeln!(
-            out,
-            "        $this->markTestSkipped('HTTP 101 WebSocket upgrade cannot be tested via Guzzle HTTP client');"
-        );
-        let _ = writeln!(out, "    }}");
-        return;
+impl client::TestClientRenderer for PhpTestClientRenderer {
+    fn language_name(&self) -> &'static str {
+        "php"
     }
 
-    // Determine body assertion strategy:
-    // - String bodies: mock server returns raw text, compare via (string)$response->getBody()
-    // - Object/array bodies: use json_decode + assertEquals
-    // - Empty string sentinel ("") or null: no body assertion
-    let body_is_plain_string =
-        matches!(&http.expected_response.body, Some(serde_json::Value::String(s)) if !s.is_empty());
-    let has_explicit_body =
-        matches!(&http.expected_response.body, Some(v) if !(v.is_null() || v.is_string() && v.as_str() == Some("")));
-    // Only call json_decode for non-string bodies (objects, arrays, booleans, numbers).
-    let needs_json_body = has_explicit_body && !body_is_plain_string || http.expected_response.body_partial.is_some();
+    /// Convert a fixture id to a PHP-valid identifier (snake_case via `sanitize_filename`).
+    fn sanitize_test_name(&self, id: &str) -> String {
+        sanitize_filename(id)
+    }
 
-    let _ = writeln!(out, "    /** {description} */");
-    let _ = writeln!(out, "    public function test_{method_name}(): void");
-    let _ = writeln!(out, "    {{");
+    /// Emit `/** {description} */ public function test_{fn_name}(): void {`.
+    ///
+    /// When `skip_reason` is `Some`, emits a `markTestSkipped(...)` body and the
+    /// shared driver calls `render_test_close` immediately after, so the closing
+    /// brace is emitted symmetrically.
+    fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
+        let _ = writeln!(out, "    /** {description} */");
+        let _ = writeln!(out, "    public function test_{fn_name}(): void");
+        let _ = writeln!(out, "    {{");
+        if let Some(reason) = skip_reason {
+            let reason_lit = format!("\"{}\"", escape_php(reason));
+            let _ = writeln!(out, "        $this->markTestSkipped({reason_lit});");
+        }
+    }
 
-    // Build request targeting the mock server's /fixtures/<id> endpoint.
-    render_php_http_request(out, &http.request, fixture_id, needs_json_body);
+    /// Emit the closing `}` for a test method.
+    fn render_test_close(&self, out: &mut String) {
+        let _ = writeln!(out, "    }}");
+    }
 
-    // Assert status code.
-    let _ = writeln!(
-        out,
-        "        $this->assertEquals({status}, $response->getStatusCode());"
-    );
+    /// Emit a Guzzle request to the mock server's `/fixtures/<fixture_id>` endpoint.
+    ///
+    /// The fixture id is extracted from the path (which the mock server routes as
+    /// `/fixtures/<id>`). `$response` is bound for subsequent assertion methods.
+    fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
+        let method = ctx.method.to_uppercase();
 
-    // For plain string bodies, compare the raw response body string directly.
-    if body_is_plain_string {
-        if let Some(serde_json::Value::String(expected_str)) = &http.expected_response.body {
-            let php_val = format!("\"{}\"", escape_php(expected_str));
+        // Build Guzzle options array.
+        let mut opts: Vec<String> = Vec::new();
+
+        if let Some(body) = ctx.body {
+            let php_body = json_to_php(body);
+            opts.push(format!("'json' => {php_body}"));
+        }
+
+        // Merge explicit headers and content_type hint.
+        let mut header_pairs: Vec<String> = Vec::new();
+        if let Some(ct) = ctx.content_type {
+            // Only emit if not already in ctx.headers (avoid duplicate Content-Type).
+            if !ctx.headers.keys().any(|k| k.to_lowercase() == "content-type") {
+                header_pairs.push(format!("\"Content-Type\" => \"{}\"", escape_php(ct)));
+            }
+        }
+        for (k, v) in ctx.headers {
+            header_pairs.push(format!("\"{}\" => \"{}\"", escape_php(k), escape_php(v)));
+        }
+        if !header_pairs.is_empty() {
+            opts.push(format!("'headers' => [{}]", header_pairs.join(", ")));
+        }
+
+        if !ctx.cookies.is_empty() {
+            let cookie_str = ctx
+                .cookies
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("; ");
+            opts.push(format!("'headers' => ['Cookie' => \"{}\"]", escape_php(&cookie_str)));
+        }
+
+        if !ctx.query_params.is_empty() {
+            let pairs: Vec<String> = ctx
+                .query_params
+                .iter()
+                .map(|(k, v)| {
+                    let val_str = match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    format!("\"{}\" => \"{}\"", escape_php(k), escape_php(&val_str))
+                })
+                .collect();
+            opts.push(format!("'query' => [{}]", pairs.join(", ")));
+        }
+
+        let path_lit = format!("\"{}\"", escape_php(ctx.path));
+        if opts.is_empty() {
             let _ = writeln!(
                 out,
-                "        $this->assertEquals({php_val}, (string) $response->getBody());"
+                "        ${} = $this->httpClient->request('{method}', {path_lit});",
+                ctx.response_var,
             );
+        } else {
+            let _ = writeln!(
+                out,
+                "        ${} = $this->httpClient->request('{method}', {path_lit}, [",
+                ctx.response_var,
+            );
+            for opt in &opts {
+                let _ = writeln!(out, "            {opt},");
+            }
+            let _ = writeln!(out, "        ]);");
         }
-        // Still assert headers if any.
-        render_php_header_assertions(out, &http.expected_response);
-        let _ = writeln!(out, "    }}");
-        return;
     }
 
-    // Assert response body (JSON decode path).
-    render_php_body_assertions(out, &http.expected_response, needs_json_body);
-
-    // Assert response headers.
-    render_php_header_assertions(out, &http.expected_response);
-
-    let _ = writeln!(out, "    }}");
-}
-
-/// Emit Guzzle request lines inside a PHPUnit test method.
-/// `needs_json_body` controls whether a `$body = json_decode(...)` line is emitted.
-/// Skip it for responses with no body (204, 304, HEAD, etc.) to avoid JsonException.
-fn render_php_http_request(out: &mut String, req: &HttpRequest, fixture_id: &str, needs_json_body: bool) {
-    let method = req.method.to_uppercase();
-
-    // Build options array.
-    let mut opts: Vec<String> = Vec::new();
-
-    if let Some(body) = &req.body {
-        let php_body = json_to_php(body);
-        opts.push(format!("'json' => {php_body}"));
-    }
-
-    if !req.headers.is_empty() {
-        let header_pairs: Vec<String> = req
-            .headers
-            .iter()
-            .map(|(k, v)| format!("\"{}\" => \"{}\"", escape_php(k), escape_php(v)))
-            .collect();
-        opts.push(format!("'headers' => [{}]", header_pairs.join(", ")));
-    }
-
-    if !req.cookies.is_empty() {
-        let cookie_str = req
-            .cookies
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("; ");
-        opts.push(format!("'headers' => ['Cookie' => \"{}\"]", escape_php(&cookie_str)));
-    }
-
-    if !req.query_params.is_empty() {
-        let pairs: Vec<String> = req
-            .query_params
-            .iter()
-            .map(|(k, v)| {
-                let val_str = match v {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                format!("\"{}\" => \"{}\"", escape_php(k), escape_php(&val_str))
-            })
-            .collect();
-        opts.push(format!("'query' => [{}]", pairs.join(", ")));
-    }
-
-    // Use the mock server's /fixtures/<id> endpoint.
-    let path_lit = format!("\"/fixtures/{}\"", escape_php(fixture_id));
-    if opts.is_empty() {
+    /// Emit `$this->assertEquals(status, $response->getStatusCode())`.
+    fn render_assert_status(&self, out: &mut String, _response_var: &str, status: u16) {
         let _ = writeln!(
             out,
-            "        $response = $this->httpClient->request('{method}', {path_lit});"
-        );
-    } else {
-        let _ = writeln!(
-            out,
-            "        $response = $this->httpClient->request('{method}', {path_lit}, ["
-        );
-        for opt in &opts {
-            let _ = writeln!(out, "            {opt},");
-        }
-        let _ = writeln!(out, "        ]);");
-    }
-
-    // Decode JSON body for assertions only when body assertions are expected.
-    // Omitting json_decode for empty-body responses (204, 304, HEAD, etc.)
-    // prevents JsonException on non-JSON or empty response bodies.
-    if needs_json_body {
-        let _ = writeln!(
-            out,
-            "        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);"
+            "        $this->assertEquals({status}, $response->getStatusCode());"
         );
     }
-}
 
-/// Emit body assertions for an HTTP expected response.
-/// `body_was_decoded` indicates whether `$body` is already in scope from a json_decode call.
-fn render_php_body_assertions(out: &mut String, expected: &HttpExpectedResponse, body_was_decoded: bool) {
-    if let Some(body) = &expected.body {
-        // Skip assertion when body is the empty-string sentinel (means no body expected).
-        if !(body.is_string() && body.as_str() == Some("")) {
-            let php_val = json_to_php(body);
-            let _ = writeln!(out, "        $this->assertEquals({php_val}, $body);");
-        }
-    }
-    if let Some(partial) = &expected.body_partial {
-        if let Some(obj) = partial.as_object() {
-            for (key, val) in obj {
-                let php_key = format!("\"{}\"", escape_php(key));
-                let php_val = json_to_php(val);
-                let _ = writeln!(out, "        $this->assertEquals({php_val}, $body[{php_key}]);");
-            }
-        }
-    }
-    if let Some(errors) = &expected.validation_errors {
-        // Skip validation_error string checks when a full body assertEquals is already
-        // generated — it is redundant and json_encode() escapes slashes differently
-        // across PHP versions, causing spurious failures.
-        if expected.body.is_none() {
-            // Ensure $body is available even when it wasn't json_decoded earlier.
-            if !body_was_decoded {
-                let _ = writeln!(out, "        $body = json_decode((string) $response->getBody(), true);");
-            }
-            for err in errors {
-                let msg_lit = format!("\"{}\"", escape_php(&err.msg));
-                let _ = writeln!(
-                    out,
-                    "        $this->assertStringContainsString({msg_lit}, json_encode($body, JSON_UNESCAPED_SLASHES));"
-                );
-            }
-        }
-    }
-}
-
-/// Emit header assertions for an HTTP expected response.
-///
-/// Special tokens:
-/// - `"<<present>>"` — assert the header exists
-/// - `"<<absent>>"` — assert the header is absent
-/// - `"<<uuid>>"` — assert the header matches a UUID regex
-fn render_php_header_assertions(out: &mut String, expected: &HttpExpectedResponse) {
-    for (name, value) in &expected.headers {
+    /// Emit a header assertion using `$response->getHeaderLine(...)` or
+    /// `$response->hasHeader(...)`.
+    ///
+    /// Handles special tokens: `<<present>>`, `<<absent>>`, `<<uuid>>`.
+    fn render_assert_header(&self, out: &mut String, _response_var: &str, name: &str, expected: &str) {
         let header_key = name.to_lowercase();
-        // The mock server strips content-encoding headers because it serves uncompressed
-        // bodies. Skip asserting this header so tests don't fail against the mock server.
-        if header_key == "content-encoding" {
-            continue;
-        }
         let header_key_lit = format!("\"{}\"", escape_php(&header_key));
-        match value.as_str() {
+        match expected {
             "<<present>>" => {
                 let _ = writeln!(
                     out,
@@ -631,6 +554,89 @@ fn render_php_header_assertions(out: &mut String, expected: &HttpExpectedRespons
             }
         }
     }
+
+    /// Emit a JSON body equality assertion.
+    ///
+    /// Plain string bodies are compared against `(string) $response->getBody()` directly;
+    /// structured bodies (objects, arrays, booleans, numbers) are decoded via `json_decode`
+    /// and compared with `assertEquals`.
+    fn render_assert_json_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        match expected {
+            serde_json::Value::String(s) if !s.is_empty() => {
+                let php_val = format!("\"{}\"", escape_php(s));
+                let _ = writeln!(
+                    out,
+                    "        $this->assertEquals({php_val}, (string) $response->getBody());"
+                );
+            }
+            _ => {
+                let php_val = json_to_php(expected);
+                let _ = writeln!(
+                    out,
+                    "        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);"
+                );
+                let _ = writeln!(out, "        $this->assertEquals({php_val}, $body);");
+            }
+        }
+    }
+
+    /// Emit partial body assertions: one `assertEquals` per field in `expected`.
+    fn render_assert_partial_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
+        if let Some(obj) = expected.as_object() {
+            let _ = writeln!(
+                out,
+                "        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);"
+            );
+            for (key, val) in obj {
+                let php_key = format!("\"{}\"", escape_php(key));
+                let php_val = json_to_php(val);
+                let _ = writeln!(out, "        $this->assertEquals({php_val}, $body[{php_key}]);");
+            }
+        }
+    }
+
+    /// Emit validation-error assertions, checking each expected `msg` against the
+    /// JSON-encoded body string (PHP binding returns ProblemDetails with `errors` array).
+    fn render_assert_validation_errors(
+        &self,
+        out: &mut String,
+        _response_var: &str,
+        errors: &[ValidationErrorExpectation],
+    ) {
+        let _ = writeln!(out, "        $body = json_decode((string) $response->getBody(), true);");
+        for err in errors {
+            let msg_lit = format!("\"{}\"", escape_php(&err.msg));
+            let _ = writeln!(
+                out,
+                "        $this->assertStringContainsString({msg_lit}, json_encode($body, JSON_UNESCAPED_SLASHES));"
+            );
+        }
+    }
+}
+
+/// Render a PHPUnit test method for an HTTP server test fixture via the shared driver.
+///
+/// Handles the one PHP-specific pre-condition: HTTP 101 (WebSocket upgrade) causes
+/// cURL/Guzzle to fail; it is emitted as a `markTestSkipped` stub directly.
+fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixture) {
+    // HTTP 101 (WebSocket upgrade) causes cURL to treat the connection as an upgrade
+    // and fail with "empty reply from server". Skip these tests in the PHP e2e suite
+    // since Guzzle cannot assert on WebSocket upgrade responses via regular HTTP.
+    if http.expected_response.status_code == 101 {
+        let method_name = sanitize_filename(&fixture.id);
+        let description = &fixture.description;
+        let _ = writeln!(out, "    /** {description} */");
+        let _ = writeln!(out, "    public function test_{method_name}(): void");
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(
+            out,
+            "        $this->markTestSkipped('HTTP 101 WebSocket upgrade cannot be tested via Guzzle HTTP client');"
+        );
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+
+    client::http_call::render_http_test(out, &PhpTestClientRenderer, fixture);
 }
 
 // ---------------------------------------------------------------------------

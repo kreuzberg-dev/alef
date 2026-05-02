@@ -57,7 +57,7 @@ pub(crate) fn emit_cargo_toml(
 
     // Merge [crate.extra_dependencies] from alef.toml — required for multi-crate
     // workspaces where the bindings codegen emits qualified paths from sibling
-    // crates (e.g. spikard_graphql::QueryOnlyConfig). The umbrella crate is
+    // crates (e.g. mylib_extra::QueryOnlyConfig). The umbrella crate is
     // already listed above; these are the additional sibling crates.
     let workspace_extra = config.extra_deps_for_language(alef_core::config::extras::Language::Dart);
     let mut workspace_dep_lines: Vec<String> = workspace_extra
