@@ -2308,3 +2308,261 @@ fn test_options_field_bridge_public_api_passes_visitor_from_options() {
         "PHP facade must pass $options->visitor to the native extension; content:\n{content}"
     );
 }
+
+// --- Tests for Named+optional=true param_is_optional and opaque field serde(skip) fixes ---
+
+/// Helper: VisitorHandle opaque type (simulates the real IR where VisitorHandle is opaque).
+fn make_visitor_handle_opaque_type() -> TypeDef {
+    TypeDef {
+        name: "VisitorHandle".to_string(),
+        rust_path: "my_lib::visitor::VisitorHandle".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+/// Helper: ConversionOptions with opaque VisitorHandle field (real IR representation).
+/// In the real IR, the visitor field has ty=Named("VisitorHandle") and optional=true,
+/// unlike the sanitized representation used by make_conversion_options_type().
+fn make_conversion_options_with_opaque_visitor() -> TypeDef {
+    TypeDef {
+        name: "ConversionOptions".to_string(),
+        rust_path: "my_lib::ConversionOptions".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            make_field("parser", TypeRef::String, true),
+            make_field("visitor", TypeRef::Named("VisitorHandle".to_string()), true),
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: "HTML to Markdown conversion options".to_string(),
+        cfg: None,
+    }
+}
+
+/// Helper: convert function where options param uses Named+optional=true (real IR pattern).
+/// Distinct from make_convert_function() which wraps the type in Optional<Named>.
+fn make_convert_function_named_optional() -> FunctionDef {
+    FunctionDef {
+        name: "convert".to_string(),
+        rust_path: "my_lib::convert".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "html".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "options".to_string(),
+                // Real IR representation: Named with optional=true (not Optional<Named>)
+                ty: TypeRef::Named("ConversionOptions".to_string()),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+        ],
+        return_type: TypeRef::Named("ConversionResult".to_string()),
+        is_async: false,
+        error_type: Some("ConversionError".to_string()),
+        doc: "Convert HTML to Markdown".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    }
+}
+
+#[test]
+fn test_opaque_visitor_field_gets_serde_skip() {
+    // When ConversionOptions has a visitor field of type Named("VisitorHandle") where
+    // VisitorHandle is an opaque type, the generated struct must add #[serde(skip)]
+    // to prevent compile errors (VisitorHandle does not implement serde).
+    let backend = PhpBackend;
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            make_conversion_options_with_opaque_visitor(),
+            make_visitor_handle_opaque_type(),
+            make_visitor_trait_def(),
+        ],
+        functions: vec![make_convert_function_named_optional()],
+        enums: vec![],
+        errors: vec![],
+    };
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg()];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_rs.content;
+
+    // The visitor field in ConversionOptions must be annotated with #[serde(skip)]
+    assert!(
+        content.contains("#[serde(skip)]"),
+        "opaque VisitorHandle field must get #[serde(skip)] to avoid serde compile errors; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_named_optional_param_generates_let_mut_options_core() {
+    // When options param is Named+optional=true (the real IR pattern), the generated
+    // serde binding must declare `let mut options_core` so visitor_attach can call
+    // options_core.as_mut() without a borrow error.
+    let backend = PhpBackend;
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            make_conversion_options_with_opaque_visitor(),
+            make_visitor_handle_opaque_type(),
+            make_visitor_trait_def(),
+        ],
+        functions: vec![make_convert_function_named_optional()],
+        enums: vec![],
+        errors: vec![],
+    };
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg()];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_rs.content;
+
+    // Must use `let mut` so .as_mut() can be called to attach the visitor.
+    assert!(
+        content.contains("let mut options_core"),
+        "options serde binding must declare `let mut options_core`; content:\n{content}"
+    );
+
+    // Must use the correct optional visitor_attach pattern.
+    assert!(
+        content.contains("options_core.as_mut()"),
+        "visitor_attach must call options_core.as_mut() for optional options; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_opaque_optional_param_in_builder_uses_deref_clone() {
+    // When an opaque type is passed as an optional param to a builder method,
+    // gen_php_call_args must emit `v.map(|v| (*v.inner).clone())` to unwrap the Arc
+    // and obtain the owned core value, rather than `v.as_ref().map(|v| &v.inner)`.
+    let visitor_builder_method = MethodDef {
+        name: "visitor".to_string(),
+        params: vec![ParamDef {
+            name: "visitor".to_string(),
+            ty: TypeRef::Named("VisitorHandle".to_string()),
+            optional: true,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::Named("ConversionOptionsBuilder".to_string()),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: "Set the visitor used during conversion.".to_string(),
+        receiver: Some(ReceiverKind::Owned),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let builder_type = TypeDef {
+        name: "ConversionOptionsBuilder".to_string(),
+        rust_path: "my_lib::ConversionOptionsBuilder".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![visitor_builder_method],
+        is_opaque: true,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+    let backend = PhpBackend;
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![builder_type, make_visitor_handle_opaque_type(), make_visitor_trait_def()],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+    let config = make_config();
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_rs.content;
+
+    // Must deref the Arc to get owned core value — not pass a reference.
+    assert!(
+        content.contains("(*v.inner).clone()"),
+        "optional opaque param in builder must use (*v.inner).clone() not &v.inner; content:\n{content}"
+    );
+
+    // Must NOT use the wrong reference pattern.
+    assert!(
+        !content.contains("as_ref().map(|v| &v.inner)"),
+        "optional opaque param must not use as_ref().map(|v| &v.inner); content:\n{content}"
+    );
+}

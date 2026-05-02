@@ -129,7 +129,9 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
                 }
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                     if p.optional {
-                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                        // Param is Option<&OpaqueType>; dereference the Arc<inner> to obtain
+                        // an owned core value (Rc<RefCell<dyn Trait>>) that the builder expects.
+                        format!("{}.map(|v| (*v.inner).clone())", p.name)
                     } else {
                         format!("&{}.inner", p.name)
                     }

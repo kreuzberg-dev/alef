@@ -159,6 +159,14 @@ impl Backend for PhpBackend {
         if !opaque_types.is_empty() {
             builder.add_import("std::sync::Arc");
         }
+        // Sorted vec so gen_struct_with_per_field_attrs can emit #[serde(skip)] on
+        // fields whose type is an opaque handle (e.g. VisitorHandle), preventing compile
+        // errors when the struct derives serde::Serialize/Deserialize.
+        let opaque_type_names_vec: Vec<String> = {
+            let mut v: Vec<String> = opaque_types.iter().cloned().collect();
+            v.sort();
+            v
+        };
 
         // Compute the PHP namespace for namespaced class registration.
         // Delegates to config so [php].namespace overrides are respected.
@@ -218,7 +226,13 @@ impl Backend for PhpBackend {
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&gen_php_struct(typ, &mapper, &cfg, Some(&php_namespace), &enum_names));
+                // Pass opaque_type_names so gen_struct_with_per_field_attrs can add
+                // #[serde(skip)] to fields whose type is an opaque handle (e.g. VisitorHandle).
+                let struct_cfg = RustBindingConfig {
+                    opaque_type_names: &opaque_type_names_vec,
+                    ..cfg
+                };
+                builder.add_item(&gen_php_struct(typ, &mapper, &struct_cfg, Some(&php_namespace), &enum_names));
                 builder.add_item(&types::gen_struct_methods_with_exclude(
                     typ,
                     &mapper,

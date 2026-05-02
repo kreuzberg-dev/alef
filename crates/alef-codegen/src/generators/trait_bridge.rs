@@ -721,7 +721,9 @@ pub fn find_bridge_field<'a>(
                         param_index: idx,
                         param_name: param.name.clone(),
                         options_type: type_name.to_string(),
-                        param_is_optional: is_optional,
+                        // param.optional covers the case where the IR stores the type as
+                        // Named("T") with optional=true, rather than Optional(Named("T")).
+                        param_is_optional: is_optional || param.optional,
                         field_name: field.name.clone(),
                         field,
                         bridge,

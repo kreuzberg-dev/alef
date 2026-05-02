@@ -822,8 +822,9 @@ pub fn gen_bridge_field_function(
             };
             let core_path = format!("{core_import}::{core_type_name}");
             if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                // Use `let mut` so visitor_attach can call `.as_mut()` on the Option.
                 format!(
-                    "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
+                    "let mut {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
                      let json = serde_json::to_string(&v){err_conv}?;\n        \
                      serde_json::from_str(&json){err_conv}\n    \
                      }}).transpose()?;\n    "

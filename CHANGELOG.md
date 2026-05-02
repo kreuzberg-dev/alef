@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-php): resolve compile errors when `bind_via = "options_field"` is used
+  in `[[trait_bridges]]` with an options type that has an opaque handle field:
+  - `gen_php_struct` now receives `opaque_type_names` from `mod.rs` so
+    `gen_struct_with_per_field_attrs` can emit `#[serde(skip)]` on fields whose type
+    is an opaque handle (e.g. `VisitorHandle`), fixing 8 `E0277` serde trait errors.
+  - `gen_bridge_field_function` now emits `let mut {name}_core` for optional params,
+    enabling `options_core.as_mut()` in the generated `visitor_attach` call.
+  - `find_bridge_field` (alef-codegen) now sets
+    `param_is_optional: is_optional || param.optional`, covering the IR pattern where
+    the options param is stored as `ty: Named("T") + optional: true` rather than
+    `ty: Optional(Named("T"))`.  This caused the wrong `visitor_attach` branch to be
+    selected, producing a `no field 'visitor' on type Option<...>` compile error.
+  - `gen_php_call_args` now emits `visitor.map(|v| (*v.inner).clone())` for optional
+    opaque params, replacing the former `visitor.as_ref().map(|v| &v.inner)` which
+    produced a type mismatch (`Option<&Arc<...>>` vs `Option<Rc<...>>`).
+
 - fix(backend-wasm): resolve four compile errors when `bind_via = "options_field"` is
   used in `[[trait_bridges]]` with an options type that has a handle field:
   - `gen_new_method` now appends `..Default::default()` to the struct literal when
