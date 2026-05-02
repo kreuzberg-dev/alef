@@ -913,12 +913,21 @@ pub fn is_simple_non_opaque_param(ty: &TypeRef) -> bool {
 /// Sanitized fields use `Default::default()`, non-sanitized fields are cloned and converted.
 /// Fields are accessed via `self.` (behind &self), so all non-Copy types need `.clone()`.
 ///
+/// `opaque_types` is the set of opaque type names (Arc-wrapped handles, trait bridge aliases,
+/// etc.). Fields whose `TypeRef::Named` type is in this set have no `From` impl in the binding
+/// layer, so `Default::default()` is emitted for them instead of `.clone().into()`.
+///
 /// NOTE: This assumes all binding struct fields implement Clone. If a field type does not
 /// implement Clone (e.g., `Mutex<T>`), it should be marked as `sanitized=true` so that
 /// `Default::default()` is used instead of calling `.clone()`. Backends that exclude types
 /// should mark such fields appropriately.
-pub fn gen_lossy_binding_to_core_fields(typ: &TypeDef, core_import: &str, option_duration_on_defaults: bool) -> String {
-    gen_lossy_binding_to_core_fields_inner(typ, core_import, false, option_duration_on_defaults)
+pub fn gen_lossy_binding_to_core_fields(
+    typ: &TypeDef,
+    core_import: &str,
+    option_duration_on_defaults: bool,
+    opaque_types: &AHashSet<String>,
+) -> String {
+    gen_lossy_binding_to_core_fields_inner(typ, core_import, false, option_duration_on_defaults, opaque_types)
 }
 
 /// Same as `gen_lossy_binding_to_core_fields` but declares `core_self` as mutable.
@@ -926,8 +935,9 @@ pub fn gen_lossy_binding_to_core_fields_mut(
     typ: &TypeDef,
     core_import: &str,
     option_duration_on_defaults: bool,
+    opaque_types: &AHashSet<String>,
 ) -> String {
-    gen_lossy_binding_to_core_fields_inner(typ, core_import, true, option_duration_on_defaults)
+    gen_lossy_binding_to_core_fields_inner(typ, core_import, true, option_duration_on_defaults, opaque_types)
 }
 
 fn gen_lossy_binding_to_core_fields_inner(
@@ -935,6 +945,7 @@ fn gen_lossy_binding_to_core_fields_inner(
     core_import: &str,
     needs_mut: bool,
     option_duration_on_defaults: bool,
+    opaque_types: &AHashSet<String>,
 ) -> String {
     let core_path = crate::conversions::core_type_path(typ, core_import);
     let mut_kw = if needs_mut { "mut " } else { "" };
@@ -952,8 +963,22 @@ fn gen_lossy_binding_to_core_fields_inner(
         let name = &field.name;
         if field.sanitized && field.core_wrapper != CoreWrapper::Cow {
             writeln!(out, "            {name}: Default::default(),").ok();
-        } else {
-            let expr = match &field.ty {
+            continue;
+        }
+        // Opaque-type fields (Arc-wrapped handles, trait bridge aliases) have no From impl
+        // in the binding layer. Emit Default::default() so the apply_update / clone-mutate
+        // paths compile without needing From<Arc<Py<PyAny>>> for VisitorHandle, etc.
+        // This covers both bare Named opaque fields and Optional<Named opaque> fields.
+        let is_opaque_named = match &field.ty {
+            TypeRef::Named(n) => opaque_types.contains(n.as_str()),
+            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if opaque_types.contains(n.as_str())),
+            _ => false,
+        };
+        if is_opaque_named {
+            writeln!(out, "            {name}: Default::default(),").ok();
+            continue;
+        }
+        let expr = match &field.ty {
                 TypeRef::Primitive(_) => format!("self.{name}"),
                 TypeRef::Duration => {
                     if field.optional {
@@ -1086,23 +1111,22 @@ fn gen_lossy_binding_to_core_fields_inner(
                         format!("serde_json::from_str(&self.{name}).unwrap_or_default()")
                     }
                 }
-            };
-            // Newtype wrapping: when the field was resolved from a newtype (e.g. NodeIndex → u32),
-            // re-wrap the binding value into the newtype for the core struct literal.
-            // When `optional=true` and `ty` is a plain Primitive (not TypeRef::Optional), the core
-            // field is actually `Option<NewtypeT>`, so we must use `.map(NewtypeT)` not `NewtypeT(...)`.
-            let expr = if let Some(newtype_path) = &field.newtype_wrapper {
-                match &field.ty {
-                    TypeRef::Optional(_) => format!("({expr}).map({newtype_path})"),
-                    TypeRef::Vec(_) => format!("({expr}).into_iter().map({newtype_path}).collect()"),
-                    _ if field.optional => format!("({expr}).map({newtype_path})"),
-                    _ => format!("{newtype_path}({expr})"),
-                }
-            } else {
-                expr
-            };
-            writeln!(out, "            {name}: {expr},").ok();
-        }
+        };
+        // Newtype wrapping: when the field was resolved from a newtype (e.g. NodeIndex → u32),
+        // re-wrap the binding value into the newtype for the core struct literal.
+        // When `optional=true` and `ty` is a plain Primitive (not TypeRef::Optional), the core
+        // field is actually `Option<NewtypeT>`, so we must use `.map(NewtypeT)` not `NewtypeT(...)`.
+        let expr = if let Some(newtype_path) = &field.newtype_wrapper {
+            match &field.ty {
+                TypeRef::Optional(_) => format!("({expr}).map({newtype_path})"),
+                TypeRef::Vec(_) => format!("({expr}).into_iter().map({newtype_path}).collect()"),
+                _ if field.optional => format!("({expr}).map({newtype_path})"),
+                _ => format!("{newtype_path}({expr})"),
+            }
+        } else {
+            expr
+        };
+        writeln!(out, "            {name}: {expr},").ok();
     }
     // Use ..Default::default() to fill cfg-gated fields stripped from the IR
     if typ.has_stripped_cfg_fields {

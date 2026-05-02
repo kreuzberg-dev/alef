@@ -39,7 +39,8 @@ pub(crate) fn gen_record_type(
         let ftype = if is_complex {
             "Object".to_string()
         } else if f.optional {
-            format!("Optional<{}>", java_boxed_type(&f.ty))
+            // Java best practice: use @Nullable fields, never Optional in records.
+            java_boxed_type(&f.ty).to_string()
         } else {
             java_type(&f.ty).to_string()
         };
@@ -56,16 +57,19 @@ pub(crate) fn gen_record_type(
         // snake_case (the Rust/serde default), add an explicit @JsonProperty annotation
         // so Jackson serialises/deserialises using the correct snake_case key.
         let has_json_property = lang_rename_all == "camelCase" && f.name.contains('_');
+        let has_nullable = f.optional;
 
-        let decl = match (has_json_property, needs_non_null) {
-            (true, true) => format!(
-                "@JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty(\"{}\") {} {}",
-                f.name, ftype, jname
-            ),
-            (true, false) => format!("@JsonProperty(\"{}\") {} {}", f.name, ftype, jname),
-            (false, true) => format!("@JsonInclude(JsonInclude.Include.NON_NULL) {} {}", ftype, jname),
-            (false, false) => format!("{} {}", ftype, jname),
-        };
+        let mut decl = String::new();
+        if has_nullable {
+            decl.push_str("@org.jetbrains.annotations.Nullable ");
+        }
+        if needs_non_null {
+            decl.push_str("@JsonInclude(JsonInclude.Include.NON_NULL) ");
+        }
+        if has_json_property {
+            decl.push_str(&format!("@JsonProperty(\"{}\") ", f.name));
+        }
+        decl.push_str(&format!("{} {}", ftype, jname));
 
         if i > 0 {
             fields_joined.push_str(", ");

@@ -244,6 +244,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
                 <version>${{maven-javadoc-plugin.version}}</version>
                 <configuration>
                     <doclint>all,-missing</doclint>
+                    <failOnWarning>true</failOnWarning>
                     <show>protected</show>
                     <additionalOptions>--enable-preview</additionalOptions>
                     <sourcepath>${{project.basedir}}/src/main/java</sourcepath>

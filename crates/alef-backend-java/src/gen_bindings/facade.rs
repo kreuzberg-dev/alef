@@ -45,13 +45,7 @@ pub(crate) fn gen_facade_class(
 
         let return_type = java_type(&func.return_type);
 
-        if !func.doc.is_empty() {
-            writeln!(body, "    /**").ok();
-            for line in func.doc.lines() {
-                writeln!(body, "     * {}", line).ok();
-            }
-            writeln!(body, "     */").ok();
-        }
+        super::helpers::emit_javadoc(&mut body, &func.doc, "    ");
 
         writeln!(
             body,

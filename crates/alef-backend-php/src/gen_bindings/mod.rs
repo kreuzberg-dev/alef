@@ -560,16 +560,16 @@ impl Backend for PhpBackend {
                 func.name.to_lower_camel_case()
             };
             let is_void = matches!(&func.return_type, TypeRef::Unit);
+            // For functions with 2 params and the second is an object type (likely ConversionOptions),
+            // pass only the visible params without duplicating fields from within the options object.
+            let call_params = sorted_visible_params
+                .iter()
+                .map(|p| format!("${}", p.name))
+                .collect::<Vec<_>>()
+                .join(", ");
             let call_expr = format!(
                 "\\{}\\{}Api::{}({})",
-                namespace,
-                class_name,
-                ext_method_name,
-                sorted_visible_params
-                    .iter()
-                    .map(|p| format!("${}", p.name))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                namespace, class_name, ext_method_name, call_params
             );
             if is_void {
                 content.push_str(&format!(
@@ -774,13 +774,32 @@ impl Backend for PhpBackend {
             content.push_str("}\n\n");
         }
 
-        // Enum constants (PHP 8.1+ enums)
+        // Emit tagged data enums as classes (they're lowered to flat PHP classes in the binding).
+        // Unit-variant enums → PHP 8.1+ enum constants.
         for enum_def in &api.enums {
-            content.push_str(&format!("enum {}: string\n{{\n", enum_def.name));
-            for variant in &enum_def.variants {
-                content.push_str(&format!("    case {} = '{}';\n", variant.name, variant.name));
+            if is_tagged_data_enum(enum_def) {
+                // Tagged data enums are lowered to flat classes; emit class stubs.
+                if !enum_def.doc.is_empty() {
+                    content.push_str("/**\n");
+                    for line in enum_def.doc.lines() {
+                        if line.is_empty() {
+                            content.push_str(" *\n");
+                        } else {
+                            content.push_str(&format!(" * {}\n", line));
+                        }
+                    }
+                    content.push_str(" */\n");
+                }
+                content.push_str(&format!("class {}\n{{\n", enum_def.name));
+                content.push_str("}\n\n");
+            } else {
+                // Unit-variant enums → PHP 8.1+ enum constants.
+                content.push_str(&format!("enum {}: string\n{{\n", enum_def.name));
+                for variant in &enum_def.variants {
+                    content.push_str(&format!("    case {} = '{}';\n", variant.name, variant.name));
+                }
+                content.push_str("}\n\n");
             }
-            content.push_str("}\n\n");
         }
 
         // Extension function stubs — generated as a native `{ClassName}Api` class with static

@@ -14,7 +14,7 @@ pub(super) fn gen_dts(
     let mut lines: Vec<String> = header.lines().map(|l| l.to_string()).collect();
     lines.push("/* eslint-disable */".to_string());
 
-    // Collect all declarations: opaque types (classes), plain structs (interfaces), enums, functions.
+    // Collect all declarations: opaque types (classes), plain structs (interfaces), visitor traits (interfaces), enums, functions.
     // Sort each group alphabetically to produce stable, deterministic output.
 
     // Opaque types → `export declare class`
@@ -22,8 +22,12 @@ pub(super) fn gen_dts(
     opaque_types.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Plain structs → `export interface`
-    let mut plain_types: Vec<&TypeDef> = api.types.iter().filter(|t| !t.is_opaque).collect();
+    let mut plain_types: Vec<&TypeDef> = api.types.iter().filter(|t| !t.is_opaque && !t.is_trait).collect();
     plain_types.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Visitor traits → `export interface` (for callback object shape)
+    let mut visitor_traits: Vec<&TypeDef> = api.types.iter().filter(|t| t.is_trait && !t.is_opaque).collect();
+    visitor_traits.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Enums → `export declare enum`
     let mut sorted_enums: Vec<&EnumDef> = api.enums.iter().collect();
@@ -54,6 +58,7 @@ pub(super) fn gen_dts(
     enum Decl<'a> {
         Class(&'a TypeDef),
         Interface(&'a TypeDef),
+        VisitorInterface(&'a TypeDef),
         Enum(&'a EnumDef),
         Function(&'a FunctionDef),
     }
@@ -64,6 +69,9 @@ pub(super) fn gen_dts(
     }
     for t in &plain_types {
         all_decls.push((format!("{prefix}{}", t.name), Decl::Interface(t)));
+    }
+    for t in &visitor_traits {
+        all_decls.push((format!("{prefix}{}", t.name), Decl::VisitorInterface(t)));
     }
     for e in &sorted_enums {
         all_decls.push((format!("{prefix}{}", e.name), Decl::Enum(e)));
@@ -115,6 +123,26 @@ pub(super) fn gen_dts(
                     } else {
                         lines.push(format!("  {js_name}: {ts_ty}"));
                     }
+                }
+                lines.push("}".to_string());
+            }
+            Decl::VisitorInterface(typ) => {
+                // Emit visitor trait as a TypeScript interface with optional callback methods.
+                // Each method becomes an optional property with a function signature.
+                lines.extend(format_jsdoc(&typ.doc, ""));
+                lines.push(format!("export interface {prefix}{} {{", typ.name));
+                for method in &typ.methods {
+                    let js_name = to_node_name(&method.name);
+                    let params = dts_params(&method.params, prefix);
+                    let ret = dts_return_type(
+                        &method.return_type,
+                        method.error_type.is_some(),
+                        method.is_async,
+                        prefix,
+                    );
+                    lines.extend(format_jsdoc(&method.doc, "  "));
+                    // Visitor methods are all optional callbacks
+                    lines.push(format!("  {js_name}?({params}): {ret}"));
                 }
                 lines.push("}".to_string());
             }

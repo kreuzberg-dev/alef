@@ -178,6 +178,7 @@ fn gen_method_stub(method: &MethodDef, is_static: bool) -> String {
 }
 
 /// Generate a Ruby enum stub.
+/// Unit-variant enums are represented as Ruby Symbols (e.g., :left_to_right).
 fn gen_enum_stub(enum_def: &EnumDef) -> String {
     let mut lines = vec![];
 
@@ -191,13 +192,40 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
         lines.push("".to_string());
     }
 
-    for variant in &enum_def.variants {
-        lines.push(format!("    {}: Integer", variant.name));
+    let has_data = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+
+    if has_data {
+        // Data enums are represented as hashes with type discriminant
+        lines.push("    type instance = Hash[Symbol, untyped] | nil".to_string());
+    } else {
+        // Unit-variant enums are literal symbol unions (:left_to_right | :right_to_left | :auto)
+        let symbol_union = enum_def
+            .variants
+            .iter()
+            .map(|v| {
+                let snake = pascal_to_snake(&v.name);
+                format!(":{snake}")
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        lines.push(format!("    type instance = {symbol_union}"));
     }
 
     lines.push("  end".to_string());
 
     lines.join("\n")
+}
+
+/// Convert PascalCase to snake_case for symbol names.
+fn pascal_to_snake(name: &str) -> String {
+    let mut result = String::with_capacity(name.len() + 4);
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 {
+            result.push('_');
+        }
+        result.push(ch.to_lowercase().next().unwrap_or(ch));
+    }
+    result
 }
 
 /// Generate a function stub (module method) using RBS declaration syntax.

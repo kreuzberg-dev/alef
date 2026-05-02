@@ -155,12 +155,62 @@ pub(crate) fn gen_exception_class(package: &str, class_name: &str) -> String {
 // High-level facade class (public API)
 // ---------------------------------------------------------------------------
 
+/// Transform Rust intra-doc links [`Type`] → bare text and remove Rust-specific sections.
+/// Strips markdown code fences and Rust-specific headers like # Arguments, # Errors, # Example.
+fn transform_rustdoc_for_java(doc: &str) -> String {
+    let mut result = String::new();
+    let mut in_code_block = false;
+    let mut skip_line = false;
+
+    for line in doc.lines() {
+        let trimmed = line.trim();
+
+        // Skip Rust-specific headers and code blocks.
+        if trimmed.starts_with('#') && (trimmed.starts_with("# Arguments") ||
+            trimmed.starts_with("# Errors") || trimmed.starts_with("# Example") ||
+            trimmed.starts_with("# Returns")) {
+            skip_line = true;
+            continue;
+        }
+
+        if trimmed.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+
+        if in_code_block {
+            continue;
+        }
+
+        if skip_line && trimmed.is_empty() {
+            skip_line = false;
+        }
+        if skip_line {
+            continue;
+        }
+
+        // Transform intra-doc links [`Type`] → Type.
+        let transformed = line.replace("[`", "").replace("`]", "");
+
+        if !result.is_empty() {
+            result.push('\n');
+        }
+        result.push_str(&transformed);
+    }
+
+    result.trim().to_string()
+}
+
 pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
     if doc.is_empty() {
         return;
     }
+    let transformed = transform_rustdoc_for_java(doc);
+    if transformed.is_empty() {
+        return;
+    }
     writeln!(out, "{indent}/**").ok();
-    for line in doc.lines() {
+    for line in transformed.lines() {
         // trim_end() ensures lines that are whitespace-only or escape to
         // empty don't emit ` * \n` (trailing space) — that would conflict
         // with the prek `trailing-whitespace` hook downstream and break the
