@@ -2623,6 +2623,63 @@ fn test_gen_function_with_error_type_wraps_in_result() {
 }
 
 #[test]
+fn test_gen_function_named_ref_param_uses_from_conversion() {
+    let func = FunctionDef {
+        name: "process".to_string(),
+        rust_path: "my_crate::process".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "source".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "config".to_string(),
+                ty: TypeRef::Named("ProcessConfig".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+        ],
+        return_type: TypeRef::Named("ProcessResult".to_string()),
+        is_async: false,
+        error_type: Some("Error".to_string()),
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+    let mapper = RustMapper;
+    let mut cfg = default_cfg();
+    cfg.async_pattern = AsyncPattern::Pyo3FutureIntoPy;
+    cfg.has_serde = true;
+    let adapter_bodies = AdapterBodies::default();
+    let opaque_types = AHashSet::new();
+
+    let result = gen_function(&func, &mapper, &cfg, &adapter_bodies, &opaque_types);
+
+    assert!(result.contains("let config_core: my_crate::ProcessConfig = config.into();"));
+    assert!(result.contains("my_crate::process(&source, &config_core)"));
+    assert!(!result.contains("serde_json::to_string(&config)"));
+}
+
+#[test]
 fn test_gen_function_with_no_params_generates_empty_param_list() {
     let func = FunctionDef {
         name: "get_version".to_string(),

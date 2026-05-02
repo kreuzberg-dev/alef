@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(alef-cli/format): format WASM binding crates with `cargo fmt --manifest-path`
   derived from the resolved output path so renamed or workspace-excluded crates are handled correctly.
 
+- fix(codegen): use generated `From` conversions for named reference parameters instead of JSON round-tripping when a
+  direct let-binding is possible. This preserves fields such as Python `ProcessConfig.language` in free functions.
+
 - fix(cli): run language-native formatters on stubs before finalising the embedded `alef:hash:` line.
   `alef stubs` previously skipped the format step and computed the hash over raw codegen output.
   When host-language tools (ruff, php-cs-fixer, mix format, cargo fmt, …) reformatted those files,

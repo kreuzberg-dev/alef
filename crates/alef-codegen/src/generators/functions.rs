@@ -46,7 +46,8 @@ pub fn gen_function(
         }
     };
 
-    let can_delegate = crate::shared::can_auto_delegate_function(func, opaque_types);
+    let can_delegate = crate::shared::can_auto_delegate_function(func, opaque_types)
+        || can_delegate_with_named_let_bindings(func, opaque_types);
 
     // Backend-specific error conversion string for serde bindings
     let serde_err_conv = match cfg.async_pattern {
@@ -489,6 +490,15 @@ pub fn gen_function(
     }
     write!(out, "{} {{\n    {body}\n}}", func_sig,).ok();
     out
+}
+
+fn can_delegate_with_named_let_bindings(func: &FunctionDef, opaque_types: &AHashSet<String>) -> bool {
+    !func.sanitized
+        && func
+            .params
+            .iter()
+            .all(|p| !p.sanitized && crate::shared::is_delegatable_param(&p.ty, opaque_types))
+        && crate::shared::is_delegatable_return(&func.return_type)
 }
 
 /// Collect all unique trait import paths from types' methods.
