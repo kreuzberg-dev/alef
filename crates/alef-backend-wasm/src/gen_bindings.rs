@@ -249,8 +249,15 @@ impl Backend for WasmBackend {
         // `bind_via = "options_field"` bridges.  These fields are exposed as
         // `Option<JsValue>` in the binding struct but must be skipped in From conversions
         // (the JsValue can't be automatically converted to a VisitorHandle).
-        let bridge_fields_map: HashMap<String, Vec<String>> = {
+        // Also includes `{options_type}Update` variants so that Update struct From impls
+        // also default the bridge field instead of trying `val.visitor.map(Into::into)`.
+        //
+        // bridge_type_aliases collects the `type_alias` values for `options_field` bridges
+        // (e.g. "VisitorHandle"). These are used to suppress opaque-type methods on builder
+        // types that accept the handle — the JS caller uses the JsValue setter instead.
+        let (bridge_fields_map, bridge_type_aliases): (HashMap<String, Vec<String>>, std::collections::HashSet<String>) = {
             let mut map: HashMap<String, Vec<String>> = HashMap::new();
+            let mut type_aliases: std::collections::HashSet<String> = std::collections::HashSet::new();
             for bridge in &config.trait_bridges {
                 if bridge.bind_via != BridgeBinding::OptionsField {
                     continue;
@@ -261,10 +268,17 @@ impl Backend for WasmBackend {
                 // resolved_options_field() falls back to param_name, which covers the common
                 // case where the field name and parameter name are the same (e.g. "visitor").
                 if let Some(name) = bridge.resolved_options_field().map(str::to_string) {
-                    map.entry(options_type.to_string()).or_default().push(name);
+                    map.entry(options_type.to_string()).or_default().push(name.clone());
+                    // Also cover the Update variant of the same options type so that
+                    // `{options_type}Update.visitor` in From impls uses Default::default().
+                    let update_type = format!("{options_type}Update");
+                    map.entry(update_type).or_default().push(name);
+                }
+                if let Some(alias) = bridge.type_alias.as_deref() {
+                    type_aliases.insert(alias.to_string());
                 }
             }
-            map
+            (map, type_aliases)
         };
 
         // Build a fresh ApiSurface clone with exclude_fields and bridge_fields applied.
@@ -391,6 +405,7 @@ impl Backend for WasmBackend {
                     &core_import,
                     &prefix,
                     &adapter_bodies,
+                    &bridge_type_aliases,
                 ));
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
@@ -679,6 +694,10 @@ fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) -> String {
 }
 
 /// Generate wasm-bindgen methods for an opaque struct.
+///
+/// `bridge_type_aliases` is the set of `type_alias` values from `options_field` trait bridges
+/// (e.g. `"VisitorHandle"`). Methods whose parameters include these types are suppressed —
+/// callers use the `Option<JsValue>` bridge field on the options struct instead.
 fn gen_opaque_struct_methods(
     typ: &TypeDef,
     mapper: &WasmMapper,
@@ -686,12 +705,30 @@ fn gen_opaque_struct_methods(
     core_import: &str,
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    bridge_type_aliases: &std::collections::HashSet<String>,
 ) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
     impl_builder.add_attr("wasm_bindgen");
 
     for method in &typ.methods {
+        // Suppress methods whose parameter types are options-field bridge type aliases
+        // (e.g. VisitorHandle). JS callers pass visitors via the JsValue setter on the
+        // options struct; exposing the opaque WasmVisitorHandle variant would produce
+        // uncompilable call args (Arc<VisitorHandle> ≠ VisitorHandle).
+        let has_bridge_alias_param = method.params.iter().any(|p| {
+            let inner = match &p.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                }
+                _ => None,
+            };
+            inner.is_some_and(|n| bridge_type_aliases.contains(n))
+        });
+        if has_bridge_alias_param {
+            continue;
+        }
         if method.is_static {
             impl_builder.add_method(&gen_opaque_static_method(
                 method,
@@ -1143,8 +1180,17 @@ fn gen_new_method(
         ""
     };
 
+    // When bridge fields are excluded from the constructor, the struct literal is missing
+    // those fields. Use `..Default::default()` to fill them in (they default to None).
+    let struct_body = if !bridge_fields.is_empty() && !assignments.is_empty() {
+        format!("{assignments}, ..Default::default()")
+    } else if !bridge_fields.is_empty() {
+        "..Default::default()".to_string()
+    } else {
+        assignments
+    };
     format!(
-        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments} }}\n}}",
+        "{allow_attr}#[wasm_bindgen(constructor)]\npub fn new({param_list}) -> {prefix}{} {{\n    {prefix}{} {{ {struct_body} }}\n}}",
         typ.name, typ.name
     )
 }
