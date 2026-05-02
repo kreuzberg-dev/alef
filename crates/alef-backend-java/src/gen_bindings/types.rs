@@ -531,7 +531,7 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
 pub(crate) fn gen_builder_class(
     package: &str,
     typ: &TypeDef,
-    _options_field_bridges: &[OptionsFieldBridgeInfo],
+    options_field_bridges: &[OptionsFieldBridgeInfo],
 ) -> String {
     let mut body = String::with_capacity(2048);
 
@@ -646,9 +646,13 @@ pub(crate) fn gen_builder_class(
     for (i, field) in non_tuple_fields.iter().enumerate() {
         let field_name = safe_java_field_name(&field.name);
         let comma = if i < non_tuple_fields.len() - 1 { "," } else { "" };
-        // Builder stores Optional fields as Optional<T> but the record constructor
-        // expects the raw type T.  Unwrap with orElse(null) so the types match.
-        if field.optional {
+        // Bridge fields: the record stores a raw handle type (e.g. VisitorHandle), but the
+        // builder holds Optional<T>.  Unwrap with orElse(null) so the types match.
+        // Regular optional fields: both builder and record use Optional<T> — pass directly.
+        let is_bridge_field = options_field_bridges
+            .iter()
+            .any(|b| b.options_type == typ.name && b.field_name == field.name);
+        if field.optional && is_bridge_field {
             writeln!(body, "            {}.orElse(null){}", field_name, comma).ok();
         } else {
             writeln!(body, "            {}{}", field_name, comma).ok();

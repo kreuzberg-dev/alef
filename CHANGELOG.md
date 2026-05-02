@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- feat(codegen): auto-exclude trait-bridge registration functions via `collect_trait_bridge_registration_fn_names()`. 
-  Each binding backend now automatically excludes `register_*` / `unregister_*` functions to prevent double-emit 
+- feat(codegen): auto-exclude trait-bridge registration functions via `collect_trait_bridge_registration_fn_names()`.
+  Each binding backend now automatically excludes `register_*` / `unregister_*` functions to prevent double-emit
   compile errors — kreuzberg no longer needs manual `exclude` entries in `alef.toml` for trait-bridge registration fns.
 
 - feat(e2e-go): support disk-path fixture loading in Go e2e harness in addition to HTTP URLs.
@@ -24,7 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e): generate valid Go array guards for length assertions on array element fields.
 - fix(e2e): honor call-level simple/optional result flags in Go tests and render contains assertions for struct slices.
 - fix(e2e): emit nil checks for Go optional simple-result empty assertions.
-- fix(java): pass options-field bridge metadata into generated builder classes.
+- fix(backend-java): correct four compile errors in the generated Java convert wrapper
+  when `bind_via = "options_field"` is used with an opaque-handle bridge field:
+  - B1: the generated `convert()` no longer calls the non-existent
+    `htm_conversion_options_from_json` FFI symbol; options are now serialised to JSON
+    and passed as a C string directly via `coptionsJsonSeg`.
+  - B2: the bridge attachment code now detects that the bridge Java type is an opaque
+    handle (e.g. `VisitorHandle`) and calls `options.visitor().handle()` to pass the
+    raw `MemorySegment` to the FFI setter, instead of constructing a `VisitorHandleBridge`
+    (which does not exist and would require a `Visitor` interface argument).
+  - B3: the FFI call argument for the options param is now `coptionsJsonSeg` (matching
+    the emitted variable name), not the stale `cOptions` name from the old `_FROM_JSON`
+    path.
+  - B4: `gen_builder_class` now only emits `.orElse(null)` for optional fields that
+    are bridge fields (where the record stores the raw handle type); regular
+    `Optional<T>` fields are passed directly to avoid "incompatible types" errors.
 - fix(backend-go): preserve `None` as nil for optional string returns.
 
 - fix(backend-pyo3): emit SCREAMING_SNAKE_CASE aliases alongside PascalCase variants in
