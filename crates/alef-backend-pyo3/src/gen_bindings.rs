@@ -722,12 +722,11 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
 
     // Compute which Named types are defined locally in options.py and which must be imported
     // from the native extension module under TYPE_CHECKING.
-    // Types defined locally: enum classes (needed_enums), has_default dataclasses.
+    // Types defined locally: has_default dataclasses only.
+    // Unit enums (needed_enums) are defined as #[pyclass] in the native module and imported
+    // from there — they are NOT re-emitted as (str, Enum) subclasses in options.py.
     let local_type_names: AHashSet<&str> = {
         let mut local = AHashSet::new();
-        for name in &needed_enums {
-            local.insert(name.as_str());
-        }
         for typ in api.types.iter().filter(|t| !t.is_trait) {
             if typ.name.ends_with("Update") || typ.fields.is_empty() {
                 continue;
@@ -754,6 +753,22 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         .collect();
     native_type_imports.sort();
 
+    // Unit enums (needed_enums) that are in native_type_imports must be imported at runtime
+    // (not just under TYPE_CHECKING) so the monkey-patching code below can add SCREAMING_SNAKE_CASE
+    // aliases to them. Split native_type_imports into runtime and TYPE_CHECKING-only groups.
+    let mut runtime_native_imports: Vec<String> = native_type_imports
+        .iter()
+        .filter(|n| needed_enums.contains(*n))
+        .cloned()
+        .collect();
+    runtime_native_imports.sort();
+    let mut type_checking_only_imports: Vec<String> = native_type_imports
+        .iter()
+        .filter(|n| !needed_enums.contains(*n))
+        .cloned()
+        .collect();
+    type_checking_only_imports.sort();
+
     let mut out = String::with_capacity(4096);
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str("\"\"\"Configuration options for the conversion API.\"\"\"\n\n");
@@ -761,10 +776,17 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
     // native extension module (e.g. HeaderMetadata, GridCell) do not raise NameError.
     out.push_str("from __future__ import annotations\n\n");
     out.push_str("from dataclasses import dataclass, field\n");
-    out.push_str("from enum import Enum\n");
+    // Emit `from enum import Enum` only when there are still (str, Enum) subclasses to define.
+    // Unit enums are re-exported from the native module, so Enum is not needed for them.
+    let has_non_needed_str_enums = api.enums.iter().any(|e| {
+        !needed_enums.contains(&e.name) && !data_enum_names.contains(e.name.as_str())
+    });
+    if has_non_needed_str_enums {
+        out.push_str("from enum import Enum\n");
+    }
     // Build typing imports: TYPE_CHECKING is needed for native-module forward refs;
     // Any is needed when TypeRef::Json fields exist; TypedDict is needed when output_style == TypedDict.
-    let needs_type_checking = !native_type_imports.is_empty();
+    let needs_type_checking = !type_checking_only_imports.is_empty();
     let needs_typing_import = needs_type_checking || needs_any || any_typeddict;
     if needs_typing_import {
         let mut typing_names = Vec::new();
@@ -782,12 +804,21 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
             typing_names.join(", ")
         ));
     }
+    // Runtime imports for unit enums — needed both for monkey-patching aliases and for
+    // users who import from options.py (e.g. `from html_to_markdown.options import NewlineStyle`).
+    if !runtime_native_imports.is_empty() {
+        out.push_str(&format!("from .{module_name} import (\n"));
+        for name in &runtime_native_imports {
+            out.push_str(&format!("    {},\n", name));
+        }
+        out.push_str(")\n");
+    }
     out.push('\n');
-    // Import native-module types for static analysis only (TYPE_CHECKING guard).
-    if !native_type_imports.is_empty() {
+    // Import non-enum native-module types for static analysis only (TYPE_CHECKING guard).
+    if !type_checking_only_imports.is_empty() {
         out.push_str("if TYPE_CHECKING:\n");
         out.push_str(&format!("    from .{module_name} import (\n"));
-        for name in &native_type_imports {
+        for name in &type_checking_only_imports {
             out.push_str(&format!("        {},\n", name));
         }
         out.push_str("    )\n");
@@ -805,8 +836,34 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
         })
         .collect();
 
+    // Unit enums (needed_enums) live as #[pyclass] in the native module under their Rust
+    // variant names (PascalCase, e.g. NewlineStyle.Backslash). Emit SCREAMING_SNAKE_CASE
+    // aliases on the native class so callers can use NewlineStyle.BACKSLASH as they would
+    // with a regular Python (str, Enum). The values are the native enum instances, so
+    // passing them to native-typed constructor parameters works without a TypeError.
+    let mut sorted_needed_enums: Vec<&String> = needed_enums.iter().collect();
+    sorted_needed_enums.sort();
+    for enum_name in &sorted_needed_enums {
+        if let Some(enum_def) = api.enums.iter().find(|e| &e.name == *enum_name) {
+            if data_enum_names.contains(enum_def.name.as_str()) {
+                continue;
+            }
+            // Add SCREAMING_SNAKE_CASE class-level attributes to the native pyclass.
+            for variant in &enum_def.variants {
+                let rust_name = &variant.name;
+                let py_name = rust_name.to_shouty_snake_case();
+                out.push_str(&format!(
+                    "{}.{} = {}.{}\n",
+                    enum_def.name, py_name, enum_def.name, rust_name
+                ));
+            }
+            out.push('\n');
+        }
+    }
+
     for enum_def in &api.enums {
-        if !needed_enums.contains(&enum_def.name) {
+        // Unit enums are handled above — do not emit a duplicate (str, Enum) subclass.
+        if needed_enums.contains(&enum_def.name) {
             continue;
         }
         // Data enums are dict-accepting structs on the Rust side; skip str,Enum generation.
@@ -2146,20 +2203,14 @@ fn gen_init_py(
             imports_from_native.push(typ.name.clone());
         }
     }
-    // Collect ALL enums from the native module, not just those referenced by has_default fields.
-    // Plain (unit) enums referenced by has_default fields are re-exported from options.py as
-    // (str, Enum) subclasses. All other enums — including those not used in config types — come
-    // from the native module since they are registered as #[pyclass] on the Rust side.
+    // Collect ALL enums from the native module.
+    // Unit enums (needed_enums) are registered as #[pyclass] and exported from the native module.
+    // Data enums are also in the native module. All other enums live in native too.
     for enum_def in &api.enums {
-        if needed_enums.contains(&enum_def.name) {
-            // Already exported from options.py — skip native.
-            continue;
-        }
         if needed_data_enums.iter().any(|n| n == &enum_def.name) {
             // Data enums already in native list.
             continue;
         }
-        // All other enums (simple int enums not referenced by has_default fields) live in native.
         if !imports_from_native.iter().any(|n| n == &enum_def.name) {
             imports_from_native.push(enum_def.name.clone());
         }
@@ -2190,9 +2241,11 @@ fn gen_init_py(
     imports_from_native.sort();
     imports_from_native.dedup();
 
-    // Import plain enums and config types from options
-    let mut opt_imports = needed_enums.clone();
-    opt_imports.extend(config_types.iter().cloned());
+    // Import config types from options.
+    // Unit enums (needed_enums) are now imported from the native module (see above) — they must
+    // NOT appear in imports_from_options, otherwise __init__.py would import the str,Enum shadow
+    // class from options.py instead of the authoritative native pyclass.
+    let mut opt_imports: Vec<String> = config_types.iter().cloned().collect();
     opt_imports.sort();
     imports_from_options.extend(opt_imports);
 
