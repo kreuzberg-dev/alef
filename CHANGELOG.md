@@ -7,7 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-05-02
+
+### Added
+
+- feat(extract/normalize-rustdoc): doc comments parsed from Rust source are now run through
+  a `normalize_rustdoc` pass before any backend sees them. Two specific rustdoc artefacts
+  that previously leaked into every binding are removed:
+  - Rustdoc-hidden lines inside ```rust /```rust,no_run fences (`# tokio_test::block_on(async {`,
+    `# Ok::<(), Error>(())`, `# }`, `# async fn example()`) are dropped.
+  - Intra-doc-link syntax `[`crate::Foo`]` / `[`super::Bar`] /`[`self::X`]` is rewritten to
+    plain `` `Foo` `` / `` `Bar` `` / `` `X` ``.
+  Per-host renderers (Javadoc, KDoc, PHPDoc, JSDoc, Dartdoc, Swift-DocC, roxygen2, Doxygen)
+  continue to translate `# Errors`/`# Returns`/etc. as before — full per-host code-fence
+  translation deferred to v0.14.3.
+
+- feat(error-gen/strip-thiserror-placeholders): added `strip_thiserror_placeholders` and
+  `acronym_aware_snake_phrase` helpers in `alef-codegen::error_gen`. Display strings emitted
+  by binding error renderers (Go sentinels, Dart `String get message`) no longer contain raw
+  `{name}` substitution markers (`OCR error: {message}` becomes `OCR error`, `extraction
+  cancelled` is preserved). Variant names with technical acronyms (IO, OCR, PDF, URL, HTTP, …)
+  render as `IO error` / `OCR error`, not `iO error` / `oCR error`.
+
+- feat(backend-dart/error-render): Dart sealed-class exceptions now use the new placeholder
+  stripping so `String get message => 'Parsing error: {message}'` is emitted as
+  `'Parsing error'`. Surviving prose still has `'`, `\`, and `$` escaped per Dart string
+  literal rules.
+
+- feat(backend-zig/trait-bridge): the `make_<trait>_vtable` doc comment was missing a
+  `format!()` call, leaking the literal `{snake}` template string. Substitution now
+  happens correctly so generated docs read `make_post_processor_vtable(MyType, …)` etc.
+
+- feat(trait-bridge/unregister-clear): `[[trait_bridges]]` schema gains optional
+  `unregister_fn` and `clear_fn` fields. When set, alef emits matching host-language
+  wrappers alongside `register_fn`. Pyo3 and napi backends opt in this release; remaining
+  backends (magnus, php, rustler, gleam, extendr, dart, swift, kotlin, csharp, java,
+  wasm) fall through to the default `None` (no emission) — those will be added in v0.14.3.
+  The host-language wrappers call the user's plugin module function (e.g.
+  `kreuzberg::plugins::ocr_backend::unregister_ocr_backend(&name)`); the path is derived
+  from the bridge's `registry_getter` (`get_*_registry` → `*::*_fn_name`).
+
 ### Fixed
+
+- fix(error-gen/go-sentinel): Go sentinel error strings no longer contain literal
+  `{message}` / `{plugin_name}` / `{elapsed_ms}` placeholders. Variants like `IoError`,
+  `OcrError`, `PdfError` render as `errors.New("IO error")`, `errors.New("OCR error")`,
+  `errors.New("PDF error")` instead of the previous `errors.New("iO error")`,
+  `errors.New("oCR error: {message}")`.
+
+### Deferred to v0.14.3
+
+- Per-host doc-comment section translation (`# Arguments` → `@param`, `# Returns` →
+  `@returns`, `# Errors` → `@throws`, etc.) for JSDoc, JavaDoc, C# XML, PHPDoc, dartdoc,
+  roxygen2, KDoc, Swift-DocC, Doxygen, Elixir doctests. Foundation in
+  `alef-codegen::doc_emission` is unchanged.
+- `gen_unregistration_fn` / `gen_clear_fn` for magnus, php, rustler, gleam, extendr,
+  dart, swift, kotlin, csharp, java, wasm. Schema is in place; backends opt in incrementally.
+
+### Fixed (carry-forward from unreleased v0.14.1 follow-ups)
 
 - fix(cli): fix alef-verify ↔ host-formatter circular drift in `generate` and `all` commands.
   `format_generated` was called with only the bindings slice, so languages where only stubs

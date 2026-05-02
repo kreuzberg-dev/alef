@@ -784,6 +784,10 @@ mod tests {
             super_trait: super_trait.map(|s| s.to_string()),
             registry_getter: None,
             register_fn: None,
+
+            unregister_fn: None,
+
+            clear_fn: None,
             register_extra_args: None,
             bind_via: alef_core::config::BridgeBinding::FunctionParam,
             options_type: None,

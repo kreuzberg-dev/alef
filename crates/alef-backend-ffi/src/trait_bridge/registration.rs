@@ -368,6 +368,8 @@ mod tests {
             super_trait: None,
             registry_getter: Some("my_lib::get_registry".to_string()),
             register_fn: Some(format!("register_{}", trait_name.to_lowercase())),
+            unregister_fn: None,
+            clear_fn: None,
             type_alias: None,
             param_name: None,
             register_extra_args: None,

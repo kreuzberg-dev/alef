@@ -995,6 +995,10 @@ mod trait_bridge {
             super_trait: None,
             registry_getter: None,
             register_fn: None,
+
+            unregister_fn: None,
+
+            clear_fn: None,
             type_alias: Some(format!("{trait_name}Handle")),
             param_name: None,
             register_extra_args: None,
@@ -1090,6 +1094,8 @@ mod trait_bridge {
             super_trait: Some("Plugin".to_string()),
             registry_getter: Some("get_registry".to_string()),
             register_fn: Some(format!("register_{}", register_fn_name)),
+            unregister_fn: None,
+            clear_fn: None,
             type_alias: None,
             param_name: None,
             register_extra_args: None,

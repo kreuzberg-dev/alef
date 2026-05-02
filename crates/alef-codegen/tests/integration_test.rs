@@ -3005,6 +3005,10 @@ fn simple_bridge_config() -> TraitBridgeConfig {
         super_trait: None,
         registry_getter: None,
         register_fn: None,
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -3174,6 +3178,10 @@ fn test_gen_bridge_all_includes_registration_fn_when_configured() {
         super_trait: None,
         registry_getter: None,
         register_fn: Some("register_my_trait".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -6168,7 +6176,8 @@ fn test_gen_lossy_binding_to_core_fields_vec_named_optional() {
 fn test_gen_lossy_binding_to_core_fields_mut_declares_mutable() {
     let typ = simple_type_def();
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields_mut(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result =
+        binding_helpers::gen_lossy_binding_to_core_fields_mut(&typ, "my_crate", false, &ahash::AHashSet::new());
 
     assert!(
         result.contains("let mut core_self"),

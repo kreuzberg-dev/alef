@@ -636,6 +636,10 @@ fn config_with_bridge(trait_name: &str) -> ResolvedCrateConfig {
         super_trait: None,
         registry_getter: None,
         register_fn: None,
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,

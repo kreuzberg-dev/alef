@@ -87,6 +87,8 @@ fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some(format!("register_{}", trait_name.to_lowercase())),
+        unregister_fn: None,
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -103,6 +105,10 @@ fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         super_trait: None,
         registry_getter: None,
         register_fn: None,
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: Some(format!("{trait_name}Handle")),
         param_name: None,
         register_extra_args: None,
@@ -276,6 +282,10 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,

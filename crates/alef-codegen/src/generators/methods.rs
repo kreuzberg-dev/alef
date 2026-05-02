@@ -273,8 +273,12 @@ pub fn gen_method(
             //
             // The generated signature uses &self -> Self (or -> Result<Self, E> if fallible),
             // making the method work correctly with immutable binding wrappers.
-            let field_conversions =
-                gen_lossy_binding_to_core_fields_mut(typ, cfg.core_import, cfg.option_duration_on_defaults, opaque_types);
+            let field_conversions = gen_lossy_binding_to_core_fields_mut(
+                typ,
+                cfg.core_import,
+                cfg.option_duration_on_defaults,
+                opaque_types,
+            );
             let core_call = format!("core_self.{}({call_args})", method.name);
             if method.error_type.is_some() {
                 let err_conv = match cfg.async_pattern {
@@ -303,7 +307,12 @@ pub fn gen_method(
             // Sanitized fields use Default::default() (lossy but functional for builder pattern).
             let is_ref_mut = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
             let field_conversions = if is_ref_mut {
-                gen_lossy_binding_to_core_fields_mut(typ, cfg.core_import, cfg.option_duration_on_defaults, opaque_types)
+                gen_lossy_binding_to_core_fields_mut(
+                    typ,
+                    cfg.core_import,
+                    cfg.option_duration_on_defaults,
+                    opaque_types,
+                )
             } else {
                 gen_lossy_binding_to_core_fields(typ, cfg.core_import, cfg.option_duration_on_defaults, opaque_types)
             };
@@ -421,7 +430,12 @@ pub fn gen_method(
             // Construct core type field-by-field, call method, convert result back via .into().
             let is_ref_mut = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
             let field_conversions = if is_ref_mut {
-                gen_lossy_binding_to_core_fields_mut(typ, cfg.core_import, cfg.option_duration_on_defaults, opaque_types)
+                gen_lossy_binding_to_core_fields_mut(
+                    typ,
+                    cfg.core_import,
+                    cfg.option_duration_on_defaults,
+                    opaque_types,
+                )
             } else {
                 gen_lossy_binding_to_core_fields(typ, cfg.core_import, cfg.option_duration_on_defaults, opaque_types)
             };

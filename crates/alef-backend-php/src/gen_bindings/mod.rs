@@ -485,7 +485,7 @@ impl Backend for PhpBackend {
         // with .visitor(None) to skip setting the visitor on the core builder.
         for bridge in &config.trait_bridges {
             if let Some(field_name) = bridge.resolved_options_field() {
-                let param_name = bridge.param_name.as_deref().unwrap_or(&field_name);
+                let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
                 let pattern = format!(".{}({}.as_ref().map(|v| &v.inner))", field_name, param_name);
                 let replacement = format!(".{}(None)", field_name);
                 content = content.replace(&pattern, &replacement);

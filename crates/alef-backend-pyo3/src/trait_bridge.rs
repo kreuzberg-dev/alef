@@ -13,6 +13,47 @@ use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 use std::fmt::Write;
 
+/// Resolve the FQN of a host-crate plugin function (e.g.
+/// `kreuzberg::plugins::ocr::unregister_ocr_backend`) given the bridge's
+/// `registry_getter` path. The convention used by host crates is:
+///
+/// - `registry_getter = "kreuzberg::plugins::registry::get_ocr_backend_registry"`
+/// - top-level fn      = `kreuzberg::plugins::ocr::unregister_ocr_backend`
+///
+/// We rewrite `::registry::get_*_registry` to `::<sub>::<fn_name>` where
+/// `<sub>` is the trait name in snake case (extracted from `_*_registry`).
+/// When the heuristic fails (no `registry_getter`, unexpected shape), we
+/// fall back to `{core_import}::plugins::{fn_name}` so the user can rely on
+/// a re-export.
+fn host_function_path(spec: &alef_codegen::generators::trait_bridge::TraitBridgeSpec, fn_name: &str) -> String {
+    if let Some(getter) = spec.bridge_config.registry_getter.as_deref() {
+        // Extract the trait submodule from `get_<sub>_registry`.
+        let last = getter.rsplit("::").next().unwrap_or("");
+        if let Some(sub) = last.strip_prefix("get_").and_then(|s| s.strip_suffix("_registry")) {
+            // Trim the trailing `_registry` from the getter path to find the
+            // module prefix (everything except the final segment), then
+            // append the trait submodule and function name.
+            let prefix_end = getter.len() - last.len();
+            let prefix = &getter[..prefix_end];
+            // `prefix` ends with `::registry::`, drop the `registry::` part.
+            let prefix = prefix.trim_end_matches("registry::");
+            return format!("{prefix}{sub}::{fn_name}");
+        }
+    }
+    format!("{}::plugins::{}", spec.core_import, fn_name)
+}
+
+/// Compute the Python-visible symbol name for a generated `#[pyfunction]`.
+///
+/// We prefix the Rust function with `_alef_` to avoid colliding with the
+/// host crate's own re-exports of `register_*`/`unregister_*` symbols when
+/// the binding crate `use`s them via `*`. The Python-side name (set with
+/// `#[pyo3(name = "...")]`) keeps the bare function name so callers see
+/// `module.unregister_ocr_backend(name)`.
+fn exported_pyfunction_symbol(fn_name: &str) -> String {
+    fn_name.to_string()
+}
+
 /// PyO3-specific trait bridge generator.
 /// Implements code generation for bridging Python objects to Rust traits.
 pub struct Pyo3BridgeGenerator {
@@ -273,6 +314,59 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         writeln!(out, "            }})").ok();
         writeln!(out, "        }})").ok();
         writeln!(out, "    }}").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        // Derive the FQN of the host crate's `unregister_*` function from the
+        // bridge's `registry_getter` path: `kreuzberg::plugins::registry::get_*`
+        // → `kreuzberg::plugins::*::unregister_*`. When `registry_getter` is not
+        // set we fall back to `{core}::plugins::{unregister_fn}` and trust the
+        // caller's wiring.
+        let host_path = host_function_path(spec, unregister_fn);
+        let mut out = String::with_capacity(512);
+        let host_symbol = exported_pyfunction_symbol(unregister_fn);
+        writeln!(out, "#[pyfunction]").ok();
+        writeln!(out, "#[pyo3(name = \"{host_symbol}\")]").ok();
+        writeln!(
+            out,
+            "pub fn _alef_{unregister_fn}(py: Python<'_>, name: String) -> PyResult<()> {{"
+        )
+        .ok();
+        writeln!(out, "    py.detach(|| {{").ok();
+        writeln!(out, "        {host_path}(&name)").ok();
+        writeln!(
+            out,
+            "            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!(\"{{}}\", e)))"
+        )
+        .ok();
+        writeln!(out, "    }})").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = host_function_path(spec, clear_fn);
+        let host_symbol = exported_pyfunction_symbol(clear_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "#[pyfunction]").ok();
+        writeln!(out, "#[pyo3(name = \"{host_symbol}\")]").ok();
+        writeln!(out, "pub fn _alef_{clear_fn}(py: Python<'_>) -> PyResult<()> {{").ok();
+        writeln!(out, "    py.detach(|| {{").ok();
+        writeln!(out, "        {host_path}()").ok();
+        writeln!(
+            out,
+            "            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!(\"{{}}\", e)))"
+        )
+        .ok();
+        writeln!(out, "    }})").ok();
         writeln!(out, "}}").ok();
         out
     }

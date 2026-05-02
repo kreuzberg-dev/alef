@@ -1167,6 +1167,8 @@ fn make_plugin_bridge_cfg(trait_name: &str) -> alef_core::config::TraitBridgeCon
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some(format!("register_{}", trait_name.to_lowercase())),
+        unregister_fn: None,
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -1183,6 +1185,10 @@ fn make_visitor_bridge_cfg(trait_name: &str, type_alias: &str) -> alef_core::con
         super_trait: None,
         registry_getter: None,
         register_fn: None,
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: Some(type_alias.to_string()),
         param_name: None,
         register_extra_args: None,
@@ -1356,6 +1362,10 @@ fn test_napi_plugin_bridge_validates_required_methods() {
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_analyzer".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,

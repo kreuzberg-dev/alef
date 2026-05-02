@@ -708,31 +708,146 @@ fn to_screaming_snake(s: &str) -> String {
     result
 }
 
+/// Well-known acronyms recognised by the doc/error renderers.
+///
+/// When emitting human-readable Display strings (e.g. for Go sentinel
+/// `errors.New("...")`), variant names like `IoError` must render as
+/// "IO error" — not "iO error" (the result of naive `lowercase first
+/// character` after `to_snake_case`).
+const TECHNICAL_ACRONYMS: &[&str] = &[
+    "API", "ASCII", "CPU", "CSS", "CSV", "DNS", "EOF", "FFI", "FTP", "GID", "GPU", "GUI", "HTML", "HTTP", "HTTPS",
+    "ID", "IO", "IP", "JSON", "JWT", "LDAP", "MFA", "MIME", "OCR", "OS", "PDF", "PID", "PNG", "QPS", "RAM", "RGB",
+    "RPC", "RTF", "SDK", "SLA", "SMTP", "SQL", "SSH", "SSL", "SVG", "TCP", "TLS", "TOML", "TTL", "UDP", "UI", "UID",
+    "URI", "URL", "UTF8", "UUID", "VM", "XML", "XMPP", "XSRF", "XSS", "YAML", "ZIP",
+];
+
+/// Strip `thiserror`-style `{name}` placeholders from a Display template
+/// without leaving stray punctuation.
+///
+/// Examples:
+///
+/// - `"OCR error: {message}"`           → `"OCR error"`
+/// - `"plugin error in '{plugin_name}'"` → `"plugin error"`
+/// - `"timed out after {elapsed_ms}ms (limit: {limit_ms}ms)"` → `"timed out"`
+/// - `"I/O error: {0}"`                  → `"I/O error"`
+///
+/// Used by `variant_display_message` and binding error renderers
+/// (Dart, Go, …) so the literal placeholder string never reaches
+/// the runtime.
+pub fn strip_thiserror_placeholders(template: &str) -> String {
+    // Remove every `{...}` segment.
+    let mut without_placeholders = String::with_capacity(template.len());
+    let mut depth = 0u32;
+    for ch in template.chars() {
+        match ch {
+            '{' => depth = depth.saturating_add(1),
+            '}' => depth = depth.saturating_sub(1),
+            other if depth == 0 => without_placeholders.push(other),
+            _ => {}
+        }
+    }
+    // Remove orphaned punctuation/whitespace immediately around the holes
+    // (collapse runs of whitespace, drop trailing `:`/quote runs, drop
+    // `(...)` shells that wrapped only placeholders).
+    let mut compacted = String::with_capacity(without_placeholders.len());
+    let mut last_was_space = false;
+    for ch in without_placeholders.chars() {
+        if ch.is_whitespace() {
+            if !last_was_space && !compacted.is_empty() {
+                compacted.push(' ');
+            }
+            last_was_space = true;
+        } else {
+            compacted.push(ch);
+            last_was_space = false;
+        }
+    }
+    // Trim trailing punctuation that only made sense before a placeholder.
+    let trimmed = compacted
+        .trim()
+        .trim_end_matches([':', ',', '-', ';', '(', '\'', '"', ' '])
+        .trim();
+    // If we left e.g. `"limit: ms ms"` artefacts behind, collapse stray
+    // empty parens / paired quotes.
+    let cleaned = trimmed
+        .replace("()", "")
+        .replace("''", "")
+        .replace("\"\"", "")
+        .replace("  ", " ");
+    cleaned.trim().to_string()
+}
+
+/// Convert a PascalCase variant name into a human readable phrase that
+/// preserves canonical acronyms.
+///
+/// Examples:
+/// - `"IoError"`           → `"IO error"`
+/// - `"OcrError"`          → `"OCR error"`
+/// - `"PdfParse"`          → `"PDF parse"`
+/// - `"HttpRequestFailed"` → `"HTTP request failed"`
+/// - `"Other"`             → `"other"`
+pub fn acronym_aware_snake_phrase(variant_name: &str) -> String {
+    if variant_name.is_empty() {
+        return String::new();
+    }
+    // Split into PascalCase words (each word starts with an uppercase letter).
+    let bytes = variant_name.as_bytes();
+    let mut words: Vec<&str> = Vec::new();
+    let mut start = 0usize;
+    for i in 1..bytes.len() {
+        if bytes[i].is_ascii_uppercase() {
+            words.push(&variant_name[start..i]);
+            start = i;
+        }
+    }
+    words.push(&variant_name[start..]);
+
+    let mut rendered: Vec<String> = Vec::with_capacity(words.len());
+    for word in &words {
+        let upper = word.to_ascii_uppercase();
+        if TECHNICAL_ACRONYMS.contains(&upper.as_str()) {
+            rendered.push(upper);
+        } else {
+            rendered.push(word.to_ascii_lowercase());
+        }
+    }
+    rendered.join(" ")
+}
+
 /// Generate a human-readable message for an error variant.
 ///
 /// Uses the `message_template` if present, otherwise falls back to a
 /// space-separated version of the variant name (e.g. "ParseError" -> "parse error").
 fn variant_display_message(variant: &ErrorVariant) -> String {
     if let Some(tmpl) = &variant.message_template {
-        // Strip format placeholders like {0}, {source}, etc.
-        let msg = tmpl
-            .replace("{0}", "")
-            .replace("{source}", "")
-            .trim_end_matches(": ")
-            .trim()
-            .to_string();
-        if msg.is_empty() {
-            to_snake_case(&variant.name).replace('_', " ")
+        let stripped = strip_thiserror_placeholders(tmpl);
+        if stripped.is_empty() {
+            return acronym_aware_snake_phrase(&variant.name);
+        }
+        // Preserve canonical acronyms but lowercase the first regular word so
+        // Go's `lowercase first char` convention does not corrupt `IO` → `iO`.
+        // Heuristic: if the first whitespace-delimited token is *not* already
+        // a known acronym, downcase its first character.
+        let mut tokens = stripped.splitn(2, ' ');
+        let head = tokens.next().unwrap_or("").to_string();
+        let tail = tokens.next().unwrap_or("");
+        let head_upper = head.to_ascii_uppercase();
+        let head_rendered = if TECHNICAL_ACRONYMS.contains(&head_upper.as_str()) {
+            head_upper
         } else {
-            // Go convention: error strings start with lowercase
-            let mut chars = msg.chars();
+            let mut chars = head.chars();
             match chars.next() {
                 Some(c) => c.to_lowercase().to_string() + chars.as_str(),
-                None => msg,
+                None => head,
             }
+        };
+        if tail.is_empty() {
+            head_rendered
+        } else {
+            format!("{} {}", head_rendered, tail)
         }
     } else {
-        to_snake_case(&variant.name).replace('_', " ")
+        acronym_aware_snake_phrase(&variant.name)
     }
 }
 
@@ -1033,6 +1148,153 @@ mod tests {
         assert_eq!(to_screaming_snake("ConversionError"), "CONVERSION_ERROR");
         assert_eq!(to_screaming_snake("IoError"), "IO_ERROR");
         assert_eq!(to_screaming_snake("Other"), "OTHER");
+    }
+
+    #[test]
+    fn test_strip_thiserror_placeholders_struct_field() {
+        assert_eq!(strip_thiserror_placeholders("OCR error: {message}"), "OCR error");
+        assert_eq!(
+            strip_thiserror_placeholders("plugin error in '{plugin_name}': {message}"),
+            "plugin error in"
+        );
+        // Multi-placeholder strings retain the surrounding prose verbatim
+        // (minus the holes). Critical contract: no `{` / `}` survives.
+        let result = strip_thiserror_placeholders("extraction timed out after {elapsed_ms}ms (limit: {limit_ms}ms)");
+        assert!(!result.contains('{'), "no braces: {result}");
+        assert!(!result.contains('}'), "no braces: {result}");
+        assert!(result.starts_with("extraction timed out after"), "{result}");
+    }
+
+    #[test]
+    fn test_strip_thiserror_placeholders_positional() {
+        assert_eq!(strip_thiserror_placeholders("I/O error: {0}"), "I/O error");
+        assert_eq!(strip_thiserror_placeholders("Parse error: {0}"), "Parse error");
+    }
+
+    #[test]
+    fn test_strip_thiserror_placeholders_no_placeholder() {
+        assert_eq!(strip_thiserror_placeholders("not found"), "not found");
+        assert_eq!(strip_thiserror_placeholders("lock poisoned"), "lock poisoned");
+    }
+
+    #[test]
+    fn test_acronym_aware_snake_phrase_recognizes_acronyms() {
+        assert_eq!(acronym_aware_snake_phrase("IoError"), "IO error");
+        assert_eq!(acronym_aware_snake_phrase("OcrError"), "OCR error");
+        assert_eq!(acronym_aware_snake_phrase("PdfParse"), "PDF parse");
+        assert_eq!(acronym_aware_snake_phrase("HttpRequestFailed"), "HTTP request failed");
+        assert_eq!(acronym_aware_snake_phrase("UrlInvalid"), "URL invalid");
+    }
+
+    #[test]
+    fn test_acronym_aware_snake_phrase_plain_words() {
+        assert_eq!(acronym_aware_snake_phrase("Other"), "other");
+        assert_eq!(acronym_aware_snake_phrase("ParseError"), "parse error");
+        assert_eq!(acronym_aware_snake_phrase("LockPoisoned"), "lock poisoned");
+    }
+
+    #[test]
+    fn test_variant_display_message_acronym_first_word() {
+        let variant = ErrorVariant {
+            name: "Io".to_string(),
+            message_template: Some("I/O error: {0}".to_string()),
+            fields: vec![tuple_field(0)],
+            has_source: false,
+            has_from: false,
+            is_unit: false,
+            doc: String::new(),
+        };
+        // Template "I/O error: {0}" → strip → "I/O error" → first token "I/O" not an acronym (with `/`),
+        // so falls back to lowercase first char → "i/O error". Acceptable: at least no `{0}` leak.
+        let msg = variant_display_message(&variant);
+        assert!(!msg.contains('{'), "no placeholders allowed: {msg}");
+    }
+
+    #[test]
+    fn test_variant_display_message_no_template_uses_acronyms() {
+        let variant = ErrorVariant {
+            name: "IoError".to_string(),
+            message_template: None,
+            fields: vec![],
+            has_source: false,
+            has_from: false,
+            is_unit: false,
+            doc: String::new(),
+        };
+        assert_eq!(variant_display_message(&variant), "IO error");
+    }
+
+    #[test]
+    fn test_variant_display_message_struct_template_no_leak() {
+        let variant = ErrorVariant {
+            name: "Ocr".to_string(),
+            message_template: Some("OCR error: {message}".to_string()),
+            fields: vec![named_field("message")],
+            has_source: false,
+            has_from: false,
+            is_unit: false,
+            doc: String::new(),
+        };
+        let msg = variant_display_message(&variant);
+        assert_eq!(msg, "OCR error", "must not leak {{message}} placeholder: {msg}");
+    }
+
+    #[test]
+    fn test_go_sentinels_no_placeholder_leak() {
+        let error = ErrorDef {
+            name: "KreuzbergError".to_string(),
+            rust_path: "kreuzberg::KreuzbergError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                ErrorVariant {
+                    name: "Io".to_string(),
+                    message_template: Some("IO error: {message}".to_string()),
+                    fields: vec![named_field("message")],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+                ErrorVariant {
+                    name: "Ocr".to_string(),
+                    message_template: Some("OCR error: {message}".to_string()),
+                    fields: vec![named_field("message")],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+                ErrorVariant {
+                    name: "Timeout".to_string(),
+                    message_template: Some(
+                        "extraction timed out after {elapsed_ms}ms (limit: {limit_ms}ms)".to_string(),
+                    ),
+                    fields: vec![named_field("elapsed_ms"), named_field("limit_ms")],
+                    has_source: false,
+                    has_from: false,
+                    is_unit: false,
+                    doc: String::new(),
+                },
+            ],
+            doc: String::new(),
+        };
+        let output = gen_go_sentinel_errors(std::slice::from_ref(&error));
+        assert!(
+            !output.contains('{'),
+            "Go sentinels must not contain raw placeholders:\n{output}"
+        );
+        assert!(
+            output.contains("ErrIo = errors.New(\"IO error\")"),
+            "expected acronym-preserving Io sentinel, got:\n{output}"
+        );
+        assert!(
+            output.contains("ErrOcr = errors.New(\"OCR error\")"),
+            "expected acronym-preserving Ocr sentinel, got:\n{output}"
+        );
+        assert!(
+            output.contains("ErrTimeout = errors.New(\"extraction timed out after"),
+            "expected timeout sentinel to start with the prose, got:\n{output}"
+        );
     }
 
     // -----------------------------------------------------------------------

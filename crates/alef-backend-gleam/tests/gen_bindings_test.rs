@@ -420,6 +420,8 @@ fn make_bridge_cfg(trait_name: &str, register_fn: &str) -> TraitBridgeConfig {
         super_trait: None,
         registry_getter: Some(format!("demo::get_{}_registry", trait_name.to_lowercase())),
         register_fn: Some(register_fn.to_string()),
+        unregister_fn: None,
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,

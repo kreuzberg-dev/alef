@@ -95,6 +95,10 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         super_trait: None,
         registry_getter: None,
         register_fn: None,
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -273,6 +277,10 @@ fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pa
         super_trait: None,
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -308,6 +316,10 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
         super_trait: None,
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -384,6 +396,10 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fiel
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -431,6 +447,10 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -534,6 +554,10 @@ fn test_gen_trait_bridge_safety_comments_present() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_processor".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
@@ -624,6 +648,10 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_transform".to_string()),
+
+        unregister_fn: None,
+
+        clear_fn: None,
         type_alias: None,
         param_name: None,
         register_extra_args: None,
