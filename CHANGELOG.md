@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-java): public facade and opaque-type Javadocs now use the shared
+  Javadoc escaping path, preventing Rustdoc examples from being emitted as raw
+  `&...`/fenced-code content that breaks `mvn verify` Javadoc generation.
 - fix(backend-php): generated public PHP wrapper files now include the
   formatter-required blank line after `<?php` before the Alef header, keeping
   `php-cs-fixer` from mutating generated files after hashes are finalized.

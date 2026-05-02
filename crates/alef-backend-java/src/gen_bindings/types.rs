@@ -456,13 +456,7 @@ pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str
     writeln!(out, "import java.lang.foreign.MemorySegment;").ok();
     writeln!(out).ok();
 
-    if !typ.doc.is_empty() {
-        writeln!(out, "/**").ok();
-        for line in typ.doc.lines() {
-            writeln!(out, " * {}", line).ok();
-        }
-        writeln!(out, " */").ok();
-    }
+    emit_javadoc(&mut out, &typ.doc, "");
 
     writeln!(out, "public class {} implements AutoCloseable {{", class_name).ok();
     writeln!(out, "    private final MemorySegment handle;").ok();
