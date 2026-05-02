@@ -103,13 +103,18 @@ fn gen_type_stub(typ: &TypeDef) -> String {
 
     // Add field attr declarations — use attr_accessor for config types (has_default),
     // attr_reader for immutable result types.
+    // For config types, all fields are optional (builder pattern).
     let accessor = if typ.has_default {
         "attr_accessor"
     } else {
         "attr_reader"
     };
     for f in &typ.fields {
-        let field_type = rbs_type(&f.ty);
+        let mut field_type = rbs_type(&f.ty);
+        // Builder types have optional fields (attr_accessor allows setting/getting nil)
+        if typ.has_default && !field_type.ends_with('?') {
+            field_type.push('?');
+        }
         lines.push(format!(r#"    {accessor} {}: {field_type}"#, f.name));
     }
 
