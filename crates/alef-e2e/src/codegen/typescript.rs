@@ -132,10 +132,19 @@ impl E2eCodegen for TypeScriptCodegen {
 
         // Generate test files per category.
         for group in groups {
+            let lang_filter = self.language_name();
             let active: Vec<&Fixture> = group
                 .fixtures
                 .iter()
-                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip("node")))
+                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang_filter)))
+                // Honor per-call `skip_languages`: a fixture that resolves to a
+                // call marked `skip_languages = ["wasm"]` should not appear in
+                // the wasm e2e (the call's symbol isn't exported by the wasm
+                // binding). Same for node when a call opts out.
+                .filter(|f| {
+                    let cc = e2e_config.resolve_call(f.call.as_deref());
+                    !cc.skip_languages.iter().any(|l| l == lang_filter)
+                })
                 .collect();
 
             if active.is_empty() {
@@ -719,18 +728,16 @@ fn render_test_case(
     // (because the call shares the default `JsExtractionConfig` shape) still
     // gets the cast/import emission needed for strict TypeScript.
     let per_call_options_type = call_config.overrides.get(lang).and_then(|o| o.options_type.clone());
-    let fixture_options_type: Option<String> =
-        per_call_options_type.or_else(|| options_type.map(|s| s.to_string()));
+    let fixture_options_type: Option<String> = per_call_options_type.or_else(|| options_type.map(|s| s.to_string()));
     let options_type = fixture_options_type.as_deref();
 
     // Result-shape flags describe the Rust core's return type and therefore apply
     // to every binding; prefer the call-level value (`[e2e.calls.<name>]`) and
     // fall back to a per-language override only for backwards compatibility with
     // older alef.tomls that declared the flag under `overrides.<lang>`.
-    let result_is_simple = call_config.result_is_simple
-        || call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
-    let result_is_vec = call_config.result_is_vec
-        || call_config.overrides.get(lang).is_some_and(|o| o.result_is_vec);
+    let result_is_simple =
+        call_config.result_is_simple || call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
+    let result_is_vec = call_config.result_is_vec || call_config.overrides.get(lang).is_some_and(|o| o.result_is_vec);
 
     // Apply per-language `arg_order` reordering. NAPI-RS often reshuffles
     // parameters relative to the canonical Rust signature (e.g. extract_file
@@ -853,14 +860,33 @@ fn render_test_case(
         if assertion.assertion_type == "not_error" && !call_config.returns_result {
             continue;
         }
-        render_assertion(out, assertion, result_var, field_resolver, result_is_simple, result_is_vec);
+        render_assertion(
+            out,
+            assertion,
+            result_var,
+            field_resolver,
+            result_is_simple,
+            result_is_vec,
+        );
     }
 
     let _ = writeln!(out, "  }});");
 }
 
-/// Check whether any arg at index `idx` or later has a non-null value in `input`.
-fn has_later_arg_value(args: &[crate::config::ArgMapping], from_idx: usize, input: &serde_json::Value) -> bool {
+/// Check whether any arg at index `idx` or later requires a positional placeholder.
+/// Returns `true` when:
+///   - the arg has a non-null fixture value, OR
+///   - the arg is a `json_object` with an `options_type` configured (the renderer
+///     emits `{} as unknown as <Type>` for missing-but-typed optional configs).
+///
+/// Used to decide whether earlier optional args need `undefined` placeholders to
+/// preserve positional argument order in the call site.
+fn has_later_arg_value(
+    args: &[crate::config::ArgMapping],
+    from_idx: usize,
+    input: &serde_json::Value,
+    options_type: Option<&str>,
+) -> bool {
     args[from_idx..].iter().any(|arg| {
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = if field == "input" {
@@ -868,7 +894,13 @@ fn has_later_arg_value(args: &[crate::config::ArgMapping], from_idx: usize, inpu
         } else {
             input.get(field)
         };
-        !matches!(val, None | Some(serde_json::Value::Null))
+        let has_value = !matches!(val, None | Some(serde_json::Value::Null));
+        if has_value {
+            return true;
+        }
+        // Optional json_object args with a configured options_type emit a typed
+        // empty default — they DO occupy a positional slot.
+        arg.optional && arg.arg_type == "json_object" && options_type.is_some()
     })
 }
 
@@ -886,11 +918,8 @@ fn build_args_and_setup(
         // arguments — emit a bare call. Otherwise pass the whole input as a
         // single argument (legacy behavior, used by HTTP-style fixtures whose
         // input describes a request body).
-        let no_input = matches!(input, serde_json::Value::Null)
-            || input
-                .as_object()
-                .map(|o| o.is_empty())
-                .unwrap_or(false);
+        let no_input =
+            matches!(input, serde_json::Value::Null) || input.as_object().map(|o| o.is_empty()).unwrap_or(false);
         if no_input {
             return (Vec::new(), String::new());
         }
@@ -952,10 +981,11 @@ fn build_args_and_setup(
                 // a config struct is itself optional in serde-deserialized form).
                 // For other arg types, keep the legacy behavior: emit `undefined` only
                 // when a later arg needs to be positioned.
-                if arg.arg_type == "json_object" && options_type.is_some() {
-                    let opts_type = options_type.unwrap();
-                    parts.push(format!("{{}} as unknown as {opts_type}"));
-                } else if has_later_arg_value(args, idx + 1, input) {
+                if arg.arg_type == "json_object" {
+                    if let Some(opts_type) = options_type {
+                        parts.push(format!("{{}} as unknown as {opts_type}"));
+                    }
+                } else if has_later_arg_value(args, idx + 1, input, options_type) {
                     parts.push("undefined".to_string());
                 }
                 // Otherwise skip entirely (trailing optional args need no placeholder).
@@ -978,20 +1008,15 @@ fn build_args_and_setup(
                         match classify_bytes_value(raw) {
                             BytesKind::FilePath => {
                                 let escaped = escape_js(raw);
-                                setup_lines
-                                    .push(format!("const {var} = readFileSync(\"{escaped}\");"));
+                                setup_lines.push(format!("const {var} = readFileSync(\"{escaped}\");"));
                             }
                             BytesKind::InlineText => {
                                 let escaped = escape_js(raw);
-                                setup_lines.push(format!(
-                                    "const {var} = Buffer.from(\"{escaped}\", \"utf-8\");"
-                                ));
+                                setup_lines.push(format!("const {var} = Buffer.from(\"{escaped}\", \"utf-8\");"));
                             }
                             BytesKind::Base64 => {
                                 let escaped = escape_js(raw);
-                                setup_lines.push(format!(
-                                    "const {var} = Buffer.from(\"{escaped}\", \"base64\");"
-                                ));
+                                setup_lines.push(format!("const {var} = Buffer.from(\"{escaped}\", \"base64\");"));
                             }
                         }
                         parts.push(var);
@@ -1264,21 +1289,85 @@ fn render_assertion(
             }
         }
         "not_empty" => {
-            // Use null-coalescing for optional fields to handle null/undefined values.
+            // `not_empty` semantics depend on the field's type:
+            //   - Array/Vec   (in fields_array): assert `.length > 0`
+            //   - String      (Rust `String`/`Option<String>`):    assert `.length > 0`
+            //                 — strings are not in fields_array but the binding
+            //                 emits `string`, so `.length` works
+            //   - Struct      (e.g. `metadata`, `document`):       assert non-null
+            //                 — structs have no `.length`, so emit a presence
+            //                 check via `Object.keys(...).length > 0`. This
+            //                 mirrors the kreuzberg core's `Metadata::is_empty`
+            //                 semantics ("at least one populated field") without
+            //                 hard-coding the field set.
+            //
+            // Detection: a field is treated as "array-like" when it is in
+            // `fields_array` OR when the assertion expected value implies a
+            // string (we can't see the value here for `not_empty`). Lacking
+            // type info, we conservatively use the array path only when
+            // `fields_array` claims the field; otherwise use the struct path.
             let resolved = assertion.field.as_deref().unwrap_or("");
-            if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
-                let _ = writeln!(out, "    expect(({field_expr} ?? \"\").length).toBeGreaterThan(0);");
-            } else {
+            let resolved_path = field_resolver.resolve(resolved);
+            let is_array = !resolved.is_empty() && field_resolver.is_array(resolved_path);
+            let is_optional = !resolved.is_empty() && field_resolver.is_optional(resolved_path);
+            if is_array {
+                if is_optional {
+                    let _ = writeln!(out, "    expect(({field_expr} ?? []).length).toBeGreaterThan(0);");
+                } else {
+                    let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThan(0);");
+                }
+            } else if resolved.is_empty() {
+                // Whole-result `not_empty` — assume string-like length.
                 let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThan(0);");
+            } else {
+                // Non-array, non-empty field path: the field could be a string
+                // (`content`, `mimeType`, …) or a struct (`metadata`, `document`,
+                // …). We can't infer the type at codegen time so we cast through
+                // `unknown` and dispatch at runtime — strings/arrays use
+                // `.length`, objects use `Object.keys(...).length`. The cast
+                // avoids TS narrowing the conditional to `never` when the
+                // declared type is a struct (string-typeof branch unreachable
+                // statically) or vice-versa.
+                let any_expr = format!("({field_expr} as unknown)");
+                if is_optional {
+                    let _ = writeln!(
+                        out,
+                        "    expect((() => {{ const v = {any_expr} ?? ''; return typeof v === 'string' || Array.isArray(v) ? (v as {{ length: number }}).length : Object.keys(v as object).length; }})()).toBeGreaterThan(0);"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "    expect((() => {{ const v = {any_expr}; return typeof v === 'string' || Array.isArray(v) ? (v as {{ length: number }}).length : Object.keys(v as object).length; }})()).toBeGreaterThan(0);"
+                    );
+                }
             }
         }
         "is_empty" => {
-            // Use null-coalescing for optional string fields to handle null/undefined values.
             let resolved = assertion.field.as_deref().unwrap_or("");
-            if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
-                let _ = writeln!(out, "    expect({field_expr} ?? \"\").toHaveLength(0);");
-            } else {
+            let resolved_path = field_resolver.resolve(resolved);
+            let is_array = !resolved.is_empty() && field_resolver.is_array(resolved_path);
+            let is_optional = !resolved.is_empty() && field_resolver.is_optional(resolved_path);
+            if is_array {
+                if is_optional {
+                    let _ = writeln!(out, "    expect(({field_expr} ?? []).length).toBe(0);");
+                } else {
+                    let _ = writeln!(out, "    expect({field_expr}).toHaveLength(0);");
+                }
+            } else if resolved.is_empty() {
                 let _ = writeln!(out, "    expect({field_expr}).toHaveLength(0);");
+            } else {
+                let any_expr = format!("({field_expr} as unknown)");
+                if is_optional {
+                    let _ = writeln!(
+                        out,
+                        "    expect((() => {{ const v = {any_expr} ?? ''; return typeof v === 'string' || Array.isArray(v) ? (v as {{ length: number }}).length : Object.keys(v as object).length; }})()).toBe(0);"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "    expect((() => {{ const v = {any_expr}; return typeof v === 'string' || Array.isArray(v) ? (v as {{ length: number }}).length : Object.keys(v as object).length; }})()).toBe(0);"
+                    );
+                }
             }
         }
         "contains_any" => {
@@ -1645,10 +1734,7 @@ fn emit_typescript_visitor_method(out: &mut String, method_name: &str, action: &
         _ => "ctx",
     };
 
-    let _ = writeln!(
-        out,
-        "    {camel_method}({params}): string | {{ custom: string }} {{"
-    );
+    let _ = writeln!(out, "    {camel_method}({params}): string | {{ custom: string }} {{");
     match action {
         CallbackAction::Skip => {
             let _ = writeln!(out, "        return \"skip\";");

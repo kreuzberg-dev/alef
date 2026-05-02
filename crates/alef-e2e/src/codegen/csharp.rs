@@ -54,7 +54,7 @@ impl E2eCodegen for CSharpCodegen {
                 call.module.to_upper_camel_case()
             }
         });
-        let result_is_simple = overrides.is_some_and(|o| o.result_is_simple);
+        let result_is_simple = call.result_is_simple || overrides.is_some_and(|o| o.result_is_simple);
         let result_var = &call.result_var;
         let is_async = call.r#async;
 
@@ -509,7 +509,10 @@ fn render_test_method(
     let args = call_config.args.as_slice();
 
     // Per-call overrides: result shape, void returns, extra trailing args.
-    let per_call_result_is_simple = cs_overrides.is_some_and(|o| o.result_is_simple);
+    // Pull `result_is_simple` from the per-call config first (call-level value
+    // wins, then per-language override, then the top-level call's value).
+    let per_call_result_is_simple =
+        call_config.result_is_simple || cs_overrides.is_some_and(|o| o.result_is_simple);
     let effective_result_is_simple = result_is_simple || per_call_result_is_simple;
     let returns_void = call_config.returns_void;
     let extra_args_slice: &[String] = cs_overrides.map_or(&[], |o| o.extra_args.as_slice());
@@ -580,7 +583,7 @@ fn render_test_method(
         return;
     }
 
-    let result_is_vec = cs_overrides.is_some_and(|o| o.result_is_vec);
+    let result_is_vec = call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec);
 
     if returns_void {
         let _ = writeln!(out, "        {await_kw}{class_name}.{function_name}({final_args});");

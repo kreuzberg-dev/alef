@@ -78,6 +78,14 @@ impl E2eCodegen for WasmCodegen {
                     .fixtures
                     .iter()
                     .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip(lang)))
+                    // Honor per-call `skip_languages`: when the resolved call's
+                    // `skip_languages` contains `wasm`, the wasm binding doesn't
+                    // export that function and any test file referencing it
+                    // would fail TS resolution. Drop the fixture entirely.
+                    .filter(|f| {
+                        let cc = e2e_config.resolve_call(f.call.as_deref());
+                        !cc.skip_languages.iter().any(|l| l == lang)
+                    })
                     .filter(|f| {
                         // Node fetch (undici) rejects pre-set Content-Length that
                         // doesn't match the real body length — skip fixtures that

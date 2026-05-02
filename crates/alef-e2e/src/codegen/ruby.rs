@@ -47,7 +47,8 @@ impl E2eCodegen for RubyCodegen {
         let options_type = overrides.and_then(|o| o.options_type.clone());
         let empty_enum_fields = HashMap::new();
         let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields);
-        let result_is_simple = overrides.is_some_and(|o| o.result_is_simple);
+        let result_is_simple =
+            call.result_is_simple || overrides.is_some_and(|o| o.result_is_simple);
 
         // Resolve package config.
         let ruby_pkg = e2e_config.resolve_package("ruby");

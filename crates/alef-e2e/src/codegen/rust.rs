@@ -420,17 +420,15 @@ fn render_test_file(
     {
         let call_config = &e2e_config.call;
         let rust_override = call_config.overrides.get("rust");
-        let needs_options_type_import = rust_override.is_some_and(|o| {
-            o.wrap_options_in_some && o.options_type.is_some()
-        });
+        let needs_options_type_import =
+            rust_override.is_some_and(|o| o.wrap_options_in_some && o.options_type.is_some());
         if needs_options_type_import {
             let ty_name = rust_override.unwrap().options_type.as_deref().unwrap();
             let file_has_non_null_options = fixtures.iter().any(|f| {
-                call_config.args.iter().any(|a| {
-                    a.arg_type == "json_object"
-                        && a.optional
-                        && !resolve_field(&f.input, &a.field).is_null()
-                })
+                call_config
+                    .args
+                    .iter()
+                    .any(|a| a.arg_type == "json_object" && a.optional && !resolve_field(&f.input, &a.field).is_null())
             });
             if file_has_non_null_options {
                 let _ = writeln!(out, "use {module}::{ty_name};");
@@ -611,12 +609,13 @@ fn render_test_function(
     let await_suffix = if is_async { ".await" } else { "" };
 
     let result_is_tree = call_config.result_var == "tree";
-    // When the rust override sets result_is_simple, the function returns a plain type
-    // (String, Vec<T>, etc.) — field-access assertions use the result var directly.
-    let result_is_simple = rust_overrides.is_some_and(|o| o.result_is_simple);
-    // When result_is_vec is set, the function returns Vec<T>. Field-path assertions
-    // are wrapped in `.iter().all(|r| ...)` so every element is checked.
-    let result_is_vec = rust_overrides.is_some_and(|o| o.result_is_vec);
+    // Result-shape flags describe the Rust core's return type and apply to every
+    // binding equally. Prefer call-level values; fall back to per-language
+    // overrides for backwards compatibility with older alef.tomls.
+    let result_is_simple = call_config.result_is_simple
+        || rust_overrides.is_some_and(|o| o.result_is_simple);
+    let result_is_vec = call_config.result_is_vec
+        || rust_overrides.is_some_and(|o| o.result_is_vec);
     // When result_is_option is set, the function returns Option<T>. Field-path
     // assertions unwrap first via `.as_ref().expect("Option should be Some")`.
     let result_is_option = rust_overrides.is_some_and(|o| o.result_is_option);
@@ -3025,7 +3024,11 @@ struct VisitorParam {
 
 impl VisitorParam {
     const fn new(name: &'static str, ty: &'static str) -> Self {
-        Self { name, ty, unwrap_option: false }
+        Self {
+            name,
+            ty,
+            unwrap_option: false,
+        }
     }
 
     /// An `Option<&str>` parameter whose plain string value may be needed by
@@ -3033,13 +3036,21 @@ impl VisitorParam {
     /// (no `_` prefix); the prefix is added at render time when the param is
     /// not referenced.
     const fn option_str(name: &'static str) -> Self {
-        Self { name, ty: "Option<&str>", unwrap_option: true }
+        Self {
+            name,
+            ty: "Option<&str>",
+            unwrap_option: true,
+        }
     }
 
     /// An `Option<&str>` parameter that is never referenced by templates.
     /// The name stored here already includes the `_` prefix.
     const fn option_str_unused(name: &'static str) -> Self {
-        Self { name, ty: "Option<&str>", unwrap_option: false }
+        Self {
+            name,
+            ty: "Option<&str>",
+            unwrap_option: false,
+        }
     }
 }
 
@@ -3069,10 +3080,20 @@ fn visitor_method_extra_params(method_name: &str) -> Vec<VisitorParam> {
             VisitorParam::option_str_unused("_lang"),
             VisitorParam::new("code", "&str"),
         ],
-        "visit_code_inline" | "visit_strong" | "visit_emphasis" | "visit_strikethrough"
-        | "visit_underline" | "visit_subscript" | "visit_superscript" | "visit_mark"
-        | "visit_button" | "visit_summary" | "visit_figcaption" | "visit_definition_term"
-        | "visit_definition_description" | "visit_text" => {
+        "visit_code_inline"
+        | "visit_strong"
+        | "visit_emphasis"
+        | "visit_strikethrough"
+        | "visit_underline"
+        | "visit_subscript"
+        | "visit_superscript"
+        | "visit_mark"
+        | "visit_button"
+        | "visit_summary"
+        | "visit_figcaption"
+        | "visit_definition_term"
+        | "visit_definition_description"
+        | "visit_text" => {
             vec![VisitorParam::new("text", "&str")]
         }
         "visit_list_item" => vec![
@@ -3088,10 +3109,7 @@ fn visitor_method_extra_params(method_name: &str) -> Vec<VisitorParam> {
             VisitorParam::new("cells", "&[String]"),
             VisitorParam::new("is_header", "bool"),
         ],
-        "visit_custom_element" => vec![
-            VisitorParam::new("tag_name", "&str"),
-            VisitorParam::new("html", "&str"),
-        ],
+        "visit_custom_element" => vec![VisitorParam::new("tag_name", "&str"), VisitorParam::new("html", "&str")],
         "visit_form" => vec![
             VisitorParam::option_str_unused("_action"),
             VisitorParam::option_str_unused("_method"),
@@ -3110,8 +3128,9 @@ fn visitor_method_extra_params(method_name: &str) -> Vec<VisitorParam> {
             VisitorParam::new("ordered", "bool"),
             VisitorParam::new("output", "&str"),
         ],
-        "visit_element_end" | "visit_table_end" | "visit_definition_list_end"
-        | "visit_figure_end" => vec![VisitorParam::new("output", "&str")],
+        "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
+            vec![VisitorParam::new("output", "&str")]
+        }
         _ => vec![],
     }
 }

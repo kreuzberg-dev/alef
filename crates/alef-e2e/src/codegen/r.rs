@@ -39,7 +39,8 @@ impl E2eCodegen for RCodegen {
             .and_then(|o| o.function.as_ref())
             .cloned()
             .unwrap_or_else(|| call.function.clone());
-        let result_is_simple = overrides.is_some_and(|o| o.result_is_simple);
+        let result_is_simple =
+            call.result_is_simple || overrides.is_some_and(|o| o.result_is_simple);
         let _result_var = &call.result_var;
 
         // Resolve package config.
