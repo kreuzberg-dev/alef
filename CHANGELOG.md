@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-pyo3): `PyVisitorRef` now uses PyO3 0.28 API correctly. Updated `FromPyObject<'a, 'py>` to accept two lifetimes and use `extract(Borrowed<'a, 'py, PyAny>)` instead of the deprecated `extract_bound()`. Fixed `IntoPyObject` error type to use `Infallible` (conversion cannot fail). Resolves E0407, E0107, E0277, E0308 errors when building against PyO3 0.28.3.
+
 - fix(backend-pyo3): trait types now map to `PyVisitorRef` (a custom wrapper) instead of `Arc<Py<PyAny>>`.
   `Arc<Py<PyAny>>` broke PyO3's `IntoPyObject`/`FromPyObject` field traits (E0277). `PyVisitorRef`
   wraps `Py<PyAny>` in `Arc<>` for cheap cloning while maintaining PyO3 compatibility at struct

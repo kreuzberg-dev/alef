@@ -308,10 +308,12 @@ impl From<pyo3::Py<pyo3::PyAny>> for PyVisitorRef {
     }
 }
 
-impl<'py> pyo3::FromPyObject<'py> for PyVisitorRef {
-    fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+impl<'a, 'py> pyo3::FromPyObject<'a, 'py> for PyVisitorRef {
+    type Error = pyo3::PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, 'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         Ok(PyVisitorRef {
-            inner: std::sync::Arc::new(pyo3::Py::from(ob.as_any())),
+            inner: std::sync::Arc::new(ob.clone().unbind()),
         })
     }
 }
@@ -319,7 +321,7 @@ impl<'py> pyo3::FromPyObject<'py> for PyVisitorRef {
 impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
     type Target = pyo3::PyAny;
     type Output = pyo3::Bound<'py, pyo3::PyAny>;
-    type Error = pyo3::PyErr;
+    type Error = std::convert::Infallible;
 
     fn into_pyobject(self, py: pyo3::Python<'py>) -> Result<Self::Output, Self::Error> {
         Ok((*self.inner).bind(py).clone())
