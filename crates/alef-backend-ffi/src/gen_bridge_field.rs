@@ -15,7 +15,7 @@
 //! The `{prefix}_convert_with_visitor` export from the legacy `visitor_callbacks` path is
 //! NOT emitted in this mode — a single `{prefix}_convert` suffices.
 
-use alef_codegen::generators::trait_bridge::{format_param_type, format_return_type, format_type_ref};
+use alef_codegen::generators::trait_bridge::{format_param_type, format_return_type};
 use alef_core::ir::{MethodDef, ReceiverKind, TypeDef};
 use heck::ToPascalCase;
 use std::collections::HashMap;
@@ -113,7 +113,6 @@ pub unsafe extern "C" fn {fn_name}(
     opts.{field_name} = Some(std::rc::Rc::new(std::cell::RefCell::new(VtableRef(visitor))));
 }}"#,
         prefix = prefix,
-        pascal_prefix = pascal_prefix,
         handle_type = handle_type,
         handle_snake = handle_snake,
         fn_name = fn_name,

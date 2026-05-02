@@ -431,6 +431,14 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
 
     let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
 
+    // True when any trait bridge is configured in options-field mode.  In this mode the
+    // visitor is embedded in the options struct and `{prefix}_convert` is the single
+    // entry point — `{prefix}_convert_with_visitor` is NOT emitted.
+    let has_options_field_bridge = config
+        .trait_bridges
+        .iter()
+        .any(|b| b.bind_via == BridgeBinding::OptionsField);
+
     let ffi_exclude_functions: ahash::AHashSet<String> = config
         .ffi
         .as_ref()
@@ -442,12 +450,18 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
         if ffi_exclude_functions.contains(&func.name) {
             continue;
         }
-        // When visitor_callbacks is enabled, the core `convert` function has a visitor
-        // parameter that causes the IR sanitizer to mark the function as unimplementable
-        // (the visitor trait type is unknown to the IR).  Skip the sanitized stub here;
-        // the proper no-visitor implementation is emitted below via gen_convert_no_visitor.
+        // Legacy visitor_callbacks path: skip the sanitized `convert` stub and replace it
+        // below with gen_convert_no_visitor + gen_visitor_bindings.
         if visitor_callbacks_enabled && func.sanitized && func.name == "convert" {
             continue;
+        }
+        // Options-field bridge path: skip the sanitized `convert` stub when find_bridge_field
+        // finds a match (the visitor is in options, so the standard free-function path cannot
+        // handle it). The replacement is emitted below via gen_convert_with_options_field_bridge.
+        if has_options_field_bridge && func.sanitized && func.name == "convert" {
+            if find_bridge_field(func, &api.types, &config.trait_bridges).is_some() {
+                continue;
+            }
         }
         builder.add_item(&gen_free_function(func, prefix, &core_import, &path_map, &enum_names));
     }
@@ -480,6 +494,14 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
             .map(|t| (t.name.as_str(), t))
             .collect();
 
+        // Build type_paths map for the options-field bridge setter's delegation impl.
+        let type_paths_for_bridges: std::collections::HashMap<String, String> = api
+            .types
+            .iter()
+            .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
+            .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
+            .collect();
+
         let error_type_name = config.error_type();
         let error_constructor = config.error_constructor();
         for bridge_cfg in &config.trait_bridges {
@@ -494,6 +516,33 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
                     api,
                 );
                 builder.add_item(&bridge_code);
+
+                // For options-field bridges: emit the setter + the options-aware convert.
+                if bridge_cfg.bind_via == BridgeBinding::OptionsField {
+                    if let (Some(options_type_name), Some(field_name)) = (
+                        bridge_cfg.options_type.as_deref(),
+                        bridge_cfg.resolved_options_field(),
+                    ) {
+                        // Setter: {prefix}_options_set_{field}(options, visitor)
+                        let setter = crate::gen_bridge_field::gen_options_set_bridge(
+                            prefix,
+                            &core_import,
+                            trait_def,
+                            &bridge_cfg.trait_name,
+                            field_name,
+                            options_type_name,
+                            &type_paths_for_bridges,
+                        );
+                        builder.add_item(&setter);
+
+                        // Convert wrapper: {prefix}_convert(html, options) — options carries visitor
+                        let convert_fn = crate::gen_bridge_field::gen_convert_with_options_field_bridge(
+                            prefix,
+                            &core_import,
+                        );
+                        builder.add_item(&convert_fn);
+                    }
+                }
             }
         }
     }
@@ -1293,6 +1342,344 @@ mod tests {
         assert!(
             lib.content.contains(".clone()"),
             "Clone-capable Named field must emit .clone() in accessor:\n{}",
+            lib.content
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Options-field bridge mode tests
+    // ---------------------------------------------------------------------------
+
+    /// Build a minimal API with:
+    ///   - `ConversionOptions` struct (serde, clone) with a `visitor` field (sanitized)
+    ///   - `ConversionResult` opaque return type
+    ///   - `HtmlVisitor` trait with one method
+    ///   - `convert(html: &str, options: Option<ConversionOptions>) -> Result<ConversionResult>`
+    ///     where `convert` is `sanitized = true` (IR couldn't represent the visitor field type)
+    fn options_field_api() -> ApiSurface {
+        let visitor_trait = TypeDef {
+            name: "HtmlVisitor".to_string(),
+            rust_path: "my_lib::visitor::HtmlVisitor".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "visit_text".to_string(),
+                params: vec![ParamDef {
+                    name: "text".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::RefMut),
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: true,
+            }],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        let conversion_options = TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "my_lib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                FieldDef {
+                    name: "max_depth".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::U32),
+                    optional: true,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                },
+                // The visitor field is sanitized because its type (VisitorHandle) is opaque.
+                FieldDef {
+                    name: "visitor".to_string(),
+                    ty: TypeRef::Named("VisitorHandle".to_string()),
+                    optional: true,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: true,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        let conversion_result = TypeDef {
+            name: "ConversionResult".to_string(),
+            rust_path: "my_lib::ConversionResult".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: true,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        // The convert function is marked sanitized because the visitor field type is unknown.
+        let convert_fn = FunctionDef {
+            name: "convert".to_string(),
+            rust_path: "my_lib::convert".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "html".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "options".to_string(),
+                    ty: TypeRef::Named("ConversionOptions".to_string()),
+                    optional: true,
+                    default: None,
+                    sanitized: true, // sanitized because visitor field is opaque
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+            ],
+            return_type: TypeRef::Named("ConversionResult".to_string()),
+            is_async: false,
+            error_type: Some("ConversionError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: true,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        };
+
+        ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![visitor_trait, conversion_options, conversion_result],
+            functions: vec![convert_fn],
+            enums: vec![],
+            errors: vec![],
+        }
+    }
+
+    fn options_field_config() -> AlefConfig {
+        toml::from_str(
+            r#"
+            languages = ["ffi"]
+            [crate]
+            name = "my-lib"
+            sources = ["src/lib.rs"]
+            [ffi]
+            prefix = "htm"
+
+            [[trait_bridges]]
+            trait_name = "HtmlVisitor"
+            type_alias = "VisitorHandle"
+            param_name = "visitor"
+            bind_via = "options_field"
+            options_type = "ConversionOptions"
+            "#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_options_field_bridge_emits_options_setter() {
+        let api = options_field_api();
+        let config = options_field_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // Setter function must be emitted with #[unsafe(no_mangle)]
+        assert!(
+            lib.content.contains("htm_options_set_visitor"),
+            "options-field bridge must emit htm_options_set_visitor setter:\n{}",
+            lib.content
+        );
+        assert!(
+            lib.content.contains("extern \"C\" fn htm_options_set_visitor"),
+            "setter must be extern C:\n{}",
+            lib.content
+        );
+        assert!(
+            lib.content.contains("#[unsafe(no_mangle)]"),
+            "setter must carry #[unsafe(no_mangle)]:\n{}",
+            lib.content
+        );
+    }
+
+    #[test]
+    fn test_options_field_bridge_emits_convert_function() {
+        let api = options_field_api();
+        let config = options_field_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The options-field convert must be present
+        assert!(
+            lib.content.contains("extern \"C\" fn htm_convert("),
+            "options-field mode must emit htm_convert:\n{}",
+            lib.content
+        );
+    }
+
+    #[test]
+    fn test_options_field_bridge_no_convert_with_visitor() {
+        let api = options_field_api();
+        let config = options_field_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // In options-field mode there must be NO htm_convert_with_visitor
+        assert!(
+            !lib.content.contains("htm_convert_with_visitor"),
+            "options-field mode must NOT emit htm_convert_with_visitor:\n{}",
+            lib.content
+        );
+    }
+
+    #[test]
+    fn test_options_field_bridge_suppresses_from_json_for_options_type() {
+        let api = options_field_api();
+        let config = options_field_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The options type (ConversionOptions) owns a bridge field — its _from_json
+        // helper must NOT be generated because the visitor cannot survive JSON round-trip.
+        assert!(
+            !lib.content.contains("htm_conversion_options_from_json"),
+            "options type must not get an auto _from_json helper:\n{}",
+            lib.content
+        );
+    }
+
+    #[test]
+    fn test_options_field_bridge_setter_accepts_null_visitor() {
+        let api = options_field_api();
+        let config = options_field_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The setter must handle a null visitor (clear path)
+        assert!(
+            lib.content.contains("if visitor.is_null()"),
+            "setter must null-check visitor:\n{}",
+            lib.content
+        );
+    }
+
+    #[test]
+    fn test_options_field_bridge_setter_safety_comment() {
+        let api = options_field_api();
+        let config = options_field_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // All unsafe blocks must be annotated
+        assert!(
+            lib.content.contains("// SAFETY:"),
+            "setter must include SAFETY comments:\n{}",
+            lib.content
+        );
+    }
+
+    #[test]
+    fn test_options_field_bridge_emits_vtable_bridge_struct() {
+        let api = options_field_api();
+        let config = options_field_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The vtable bridge struct from gen_trait_bridge must be present
+        assert!(
+            lib.content.contains("HtmHtmlVisitorBridge"),
+            "options-field mode must still emit the vtable bridge struct:\n{}",
+            lib.content
+        );
+        assert!(
+            lib.content.contains("HtmHtmlVisitorVTable"),
+            "vtable struct must be emitted:\n{}",
             lib.content
         );
     }

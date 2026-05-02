@@ -1469,3 +1469,269 @@ fn test_napi_async_method_body_uses_box_pin() {
         "NAPI async method body must retrieve JS method via get_named_property"
     );
 }
+
+// ---------------------------------------------------------------------------
+// options_field bridge (bind_via = "options_field") tests
+// ---------------------------------------------------------------------------
+
+/// Helper: construct a `bind_via = "options_field"` bridge config for the visitor.
+fn make_options_field_bridge_cfg() -> alef_core::config::TraitBridgeConfig {
+    alef_core::config::TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: Some("VisitorHandle".to_string()),
+        param_name: Some("visitor".to_string()),
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: None, // resolves to "visitor" via param_name
+    }
+}
+
+/// Build a minimal `ConversionOptions` TypeDef whose `visitor` field is sanitized (simulating
+/// the real h2m IR where `VisitorHandle` cannot cross the FFI boundary directly).
+fn make_conversion_options_type() -> TypeDef {
+    TypeDef {
+        name: "ConversionOptions".to_string(),
+        rust_path: "my_lib::ConversionOptions".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            FieldDef {
+                name: "parser".to_string(),
+                ty: TypeRef::String,
+                optional: true,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            },
+            FieldDef {
+                name: "visitor".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
+                optional: true,
+                default: None,
+                doc: String::new(),
+                sanitized: true, // VisitorHandle cannot cross FFI — sanitized
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            },
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Conversion options".to_string(),
+        cfg: None,
+    }
+}
+
+/// Build an `ApiSurface` that mirrors h2m's `convert(html, options) -> Result<String>`
+/// with `HtmlVisitor` bridged via the options field.
+fn make_h2m_like_api() -> ApiSurface {
+    let convert_fn = FunctionDef {
+        name: "convert".to_string(),
+        rust_path: "my_lib::convert".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "html".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "options".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string()))),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+        ],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: Some("ConversionError".to_string()),
+        doc: "Convert HTML to Markdown".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![make_conversion_options_type()],
+        functions: vec![convert_fn],
+        enums: vec![],
+        errors: vec![],
+    }
+}
+
+/// Helper: construct an AlefConfig with the options_field bridge enabled.
+fn make_options_field_config() -> AlefConfig {
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg()];
+    config
+}
+
+#[test]
+fn test_options_field_bridge_struct_has_visitor_field_as_object() {
+    let backend = NapiBackend;
+    let api = make_h2m_like_api();
+    let config = make_options_field_config();
+
+    let result = backend.generate_bindings(&api, &config).unwrap();
+    let content = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .unwrap()
+        .content
+        .as_str();
+
+    // JsConversionOptions.visitor must be typed as Option<Object<'static>>.
+    assert!(
+        content.contains("Object<'static>"),
+        "JsConversionOptions.visitor must be typed as Option<napi::bindgen_prelude::Object<'static>>"
+    );
+    assert!(
+        content.contains("visitor"),
+        "JsConversionOptions must have a visitor field"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_convert_extracts_visitor_from_options() {
+    let backend = NapiBackend;
+    let api = make_h2m_like_api();
+    let config = make_options_field_config();
+
+    let result = backend.generate_bindings(&api, &config).unwrap();
+    let content = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .unwrap()
+        .content
+        .as_str();
+
+    // The generated convert wrapper must extract the visitor from the options.
+    assert!(
+        content.contains("__visitor_obj"),
+        "convert wrapper must extract visitor from options"
+    );
+    // The bridge must be constructed from the extracted JS object.
+    assert!(
+        content.contains("JsHtmlVisitorBridge::new"),
+        "convert wrapper must create JsHtmlVisitorBridge from the visitor object"
+    );
+    // The bridge must be wrapped in Rc<RefCell<...>>.
+    assert!(
+        content.contains("Rc::new") || content.contains("rc::Rc::new"),
+        "visitor bridge must be wrapped in Rc<RefCell<...>>"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_no_convert_with_visitor_export() {
+    let backend = NapiBackend;
+    let api = make_h2m_like_api();
+    let config = make_options_field_config();
+
+    let result = backend.generate_bindings(&api, &config).unwrap();
+    let content = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .unwrap()
+        .content
+        .as_str();
+
+    // In options_field mode there must NOT be a separate convertWithVisitor export.
+    assert!(
+        !content.contains("convertWithVisitor") && !content.contains("convert_with_visitor"),
+        "options_field mode must not emit a separate convertWithVisitor function"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_dts_interface_has_visitor_field() {
+    let backend = NapiBackend;
+    let api = make_h2m_like_api();
+    let config = make_options_field_config();
+
+    let result = backend.generate_type_stubs(&api, &config).unwrap();
+    let content = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("index.d.ts"))
+        .unwrap()
+        .content
+        .as_str();
+
+    // The ConversionOptions interface must include visitor?: HtmlVisitor
+    assert!(
+        content.contains("visitor?:"),
+        "ConversionOptions interface must have optional visitor field, got:\n{content}"
+    );
+    assert!(
+        content.contains("HtmlVisitor"),
+        "visitor field must reference the HtmlVisitor interface type"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_dts_convert_function_is_present() {
+    let backend = NapiBackend;
+    let api = make_h2m_like_api();
+    let config = make_options_field_config();
+
+    let result = backend.generate_type_stubs(&api, &config).unwrap();
+    let content = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("index.d.ts"))
+        .unwrap()
+        .content
+        .as_str();
+
+    // The convert function must appear in the .d.ts
+    assert!(
+        content.contains("export declare function convert"),
+        "convert function must be declared in index.d.ts"
+    );
+    // No separate convertWithVisitor
+    assert!(
+        !content.contains("convertWithVisitor"),
+        "options_field mode must not declare convertWithVisitor in index.d.ts"
+    );
+}

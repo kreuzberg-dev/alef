@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- feat(backend-napi): wire `bind_via = "options_field"` bridge support — visitor field on
+  `JsConversionOptions` is emitted as `Option<Object<'static>>`, the `convert` wrapper
+  extracts it, builds the `JsHtmlVisitorBridge`, sets it on core options, and calls core;
+  the `.d.ts` interface shows `visitor?: HtmlVisitor`; no separate `convertWithVisitor`
+  export is emitted in this mode.
 - feat(backend-rustler): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a visitor bridge is configured in options-field mode the Elixir Rustler backend
   now emits:
@@ -61,6 +66,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `find_bridge_param` to skip bridges configured for options-field binding.
   Existing configs default to `function_param` (the legacy mode), so this is
   fully backwards compatible.
+- feat(backend-magnus): support `bind_via = "options_field"` in `[[trait_bridges]]`.
+  When a visitor bridge is configured in options-field mode the Ruby/Magnus backend now:
+  - Renders the bridge field as `Option<magnus::Value>` on the binding options struct
+    (with `#[serde(skip)]` so JSON round-trips ignore it).
+  - Generates a custom `From<BindingOptions> for core::Options` impl that skips the
+    bridge field and lets the convert wrapper set it explicitly.
+  - Emits a `convert` wrapper (via `gen_bridge_field_function`) that deserializes the
+    options hash via `to_json`/`serde_json`, extracts the visitor Ruby object, builds
+    `RbHtmlVisitorBridge`, wraps it in `Rc<RefCell<...>>`, and sets it on the core
+    options before calling the core function.
+  - Does NOT emit a standalone `convert_with_visitor` function.
+  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+  the Magnus `trait_bridge` module.
 
 ### Fixed
 

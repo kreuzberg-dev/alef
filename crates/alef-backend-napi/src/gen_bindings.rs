@@ -187,7 +187,13 @@ impl Backend for NapiBackend {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
                 // gen_struct adds Default to derives when typ.has_default is true.
-                builder.add_item(&gen_struct(typ, &mapper, &prefix, has_serde));
+                builder.add_item(&gen_struct(
+                    typ,
+                    &mapper,
+                    &prefix,
+                    has_serde,
+                    &config.trait_bridges,
+                ));
             }
         }
 
@@ -209,11 +215,14 @@ impl Backend for NapiBackend {
                 continue;
             }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+            let bridge_field =
+                crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
             // Skip sanitized functions when there's no trait bridge that can replace the
             // sanitized parameter — such functions cannot be auto-delegated. Functions
             // whose only "sanitized" param is a configured trait_bridge param (e.g.
-            // Option<VisitorHandle> in html-to-markdown) are emitted via gen_bridge_function.
-            if func.sanitized && bridge_param.is_none() {
+            // Option<VisitorHandle> in html-to-markdown) are emitted via gen_bridge_function or
+            // gen_bridge_field_function.
+            if func.sanitized && bridge_param.is_none() && bridge_field.is_none() {
                 continue;
             }
             if let Some((param_idx, bridge_cfg)) = bridge_param {
@@ -226,6 +235,15 @@ impl Backend for NapiBackend {
                     &Default::default(),
                     &opaque_types,
                     &core_import,
+                ));
+            } else if let Some(ref bfm) = bridge_field {
+                builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
+                    func,
+                    bfm,
+                    &mapper,
+                    &opaque_types,
+                    &core_import,
+                    &prefix,
                 ));
             } else {
                 builder.add_item(&gen_function(func, &mapper, &cfg, &opaque_types, &prefix));
@@ -464,7 +482,19 @@ impl Backend for NapiBackend {
 }
 
 /// Generate a NAPI struct with Js-prefixed name and fields wrapped in Option only if optional.
-fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str, has_serde: bool) -> String {
+///
+/// When a field is `sanitized` but matches a `bind_via = "options_field"` bridge, the field is
+/// emitted as `Option<napi::bindgen_prelude::Object<'static>>` so JS callers can pass a visitor
+/// object that is extracted and bridged manually in the function wrapper.
+fn gen_struct(
+    typ: &TypeDef,
+    mapper: &NapiMapper,
+    prefix: &str,
+    has_serde: bool,
+    trait_bridges: &[alef_core::config::TraitBridgeConfig],
+) -> String {
+    use alef_core::config::BridgeBinding;
+
     let mut struct_builder = StructBuilder::new(&format!("{prefix}{}", typ.name));
     // Use napi(object) so the struct can be used as function/method parameters (FromNapiValue)
     struct_builder.add_attr("napi(object)");
@@ -481,7 +511,36 @@ fn gen_struct(typ: &TypeDef, mapper: &NapiMapper, prefix: &str, has_serde: bool)
         struct_builder.add_derive("serde::Deserialize");
     }
 
+    // Build a list of bridge field names on this struct type so we can emit the correct type
+    // for sanitized fields that carry a visitor bridge handle.
+    let bridge_fields: Vec<&str> = trait_bridges
+        .iter()
+        .filter(|b| {
+            b.bind_via == BridgeBinding::OptionsField
+                && b.options_type.as_deref() == Some(typ.name.as_str())
+        })
+        .filter_map(|b| b.resolved_options_field())
+        .collect();
+
     for field in &typ.fields {
+        if field.sanitized {
+            if bridge_fields.iter().any(|fname| *fname == field.name) {
+                // Emit as Option<Object<'static>> so JS callers can pass a visitor object.
+                let js_name = to_node_name(&field.name);
+                let attrs = if js_name != field.name {
+                    vec![format!("napi(js_name = \"{}\")", js_name)]
+                } else {
+                    vec![]
+                };
+                struct_builder.add_field(
+                    &field.name,
+                    "Option<napi::bindgen_prelude::Object<'static>>",
+                    attrs,
+                );
+            }
+            // Regular sanitized fields are skipped — core conversion uses Default::default().
+            continue;
+        }
         let mapped_type = mapper.map_type(&field.ty);
         // For types with Default, make all fields optional so JS callers
         // can pass partial objects (missing fields get defaults).
@@ -1541,9 +1600,9 @@ fn gen_dts(
 
     // Functions → `export declare function`
     // Apply the same filtering as `gen_function`: drop excluded names, and drop
-    // sanitized functions unless a trait_bridge can adapt their signature. This
-    // keeps the emitted `index.d.ts` declarations in lockstep with the actually
-    // exported NAPI functions in `lib.rs`.
+    // sanitized functions unless a trait_bridge can adapt their signature (either as a
+    // function_param bridge or an options_field bridge). This keeps the emitted `index.d.ts`
+    // declarations in lockstep with the actually exported NAPI functions in `lib.rs`.
     let mut sorted_fns: Vec<&FunctionDef> = api
         .functions
         .iter()
@@ -1551,7 +1610,10 @@ fn gen_dts(
             if exclude_functions.contains(&f.name) {
                 return false;
             }
-            if f.sanitized && crate::trait_bridge::find_bridge_param(f, trait_bridges).is_none() {
+            if f.sanitized
+                && crate::trait_bridge::find_bridge_param(f, trait_bridges).is_none()
+                && crate::trait_bridge::find_bridge_field(f, &api.types, trait_bridges).is_none()
+            {
                 return false;
             }
             true
@@ -1608,9 +1670,31 @@ fn gen_dts(
                 lines.push("}".to_string());
             }
             Decl::Interface(typ) => {
+                use alef_core::config::BridgeBinding;
+
+                // Build map of bridge field name → trait name for this struct type.
+                let bridge_field_map: std::collections::HashMap<&str, &str> = trait_bridges
+                    .iter()
+                    .filter(|b| {
+                        b.bind_via == BridgeBinding::OptionsField
+                            && b.options_type.as_deref() == Some(typ.name.as_str())
+                    })
+                    .filter_map(|b| Some((b.resolved_options_field()?, b.trait_name.as_str())))
+                    .collect();
+
                 lines.extend(format_jsdoc(&typ.doc, ""));
                 lines.push(format!("export interface {prefix}{} {{", typ.name));
                 for field in &typ.fields {
+                    if field.sanitized {
+                        // Sanitized bridge fields get the visitor's TS interface type.
+                        if let Some(&trait_name) = bridge_field_map.get(field.name.as_str()) {
+                            let js_name = to_node_name(&field.name);
+                            lines.extend(format_jsdoc(&field.doc, "  "));
+                            lines.push(format!("  {js_name}?: {prefix}{trait_name}"));
+                        }
+                        // Regular sanitized fields are absent from the binding — skip.
+                        continue;
+                    }
                     let js_name = to_node_name(&field.name);
                     let ts_ty = dts_type(&field.ty, prefix);
                     lines.extend(format_jsdoc(&field.doc, "  "));
