@@ -4,8 +4,8 @@
 //! to JavaScript objects via `js_sys::Reflect` and `js_sys::Function`.
 
 use alef_codegen::generators::trait_bridge::{
-    BridgeFieldMatch, BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec,
-    bridge_param_type as param_type, gen_bridge_all, to_camel_case, visitor_param_type,
+    BridgeFieldMatch, BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type,
+    gen_bridge_all, to_camel_case, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeDef, TypeRef};
@@ -1085,7 +1085,11 @@ pub fn gen_bridge_field_function(
             let named = match &p.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
                 TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             };
@@ -1098,7 +1102,11 @@ pub fn gen_bridge_field_function(
                 match &p.ty {
                     TypeRef::Named(n) => n.clone(),
                     TypeRef::Optional(inner) => {
-                        if let TypeRef::Named(n) = inner.as_ref() { n.clone() } else { String::new() }
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            n.clone()
+                        } else {
+                            String::new()
+                        }
                     }
                     _ => String::new(),
                 }
@@ -1141,7 +1149,11 @@ pub fn gen_bridge_field_function(
                     }
                 }
                 TypeRef::String | TypeRef::Char => {
-                    if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
+                    if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
                 }
                 _ => p.name.clone(),
             }
@@ -1151,7 +1163,11 @@ pub fn gen_bridge_field_function(
 
     let core_fn_path = {
         let path = func.rust_path.replace('-', "_");
-        if path.starts_with(core_import) { path } else { format!("{core_import}::{}", func.name) }
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
     };
     let core_call = format!("{core_fn_path}({call_args_str})");
 
@@ -1173,9 +1189,7 @@ pub fn gen_bridge_field_function(
 
     let body = if func.error_type.is_some() {
         if return_wrap == "val" {
-            format!(
-                "{extract_and_convert}\n    {attach_bridge}\n    {serde_bindings}{core_call}{err_conv}"
-            )
+            format!("{extract_and_convert}\n    {attach_bridge}\n    {serde_bindings}{core_call}{err_conv}")
         } else {
             format!(
                 "{extract_and_convert}\n    {attach_bridge}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){err_conv}"

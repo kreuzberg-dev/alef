@@ -365,9 +365,8 @@ impl Backend for Pyo3Backend {
                 //   - The builder for any bridge options type (e.g. ConversionOptionsBuilder wraps
                 //     Arc<CoreBuilder> which holds Rc<RefCell<...>> when the visitor feature is on).
                 let is_bridge_alias = bridge_type_aliases.contains(&typ.name);
-                let is_bridge_builder = options_field_types.contains_key(
-                    typ.name.strip_suffix("Builder").unwrap_or(&typ.name),
-                );
+                let is_bridge_builder =
+                    options_field_types.contains_key(typ.name.strip_suffix("Builder").unwrap_or(&typ.name));
                 if is_bridge_alias || is_bridge_builder {
                     struct_code = struct_code.replace("pyclass(frozen,", "pyclass(unsendable,");
                 }
@@ -449,9 +448,7 @@ impl Backend for Pyo3Backend {
                             vec![]
                         }
                     },
-                    |field| {
-                        config_ref.resolve_field_name(alef_core::config::Language::Python, &type_name, &field.name)
-                    },
+                    |field| config_ref.resolve_field_name(alef_core::config::Language::Python, &type_name, &field.name),
                 );
                 // When this type has a bridge field (primary options type OR a related type such
                 // as ConversionOptionsUpdate that shares the same field name):
@@ -463,22 +460,16 @@ impl Backend for Pyo3Backend {
                 //   3. Remove the `Clone` derive and emit a manual `impl Clone` that uses
                 //      `Python::attach` to clone the `Py<PyAny>` field without requiring the
                 //      `py-clone` pyo3 feature (which is not enabled in the h2m workspace).
-                let (struct_code, manual_clone) =
-                    if let Some((bridge_field_name, type_alias)) = any_bridge_field {
-                        let rewritten =
-                            rewrite_bridge_field_type(&struct_code, bridge_field_name, type_alias)
-                                .replace("pyclass(frozen,", "pyclass(unsendable,");
-                        let clone_impl =
-                            gen_bridge_struct_clone_impl(&type_name, typ, bridge_field_name);
-                        // Remove `Clone` from the derive list — the manual impl replaces it.
-                        let rewritten = rewritten.replace(
-                            "#[derive(Clone, Default,",
-                            "#[derive(Default,",
-                        );
-                        (rewritten, Some(clone_impl))
-                    } else {
-                        (struct_code, None)
-                    };
+                let (struct_code, manual_clone) = if let Some((bridge_field_name, type_alias)) = any_bridge_field {
+                    let rewritten = rewrite_bridge_field_type(&struct_code, bridge_field_name, type_alias)
+                        .replace("pyclass(frozen,", "pyclass(unsendable,");
+                    let clone_impl = gen_bridge_struct_clone_impl(&type_name, typ, bridge_field_name);
+                    // Remove `Clone` from the derive list — the manual impl replaces it.
+                    let rewritten = rewritten.replace("#[derive(Clone, Default,", "#[derive(Default,");
+                    (rewritten, Some(clone_impl))
+                } else {
+                    (struct_code, None)
+                };
                 builder.add_item(&struct_code);
                 if let Some(clone_code) = manual_clone {
                     builder.add_item(&clone_code);
@@ -540,8 +531,7 @@ impl Backend for Pyo3Backend {
             // (`bind_via = "options_field"`), emit a bridge-field-aware function that
             // extracts the visitor from options and builds the bridge before calling core.
             // No separate `convert_with_visitor` export is emitted.
-            let bridge_field =
-                crate::trait_bridge::find_bridge_field(f, &api.types, &config.trait_bridges);
+            let bridge_field = crate::trait_bridge::find_bridge_field(f, &api.types, &config.trait_bridges);
             if let Some(bridge_field_match) = bridge_field {
                 builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
                     f,
@@ -679,11 +669,8 @@ impl Backend for Pyo3Backend {
             if input_types.contains(&typ.name)
                 && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
-                let conv = alef_codegen::conversions::gen_from_binding_to_core_cfg(
-                    typ,
-                    &core_import,
-                    &pyo3_conversion_cfg,
-                );
+                let conv =
+                    alef_codegen::conversions::gen_from_binding_to_core_cfg(typ, &core_import, &pyo3_conversion_cfg);
                 // Post-process: bridge fields use Option<Py<PyAny>> in the binding struct but
                 // the shared generator still sees the IR type (e.g. Optional(Named("VisitorHandle")))
                 // and emits `val.visitor.map(Into::into)`.  Replace with Default::default() —
@@ -2721,10 +2708,7 @@ fn rewrite_bridge_field_impl(impl_code: &str, field_name: &str, type_alias: Opti
             &format!("self.{field_name}.clone().map(Into::into)"),
             "Default::default()",
         )
-        .replace(
-            &format!("self.{field_name}.clone().into()"),
-            "Default::default()",
-        );
+        .replace(&format!("self.{field_name}.clone().into()"), "Default::default()");
     // Rewrite constructor parameter type: `{field}: Option<{type_alias}>` → `{field}: Option<Py<PyAny>>`.
     // The shorthand field init `{field},` that follows remains valid since types now match.
     if let Some(alias) = type_alias {

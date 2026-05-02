@@ -2104,7 +2104,10 @@ fn test_options_field_bridge_visitor_field_on_conversion_options_struct() {
     let api = make_htm_api();
 
     let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result.iter().find(|f| f.path.to_string_lossy().ends_with("binding.go")).expect("binding.go exists");
+    let binding = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
+        .expect("binding.go exists");
     let content = &binding.content;
 
     // ConversionOptions must have the synthetic Visitor field with json:"-"
@@ -2127,7 +2130,10 @@ fn test_options_field_bridge_go_interface_is_emitted_in_binding() {
     let api = make_htm_api();
 
     let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result.iter().find(|f| f.path.to_string_lossy().ends_with("binding.go")).expect("binding.go exists");
+    let binding = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
+        .expect("binding.go exists");
     let content = &binding.content;
 
     // The HtmlVisitor Go interface must be emitted with the trait's methods
@@ -2150,7 +2156,10 @@ fn test_options_field_bridge_convert_calls_ffi_setter_when_visitor_non_nil() {
     let api = make_htm_api();
 
     let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result.iter().find(|f| f.path.to_string_lossy().ends_with("binding.go")).expect("binding.go exists");
+    let binding = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
+        .expect("binding.go exists");
     let content = &binding.content;
 
     // Convert wrapper must check Visitor != nil and call the FFI setter
@@ -2180,7 +2189,10 @@ fn test_options_field_bridge_no_convert_with_visitor_function() {
     let api = make_htm_api();
 
     let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result.iter().find(|f| f.path.to_string_lossy().ends_with("binding.go")).expect("binding.go exists");
+    let binding = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
+        .expect("binding.go exists");
     let content = &binding.content;
 
     assert!(
@@ -2199,7 +2211,10 @@ fn test_options_field_bridge_with_visitor_functional_option_constructor() {
     let api = make_htm_api();
 
     let result = backend.generate_bindings(&api, &config).expect("generation succeeds");
-    let binding = result.iter().find(|f| f.path.to_string_lossy().ends_with("binding.go")).expect("binding.go exists");
+    let binding = result
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("binding.go"))
+        .expect("binding.go exists");
     let content = &binding.content;
 
     assert!(

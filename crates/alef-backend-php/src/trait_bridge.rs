@@ -770,9 +770,7 @@ pub fn gen_bridge_field_function(
         sig_parts.push(format!("{}: {}", p.name, ty));
     }
     // Extra hidden param: the visitor object from $options->visitor.
-    sig_parts.push(format!(
-        "{extra_param}: Option<&mut ext_php_rs::types::ZendObject>"
-    ));
+    sig_parts.push(format!("{extra_param}: Option<&mut ext_php_rs::types::ZendObject>"));
 
     let params_str = sig_parts.join(", ");
     let return_type = mapper.map_type(&func.return_type);
@@ -857,36 +855,34 @@ pub fn gen_bridge_field_function(
     let call_args: Vec<String> = func
         .params
         .iter()
-        .map(|p| {
-            match &p.ty {
-                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                    if p.optional {
+        .map(|p| match &p.ty {
+            TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                if p.optional {
+                    format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                } else {
+                    format!("&{}.inner", p.name)
+                }
+            }
+            TypeRef::Named(_) => format!("{}_core", p.name),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    if opaque_types.contains(n.as_str()) {
                         format!("{}.as_ref().map(|v| &v.inner)", p.name)
                     } else {
-                        format!("&{}.inner", p.name)
+                        format!("{}_core", p.name)
                     }
+                } else {
+                    p.name.clone()
                 }
-                TypeRef::Named(_) => format!("{}_core", p.name),
-                TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() {
-                        if opaque_types.contains(n.as_str()) {
-                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
-                        } else {
-                            format!("{}_core", p.name)
-                        }
-                    } else {
-                        p.name.clone()
-                    }
-                }
-                TypeRef::String | TypeRef::Char => {
-                    if p.is_ref {
-                        format!("&{}", p.name)
-                    } else {
-                        p.name.clone()
-                    }
-                }
-                _ => p.name.clone(),
             }
+            TypeRef::String | TypeRef::Char => {
+                if p.is_ref {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            }
+            _ => p.name.clone(),
         })
         .collect();
     let call_args_str = call_args.join(", ");
@@ -914,9 +910,7 @@ pub fn gen_bridge_field_function(
         if return_wrap == "val" {
             format!("{bridge_wrap}\n    {serde_bindings}{visitor_attach}{core_call}{err_conv}")
         } else {
-            format!(
-                "{bridge_wrap}\n    {serde_bindings}{visitor_attach}{core_call}.map(|val| {return_wrap}){err_conv}"
-            )
+            format!("{bridge_wrap}\n    {serde_bindings}{visitor_attach}{core_call}.map(|val| {return_wrap}){err_conv}")
         }
     } else {
         format!("{bridge_wrap}\n    {serde_bindings}{visitor_attach}{core_call}")

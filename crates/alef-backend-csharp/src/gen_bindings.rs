@@ -943,7 +943,11 @@ fn gen_wrapper_class(
                 let type_name = match &p.ty {
                     TypeRef::Named(n) => Some(n.as_str()),
                     TypeRef::Optional(inner) => {
-                        if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
                     }
                     _ => None,
                 };
@@ -1286,7 +1290,11 @@ fn gen_wrapper_function(
             let type_name = match &p.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
                 TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             };
@@ -1300,9 +1308,7 @@ fn gen_wrapper_function(
             let setter = bridge.cs_setter_name();
             // Check nullability: if options param is optional, guard the entire block.
             if opts_param.optional {
-                out.push_str(&format!(
-                    "        // options-field bridge: attach visitor when present\n"
-                ));
+                out.push_str("        // options-field bridge: attach visitor when present\n");
                 out.push_str(&format!(
                     "        if ({opts_name} != null && {opts_name}.{field_pascal} != null)\n        {{\n"
                 ));
@@ -1314,9 +1320,7 @@ fn gen_wrapper_function(
                 ));
                 out.push_str("        }\n");
             } else {
-                out.push_str(&format!(
-                    "        // options-field bridge: attach visitor when present\n"
-                ));
+                out.push_str("        // options-field bridge: attach visitor when present\n");
                 out.push_str(&format!(
                     "        if ({opts_name}.{field_pascal} != null)\n        {{\n"
                 ));

@@ -247,11 +247,7 @@ fn gen_vtable_ref_delegation(trait_def: &TypeDef, core_import: &str, type_paths:
         let arg_list = build_arg_list(method, core_import, type_paths);
         let method_name = &method.name;
 
-        writeln!(
-            out,
-            "        fn {method_name}({all_params}) -> {ret} {{"
-        )
-        .ok();
+        writeln!(out, "        fn {method_name}({all_params}) -> {ret} {{").ok();
         writeln!(
             out,
             "            // SAFETY: self.0 is a valid pointer for the duration of the conversion call."
@@ -273,7 +269,12 @@ fn gen_vtable_ref_delegation(trait_def: &TypeDef, core_import: &str, type_paths:
 /// The `ctx` parameter (first param for visitor methods, typed as `&NodeContext`)
 /// is passed through as-is since the outer signature already has it as a reference.
 fn build_arg_list(method: &MethodDef, _core_import: &str, _type_paths: &HashMap<String, String>) -> String {
-    method.params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", ")
+    method
+        .params
+        .iter()
+        .map(|p| p.name.clone())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Convert a PascalCase identifier to snake_case.

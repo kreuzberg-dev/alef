@@ -42,10 +42,7 @@ fn collect_options_field_bridges(config: &AlefConfig) -> Vec<OptionsFieldBridgeI
         if bridge_cfg.bind_via != BridgeBinding::OptionsField {
             continue;
         }
-        if bridge_cfg
-            .exclude_languages
-            .contains(&Language::Java.to_string())
-        {
+        if bridge_cfg.exclude_languages.contains(&Language::Java.to_string()) {
             continue;
         }
         let options_type = match bridge_cfg.options_type.as_deref() {
@@ -168,7 +165,14 @@ impl Backend for JavaBackend {
         // 1. NativeLib.java - FFI method handles
         files.push(GeneratedFile {
             path: base_path.join("NativeLib.java"),
-            content: gen_native_lib(api, config, &package, &prefix, has_visitor_pattern, &options_field_bridges),
+            content: gen_native_lib(
+                api,
+                config,
+                &package,
+                &prefix,
+                has_visitor_pattern,
+                &options_field_bridges,
+            ),
             generated_header: true,
         });
 

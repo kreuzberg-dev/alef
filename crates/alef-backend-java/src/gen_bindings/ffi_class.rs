@@ -8,11 +8,11 @@ use heck::ToSnakeCase;
 use std::collections::HashSet;
 use std::fmt::Write;
 
+use super::OptionsFieldBridgeInfo;
 use super::helpers::is_bridge_param_java;
 use super::marshal::{
     ffi_param_name, gen_helper_methods, is_ffi_string_return, java_ffi_return_cast, marshal_param_to_ffi,
 };
-use super::OptionsFieldBridgeInfo;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_main_class(
@@ -717,7 +717,12 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
         writeln!(out, "            {}.invoke({});", ffi_handle, call_args.join(", ")).ok();
         emit_ffi_ptr_cleanup(out);
         writeln!(out, "        }} catch (Throwable e) {{").ok();
-        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(
+            out,
+            "            throw new {}Exception(\"FFI call failed\", e);",
+            class_name
+        )
+        .ok();
         writeln!(out, "        }}").ok();
     } else if is_ffi_string_return(&dispatch_return_type) {
         let free_handle = format!("NativeLib.{}_FREE_STRING", prefix.to_uppercase());
@@ -737,7 +742,11 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
             writeln!(out, "                return null;").ok();
         }
         writeln!(out, "            }}").ok();
-        writeln!(out, "            String str = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);").ok();
+        writeln!(
+            out,
+            "            String str = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+        )
+        .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
         let return_expr = if matches!(dispatch_return_type, TypeRef::Path) {
             "java.nio.file.Path.of(str)"
@@ -750,7 +759,12 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
             writeln!(out, "            return {};", return_expr).ok();
         }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
-        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(
+            out,
+            "            throw new {}Exception(\"FFI call failed\", e);",
+            class_name
+        )
+        .ok();
         writeln!(out, "        }}").ok();
     } else if matches!(dispatch_return_type, TypeRef::Named(_)) {
         let return_type_name = match &dispatch_return_type {
@@ -776,16 +790,29 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
         writeln!(out, "            }}").ok();
         if is_opaque {
             if is_optional_return {
-                writeln!(out, "            return Optional.of(new {}(resultPtr));", return_type_name).ok();
+                writeln!(
+                    out,
+                    "            return Optional.of(new {}(resultPtr));",
+                    return_type_name
+                )
+                .ok();
             } else {
                 writeln!(out, "            return new {}(resultPtr);", return_type_name).ok();
             }
         } else {
             let type_snake = return_type_name.to_snake_case();
             let free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
-            let to_json_handle =
-                format!("NativeLib.{}_{}_TO_JSON", prefix.to_uppercase(), type_snake.to_uppercase());
-            writeln!(out, "            var jsonPtr = (MemorySegment) {}.invoke(resultPtr);", to_json_handle).ok();
+            let to_json_handle = format!(
+                "NativeLib.{}_{}_TO_JSON",
+                prefix.to_uppercase(),
+                type_snake.to_uppercase()
+            );
+            writeln!(
+                out,
+                "            var jsonPtr = (MemorySegment) {}.invoke(resultPtr);",
+                to_json_handle
+            )
+            .ok();
             writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
             writeln!(out, "            if (jsonPtr.equals(MemorySegment.NULL)) {{").ok();
             writeln!(out, "                checkLastError();").ok();
@@ -795,8 +822,17 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
                 writeln!(out, "                return null;").ok();
             }
             writeln!(out, "            }}").ok();
-            writeln!(out, "            String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);").ok();
-            writeln!(out, "            NativeLib.{}_FREE_STRING.invoke(jsonPtr);", prefix.to_uppercase()).ok();
+            writeln!(
+                out,
+                "            String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+            )
+            .ok();
+            writeln!(
+                out,
+                "            NativeLib.{}_FREE_STRING.invoke(jsonPtr);",
+                prefix.to_uppercase()
+            )
+            .ok();
             if is_optional_return {
                 writeln!(
                     out,
@@ -805,12 +841,21 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
                 )
                 .ok();
             } else {
-                writeln!(out, "            return createObjectMapper().readValue(json, {}.class);", return_type_name)
-                    .ok();
+                writeln!(
+                    out,
+                    "            return createObjectMapper().readValue(json, {}.class);",
+                    return_type_name
+                )
+                .ok();
             }
         }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
-        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(
+            out,
+            "            throw new {}Exception(\"FFI call failed\", e);",
+            class_name
+        )
+        .ok();
         writeln!(out, "        }}").ok();
     } else if matches!(dispatch_return_type, TypeRef::Vec(_)) {
         writeln!(
@@ -830,12 +875,22 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
             element_type
         );
         if is_optional_return {
-            writeln!(out, "            return Optional.of(readJsonList(resultPtr, {}));", type_ref).ok();
+            writeln!(
+                out,
+                "            return Optional.of(readJsonList(resultPtr, {}));",
+                type_ref
+            )
+            .ok();
         } else {
             writeln!(out, "            return readJsonList(resultPtr, {});", type_ref).ok();
         }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
-        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(
+            out,
+            "            throw new {}Exception(\"FFI call failed\", e);",
+            class_name
+        )
+        .ok();
         writeln!(out, "        }}").ok();
     } else {
         writeln!(
@@ -853,13 +908,17 @@ pub(crate) fn gen_sync_function_method_with_options_field_bridge(
             writeln!(out, "            return primitiveResult;").ok();
         }
         writeln!(out, "        }} catch (Throwable e) {{").ok();
-        writeln!(out, "            throw new {}Exception(\"FFI call failed\", e);", class_name).ok();
+        writeln!(
+            out,
+            "            throw new {}Exception(\"FFI call failed\", e);",
+            class_name
+        )
+        .ok();
         writeln!(out, "        }}").ok();
     }
 
     writeln!(out, "    }}").ok();
 }
-
 
 pub(crate) fn gen_async_wrapper_method(
     out: &mut String,

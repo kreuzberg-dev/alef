@@ -553,7 +553,9 @@ fn generate_configuration_doc(
             out.push_str("|-------|------|---------|-------------|\n");
             for field in &ty.fields {
                 // Check if this field is a trait bridge configured for options-field binding
-                let fty = if let Some(bridge_type) = find_bridged_trait_type(&ty.name, &field.name, Language::Python, config) {
+                let fty = if let Some(bridge_type) =
+                    find_bridged_trait_type(&ty.name, &field.name, Language::Python, config)
+                {
                     bridge_type
                 } else {
                     doc_type_with_optional(&field.ty, Language::Python, field.optional, "")

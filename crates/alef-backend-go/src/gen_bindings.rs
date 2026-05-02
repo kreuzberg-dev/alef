@@ -511,12 +511,7 @@ fn gen_go_file(
     // only expose the trait's own methods — no plugin lifecycle boilerplate.
     for bridge_info in options_field_bridges {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_info.trait_name) {
-            writeln!(
-                out,
-                "{}\n",
-                gen_options_field_bridge_interface(trait_def, bridge_info)
-            )
-            .ok();
+            writeln!(out, "{}\n", gen_options_field_bridge_interface(trait_def, bridge_info)).ok();
         }
     }
 
@@ -1226,7 +1221,11 @@ fn gen_function_wrapper(
         let go_field_name = to_go_name(&bfm.field_name);
         let field_snake = bfm.field_name.to_snake_case();
         writeln!(out, "\tif {go_opts_param}.{go_field_name} != nil {{").ok();
-        writeln!(out, "\t\tvisitorHandle := cgo.NewHandle({go_opts_param}.{go_field_name})").ok();
+        writeln!(
+            out,
+            "\t\tvisitorHandle := cgo.NewHandle({go_opts_param}.{go_field_name})"
+        )
+        .ok();
         writeln!(out, "\t\tdefer visitorHandle.Delete()").ok();
         writeln!(
             out,
@@ -2152,12 +2151,7 @@ fn gen_config_options(
                 go_name, bridge.trait_name, bridge.trait_name, go_name,
             )
             .ok();
-            writeln!(
-                out,
-                "\treturn func(c *{}) {{ c.{} = v }}",
-                go_name, field_go_name,
-            )
-            .ok();
+            writeln!(out, "\treturn func(c *{}) {{ c.{} = v }}", go_name, field_go_name,).ok();
             writeln!(out, "}}").ok();
             writeln!(out).ok();
         }

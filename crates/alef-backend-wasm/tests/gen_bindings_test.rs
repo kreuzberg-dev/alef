@@ -2087,7 +2087,10 @@ fn test_options_field_bridge_from_impl_defaults_visitor() {
     // The impl must NOT assign `visitor: val.visitor` — it would try to convert JsValue
     // to Option<VisitorHandle> which is not possible automatically.
     let from_start = content.find("impl From<WasmConversionOptions>").unwrap_or(0);
-    let from_end = content[from_start..].find("\nimpl ").map(|i| from_start + i).unwrap_or(content.len());
+    let from_end = content[from_start..]
+        .find("\nimpl ")
+        .map(|i| from_start + i)
+        .unwrap_or(content.len());
     let from_block = &content[from_start..from_end];
     assert!(
         !from_block.contains("visitor: val.visitor"),

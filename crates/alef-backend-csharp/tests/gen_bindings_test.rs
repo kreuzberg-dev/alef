@@ -2,8 +2,8 @@ use alef_backend_csharp::CsharpBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AlefConfig, BridgeBinding, CSharpConfig, CrateConfig, FfiConfig, TraitBridgeConfig};
 use alef_core::ir::{
-    ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
-    TypeDef, TypeRef,
+    ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef,
+    TypeRef,
 };
 
 #[test]
@@ -1289,7 +1289,6 @@ fn test_plain_enum_with_default_emits_single_nullable() {
     );
 }
 
-
 // ---------------------------------------------------------------------------
 // Helpers for options-field bridge tests
 // ---------------------------------------------------------------------------
@@ -1464,7 +1463,9 @@ fn test_options_field_bridge_adds_visitor_property_to_options_type() {
     };
 
     let config = make_options_field_bridge_config("htm");
-    let files = backend.generate_bindings(&api, &config).expect("generation should succeed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
 
     let opts_file = files
         .iter()
@@ -1501,7 +1502,9 @@ fn test_options_field_bridge_emits_setter_pinvoke() {
     };
 
     let config = make_options_field_bridge_config("htm");
-    let files = backend.generate_bindings(&api, &config).expect("generation should succeed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
 
     let nm_file = files
         .iter()
@@ -1538,7 +1541,9 @@ fn test_options_field_bridge_wrapper_calls_setter_not_convert_with_visitor() {
     };
 
     let config = make_options_field_bridge_config("htm");
-    let files = backend.generate_bindings(&api, &config).expect("generation should succeed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
 
     let wrapper_file = files
         .iter()
@@ -1585,7 +1590,9 @@ fn test_options_field_bridge_excluded_by_language_leaves_json_field() {
         options_field: Some("visitor".to_string()),
     }];
 
-    let files = backend.generate_bindings(&api, &config).expect("generation should succeed");
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
 
     let opts_file = files
         .iter()

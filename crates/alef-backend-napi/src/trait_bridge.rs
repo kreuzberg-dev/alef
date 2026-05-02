@@ -4,8 +4,8 @@
 //! to JavaScript objects via NAPI-RS.
 
 use alef_codegen::generators::trait_bridge::{
-    BridgeFieldMatch, BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec,
-    bridge_param_type as param_type, gen_bridge_all, to_camel_case, visitor_param_type,
+    BridgeFieldMatch, BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type,
+    gen_bridge_all, to_camel_case, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeDef, TypeRef};
@@ -1115,22 +1115,14 @@ pub fn gen_bridge_field_function(
             "    let __handle: {handle_path} = std::rc::Rc::new(std::cell::RefCell::new(__bridge));"
         )
         .ok();
-        writeln!(
-            body,
-            "    let mut __opts = {param_name}_core.unwrap_or_default();"
-        )
-        .ok();
+        writeln!(body, "    let mut __opts = {param_name}_core.unwrap_or_default();").ok();
         writeln!(body, "    __opts.{field_name} = Some(__handle);").ok();
         writeln!(body, "    Some(__opts)").ok();
         writeln!(body, "}} else {{").ok();
         writeln!(body, "    {param_name}_core").ok();
         writeln!(body, "}};").ok();
     } else {
-        writeln!(
-            body,
-            "let __visitor_obj = {param_name}.{field_name}.clone();"
-        )
-        .ok();
+        writeln!(body, "let __visitor_obj = {param_name}.{field_name}.clone();").ok();
         writeln!(
             body,
             "let mut {param_name}_core: {core_import}::{options_type} = {param_name}.into();"

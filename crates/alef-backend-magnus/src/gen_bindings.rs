@@ -273,23 +273,19 @@ impl Backend for MagnusBackend {
         // These fields carry `Option<magnus::Value>` in the binding struct and cannot be
         // automatically converted by the standard From impl — they are bridged manually in
         // the convert wrapper. We generate a custom From impl that skips them.
-        let bridge_fields_by_type: std::collections::HashMap<&str, std::collections::HashSet<String>> =
-            config
-                .trait_bridges
-                .iter()
-                .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
-                .filter_map(|b| {
-                    let type_name = b.options_type.as_deref()?;
-                    let field_name = b.resolved_options_field()?.to_string();
-                    Some((type_name, field_name))
-                })
-                .fold(
-                    std::collections::HashMap::new(),
-                    |mut acc, (type_name, field_name)| {
-                        acc.entry(type_name).or_default().insert(field_name);
-                        acc
-                    },
-                );
+        let bridge_fields_by_type: std::collections::HashMap<&str, std::collections::HashSet<String>> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
+            .filter_map(|b| {
+                let type_name = b.options_type.as_deref()?;
+                let field_name = b.resolved_options_field()?.to_string();
+                Some((type_name, field_name))
+            })
+            .fold(std::collections::HashMap::new(), |mut acc, (type_name, field_name)| {
+                acc.entry(type_name).or_default().insert(field_name);
+                acc
+            });
 
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque || exclude_types.contains(typ.name.as_str()) {
@@ -732,11 +728,7 @@ fn gen_struct(
             // Bridge fields are host-language callback objects. Render as Option<magnus::Value>
             // so Ruby callers can pass any Ruby object responding to the visitor methods.
             // The serde skip attribute ensures JSON round-trips ignore this field.
-            struct_builder.add_field(
-                &field.name,
-                "Option<magnus::Value>",
-                vec!["serde(skip)".to_string()],
-            );
+            struct_builder.add_field(&field.name, "Option<magnus::Value>", vec!["serde(skip)".to_string()]);
         } else {
             let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
                 mapper.optional(&mapper.map_type(&field.ty))

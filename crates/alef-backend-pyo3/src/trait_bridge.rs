@@ -6,8 +6,8 @@
 pub use alef_codegen::generators::trait_bridge::find_bridge_field;
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
 use alef_codegen::generators::trait_bridge::{
-    BridgeFieldMatch, BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec,
-    bridge_param_type as param_type, gen_bridge_all, visitor_param_type,
+    BridgeFieldMatch, BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type,
+    gen_bridge_all, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
@@ -1378,7 +1378,11 @@ pub fn gen_bridge_field_function(
             .iter()
             .enumerate()
             .map(|(idx, p)| {
-                let this_optional = if idx == param_idx { param_is_optional } else { p.optional };
+                let this_optional = if idx == param_idx {
+                    param_is_optional
+                } else {
+                    p.optional
+                };
                 if this_optional {
                     seen_optional = true;
                 }

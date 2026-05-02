@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `find_bridge_field` (alef-codegen) now sets
     `param_is_optional: is_optional || param.optional`, covering the IR pattern where
     the options param is stored as `ty: Named("T") + optional: true` rather than
-    `ty: Optional(Named("T"))`.  This caused the wrong `visitor_attach` branch to be
+    `ty: Optional(Named("T"))`. This caused the wrong `visitor_attach` branch to be
     selected, producing a `no field 'visitor' on type Option<...>` compile error.
   - `gen_php_call_args` now emits `visitor.map(|v| (*v.inner).clone())` for optional
     opaque params, replacing the former `visitor.as_ref().map(|v| &v.inner)` which
@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(backend-ffi): suppress duplicate `{prefix}_convert` symbols in options-field
   bridge mode. When `bind_via = "options_field"` is set, the free-function loop now
   skips ALL `convert` variants (not just sanitized ones), and `gen_convert_no_visitor`
-  + `gen_visitor_bindings` are not emitted. The single authoritative `{prefix}_convert`
+  - `gen_visitor_bindings` are not emitted. The single authoritative `{prefix}_convert`
   comes exclusively from `gen_convert_with_options_field_bridge`. Removes the three
   `htm_convert` definitions that caused a duplicate `#[no_mangle]` compile error in
   html-to-markdown. Also fixes `gen_convert_with_options_field_bridge` to call

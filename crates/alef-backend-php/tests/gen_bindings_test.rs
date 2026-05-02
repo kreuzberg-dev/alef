@@ -2540,7 +2540,11 @@ fn test_opaque_optional_param_in_builder_uses_deref_clone() {
     let api = ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
-        types: vec![builder_type, make_visitor_handle_opaque_type(), make_visitor_trait_def()],
+        types: vec![
+            builder_type,
+            make_visitor_handle_opaque_type(),
+            make_visitor_trait_def(),
+        ],
         functions: vec![],
         enums: vec![],
         errors: vec![],

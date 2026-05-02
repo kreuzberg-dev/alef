@@ -5,8 +5,8 @@ use alef_core::ir::{ApiSurface, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
 
-use super::marshal::{gen_ffi_layout, gen_function_descriptor};
 use super::OptionsFieldBridgeInfo;
+use super::marshal::{gen_ffi_layout, gen_function_descriptor};
 
 pub(crate) fn gen_native_lib(
     api: &ApiSurface,
@@ -721,11 +721,7 @@ pub(crate) fn gen_native_lib(
         let opts_snake = heck::AsSnakeCase(&bridge.options_type).to_string();
         let field_name = &bridge.field_name;
         let setter_ffi = format!("{prefix}_{opts_snake}_set_{field_name}");
-        let handle_name = format!(
-            "{}_OPTIONS_SET_{}",
-            prefix.to_uppercase(),
-            field_name.to_uppercase()
-        );
+        let handle_name = format!("{}_OPTIONS_SET_{}", prefix.to_uppercase(), field_name.to_uppercase());
         writeln!(body).ok();
         writeln!(
             body,

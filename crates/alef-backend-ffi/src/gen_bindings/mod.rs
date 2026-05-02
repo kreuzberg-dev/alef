@@ -502,7 +502,11 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
             .types
             .iter()
             .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-            .chain(api.enums.iter().map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))))
+            .chain(
+                api.enums
+                    .iter()
+                    .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
+            )
             .collect();
 
         let error_type_name = config.error_type();
@@ -522,10 +526,9 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
 
                 // For options-field bridges: emit the setter + the options-aware convert.
                 if bridge_cfg.bind_via == BridgeBinding::OptionsField {
-                    if let (Some(options_type_name), Some(field_name)) = (
-                        bridge_cfg.options_type.as_deref(),
-                        bridge_cfg.resolved_options_field(),
-                    ) {
+                    if let (Some(options_type_name), Some(field_name)) =
+                        (bridge_cfg.options_type.as_deref(), bridge_cfg.resolved_options_field())
+                    {
                         // Setter: {prefix}_options_set_{field}(options, visitor)
                         let setter = crate::gen_bridge_field::gen_options_set_bridge(
                             prefix,
@@ -539,10 +542,8 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &AlefConfig) -> String {
                         builder.add_item(&setter);
 
                         // Convert wrapper: {prefix}_convert(html, options) — options carries visitor
-                        let convert_fn = crate::gen_bridge_field::gen_convert_with_options_field_bridge(
-                            prefix,
-                            &core_import,
-                        );
+                        let convert_fn =
+                            crate::gen_bridge_field::gen_convert_with_options_field_bridge(prefix, &core_import);
                         builder.add_item(&convert_fn);
                     }
                 }

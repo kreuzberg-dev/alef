@@ -180,8 +180,7 @@ impl Backend for RustlerBackend {
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
         {
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &active_bridges);
-            let bridge_field =
-                crate::trait_bridge::find_bridge_field(func, &api.types, &active_bridges);
+            let bridge_field = crate::trait_bridge::find_bridge_field(func, &api.types, &active_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(
                     func,
@@ -539,33 +538,29 @@ impl Backend for RustlerBackend {
 
             // Detect options_field visitor bridge: visitor is embedded in the options struct.
             // Returns (options_param_idx, field_name) when matched.
-            let options_field_bridge: Option<(usize, String)> = func
-                .params
-                .iter()
-                .enumerate()
-                .find_map(|(idx, p)| {
-                    let type_name = match &p.ty {
-                        alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                        alef_core::ir::TypeRef::Optional(inner) => {
-                            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                Some(n.as_str())
-                            } else {
-                                None
-                            }
-                        }
-                        _ => None,
-                    };
-                    config.trait_bridges.iter().find_map(|b| {
-                        if b.bind_via == BridgeBinding::OptionsField
-                            && type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
-                        {
-                            let field = b.resolved_options_field().unwrap_or("visitor").to_string();
-                            Some((idx, field))
+            let options_field_bridge: Option<(usize, String)> = func.params.iter().enumerate().find_map(|(idx, p)| {
+                let type_name = match &p.ty {
+                    alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
                         } else {
                             None
                         }
-                    })
-                });
+                    }
+                    _ => None,
+                };
+                config.trait_bridges.iter().find_map(|b| {
+                    if b.bind_via == BridgeBinding::OptionsField
+                        && type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
+                    {
+                        let field = b.resolved_options_field().unwrap_or("visitor").to_string();
+                        Some((idx, field))
+                    } else {
+                        None
+                    }
+                })
+            });
 
             // Emit one @spec/@doc per arity variant (shortest to longest).
             // The shortest arity fills optional params with nil.
@@ -651,16 +646,16 @@ impl Backend for RustlerBackend {
                             .enumerate()
                             .map(|(i, a)| {
                                 if i == opts_idx {
-                                    format!("if map_size({opts_param}) == 0, do: nil, else: Jason.encode!({opts_param})")
+                                    format!(
+                                        "if map_size({opts_param}) == 0, do: nil, else: Jason.encode!({opts_param})"
+                                    )
                                 } else {
                                     a.clone()
                                 }
                             })
                             .collect();
                         let plain_args_str = plain_args.join(", ");
-                        content.push_str(&format!(
-                            "      {native_mod}.{nif_fn_name}({plain_args_str})\n"
-                        ));
+                        content.push_str(&format!("      {native_mod}.{nif_fn_name}({plain_args_str})\n"));
                         content.push_str("    end\n");
                         content.push_str("  end\n\n");
                         continue;
@@ -741,38 +736,34 @@ impl Backend for RustlerBackend {
         // (function_param or options_field mode).
         let has_visitor_bridges = api.functions.iter().any(|func| {
             func.params.iter().any(|p| {
-                config.trait_bridges.iter().any(|b| {
-                    match b.bind_via {
-                        BridgeBinding::FunctionParam => {
-                            b.param_name.as_deref() == Some(p.name.as_str())
-                                || match &p.ty {
-                                    alef_core::ir::TypeRef::Named(n) => {
-                                        b.type_alias.as_deref() == Some(n.as_str())
-                                    }
-                                    alef_core::ir::TypeRef::Optional(inner) => {
-                                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                            b.type_alias.as_deref() == Some(n.as_str())
-                                        } else {
-                                            false
-                                        }
-                                    }
-                                    _ => false,
-                                }
-                        }
-                        BridgeBinding::OptionsField => {
-                            let type_name = match &p.ty {
-                                alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                config.trait_bridges.iter().any(|b| match b.bind_via {
+                    BridgeBinding::FunctionParam => {
+                        b.param_name.as_deref() == Some(p.name.as_str())
+                            || match &p.ty {
+                                alef_core::ir::TypeRef::Named(n) => b.type_alias.as_deref() == Some(n.as_str()),
                                 alef_core::ir::TypeRef::Optional(inner) => {
                                     if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                        Some(n.as_str())
+                                        b.type_alias.as_deref() == Some(n.as_str())
                                     } else {
-                                        None
+                                        false
                                     }
                                 }
-                                _ => None,
-                            };
-                            type_name.map(|n| b.options_type.as_deref() == Some(n)).unwrap_or(false)
-                        }
+                                _ => false,
+                            }
+                    }
+                    BridgeBinding::OptionsField => {
+                        let type_name = match &p.ty {
+                            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                            alef_core::ir::TypeRef::Optional(inner) => {
+                                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                    Some(n.as_str())
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        };
+                        type_name.map(|n| b.options_type.as_deref() == Some(n)).unwrap_or(false)
                     }
                 })
             })

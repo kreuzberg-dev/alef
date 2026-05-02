@@ -1012,16 +1012,13 @@ pub fn gen_bridge_field_function(
 
     let err_conv = ".map_err(|e| extendr_api::Error::Other(e.to_string()))";
 
-    let deser_block =
-        format!("let mut {param_name}_binding: {options_type} = {param_name}.unwrap_or_default();");
+    let deser_block = format!("let mut {param_name}_binding: {options_type} = {param_name}.unwrap_or_default();");
 
-    let visitor_extract = format!(
-        "let _visitor_robj: Option<extendr_api::Robj> = {param_name}_binding.{field_name}.take();"
-    );
+    let visitor_extract =
+        format!("let _visitor_robj: Option<extendr_api::Robj> = {param_name}_binding.{field_name}.take();");
 
-    let core_opts_bind = format!(
-        "let mut {param_name}_core: {core_import}::{options_type} = {param_name}_binding.into();"
-    );
+    let core_opts_bind =
+        format!("let mut {param_name}_core: {core_import}::{options_type} = {param_name}_binding.into();");
 
     let bridge_attach = format!(
         "if let Some(_v) = _visitor_robj {{\n        \
@@ -1090,9 +1087,7 @@ pub fn gen_bridge_field_function(
             )
         }
     } else {
-        format!(
-            "{deser_block}\n    {visitor_extract}\n    {core_opts_bind}\n    {bridge_attach}\n    {core_call}"
-        )
+        format!("{deser_block}\n    {visitor_extract}\n    {core_opts_bind}\n    {bridge_attach}\n    {core_call}")
     };
 
     let func_name = &func.name;

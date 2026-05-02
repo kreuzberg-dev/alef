@@ -2839,10 +2839,7 @@ fn make_options_field_bridge_api() -> (ApiSurface, AlefConfig) {
         name: "ConversionOptions".to_string(),
         rust_path: "html_to_markdown_rs::ConversionOptions".to_string(),
         original_rust_path: String::new(),
-        fields: vec![
-            make_field("heading_style", TypeRef::String, false),
-            visitor_field,
-        ],
+        fields: vec![make_field("heading_style", TypeRef::String, false), visitor_field],
         methods: vec![],
         is_opaque: false,
         is_clone: true,
@@ -3033,10 +3030,14 @@ fn test_options_field_bridge_unsendable_attr() {
 
     // Must NOT use frozen for this type (other types may still use frozen)
     // Check that the ConversionOptions struct uses unsendable
-    let options_struct_pos = content.find("struct ConversionOptions").expect("ConversionOptions struct");
+    let options_struct_pos = content
+        .find("struct ConversionOptions")
+        .expect("ConversionOptions struct");
     let before_struct = &content[..options_struct_pos];
     // Find the last #[pyclass...] before the struct
-    let last_pyclass = before_struct.rfind("pyclass(").expect("pyclass before ConversionOptions");
+    let last_pyclass = before_struct
+        .rfind("pyclass(")
+        .expect("pyclass before ConversionOptions");
     let pyclass_attr = &before_struct[last_pyclass..last_pyclass + 30];
     assert!(
         pyclass_attr.contains("unsendable"),

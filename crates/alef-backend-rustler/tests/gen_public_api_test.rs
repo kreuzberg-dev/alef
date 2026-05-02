@@ -1195,10 +1195,7 @@ fn test_options_field_bridge_bindings_has_convert_and_with_visitor_nifs() {
     );
 
     // Visitor parameter must be a Rustler Term
-    let with_visitor_section = content
-        .split("pub fn convert_with_visitor(")
-        .nth(1)
-        .unwrap_or("");
+    let with_visitor_section = content.split("pub fn convert_with_visitor(").nth(1).unwrap_or("");
     assert!(
         with_visitor_section.contains("rustler::Term<'_>"),
         "convert_with_visitor must accept visitor as rustler::Term<'_>; section: {with_visitor_section}"

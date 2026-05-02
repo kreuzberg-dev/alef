@@ -232,7 +232,13 @@ impl Backend for PhpBackend {
                     opaque_type_names: &opaque_type_names_vec,
                     ..cfg
                 };
-                builder.add_item(&gen_php_struct(typ, &mapper, &struct_cfg, Some(&php_namespace), &enum_names));
+                builder.add_item(&gen_php_struct(
+                    typ,
+                    &mapper,
+                    &struct_cfg,
+                    Some(&php_namespace),
+                    &enum_names,
+                ));
                 builder.add_item(&types::gen_struct_methods_with_exclude(
                     typ,
                     &mapper,
@@ -272,8 +278,7 @@ impl Backend for PhpBackend {
             let mut method_items: Vec<String> = Vec::new();
             for func in included_functions {
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
-                let bridge_field =
-                    crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
+                let bridge_field = crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     method_items.push(crate::trait_bridge::gen_bridge_function(
                         func,
@@ -516,10 +521,7 @@ impl Backend for PhpBackend {
 
         // Build a lookup from function name → BridgeFieldMatch for options-field bridges.
         // These functions need an extra PHP arg ($options->field) forwarded to the native ext.
-        let bridge_field_funcs_pub: std::collections::HashMap<
-            &str,
-            crate::trait_bridge::BridgeFieldMatch<'_>,
-        > = api
+        let bridge_field_funcs_pub: std::collections::HashMap<&str, crate::trait_bridge::BridgeFieldMatch<'_>> = api
             .functions
             .iter()
             .filter_map(|func| {
@@ -600,10 +602,8 @@ impl Backend for PhpBackend {
             // Build the call argument list. For options-field bridge functions, append the
             // bridge field value from the options object (e.g., `$options->visitor`) so the
             // native extension receives it as the extra hidden `{field}_obj` parameter.
-            let mut call_arg_parts: Vec<String> = sorted_visible_params
-                .iter()
-                .map(|p| format!("${}", p.name))
-                .collect();
+            let mut call_arg_parts: Vec<String> =
+                sorted_visible_params.iter().map(|p| format!("${}", p.name)).collect();
             if let Some(bfm) = bridge_field_funcs_pub.get(func.name.as_str()) {
                 let opts_param_name = &func.params[bfm.param_index].name;
                 call_arg_parts.push(format!("${}->{}", opts_param_name, bfm.field_name));
@@ -928,7 +928,10 @@ impl Backend for PhpBackend {
                     .collect();
                 // Bridge-field functions expose an extra visitor param in the native extension.
                 if let Some(bfm) = bridge_field_funcs_stubs.get(func.name.as_str()) {
-                    let bridge_class = bfm.bridge.type_alias.as_deref()
+                    let bridge_class = bfm
+                        .bridge
+                        .type_alias
+                        .as_deref()
                         .unwrap_or(bfm.bridge.trait_name.as_str());
                     params.push(format!("?{} ${}_obj = null", bridge_class, bfm.field_name));
                 }

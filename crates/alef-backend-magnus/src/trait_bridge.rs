@@ -1176,16 +1176,13 @@ pub fn gen_bridge_field_function(
     };
 
     // Extract the visitor field from the binding struct.
-    let visitor_extract = format!(
-        "let _visitor_rb: Option<magnus::Value> = {param_name}_binding.{field_name}.take();"
-    );
+    let visitor_extract = format!("let _visitor_rb: Option<magnus::Value> = {param_name}_binding.{field_name}.take();");
 
     // Convert binding options to core options. The visitor field is Option<magnus::Value>
     // on the binding struct — the From impl skips it, so it is None on the core struct.
     // The convert wrapper sets the real value below.
-    let core_opts_bind = format!(
-        "let mut {param_name}_core: {core_import}::{options_type} = {param_name}_binding.into();"
-    );
+    let core_opts_bind =
+        format!("let mut {param_name}_core: {core_import}::{options_type} = {param_name}_binding.into();");
 
     // Build bridge and attach to core options.
     let bridge_attach = format!(

@@ -188,13 +188,7 @@ impl Backend for NapiBackend {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.
                 // gen_struct adds Default to derives when typ.has_default is true.
-                builder.add_item(&gen_struct(
-                    typ,
-                    &mapper,
-                    &prefix,
-                    has_serde,
-                    &config.trait_bridges,
-                ));
+                builder.add_item(&gen_struct(typ, &mapper, &prefix, has_serde, &config.trait_bridges));
             }
         }
 
@@ -216,8 +210,7 @@ impl Backend for NapiBackend {
                 continue;
             }
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
-            let bridge_field =
-                crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
+            let bridge_field = crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
             // Skip sanitized functions when there's no trait bridge that can replace the
             // sanitized parameter — such functions cannot be auto-delegated. Functions
             // whose only "sanitized" param is a configured trait_bridge param (e.g.
@@ -588,10 +581,7 @@ fn gen_struct(
     // for fields that carry a visitor bridge handle.
     let bridge_fields: Vec<&str> = trait_bridges
         .iter()
-        .filter(|b| {
-            b.bind_via == BridgeBinding::OptionsField
-                && b.options_type.as_deref() == Some(typ.name.as_str())
-        })
+        .filter(|b| b.bind_via == BridgeBinding::OptionsField && b.options_type.as_deref() == Some(typ.name.as_str()))
         .filter_map(|b| b.resolved_options_field())
         .collect();
 
@@ -599,13 +589,11 @@ fn gen_struct(
     // Any field in ANY struct that directly references one of these types must be emitted
     // as Option<Object<'static>> — the Js-prefixed opaque wrapper cannot implement
     // FromNapiValue (it wraps Rc<...> which is !Send).
-    let bridge_type_aliases: ahash::AHashSet<&str> = trait_bridges
-        .iter()
-        .filter_map(|b| b.type_alias.as_deref())
-        .collect();
+    let bridge_type_aliases: ahash::AHashSet<&str> =
+        trait_bridges.iter().filter_map(|b| b.type_alias.as_deref()).collect();
 
     // Returns true when a TypeRef is exactly a bridge type alias (possibly wrapped in Optional).
-    fn is_bridge_type<'a>(ty: &TypeRef, aliases: &ahash::AHashSet<&'a str>) -> bool {
+    fn is_bridge_type(ty: &TypeRef, aliases: &ahash::AHashSet<&str>) -> bool {
         match ty {
             TypeRef::Named(n) => aliases.contains(n.as_str()),
             TypeRef::Optional(inner) => is_bridge_type(inner, aliases),
@@ -629,9 +617,7 @@ fn gen_struct(
         //   (a) fields explicitly listed as bridge fields for this options_type, and
         //   (b) fields in any struct whose type is a bridge type alias (e.g. VisitorHandle)
         //       — these cannot implement FromNapiValue and must be handled via Object<'static>.
-        if bridge_fields.iter().any(|fname| *fname == field.name)
-            || is_bridge_type(&field.ty, &bridge_type_aliases)
-        {
+        if bridge_fields.iter().any(|fname| *fname == field.name) || is_bridge_type(&field.ty, &bridge_type_aliases) {
             // Emit as Option<Object<'static>> so JS callers can pass a visitor object.
             let js_name = to_node_name(&field.name);
             let attrs = if js_name != field.name {
@@ -639,11 +625,7 @@ fn gen_struct(
             } else {
                 vec![]
             };
-            struct_builder.add_field(
-                &field.name,
-                "Option<napi::bindgen_prelude::Object<'static>>",
-                attrs,
-            );
+            struct_builder.add_field(&field.name, "Option<napi::bindgen_prelude::Object<'static>>", attrs);
             continue;
         }
         if field.sanitized {
@@ -691,10 +673,7 @@ fn gen_opaque_struct_methods(
     // Collect type aliases used as bridge types (e.g. "VisitorHandle"). Methods that take
     // these types as parameters cannot be delegated from NAPI: the Js-prefixed opaque wrapper
     // wraps Arc<Rc<...>> which is !Send and therefore cannot implement FromNapiValue.
-    let bridge_type_aliases: AHashSet<&str> = trait_bridges
-        .iter()
-        .filter_map(|b| b.type_alias.as_deref())
-        .collect();
+    let bridge_type_aliases: AHashSet<&str> = trait_bridges.iter().filter_map(|b| b.type_alias.as_deref()).collect();
 
     let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
@@ -715,7 +694,11 @@ fn gen_opaque_struct_methods(
             let named = match &p.ty {
                 alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
                 alef_core::ir::TypeRef::Optional(inner) => {
-                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             };

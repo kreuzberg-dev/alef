@@ -255,7 +255,10 @@ impl Backend for WasmBackend {
         // bridge_type_aliases collects the `type_alias` values for `options_field` bridges
         // (e.g. "VisitorHandle"). These are used to suppress opaque-type methods on builder
         // types that accept the handle — the JS caller uses the JsValue setter instead.
-        let (bridge_fields_map, bridge_type_aliases): (HashMap<String, Vec<String>>, std::collections::HashSet<String>) = {
+        let (bridge_fields_map, bridge_type_aliases): (
+            HashMap<String, Vec<String>>,
+            std::collections::HashSet<String>,
+        ) = {
             let mut map: HashMap<String, Vec<String>> = HashMap::new();
             let mut type_aliases: std::collections::HashSet<String> = std::collections::HashSet::new();
             for bridge in &config.trait_bridges {
@@ -443,8 +446,7 @@ impl Backend for WasmBackend {
                     continue;
                 }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
-                let bridge_field =
-                    crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
+                let bridge_field = crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     // Legacy positional bridging: visitor is a direct function parameter.
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(
@@ -720,7 +722,11 @@ fn gen_opaque_struct_methods(
             let inner = match &p.ty {
                 TypeRef::Named(n) => Some(n.as_str()),
                 TypeRef::Optional(inner) => {
-                    if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             };
@@ -1157,8 +1163,7 @@ fn gen_new_method(
         .fields
         .iter()
         .filter(|f| {
-            !field_references_excluded_type(&f.ty, exclude_types)
-                && !bridge_fields.iter().any(|n| n == &f.name)
+            !field_references_excluded_type(&f.ty, exclude_types) && !bridge_fields.iter().any(|n| n == &f.name)
         })
         .cloned()
         .collect();

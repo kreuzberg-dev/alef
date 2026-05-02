@@ -6,12 +6,11 @@ use alef_core::ir::{DefaultValue, EnumDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::fmt::Write;
 
+use super::OptionsFieldBridgeInfo;
 use super::helpers::{
     RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name,
     java_apply_rename_all, safe_java_field_name,
 };
-use super::OptionsFieldBridgeInfo;
-
 
 pub(crate) fn gen_record_type(
     package: &str,

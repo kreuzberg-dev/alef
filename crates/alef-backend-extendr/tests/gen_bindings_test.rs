@@ -1274,10 +1274,7 @@ mod options_field_bridge {
             .expect("generation");
         let content = &files[0].content;
 
-        assert!(
-            content.contains("pub fn convert("),
-            "convert wrapper must be emitted"
-        );
+        assert!(content.contains("pub fn convert("), "convert wrapper must be emitted");
         assert!(
             !content.contains("pub fn convert(html: &str, visitor:"),
             "convert wrapper must not expose a top-level `visitor` parameter when bind_via = options_field:\n{content}"
