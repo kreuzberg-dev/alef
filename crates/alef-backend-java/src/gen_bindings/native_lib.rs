@@ -672,19 +672,19 @@ pub(crate) fn gen_native_lib(
         let register_ffi_name = format!("{}_register_{}", prefix, trait_snake);
         if emitted_register_handles.insert(register_handle_name.clone()) {
             writeln!(body).ok();
+            // Use orElse(null): the register symbol may be absent when the trait bridge
+            // is not compiled into the dylib. Callers must null-check before invoking.
             writeln!(
                 body,
-                "    static final MethodHandle {} = LINKER.downcallHandle(",
-                register_handle_name
+                "    static final MethodHandle {} = LIB.find(\"{}\").map(s -> LINKER.downcallHandle(s,",
+                register_handle_name, register_ffi_name
             )
             .ok();
-            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", register_ffi_name).ok();
             writeln!(
                 body,
-                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS))).orElse(null);"
             )
             .ok();
-            writeln!(body, "    );").ok();
         }
 
         // Unregister handle
@@ -692,19 +692,19 @@ pub(crate) fn gen_native_lib(
         let unregister_ffi_name = format!("{}_unregister_{}", prefix, trait_snake);
         if emitted_unregister_handles.insert(unregister_handle_name.clone()) {
             writeln!(body).ok();
+            // Use orElse(null): the unregister symbol may be absent when the trait bridge
+            // is not compiled into the dylib. Callers must null-check before invoking.
             writeln!(
                 body,
-                "    static final MethodHandle {} = LINKER.downcallHandle(",
-                unregister_handle_name
+                "    static final MethodHandle {} = LIB.find(\"{}\").map(s -> LINKER.downcallHandle(s,",
+                unregister_handle_name, unregister_ffi_name
             )
             .ok();
-            writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", unregister_ffi_name).ok();
             writeln!(
                 body,
-                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+                "        FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS))).orElse(null);"
             )
             .ok();
-            writeln!(body, "    );").ok();
         }
     }
 

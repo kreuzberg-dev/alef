@@ -362,6 +362,16 @@ fn render_test_file(
         let pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
         let _ = writeln!(out, "import {pkg}.CrawlConfig;");
     }
+    // Import visitor types when any fixture uses visitor callbacks.
+    let has_visitor_fixtures = fixtures.iter().any(|f| f.visitor.is_some());
+    if has_visitor_fixtures && !import_path.is_empty() {
+        let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
+        if !binding_pkg.is_empty() {
+            let _ = writeln!(out, "import {binding_pkg}.TestVisitor;");
+            let _ = writeln!(out, "import {binding_pkg}.VisitContext;");
+            let _ = writeln!(out, "import {binding_pkg}.VisitResult;");
+        }
+    }
     let _ = writeln!(out);
 
     let _ = writeln!(out, "/** E2e tests for category: {category}. */");
@@ -1486,7 +1496,7 @@ fn emit_java_visitor_method(
         | "visit_definition_description" => "VisitContext ctx, String text",
         "visit_text" => "VisitContext ctx, String text",
         "visit_list_item" => "VisitContext ctx, boolean ordered, String marker, String text",
-        "visit_blockquote" => "VisitContext ctx, String content, int depth",
+        "visit_blockquote" => "VisitContext ctx, String content, long depth",
         "visit_table_row" => "VisitContext ctx, java.util.List<String> cells, boolean isHeader",
         "visit_custom_element" => "VisitContext ctx, String tagName, String html",
         "visit_form" => "VisitContext ctx, String actionUrl, String method",
@@ -1517,10 +1527,49 @@ fn emit_java_visitor_method(
             setup_lines.push(format!("        return VisitResult.custom(\"{escaped}\");"));
         }
         CallbackAction::CustomTemplate { template } => {
-            let escaped = escape_java(template);
-            setup_lines.push(format!(
-                "        return VisitResult.custom(String.format(\"{escaped}\"));"
-            ));
+            // Extract {placeholder} names from the template (in order of appearance).
+            // Convert each snake_case placeholder to the camelCase Java variable name,
+            // then replace each {placeholder} with %s for String.format.
+            let mut format_str = String::with_capacity(template.len());
+            let mut format_args: Vec<String> = Vec::new();
+            let mut chars = template.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch == '{' {
+                    // Collect identifier chars until '}'.
+                    let mut name = String::new();
+                    let mut closed = false;
+                    for inner in chars.by_ref() {
+                        if inner == '}' {
+                            closed = true;
+                            break;
+                        }
+                        name.push(inner);
+                    }
+                    if closed && !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                        let camel_name = name.as_str().to_lower_camel_case();
+                        format_args.push(camel_name);
+                        format_str.push_str("%s");
+                    } else {
+                        // Not a simple placeholder — emit literally.
+                        format_str.push('{');
+                        format_str.push_str(&name);
+                        if closed {
+                            format_str.push('}');
+                        }
+                    }
+                } else {
+                    format_str.push(ch);
+                }
+            }
+            let escaped = escape_java(&format_str);
+            if format_args.is_empty() {
+                setup_lines.push(format!("        return VisitResult.custom(\"{escaped}\");"));
+            } else {
+                let args_str = format_args.join(", ");
+                setup_lines.push(format!(
+                    "        return VisitResult.custom(String.format(\"{escaped}\", {args_str}));"
+                ));
+            }
         }
     }
     setup_lines.push("    }".to_string());
