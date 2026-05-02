@@ -1,0 +1,249 @@
+//! Regression: rust e2e codegen used to short-circuit any fixture without `http`
+//! or `mock_response` to a TODO stub, on the assumption that such fixtures were
+//! schema/spec validation (asyncapi, grpc, graphql_schema, …) with no callable
+//! Rust API. That assumption is wrong for libraries whose fixtures invoke a
+//! plain function (e.g. `kreuzberg::extract_file(path, mime, config)`): every
+//! such fixture would emit `// TODO: implement when a callable API is available`
+//! instead of a real call, producing 0 effective rust e2e tests.
+//!
+//! The codegen now stubs only when the resolved call config has no function
+//! name. Fixtures that point at a configured `[e2e.call]` (or `[e2e.calls.<n>]`)
+//! render real function invocations.
+//!
+//! See: alef-e2e codegen rust render_test_function (the gate that checks
+//! `function_name.is_empty()`).
+
+use alef_core::config::AlefConfig;
+use alef_e2e::codegen::E2eCodegen;
+use alef_e2e::codegen::rust::RustE2eCodegen;
+use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup};
+
+fn build_config_with_default_call() -> AlefConfig {
+    let toml_src = r#"
+languages = ["rust"]
+
+[crate]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[e2e.call]
+function = "extract_file"
+module = "mylib"
+result_var = "result"
+async = true
+returns_result = true
+args = [
+  { name = "path", field = "input.path", type = "string" },
+]
+
+[e2e.call.overrides.rust]
+crate_name = "mylib"
+function = "extract_file"
+"#;
+    toml::from_str(toml_src).expect("config parses")
+}
+
+fn build_config_without_function() -> AlefConfig {
+    let toml_src = r#"
+languages = ["rust"]
+
+[crate]
+name = "schemalib"
+sources = ["src/lib.rs"]
+
+[e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[e2e.call]
+function = ""
+module = "schemalib"
+async = true
+args = []
+"#;
+    toml::from_str(toml_src).expect("config parses")
+}
+
+fn build_function_call_fixture(id: &str) -> FixtureGroup {
+    FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![Fixture {
+            id: id.to_string(),
+            category: Some("smoke".to_string()),
+            description: "regression: function-call fixture (no http, no mock)".to_string(),
+            tags: Vec::new(),
+            skip: None,
+            call: None,
+            input: serde_json::json!({ "path": "test.pdf" }),
+            mock_response: None,
+            visitor: None,
+            assertions: vec![Assertion {
+                assertion_type: "not_error".to_string(),
+                field: None,
+                value: None,
+                values: None,
+                method: None,
+                check: None,
+                args: None,
+            }],
+            source: "test.json".to_string(),
+            http: None,
+        }],
+    }
+}
+
+#[test]
+fn rust_codegen_emits_real_call_for_function_fixture_without_http_or_mock() {
+    let config = build_config_with_default_call();
+    let groups = vec![build_function_call_fixture("function_call_fixture")];
+    let files = RustE2eCodegen
+        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .expect("generation succeeds");
+    let test_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("smoke_test.rs"))
+        .expect("smoke_test.rs is emitted");
+    let content = &test_file.content;
+
+    assert!(
+        content.contains("test_function_call_fixture"),
+        "test function not emitted: {content}"
+    );
+    assert!(
+        content.contains("extract_file("),
+        "real `extract_file(...)` call missing — codegen still stubs to TODO:\n{content}"
+    );
+    assert!(
+        !content.contains("TODO: implement when a callable API is available"),
+        "TODO stub still emitted for a fixture with a configured call:\n{content}"
+    );
+}
+
+#[test]
+fn rust_codegen_loads_bytes_arg_from_file_path_value() {
+    // Fixture has `input.data = "pdf/fake_memo.pdf"` and the call's `data` arg is
+    // declared as `type = "bytes"`. The codegen must read the file from
+    // test_documents instead of treating the path as inline bytes.
+    let toml_src = r#"
+languages = ["rust"]
+
+[crate]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[e2e.call]
+function = "extract_text_from_pdf"
+module = "mylib"
+result_var = "result"
+async = false
+returns_result = true
+args = [
+  { name = "pdf_bytes", field = "input.data", type = "bytes" },
+]
+
+[e2e.call.overrides.rust]
+crate_name = "mylib"
+function = "extract_text_from_pdf"
+result_is_simple = true
+"#;
+    let config: AlefConfig = toml::from_str(toml_src).expect("config parses");
+    let groups = vec![FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![Fixture {
+            id: "load_pdf".to_string(),
+            category: Some("smoke".to_string()),
+            description: "load a pdf by path".to_string(),
+            tags: Vec::new(),
+            skip: None,
+            call: None,
+            input: serde_json::json!({ "data": "pdf/fake_memo.pdf" }),
+            mock_response: None,
+            visitor: None,
+            assertions: vec![Assertion {
+                assertion_type: "not_error".to_string(),
+                field: None,
+                value: None,
+                values: None,
+                method: None,
+                check: None,
+                args: None,
+            }],
+            source: "test.json".to_string(),
+            http: None,
+        }],
+    }];
+    let files = RustE2eCodegen
+        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .expect("generation succeeds");
+    let test_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("smoke_test.rs"))
+        .expect("smoke_test.rs is emitted");
+    let content = &test_file.content;
+
+    assert!(
+        content.contains("std::fs::read"),
+        "expected std::fs::read for file-path bytes value:\n{content}"
+    );
+    assert!(
+        content.contains("/test_documents/"),
+        "expected test_documents directory in path resolution:\n{content}"
+    );
+    assert!(
+        content.contains("pdf/fake_memo.pdf"),
+        "expected fixture path retained:\n{content}"
+    );
+    assert!(
+        !content.contains(".as_bytes()"),
+        "should not pass path string as inline bytes:\n{content}"
+    );
+}
+
+#[test]
+fn rust_codegen_imports_function_for_non_mock_call_fixture() {
+    // Regression: imports were previously gated on mock_response; non-mock
+    // function-call fixtures rendered without their `use mylib::extract_file;`
+    // statement, producing E0425 "cannot find function".
+    let config = build_config_with_default_call();
+    let groups = vec![build_function_call_fixture("call_fixture")];
+    let files = RustE2eCodegen
+        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .expect("generation succeeds");
+    let test_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("smoke_test.rs"))
+        .expect("smoke_test.rs is emitted");
+    let content = &test_file.content;
+
+    assert!(
+        content.contains("use mylib::extract_file"),
+        "expected import for non-mock function-call fixture:\n{content}"
+    );
+}
+
+#[test]
+fn rust_codegen_still_stubs_when_no_callable_function_configured() {
+    let config = build_config_without_function();
+    let groups = vec![build_function_call_fixture("schema_only_fixture")];
+    let files = RustE2eCodegen
+        .generate(&groups, &config.e2e.clone().unwrap(), &config)
+        .expect("generation succeeds");
+    let test_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("smoke_test.rs"))
+        .expect("smoke_test.rs is emitted");
+    let content = &test_file.content;
+
+    assert!(
+        content.contains("TODO: implement when a callable API is available"),
+        "expected TODO stub when no function is configured, got:\n{content}"
+    );
+}

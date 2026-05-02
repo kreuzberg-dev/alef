@@ -351,15 +351,24 @@ fn render_test_file(
 
     // Check if this file has http-fixture tests (separate from call-based tests).
     let file_has_http = fixtures.iter().any(|f| f.http.is_some());
-    // Call-based: has mock_response (liter-llm style), NOT pure stub fixtures.
-    // Pure stub fixtures (neither http nor mock_response) use a stub path — no function import.
-    let file_has_call_based = fixtures.iter().any(|f| f.mock_response.is_some());
+    // Call-based: any non-http fixture whose resolved call config has a function name.
+    // This covers both mock-server-driven fixtures (liter-llm) and plain function-call
+    // fixtures (kreuzberg::extract_file, etc.). Pure stub fixtures (no callable function
+    // configured) use a stub path — no function import.
+    let is_call_based = |f: &Fixture| -> bool {
+        if f.http.is_some() {
+            return false;
+        }
+        let cc = e2e_config.resolve_call(f.call.as_deref());
+        !resolve_function_name_for_call(cc).is_empty()
+    };
+    let file_has_call_based = fixtures.iter().any(|f| is_call_based(f));
 
     // Collect all unique (module, function) pairs needed across call-based fixtures only.
     // Http fixtures and stub fixtures use different code paths and don't import the call function.
     if file_has_call_based {
         let mut imported: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
-        for fixture in fixtures.iter().filter(|f| f.mock_response.is_some()) {
+        for fixture in fixtures.iter().filter(|f| is_call_based(f)) {
             let call_config = e2e_config.resolve_call(fixture.call.as_deref());
             let fn_name = resolve_function_name_for_call(call_config);
             let mod_name = resolve_module_for_call(call_config, dep_name);
@@ -440,13 +449,16 @@ fn render_test_function(
         return;
     }
 
-    // Fixtures that have neither `http` nor `mock_response` are schema/spec
-    // validation fixtures (asyncapi, grpc, graphql_schema, etc.). These don't
-    // yet have a callable function in the Rust e2e suite — generate a stub
-    // that compiles and passes to preserve test count without breaking builds.
-    if fixture.http.is_none() && fixture.mock_response.is_none() {
-        let fn_name = sanitize_ident(&fixture.id);
-        let description = &fixture.description;
+    let fn_name = sanitize_ident(&fixture.id);
+    let description = &fixture.description;
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let function_name = resolve_function_name_for_call(call_config);
+    let module = resolve_module_for_call(call_config, dep_name);
+
+    // Stub fixtures that have no http, no mock_response, AND no callable function
+    // configured (e.g., schema/spec validation fixtures: asyncapi, grpc, graphql_schema).
+    // These libs don't yet have a callable Rust API — emit a passing stub.
+    if fixture.http.is_none() && fixture.mock_response.is_none() && function_name.is_empty() {
         let _ = writeln!(out, "#[tokio::test]");
         let _ = writeln!(out, "async fn test_{fn_name}() {{");
         let _ = writeln!(out, "    // {description}");
@@ -457,12 +469,6 @@ fn render_test_function(
         let _ = writeln!(out, "}}");
         return;
     }
-
-    let fn_name = sanitize_ident(&fixture.id);
-    let description = &fixture.description;
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    let function_name = resolve_function_name_for_call(call_config);
-    let module = resolve_module_for_call(call_config, dep_name);
     let result_var = &call_config.result_var;
     let has_mock = fixture.mock_response.is_some();
 
@@ -792,6 +798,30 @@ fn render_rust_arg(
     if arg_type == "json_object" {
         return render_json_object_arg(name, value, optional, owned, element_type, module);
     }
+    // bytes args carrying a string value need classification: a relative file path
+    // (e.g. "pdf/fake_memo.pdf") must be loaded from the test_documents directory
+    // at runtime, not embedded as a literal string. Inline text and base64 fall
+    // through to the default-literal path below (raw string + .as_bytes()).
+    if arg_type == "bytes" && !optional {
+        if let Some(raw) = value.as_str() {
+            if matches!(classify_bytes_value(raw), BytesKind::FilePath) {
+                let lines = vec![format!(
+                    "let {name} = std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/\", \"{raw}\")).expect(\"fixture file should exist\");"
+                )];
+                return (lines, format!("&{name}"));
+            }
+        }
+    }
+    if arg_type == "bytes" && optional {
+        if let Some(raw) = value.as_str() {
+            if matches!(classify_bytes_value(raw), BytesKind::FilePath) {
+                let lines = vec![format!(
+                    "let {name} = Some(std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/\", \"{raw}\")).expect(\"fixture file should exist\"));"
+                )];
+                return (lines, format!("{name}.as_deref().map(|v| v.as_slice())"));
+            }
+        }
+    }
     if value.is_null() && !optional {
         // Required arg with no fixture value: use a language-appropriate default.
         let default_val = match arg_type {
@@ -846,6 +876,47 @@ fn render_rust_arg(
     } else {
         (vec![format!("let {name} = {literal};")], expr(name))
     }
+}
+
+/// How to represent a fixture `type = "bytes"` string value in generated Rust.
+///
+/// Mirrors the python codegen's classification — same rules, different emit. See
+/// `codegen::python::classify_bytes_value` for the detailed rule order.
+#[derive(Debug, PartialEq, Eq)]
+enum BytesKind {
+    /// A relative file path like `"pdf/fake_memo.pdf"` — read with `std::fs::read(...)`.
+    FilePath,
+    /// Inline text content like `"<!DOCTYPE html>..."` — emit as `b"..."` / `.as_bytes()`.
+    InlineText,
+    /// A base64-encoded blob like `"/9j/4AAQ"` — emit as raw string for now (caller
+    /// receives a string literal; downstream may decode if needed).
+    Base64,
+}
+
+/// Classify a fixture string value that maps to a `bytes` argument.
+///
+/// Rules (in order):
+/// 1. Starts with `<`, `{`, or `[`, or contains whitespace → inline text.
+/// 2. First character is an ASCII letter/digit/underscore AND the value contains
+///    a `/` that is preceded by at least one word character AND the value contains
+///    a `.` after the last `/` → file path.
+/// 3. Everything else → base64.
+fn classify_bytes_value(s: &str) -> BytesKind {
+    if s.starts_with('<') || s.starts_with('{') || s.starts_with('[') || s.contains(' ') {
+        return BytesKind::InlineText;
+    }
+    let first = s.chars().next().unwrap_or('\0');
+    if first.is_ascii_alphanumeric() || first == '_' {
+        if let Some(slash_pos) = s.find('/') {
+            if slash_pos > 0 {
+                let after_slash = &s[slash_pos + 1..];
+                if after_slash.contains('.') && !after_slash.is_empty() {
+                    return BytesKind::FilePath;
+                }
+            }
+        }
+    }
+    BytesKind::Base64
 }
 
 /// Render a `json_object` argument: serialize the fixture JSON as a `serde_json::json!` literal

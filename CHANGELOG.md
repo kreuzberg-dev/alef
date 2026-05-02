@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.5] - 2026-05-02
+
+### Fixed
+
+- fix(e2e/rust): rust e2e codegen no longer short-circuits all non-HTTP, non-mock-server fixtures to a `// TODO: implement when a callable API is available` stub. Pre-0.13.5 the renderer assumed any fixture without an `http` block or a `mock_response` was a schema/spec validation fixture (asyncapi/grpc/graphql_schema) with no callable Rust API, so libraries whose fixtures invoke a plain function (e.g. `kreuzberg::extract_file(path, mime, config)`) emitted zero real test bodies. The stub gate now triggers only when the resolved call config has no function name; fixtures pointing at a configured `[e2e.call]` (or `[e2e.calls.<n>]`) render real function invocations with the right imports.
+- fix(e2e/rust): `use {crate}::{fn};` import lines are now emitted for any non-HTTP fixture whose resolved call config has a function name, not only `mock_response`-bearing fixtures. Previously plain function-call fixtures rendered the call site but omitted the `use` line, producing E0425 "cannot find function" on every test.
+- fix(e2e/rust): `bytes` arguments whose fixture value is a relative file path (e.g. `"pdf/fake_memo.pdf"`, classified the same way as in the python codegen) are now loaded at runtime via `std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../test_documents/", "<path>")).expect(...)` and passed by reference. Previously the path string itself was embedded as `r#"…"#` and `.as_bytes()`-ed, which compiled but always passed the path text as the file contents.
+
 ## [0.13.4] - 2026-05-01
 
 ### Added
