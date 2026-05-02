@@ -5,7 +5,7 @@ use alef_core::ir::{ApiSurface, TypeRef};
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use super::helpers::is_bridge_param_java;
+use super::helpers::{emit_javadoc, is_bridge_param_java};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_facade_class(
@@ -45,13 +45,7 @@ pub(crate) fn gen_facade_class(
 
         let return_type = java_type(&func.return_type);
 
-        if !func.doc.is_empty() {
-            writeln!(body, "    /**").ok();
-            for line in func.doc.lines() {
-                writeln!(body, "     * {}", line).ok();
-            }
-            writeln!(body, "     */").ok();
-        }
+        emit_javadoc(&mut body, &func.doc, "    ");
 
         writeln!(
             body,
