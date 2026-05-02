@@ -120,11 +120,35 @@ fn gen_visitor_bridge(
     writeln!(out, ") -> magnus::RHash {{").unwrap();
     writeln!(out, "    let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").unwrap();
     writeln!(out, "    let h = ruby.hash_new();").unwrap();
+    // Serialize node_type to snake_case Ruby symbol.
+    // serde_json renders enum variants as their Rust name (e.g. "Heading"); convert
+    // PascalCase to snake_case so Ruby callers receive :heading, :definition_list, etc.
     writeln!(
         out,
-        "    h.aset(ruby.to_symbol(\"node_type\"), format!(\"{{:?}}\", ctx.node_type)).ok();"
+        "    {{"
     )
     .unwrap();
+    writeln!(
+        out,
+        "        let raw = serde_json::to_string(&ctx.node_type).map(|s| s.trim_matches('\"').to_string()).unwrap_or_else(|_| format!(\"{{{{:?}}}}\", ctx.node_type));"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        let mut snake = String::with_capacity(raw.len() + 4);"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        for (i, ch) in raw.chars().enumerate() {{ if ch.is_uppercase() && i > 0 {{ snake.push('_'); }} snake.push(ch.to_ascii_lowercase()); }}"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "        h.aset(ruby.to_symbol(\"node_type\"), ruby.to_symbol(&snake)).ok();"
+    )
+    .unwrap();
+    writeln!(out, "    }}").unwrap();
     writeln!(
         out,
         "    h.aset(ruby.to_symbol(\"tag_name\"), ctx.tag_name.as_str()).ok();"
@@ -247,9 +271,9 @@ fn gen_visitor_method_magnus(
         .unwrap();
     }
 
-    // Parse result
+    // Parse result — propagate Ruby exceptions as VisitResult::Error instead of swallowing.
     writeln!(out, "        match result {{").unwrap();
-    writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
+    writeln!(out, "            Err(e) => {ret_ty}::Error(e.to_string()),").unwrap();
     writeln!(out, "            Ok(val) => {{").unwrap();
     writeln!(out, "                let s: String = val.to_string();").unwrap();
     writeln!(out, "                match s.to_lowercase().as_str() {{").unwrap();

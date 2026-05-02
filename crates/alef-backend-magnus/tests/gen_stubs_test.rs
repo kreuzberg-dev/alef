@@ -260,16 +260,17 @@ fn test_basic_rbs_stubs() {
 
     // Check for type stub (Config)
     assert!(content.contains("class Config"), "Should contain Config class");
+    // timeout is optional (make_field(..., optional: true)) → Integer?
     assert!(
-        content.contains("attr_reader timeout: Integer"),
-        "Should have attr_reader for timeout field"
+        content.contains("attr_reader timeout: Integer?"),
+        "Should have attr_reader with optional type for timeout field"
     );
     assert!(
         content.contains("attr_reader backend: String"),
         "Should have attr_reader for backend field"
     );
     assert!(
-        content.contains("def initialize: (?timeout: Integer, backend: String) -> void"),
+        content.contains("def initialize: (?timeout: Integer?, backend: String) -> void"),
         "Should have initialize method with correct signature"
     );
 
@@ -279,10 +280,12 @@ fn test_basic_rbs_stubs() {
         "Should have process function stub with correct signature"
     );
 
-    // Check for enum stub
-    assert!(content.contains("class Backend"), "Should contain Backend enum class");
-    assert!(content.contains("Tesseract: Integer"), "Should have Tesseract variant");
-    assert!(content.contains("PaddleOcr: Integer"), "Should have PaddleOcr variant");
+    // Unit-variant enums are now RBS type aliases of symbol literals, not class bodies.
+    // Backend has variants Tesseract and PaddleOcr → type backend = :tesseract | :paddle_ocr
+    assert!(
+        content.contains("type backend = :tesseract | :paddle_ocr"),
+        "Should contain Backend as symbol union type alias"
+    );
 
     // Check for closing module
     assert!(content.contains("end"), "Should have module closing");
@@ -359,7 +362,7 @@ fn test_type_mapping_in_stubs() {
     );
     assert!(
         content.contains("attr_reader string_val: String?"),
-        "Optional<String> should map to String?"
+        "Optional(String) ty should map to String?"
     );
     assert!(
         content.contains("attr_reader vec_val: Array[String]"),
@@ -370,7 +373,9 @@ fn test_type_mapping_in_stubs() {
         "Option<String> should map to String?"
     );
 
-    // Check initialize signature contains all parameters
+    // Check initialize signature contains all parameters.
+    // string_val and option_val have TypeRef::Optional so they are shown without `?optional` prefix
+    // in the initialize params (f.optional is false for these fields).
     assert!(
         content.contains("def initialize: (u32_val: Integer, i64_val: Integer, f64_val: Float, bool_val: bool, string_val: String?, vec_val: Array[String], option_val: String?) -> void"),
         "Initialize should have all typed parameters"
@@ -447,29 +452,25 @@ fn test_enum_stubs() {
         .unwrap();
     let content = &rbs_file.content;
 
-    // Check enum class definition
-    assert!(content.contains("class Status"), "Should contain Status enum class");
+    // Unit-variant enums are now RBS type aliases of symbol literals.
+    // Status has variants Pending, Processing, Complete, Failed →
+    // type status = :pending | :processing | :complete | :failed
+    assert!(
+        content.contains("type status = :pending | :processing | :complete | :failed"),
+        "Should contain Status as symbol union type alias"
+    );
 
-    // Check enum docstring
+    // Check enum docstring — appears before the type alias
     assert!(
         content.contains("# Processing status"),
         "Should include enum documentation"
     );
 
-    // Check all variants are defined as Integer constants
-    assert!(content.contains("Pending: Integer"), "Should have Pending variant");
-    assert!(
-        content.contains("Processing: Integer"),
-        "Should have Processing variant"
-    );
-    assert!(content.contains("Complete: Integer"), "Should have Complete variant");
-    assert!(content.contains("Failed: Integer"), "Should have Failed variant");
-
-    // Verify enum variants are in correct order
-    let pending_idx = content.find("Pending: Integer").unwrap();
-    let processing_idx = content.find("Processing: Integer").unwrap();
-    let complete_idx = content.find("Complete: Integer").unwrap();
-    let failed_idx = content.find("Failed: Integer").unwrap();
+    // Verify variant symbols appear in correct order within the type alias
+    let pending_idx = content.find(":pending").unwrap();
+    let processing_idx = content.find(":processing").unwrap();
+    let complete_idx = content.find(":complete").unwrap();
+    let failed_idx = content.find(":failed").unwrap();
     assert!(
         pending_idx < processing_idx && processing_idx < complete_idx && complete_idx < failed_idx,
         "Enum variants should be in order"
@@ -912,12 +913,13 @@ fn test_multiline_doc_comment_is_valid_rbs() {
         content.contains("    # Third line."),
         "Third doc line should be prefixed"
     );
+    // Unit-variant enum docs are prefixed with 2 spaces (type alias form, not class body)
     assert!(
-        content.contains("    # Multi-line enum doc."),
+        content.contains("  # Multi-line enum doc."),
         "Enum first doc line should be prefixed"
     );
     assert!(
-        content.contains("    # Second line."),
+        content.contains("  # Second line."),
         "Enum second doc line should be prefixed"
     );
 }

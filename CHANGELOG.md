@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-magnus): typed Ruby exception hierarchy — each error variant now raises its own class
+  (e.g. `ParseException < ConversionErrorException < StandardError`) registered on the module at
+  init time, replacing the previous behaviour where all variants raised `RuntimeError`.
+
+- fix(backend-magnus): `apply_update` and similar `&mut self` methods that take non-opaque struct
+  params (e.g. `ConversionOptionsUpdate`) were silently emitted as no-ops. The delegation guard now
+  permits `TypeRef::Named` params that have `From` impls, so mutations are forwarded to core.
+
+- fix(backend-magnus): visitor `node_type` is now emitted as a snake_case Ruby symbol
+  (`:heading`, `:definition_list`) instead of the Rust debug string (`"Heading"`), matching
+  the `TryConvert` expectation in Ruby callers.
+
+- fix(backend-magnus): visitor method errors are propagated as `VisitResult::Error(msg)` instead
+  of being silently swallowed as `VisitResult::Continue`.
+
+- fix(backend-magnus): RBS enum stubs for unit-variant enums now emit symbol union type aliases
+  (`type heading_style = :atx | :atx_closed | :underlined`) instead of `class` bodies with
+  `Integer` constants, matching the actual Ruby runtime representation.
+
+- fix(backend-magnus): RBS optional field types are now emitted with the `Type?` suffix in
+  both attr declarations and `initialize` parameter lists.
+
+- fix(backend-magnus): `# frozen_string_literal: true` is now emitted as the first line of
+  generated `.rb` files (before the generated-code header comment), satisfying Ruby's
+  requirement that the magic comment appear on line 1.
+
 - fix(backend-php): tagged-data enums (serde internally-tagged with struct variants) now emit `class`
   stubs instead of PHP 8.1 backed `enum: string` stubs, matching the `#[php_class]` flat struct
   generated in `lib.rs` at runtime.

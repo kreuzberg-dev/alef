@@ -375,6 +375,14 @@ impl Backend for MagnusBackend {
             }
         }
 
+        // Typed exception class statics + registration functions (must precede converter fns)
+        for error in &api.errors {
+            builder.add_item(&alef_codegen::error_gen::gen_magnus_error_types(
+                error,
+                &module_name,
+            ));
+        }
+
         // Error converter functions
         for error in &api.errors {
             builder.add_item(&alef_codegen::error_gen::gen_magnus_error_converter(
@@ -435,9 +443,11 @@ impl Backend for MagnusBackend {
         let gem_name = config.ruby_gem_name();
         let module_name = get_module_name(&gem_name);
 
-        // Generate the main Ruby wrapper module file
-        let mut content = hash::header(CommentStyle::Hash);
-        content.push_str("# frozen_string_literal: true\n\n");
+        // Generate the main Ruby wrapper module file.
+        // frozen_string_literal must be on line 1 — emit it before the generated-code header.
+        let mut content = "# frozen_string_literal: true\n".to_string();
+        content.push_str(&hash::header(CommentStyle::Hash));
+        content.push('\n');
         content.push_str(&format!("require_relative '{gem_name}/version'\n"));
         content.push_str(&format!("require_relative '{gem_name}/native'\n\n"));
         content.push_str(&format!("module {module_name}\n"));
@@ -454,8 +464,10 @@ impl Backend for MagnusBackend {
             api.version.clone()
         };
         let version = alef_core::version::to_rubygems_prerelease(&cargo_version);
-        let mut version_content = hash::header(CommentStyle::Hash);
-        version_content.push_str("# frozen_string_literal: true\n\n");
+        // frozen_string_literal must be on line 1 — emit it before the generated-code header.
+        let mut version_content = "# frozen_string_literal: true\n".to_string();
+        version_content.push_str(&hash::header(CommentStyle::Hash));
+        version_content.push('\n');
         version_content.push_str(&format!("module {module_name}\n"));
         version_content.push_str(&format!("  VERSION = \"{version}\"\n"));
         version_content.push_str("end\n");
@@ -846,6 +858,17 @@ fn is_primitive_copy(ty: &alef_core::ir::TypeRef) -> bool {
     matches!(ty, alef_core::ir::TypeRef::Primitive(_) | alef_core::ir::TypeRef::Unit)
 }
 
+/// Check if a parameter type can be delegated in a non-opaque struct method.
+/// Extends `is_simple_non_opaque_param` to allow non-opaque Named types, which
+/// have `From<BindingType>` impls generated and use `.into()` in `gen_call_args`.
+fn is_delegatable_param(ty: &TypeRef, opaque_types: &AHashSet<String>) -> bool {
+    match ty {
+        TypeRef::Named(name) => !opaque_types.contains(name.as_str()),
+        TypeRef::Optional(inner) => is_delegatable_param(inner, opaque_types),
+        other => generators::is_simple_non_opaque_param(other),
+    }
+}
+
 /// Generate an instance method binding for a non-opaque struct.
 fn gen_instance_method(
     method: &MethodDef,
@@ -862,7 +885,7 @@ fn gen_instance_method(
         && method
             .params
             .iter()
-            .all(|p| !p.sanitized && generators::is_simple_non_opaque_param(&p.ty))
+            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types))
         && shared::is_delegatable_return(&method.return_type);
 
     let needs_mut_receiver = method.receiver == Some(ReceiverKind::RefMut);
@@ -921,7 +944,7 @@ fn gen_async_instance_method(
         && method
             .params
             .iter()
-            .all(|p| !p.sanitized && generators::is_simple_non_opaque_param(&p.ty))
+            .all(|p| !p.sanitized && is_delegatable_param(&p.ty, opaque_types))
         && shared::is_delegatable_return(&method.return_type);
 
     let body = if can_delegate {
@@ -1770,6 +1793,15 @@ fn gen_module_init(
         format!(r#"    let module = ruby.define_module("{}")?;"#, module_name),
         "".to_string(),
     ];
+
+    // Register typed exception classes for each error type
+    for error in &api.errors {
+        let reg_fn = alef_codegen::error_gen::magnus_exception_register_fn_name(error);
+        lines.push(format!("    {reg_fn}(ruby, module)?;"));
+    }
+    if !api.errors.is_empty() {
+        lines.push("".to_string());
+    }
 
     // Custom registrations (before generated ones)
     if let Some(reg) = config.custom_registrations.for_language(Language::Ruby) {

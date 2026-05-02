@@ -365,7 +365,81 @@ pub fn php_converter_fn_name(error: &ErrorDef) -> String {
 // Magnus (Ruby) error generation
 // ---------------------------------------------------------------------------
 
-/// Generate a converter function that maps a core error to `magnus::Error`.
+/// Generate `OnceLock<magnus::ExceptionClass>` statics and a registration function
+/// for each variant of a Rust error type so that typed Ruby exception classes are
+/// raised instead of the generic `RuntimeError`.
+///
+/// The emitted code looks like:
+/// ```rust
+/// static ParseError_CLASS: OnceLock<magnus::ExceptionClass> = OnceLock::new();
+/// // … one static per variant …
+/// static ConversionError_CLASS: OnceLock<magnus::ExceptionClass> = OnceLock::new();
+///
+/// fn register_conversion_error_exceptions(
+///     ruby: &magnus::Ruby,
+///     module: magnus::RModule,
+/// ) -> Result<(), magnus::Error> {
+///     let base = module.define_class("ConversionError", ruby.exception_standard_error())?;
+///     ConversionError_CLASS.set(base.into()).ok();
+///     let sub = module.define_class("ParseError", base)?;
+///     ParseError_CLASS.set(sub.into()).ok();
+///     // …
+///     Ok(())
+/// }
+/// ```
+pub fn gen_magnus_error_types(error: &ErrorDef, module_name: &str) -> String {
+    let _ = module_name; // used for doc context only
+    let base_class = format!("{}Exception", error.name);
+
+    let mut lines = Vec::new();
+    lines.push("// Typed Ruby exception classes".to_string());
+
+    // One static per variant
+    for variant in &error.variants {
+        let class_name = format!("{}Exception", variant.name);
+        lines.push(format!(
+            "#[allow(non_upper_case_globals)]\nstatic {class_name}_CLASS: std::sync::OnceLock<magnus::ExceptionClass> = std::sync::OnceLock::new();"
+        ));
+    }
+    // Base exception static
+    lines.push(format!(
+        "#[allow(non_upper_case_globals)]\nstatic {base_class}_CLASS: std::sync::OnceLock<magnus::ExceptionClass> = std::sync::OnceLock::new();"
+    ));
+
+    lines.push(String::new());
+
+    // Registration function
+    let reg_fn = magnus_exception_register_fn_name(error);
+    lines.push(format!("fn {reg_fn}(ruby: &magnus::Ruby, module: magnus::RModule) -> Result<(), magnus::Error> {{"));
+    // Base inherits StandardError
+    lines.push(format!(
+        "    let base = module.define_class(\"{base_class}\", ruby.exception_standard_error())?;"
+    ));
+    lines.push(format!("    {base_class}_CLASS.set(base).ok();"));
+    // Each variant inherits from base
+    for variant in &error.variants {
+        let class_name = format!("{}Exception", variant.name);
+        lines.push(format!(
+            "    let sub = module.define_class(\"{class_name}\", base)?;"
+        ));
+        lines.push(format!("    {class_name}_CLASS.set(sub).ok();"));
+    }
+    lines.push("    Ok(())".to_string());
+    lines.push("}".to_string());
+
+    lines.join("\n")
+}
+
+/// Return the name of the exception registration function for a given error type.
+pub fn magnus_exception_register_fn_name(error: &ErrorDef) -> String {
+    format!("register_{}_exceptions", to_snake_case(&error.name))
+}
+
+/// Generate a converter function that maps a core error to a typed `magnus::Error`.
+///
+/// Each variant is mapped to its own Ruby exception class (registered by
+/// `gen_magnus_error_types`/`magnus_exception_register_fn_name`). Falls back to
+/// `RuntimeError` when a variant's class has not been registered (e.g. cfg-gated).
 pub fn gen_magnus_error_converter(error: &ErrorDef, core_import: &str) -> String {
     let rust_path = if error.rust_path.is_empty() {
         format!("{core_import}::{}", error.name)
@@ -376,13 +450,35 @@ pub fn gen_magnus_error_converter(error: &ErrorDef, core_import: &str) -> String
     let fn_name = format!("{}_to_magnus_err", to_snake_case(&error.name));
 
     let mut lines = Vec::new();
-    lines.push(format!("/// Convert a `{rust_path}` error to a Magnus runtime error."));
+    lines.push(format!("/// Convert a `{rust_path}` error to a typed Magnus exception."));
     lines.push("#[allow(dead_code)]".to_string());
     lines.push(format!("fn {fn_name}(e: {rust_path}) -> magnus::Error {{"));
+    lines.push("    let ruby = unsafe { magnus::Ruby::get_unchecked() };".to_string());
     lines.push("    let msg = e.to_string();".to_string());
-    lines.push(
-        "    magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), msg)".to_string(),
-    );
+    lines.push("    #[allow(unreachable_patterns)]".to_string());
+    lines.push("    match &e {".to_string());
+
+    for variant in &error.variants {
+        let pattern = error_variant_wildcard_pattern(&rust_path, variant);
+        let class_name = format!("{}Exception", variant.name);
+        lines.push(format!(
+            "        {pattern} => {{\n            \
+             if let Some(cls) = {class_name}_CLASS.get() {{\n                \
+             magnus::Error::new(*cls, msg)\n            }} else {{\n                \
+             magnus::Error::new(ruby.exception_runtime_error(), msg)\n            }}\n        }}"
+        ));
+    }
+
+    // Catch-all: use base exception class if registered, else RuntimeError
+    let base_class = format!("{}Exception", error.name);
+    lines.push(format!(
+        "        _ => {{\n            \
+         if let Some(cls) = {base_class}_CLASS.get() {{\n                \
+         magnus::Error::new(*cls, msg)\n            }} else {{\n                \
+         magnus::Error::new(ruby.exception_runtime_error(), msg)\n            }}\n        }}"
+    ));
+
+    lines.push("    }".to_string());
     lines.push("}".to_string());
     lines.join("\n")
 }
@@ -996,17 +1092,53 @@ mod tests {
     fn test_gen_magnus_error_converter() {
         let error = sample_error();
         let output = gen_magnus_error_converter(&error, "html_to_markdown_rs");
+        // Function signature
         assert!(
             output.contains(
                 "fn conversion_error_to_magnus_err(e: html_to_markdown_rs::ConversionError) -> magnus::Error {"
             )
         );
-        assert!(
-            output.contains(
-                "magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), msg)"
-            )
-        );
         assert!(output.contains("#[allow(dead_code)]"));
+        // Typed dispatch: each variant checks its OnceLock class, falls back to RuntimeError
+        assert!(
+            output.contains("ParseErrorException_CLASS.get()"),
+            "should dispatch to typed ParseErrorException class"
+        );
+        // Catch-all uses the base exception class
+        assert!(
+            output.contains("ConversionErrorException_CLASS.get()"),
+            "catch-all should use base ConversionErrorException class"
+        );
+        // Fallback uses RuntimeError when class is unregistered
+        assert!(
+            output.contains("ruby.exception_runtime_error()"),
+            "fallback should raise RuntimeError when class not registered"
+        );
+    }
+
+    #[test]
+    fn test_gen_magnus_error_types() {
+        let error = sample_error();
+        let output = gen_magnus_error_types(&error, "HtmlToMarkdownRb");
+        // OnceLock statics for each variant and base
+        assert!(
+            output.contains("static ParseErrorException_CLASS:"),
+            "should emit ParseErrorException static"
+        );
+        assert!(
+            output.contains("static ConversionErrorException_CLASS:"),
+            "should emit base ConversionErrorException static"
+        );
+        // Registration function
+        assert!(
+            output.contains("fn register_conversion_error_exceptions("),
+            "should emit registration function"
+        );
+        // Inherits from StandardError
+        assert!(
+            output.contains("ruby.exception_standard_error()"),
+            "base exception should inherit from StandardError"
+        );
     }
 
     // -----------------------------------------------------------------------
