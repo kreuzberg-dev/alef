@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   + `gen_visitor_bindings` are not emitted. The single authoritative `{prefix}_convert`
   comes exclusively from `gen_convert_with_options_field_bridge`. Removes the three
   `htm_convert` definitions that caused a duplicate `#[no_mangle]` compile error in
-  html-to-markdown.
+  html-to-markdown. Also fixes `gen_convert_with_options_field_bridge` to call
+  `core::convert(html, options)` with 2 arguments matching the current API (visitor
+  is embedded in options, not passed as a third argument).
 
 - fix(e2e): visitor codegen now assigns the synthesized visitor object to
   `options.visitor` (language-idiomatic field assignment) instead of passing it
