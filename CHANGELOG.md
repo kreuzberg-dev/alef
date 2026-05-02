@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- feat(docs): render trait-bridged fields as struct fields on options types when
+  configured with `bind_via = "options_field"`. The visitor bridge type is rendered
+  with language-appropriate syntax (e.g. `HtmlVisitor(Protocol)` for Python,
+  `HtmlVisitor (interface)` for TypeScript), and the field description is
+  auto-generated if not explicitly documented.
 - feat(core/codegen): trait bridges may now declare `bind_via = "options_field"`
   on `[[trait_bridges]]` (with `options_type` and optional `options_field`)
   to indicate that the bridge handle lives as a struct field on a function

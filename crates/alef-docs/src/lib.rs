@@ -4,7 +4,7 @@
 //! and `errors.md` files from the alef IR (`ApiSurface`).
 
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{AlefConfig, Language};
+use alef_core::config::{AlefConfig, BridgeBinding, Language};
 use alef_core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToPascalCase;
 use std::fmt::Write;
@@ -126,7 +126,7 @@ fn generate_lang_doc(
     if !types_to_doc.is_empty() {
         out.push_str("### Types\n\n");
         for ty in &types_to_doc {
-            out.push_str(&render_type(ty, lang, api, ffi_prefix));
+            out.push_str(&render_type(ty, lang, config, api, ffi_prefix));
             out.push_str("\n---\n\n");
         }
     }
@@ -250,10 +250,96 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
 }
 
 // ---------------------------------------------------------------------------
+// Trait bridge helpers
+// ---------------------------------------------------------------------------
+
+/// Find if a field on a struct corresponds to a trait bridge configured with
+/// options-field binding. Returns the host-language type name if found.
+fn find_bridged_trait_type(struct_name: &str, field_name: &str, lang: Language, config: &AlefConfig) -> Option<String> {
+    for bridge in &config.trait_bridges {
+        // Check if this bridge is configured for options-field binding
+        if bridge.bind_via != BridgeBinding::OptionsField {
+            continue;
+        }
+
+        // Check if the options_type matches this struct
+        if let Some(ref opts_type) = bridge.options_type {
+            if opts_type == struct_name {
+                // Check if the resolved options_field matches
+                if let Some(opts_field) = bridge.resolved_options_field() {
+                    if opts_field == field_name {
+                        // Return the bridged trait type name, formatted for the language
+                        return Some(get_bridge_type_name(&bridge.trait_name, lang));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Get the host-language type name for a trait bridge.
+fn get_bridge_type_name(trait_name: &str, lang: Language) -> String {
+    // Extract the simple name (e.g. "HtmlToMarkdown::visitor::HtmlVisitor" → "HtmlVisitor")
+    let simple_name = trait_name.rsplit("::").next().unwrap_or(trait_name);
+
+    match lang {
+        Language::Python => {
+            // Python uses the same name, often as a Protocol
+            format!("{}(Protocol)", simple_name)
+        }
+        Language::Node | Language::Wasm => {
+            // TypeScript/WASM: interface-like structure
+            format!("{} (interface)", simple_name)
+        }
+        Language::Ruby => {
+            // Ruby: duck-typed object with specific methods
+            format!("{} (duck-type)", simple_name)
+        }
+        Language::Go => {
+            // Go: interface
+            format!("{} (interface)", simple_name)
+        }
+        Language::Java => {
+            // Java: interface or class
+            format!("{} (interface)", simple_name)
+        }
+        Language::Php => {
+            // PHP: object implementing interface
+            format!("{} (object)", simple_name)
+        }
+        Language::Csharp => {
+            // C#: interface-like
+            format!("{} (interface)", simple_name)
+        }
+        Language::Elixir => {
+            // Elixir: map with callback functions
+            format!("{} (map)", simple_name)
+        }
+        Language::R => {
+            // R: function or list of functions
+            format!("{} (function)", simple_name)
+        }
+        Language::Ffi => {
+            // C FFI: opaque handle
+            format!("{}*", simple_name)
+        }
+        Language::Rust => {
+            // Rust: trait object reference
+            format!("Box<dyn {}>", simple_name)
+        }
+        Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => {
+            // Placeholder for future languages
+            simple_name.to_string()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Type rendering
 // ---------------------------------------------------------------------------
 
-fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {
+fn render_type(ty: &TypeDef, lang: Language, config: &AlefConfig, api: &ApiSurface, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let tname = type_name(&ty.name, lang, ffi_prefix);
 
@@ -272,12 +358,24 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
         out.push_str("|-------|------|---------|-------------|\n");
         for field in &ty.fields {
             let fname = field_name(&field.name, lang);
-            let fty = doc_type_with_optional(&field.ty, lang, field.optional, ffi_prefix);
+
+            // Check if this field is a trait bridge configured for options-field binding
+            let fty = if let Some(bridge_type) = find_bridged_trait_type(&ty.name, &field.name, lang, config) {
+                bridge_type
+            } else {
+                doc_type_with_optional(&field.ty, lang, field.optional, ffi_prefix)
+            };
+
             let fdefault = format_field_default(field, lang, api, ffi_prefix);
             let fdoc = {
                 let raw = clean_doc_inline(&field.doc, lang);
                 if raw.is_empty() {
-                    generate_field_description(&field.name, &field.ty)
+                    // If this is a bridged trait field, provide a custom description
+                    if find_bridged_trait_type(&ty.name, &field.name, lang, config).is_some() {
+                        "Host-language visitor object implementing the traversal callback interface".to_string()
+                    } else {
+                        generate_field_description(&field.name, &field.ty)
+                    }
                 } else {
                     raw
                 }
@@ -421,7 +519,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
 
 fn generate_configuration_doc(
     api: &ApiSurface,
-    _config: &AlefConfig,
+    config: &AlefConfig,
     output_dir: &str,
 ) -> anyhow::Result<GeneratedFile> {
     let mut out = String::with_capacity(8192);
@@ -454,12 +552,22 @@ fn generate_configuration_doc(
             out.push_str("| Field | Type | Default | Description |\n");
             out.push_str("|-------|------|---------|-------------|\n");
             for field in &ty.fields {
-                let fty = doc_type_with_optional(&field.ty, Language::Python, field.optional, "");
+                // Check if this field is a trait bridge configured for options-field binding
+                let fty = if let Some(bridge_type) = find_bridged_trait_type(&ty.name, &field.name, Language::Python, config) {
+                    bridge_type
+                } else {
+                    doc_type_with_optional(&field.ty, Language::Python, field.optional, "")
+                };
+
                 let fdefault = format_field_default(field, Language::Python, api, "");
                 let fdoc = {
                     let raw = clean_doc_inline(&field.doc, Language::Python);
                     if raw.is_empty() {
-                        generate_field_description(&field.name, &field.ty)
+                        if find_bridged_trait_type(&ty.name, &field.name, Language::Python, config).is_some() {
+                            "Host-language visitor object implementing the traversal callback interface".to_string()
+                        } else {
+                            generate_field_description(&field.name, &field.ty)
+                        }
                     } else {
                         raw
                     }
