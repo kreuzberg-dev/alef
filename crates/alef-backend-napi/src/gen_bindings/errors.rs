@@ -17,16 +17,16 @@ pub(super) fn gen_dts(
     // Collect all declarations: opaque types (classes), plain structs (interfaces), visitor traits (interfaces), enums, functions.
     // Sort each group alphabetically to produce stable, deterministic output.
 
-    // Opaque types → `export declare class`
-    let mut opaque_types: Vec<&TypeDef> = api.types.iter().filter(|t| t.is_opaque).collect();
+    // Opaque non-trait types → `export declare class`
+    let mut opaque_types: Vec<&TypeDef> = api.types.iter().filter(|t| t.is_opaque && !t.is_trait).collect();
     opaque_types.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Plain structs → `export interface`
     let mut plain_types: Vec<&TypeDef> = api.types.iter().filter(|t| !t.is_opaque && !t.is_trait).collect();
     plain_types.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Visitor traits → `export interface` (for callback object shape)
-    let mut visitor_traits: Vec<&TypeDef> = api.types.iter().filter(|t| t.is_trait && !t.is_opaque).collect();
+    // Visitor traits (opaque or not) → `export interface` (for callback object shape)
+    let mut visitor_traits: Vec<&TypeDef> = api.types.iter().filter(|t| t.is_trait).collect();
     visitor_traits.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Enums → `export declare enum`
