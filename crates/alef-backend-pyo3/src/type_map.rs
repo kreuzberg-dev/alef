@@ -13,6 +13,10 @@ pub struct Pyo3Mapper {
     /// When a `TypeRef::Named(name)` matches one of these, the generated parameter type
     /// becomes `Py<PyAny>` instead of the bare name, avoiding E0782.
     pub trait_type_names: AHashSet<String>,
+    /// Names of binding wrapper types created for trait bridges (e.g., `PyVisitorRef`).
+    /// These types wrap `Py<PyAny>` and cannot be converted to core types via From/Into.
+    /// When used as builder method parameters, they should not attempt to access `.inner`.
+    pub bridge_type_names: AHashSet<String>,
 }
 
 impl Pyo3Mapper {
@@ -20,6 +24,7 @@ impl Pyo3Mapper {
     pub fn new() -> Self {
         Self {
             trait_type_names: AHashSet::new(),
+            bridge_type_names: AHashSet::new(),
         }
     }
 }
