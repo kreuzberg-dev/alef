@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-05-02
+
+### Changed
+
+- **BREAKING (config schema): `alef.toml` is now multi-crate.** The old single-crate `[crate]` schema is rejected on load with a curated migration message. Run `alef migrate --write` to convert. Internally the loader returns `Vec<ResolvedCrateConfig>` and every backend, codegen pass, scaffold step, e2e generator, and publish step now consumes `&ResolvedCrateConfig` instead of `&AlefConfig`. The `Backend` trait signature changed accordingly. Workspace-wide settings live under `[workspace]`; per-crate settings live under `[[crates]]`.
+- alef-cli now iterates every crate in the workspace by default. Add a top-level `--crate <name>` (repeatable) to restrict commands to a subset.
+- `alef-backend-swift` / `alef-backend-kotlin`: an explicit `[crates.output] {swift,kotlin}` value is now treated as the verbatim package directory; only the template-derived default constructs the canonical `Sources/<Module>/` (swift) or `src/main/kotlin/<package>/` (kotlin) layout. Predictable rule: explicit override = exactly that path; default template = backend builds the canonical structure.
+
+### Added
+
+- feat(alef-cli): `alef migrate --write` rewrites legacy `alef.toml` in place using an atomic temp-file + rename and refuses to overwrite symlinks. The dry-run default prints a unified diff.
+- feat(alef-cli): top-level `--crate <name>` CLI filter (repeatable) selects a subset of the workspace; absent processes every crate. New `crates/alef-cli/src/dispatch.rs` exposes `select_crates` / `is_multi_crate`.
+- feat(alef-core): new `WorkspaceConfig` / `RawCrateConfig` / `ResolvedCrateConfig` / `OutputTemplate` types with documented per-field precedence; `OutputTemplate::resolve` rejects path traversal segments and NUL bytes; `WorkspaceConfig`, `RawCrateConfig`, and `NewAlefConfig` use `#[serde(deny_unknown_fields)]` so typos surface as parse errors.
+- feat(alef-core): per-crate `compute_crate_sources_hash(&ResolvedCrateConfig)` replaces the legacy `&[PathBuf]` overload so multi-source-crate workspaces produce a single stable hash across all contributing source files.
+
+### Fixed
+
+- fix(alef-backend-dart, alef-backend-swift): honor `[crates.dart] frb_version` and `[crates.swift] swift_bridge_version` overrides — the fields were deserialized but every callsite hardcoded the compiled-in default constant.
+- fix(alef-cli/migrate): preserve legacy `[crate]` scalars at the top of the generated `[[crates]]` entry by recursively clearing toml_edit position metadata so the resulting document is well-formed even when many language sub-tables follow.
+- fix(alef-cli/version-pin): write `[workspace] alef_version` after a successful generate instead of a top-level `version =` line. The legacy detector rejected the top-level form on the next run, breaking re-generation.
+- fix(alef-cli/cache): scope IR / lang / stage caches per-crate (`.alef/<crate>/ir.json`, `.alef/<crate>/hashes/<lang>.{hash,manifest}`, `.alef/<crate>/hashes/<stage>.{hash,manifest}`) so multi-crate workspaces no longer poison or overwrite each other's cache entries. `validate_cache_crate_name` rejects path separators, NUL, `..`, `.`.
+
 ## [0.13.10] - 2026-05-02
 
 ### Added
