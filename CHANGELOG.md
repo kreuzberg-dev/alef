@@ -80,6 +80,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   codegen bytes; prek's oxfmt hook then reformatted those files, making `alef verify` report
   28 stale TS files after every `alef e2e generate` / `alef e2e generate --registry` run.
 
+- fix(cli,e2e): add `cargo sort` to Ffi/Wasm/rust-e2e formatter pipelines before hash
+  finalisation. `cargo-sort` normalises `Cargo.toml` dependency-table ordering and feature
+  indentation; without it, prek's `cargo-sort` hook reformatted those files after
+  `finalize_hashes` ran, causing `alef verify` to report `crates/*-wasm/Cargo.toml`,
+  `e2e/rust/Cargo.toml`, and `test_apps/rust/Cargo.toml` as stale on every run.
+  - `Language::Ffi` formatter now runs `cargo fmt --all` then `cargo sort -w` (workspace).
+  - `Language::Wasm` formatter now runs `cargo fmt --manifest-path` then `cargo sort <crate>`.
+  - E2e rust default formatter now runs `cargo fmt --all && cargo sort .` inside the crate dir.
+
 - fix(php): respect namespace config in php_autoload_namespace. After v0.14.0, the namespace
   emission logic regressed and ignored the `[crates.php] namespace` configuration, instead
   splitting the extension name on underscores. Now respects explicit namespace override.

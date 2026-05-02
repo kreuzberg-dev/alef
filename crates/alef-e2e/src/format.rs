@@ -16,11 +16,16 @@ use tracing::warn;
 /// no custom override is present in `e2e_config.format`. The `{dir}` placeholder
 /// is replaced with the actual output directory path before execution.
 ///
-/// * `rust` — `(cd {dir} && cargo fmt --all)` formats the standalone e2e crate
-///   from inside its own directory. `cargo fmt --manifest-path` is *not* a
-///   global cargo flag (it's an unstable cargo-fmt-only flag in nightly), so
-///   running cargo fmt from the e2e crate's own directory is the portable way
-///   to format a non-workspace-member crate.
+/// * `rust` — `(cd {dir} && cargo fmt --all && cargo sort .)` formats the
+///   standalone e2e crate. `cargo fmt` normalises `.rs` files; `cargo sort`
+///   normalises `Cargo.toml` dependency-table ordering and feature indentation
+///   so prek's `cargo-sort` hook is a no-op. Without `cargo sort` the hook
+///   reformats feature indentation after the hash is finalised, making
+///   `alef verify` report the Cargo.toml as stale on every run.
+///   `cargo fmt --manifest-path` is *not* a global cargo flag (it's an
+///   unstable cargo-fmt-only flag in nightly), so running cargo fmt from the
+///   e2e crate's own directory is the portable way to format a
+///   non-workspace-member crate.
 /// * `python` — `ruff format {dir}` normalises whitespace/newlines in the
 ///   generated test files so prek's ruff hook is a no-op.
 /// * `node` — `npx oxfmt {dir}` normalises TypeScript test files so prek's
@@ -30,7 +35,7 @@ use tracing::warn;
 ///   toolchain and oxfmt produces identical normalisation requirements.
 fn default_formatter(lang: &str) -> Option<&'static str> {
     match lang {
-        "rust" => Some("(cd {dir} && cargo fmt --all)"),
+        "rust" => Some("(cd {dir} && cargo fmt --all && cargo sort .)"),
         "python" => Some("ruff format {dir}"),
         "node" | "wasm" => Some("npx oxfmt {dir}"),
         _ => None,
@@ -106,6 +111,11 @@ mod tests {
         assert!(
             cmd.contains("{dir}"),
             "rust formatter must include {{dir}} placeholder: {cmd}"
+        );
+        assert!(
+            cmd.contains("cargo sort"),
+            "rust formatter must run cargo sort to normalise Cargo.toml before hash \
+             finalisation so prek's cargo-sort hook is a no-op: {cmd}"
         );
     }
 

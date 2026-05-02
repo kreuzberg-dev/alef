@@ -123,19 +123,27 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         }
         // Format the resolved wasm binding crate directly. The crate may be excluded
         // from the root workspace, so `cargo fmt -p <pkg>` is not reliable.
+        // `cargo sort` normalises the generated Cargo.toml so prek's cargo-sort hook
+        // is a no-op; without it, cargo-sort reformats feature indentation after the
+        // hash is finalised, making alef verify report the file as stale.
         Language::Wasm => {
-            let manifest_path = config
+            let crate_dir = config
                 .output_for("wasm")
                 .map(resolve_crate_dir)
-                .unwrap_or_else(|| Path::new("crates").join(format!("{}-wasm", config.name)))
-                .join("Cargo.toml")
-                .to_string_lossy()
-                .into_owned();
+                .unwrap_or_else(|| Path::new("crates").join(format!("{}-wasm", config.name)));
+            let manifest_path = crate_dir.join("Cargo.toml").to_string_lossy().into_owned();
+            let crate_dir_str = crate_dir.to_string_lossy().into_owned();
             Some(FormatterSpec {
-                commands: vec![FormatterCommand {
-                    command: "cargo".to_owned(),
-                    args: vec!["fmt".to_owned(), "--manifest-path".to_owned(), manifest_path],
-                }],
+                commands: vec![
+                    FormatterCommand {
+                        command: "cargo".to_owned(),
+                        args: vec!["fmt".to_owned(), "--manifest-path".to_owned(), manifest_path],
+                    },
+                    FormatterCommand {
+                        command: "cargo".to_owned(),
+                        args: vec!["sort".to_owned(), crate_dir_str],
+                    },
+                ],
                 work_dir: String::new(),
             })
         }
@@ -144,11 +152,20 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         // Rustler, wasm-bindgen). Was previously `cargo fmt` in `packages/ffi/` —
         // which has no Cargo.toml, so it silently no-op'd and CI's `cargo fmt --check`
         // would fail on the unformatted FFI lib.rs.
+        // `cargo sort -w` normalises all workspace Cargo.toml files so prek's
+        // cargo-sort hook is a no-op; without it the hook reformats feature
+        // indentation after finalize_hashes, making alef verify report stale files.
         Language::Ffi => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "cargo".to_owned(),
-                args: vec!["fmt".to_owned(), "--all".to_owned()],
-            }],
+            commands: vec![
+                FormatterCommand {
+                    command: "cargo".to_owned(),
+                    args: vec!["fmt".to_owned(), "--all".to_owned()],
+                },
+                FormatterCommand {
+                    command: "cargo".to_owned(),
+                    args: vec!["sort".to_owned(), "-w".to_owned()],
+                },
+            ],
             work_dir: String::new(),
         }),
         Language::R => Some(FormatterSpec {
@@ -458,12 +475,20 @@ project_file = "{project_file}"
     fn test_wasm_formatter_uses_manifest_path() {
         let config = make_config("liter-llm");
         let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
-        assert_eq!(spec.commands.len(), 1);
-        let cmd = &spec.commands[0];
-        assert_eq!(cmd.command, "cargo");
+        // Two commands: cargo fmt (rs files) then cargo sort (Cargo.toml)
+        assert_eq!(spec.commands.len(), 2, "WASM must have cargo fmt + cargo sort steps");
+        let fmt_cmd = &spec.commands[0];
+        assert_eq!(fmt_cmd.command, "cargo");
         assert_eq!(
-            cmd.args,
+            fmt_cmd.args,
             vec!["fmt", "--manifest-path", "crates/liter-llm-wasm/Cargo.toml"]
+        );
+        let sort_cmd = &spec.commands[1];
+        assert_eq!(sort_cmd.command, "cargo");
+        assert_eq!(
+            sort_cmd.args,
+            vec!["sort", "crates/liter-llm-wasm"],
+            "cargo sort arg must be the crate directory, not the manifest path"
         );
         assert!(spec.work_dir.is_empty(), "WASM formatter must run at workspace root");
     }
@@ -484,11 +509,36 @@ wasm = "crates/ts-pack-core-wasm/src/"
         .expect("valid config");
         let config = cfg.resolve().unwrap().remove(0);
         let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
-        let cmd = &spec.commands[0];
+        let fmt_cmd = &spec.commands[0];
         assert_eq!(
-            cmd.args,
+            fmt_cmd.args,
             vec!["fmt", "--manifest-path", "crates/ts-pack-core-wasm/Cargo.toml"]
         );
+        let sort_cmd = &spec.commands[1];
+        assert_eq!(
+            sort_cmd.args,
+            vec!["sort", "crates/ts-pack-core-wasm"],
+            "cargo sort arg must match the crate dir derived from the configured output path"
+        );
+    }
+
+    #[test]
+    fn test_ffi_formatter_includes_cargo_sort() {
+        let config = make_config("liter-llm");
+        let spec = get_default_formatter(&config, Language::Ffi).expect("should have formatter");
+        // Two commands: cargo fmt --all (rs files) then cargo sort -w (Cargo.toml files)
+        assert_eq!(spec.commands.len(), 2, "FFI must have cargo fmt + cargo sort steps");
+        let fmt_cmd = &spec.commands[0];
+        assert_eq!(fmt_cmd.command, "cargo");
+        assert_eq!(fmt_cmd.args, vec!["fmt", "--all"]);
+        let sort_cmd = &spec.commands[1];
+        assert_eq!(sort_cmd.command, "cargo");
+        assert_eq!(
+            sort_cmd.args,
+            vec!["sort", "-w"],
+            "cargo sort must run workspace-wide so all binding crate Cargo.toml files are normalised"
+        );
+        assert!(spec.work_dir.is_empty(), "FFI formatter must run at workspace root");
     }
 
     // Bug 2: C# formatter must include project_file when configured to avoid workspace ambiguity.
