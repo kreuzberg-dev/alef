@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-php): tagged-data enums (serde internally-tagged with struct variants) now emit `class`
+  stubs instead of PHP 8.1 backed `enum: string` stubs, matching the `#[php_class]` flat struct
+  generated in `lib.rs` at runtime.
+
+- fix(backend-php): visitor bridge passes typed `NodeContext` PHP object instances to visitor methods
+  instead of raw associative arrays, so PHP callers receive a strongly-typed object with property
+  access instead of an untyped `array`.
+
+- fix(backend-php): visitor `VisitResult` dispatch now recognises `["custom" => "..."]` and
+  `["error" => "..."]` PHP array shapes before falling through to string dispatch, enabling the
+  `Custom` and `Error` variants to be expressed from PHP visitor implementations.
+
+- fix(backend-php): `{ClassName}Api` stub class methods that can throw now include a
+  `@throws \Namespace\{ClassName}Exception` PHPDoc annotation for PHPStan compatibility.
+
+- fix(backend-php): return-only types (`is_return_type = true` without a default) emit
+  `readonly class` in the generated PHP stubs, preventing accidental mutation of result objects.
+
 - fix(backend-pyo3): import native unit enums referenced only through data-enum aliases in `options.py`.
   Generated aliases such as `ToolChoice = ToolChoiceMode | str | SpecificToolChoice` now have the
   required runtime enum import and remain ruff-clean.

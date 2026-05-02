@@ -871,7 +871,12 @@ impl Backend for PhpBackend {
                 }
                 content.push_str(" */\n");
             }
-            content.push_str(&format!("class {}\n{{\n", typ.name));
+            let class_keyword = if typ.is_return_type && !typ.has_default {
+                "readonly class"
+            } else {
+                "class"
+            };
+            content.push_str(&format!("{} {}\n{{\n", class_keyword, typ.name));
 
             // Public property declarations (ext-php-rs exposes struct fields as properties)
             for field in &typ.fields {
@@ -990,13 +995,39 @@ impl Backend for PhpBackend {
             content.push_str("}\n\n");
         }
 
-        // Enum constants (PHP 8.1+ enums)
+        // Enum stubs: tagged-data enums become PHP classes (flat struct lowering);
+        // unit-variant enums become PHP 8.1 backed string enums.
         for enum_def in &api.enums {
-            content.push_str(&format!("enum {}: string\n{{\n", enum_def.name));
-            for variant in &enum_def.variants {
-                content.push_str(&format!("    case {} = '{}';\n", variant.name, variant.name));
+            if is_tagged_data_enum(enum_def) {
+                // Flat-class stub matching the #[php_class] struct generated in lib.rs.
+                content.push_str(&format!("class {}\n{{\n", enum_def.name));
+                // The tag field name is driven by the serde "tag" key (defaults to "type").
+                let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
+                content.push_str(&format!("    public string ${};\n", tag_field));
+                // Collect all unique data fields across variants.
+                let mut seen_fields: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for variant in &enum_def.variants {
+                    for field in &variant.fields {
+                        if seen_fields.insert(field.name.clone()) {
+                            let ptype = php_type(&field.ty);
+                            let nullable = if !ptype.starts_with('?') {
+                                format!("?{ptype}")
+                            } else {
+                                ptype
+                            };
+                            content.push_str(&format!("    public {} ${};\n", nullable, field.name));
+                        }
+                    }
+                }
+                content.push_str("}\n\n");
+            } else {
+                // Unit-variant enum: PHP 8.1 backed string enum.
+                content.push_str(&format!("enum {}: string\n{{\n", enum_def.name));
+                for variant in &enum_def.variants {
+                    content.push_str(&format!("    case {} = '{}';\n", variant.name, variant.name));
+                }
+                content.push_str("}\n\n");
             }
-            content.push_str("}\n\n");
         }
 
         // Extension function stubs — generated as a native `{ClassName}Api` class with static
@@ -1031,7 +1062,7 @@ impl Backend for PhpBackend {
                     .any(|p| matches!(&p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)));
                 let has_array_return = matches!(&func.return_type, TypeRef::Vec(_) | TypeRef::Map(_, _))
                     || matches!(&func.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_) | TypeRef::Map(_, _)));
-                if has_array_params || has_array_return {
+                if has_array_params || has_array_return || func.error_type.is_some() {
                     content.push_str("    /**\n");
                     for p in &visible_params {
                         let ptype = php_phpdoc_type_fq(&p.ty, &namespace);
@@ -1039,6 +1070,9 @@ impl Backend for PhpBackend {
                         content.push_str(&format!("     * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
                     }
                     content.push_str(&format!("     * @return {}\n", return_phpdoc));
+                    if func.error_type.is_some() {
+                        content.push_str(&format!("     * @throws \\{}\\{}Exception\n", namespace, class_name));
+                    }
                     content.push_str("     */\n");
                 }
                 let mut params: Vec<String> = sorted_visible_params

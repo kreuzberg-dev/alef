@@ -2570,3 +2570,321 @@ fn test_opaque_optional_param_in_builder_uses_deref_clone() {
         "optional opaque param must not use as_ref().map(|v| &v.inner); content:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Bug-fix regression tests
+// ---------------------------------------------------------------------------
+
+/// Bug 1 regression: tagged data enums (struct variants) must emit `class` stubs, not
+/// `enum X: string` — the `enum` form is a PHP 8.1 backed enum and does not match the
+/// flat `#[php_class]` struct exposed at runtime.
+#[test]
+fn test_stubs_tagged_data_enum_emits_class_not_backed_enum() {
+    let backend = PhpBackend;
+
+    let data_enum = EnumDef {
+        name: "NodeContent".to_string(),
+        rust_path: "my_lib::NodeContent".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Heading".to_string(),
+                fields: vec![make_field("level", TypeRef::Primitive(PrimitiveType::U8), false)],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+            EnumVariant {
+                name: "Paragraph".to_string(),
+                fields: vec![],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: Some("node_type".to_string()),
+        serde_rename_all: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![data_enum],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    // Must NOT be a PHP backed enum
+    assert!(
+        !content.contains("enum NodeContent: string"),
+        "tagged data enum must not emit a PHP backed enum; content:\n{content}"
+    );
+    // Must be a PHP class matching the flat struct shape
+    assert!(
+        content.contains("class NodeContent"),
+        "tagged data enum must emit a PHP class; content:\n{content}"
+    );
+    // Discriminator field must exist
+    assert!(
+        content.contains("public string $node_type"),
+        "tagged data enum class must have discriminator property; content:\n{content}"
+    );
+}
+
+/// Bug 2 regression: visitor bridge must pass typed NodeContext PHP object (not raw array).
+#[test]
+fn test_visitor_bridge_passes_typed_node_context_object_not_array() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = TypeDef {
+        name: "HtmlVisitor".to_string(),
+        rust_path: "my_lib::visitor::HtmlVisitor".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![MethodDef {
+            name: "visit_element_start".to_string(),
+            params: vec![ParamDef {
+                name: "_ctx".to_string(),
+                ty: TypeRef::Named("NodeContext".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::Named("VisitResult".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::RefMut),
+            sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: true,
+            trait_source: None,
+        }],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+
+    let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+
+    // Must use nodecontext_to_php_object, not nodecontext_to_php_array
+    assert!(
+        code.code.contains("nodecontext_to_php_object"),
+        "visitor bridge must call nodecontext_to_php_object; content:\n{}", code.code
+    );
+    assert!(
+        !code.code.contains("nodecontext_to_php_array"),
+        "visitor bridge must not use legacy nodecontext_to_php_array; content:\n{}", code.code
+    );
+    // The helper function must construct NodeContext { ... }
+    assert!(
+        code.code.contains("NodeContext {"),
+        "nodecontext_to_php_object must construct binding NodeContext struct; content:\n{}", code.code
+    );
+    // Must use ZendClassObject to create a typed PHP object
+    assert!(
+        code.code.contains("ZendClassObject::<NodeContext>::new"),
+        "nodecontext_to_php_object must use ZendClassObject to create typed object; content:\n{}", code.code
+    );
+}
+
+/// Bug 3 regression: VisitResult dispatch must handle array shapes
+/// `['custom' => '...']` → Custom(payload) and `['error' => '...']` → Error(payload).
+#[test]
+fn test_visitor_bridge_visit_result_handles_array_shapes() {
+    use alef_backend_php::trait_bridge::gen_trait_bridge;
+
+    let trait_def = make_trait_def_php(
+        "HtmlVisitor",
+        vec![make_method_php("visit_node", TypeRef::Named("VisitResult".to_string()), false, true)],
+    );
+    let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+
+    // Must dispatch on ['custom' => '...'] to Custom(payload)
+    assert!(
+        code.code.contains("get(\"custom\")"),
+        "visitor bridge must check array key 'custom'; content:\n{}", code.code
+    );
+    assert!(
+        code.code.contains("::Custom("),
+        "visitor bridge must map 'custom' array to Custom variant; content:\n{}", code.code
+    );
+    // Must dispatch on ['error' => '...'] to Error(payload)
+    assert!(
+        code.code.contains("get(\"error\")"),
+        "visitor bridge must check array key 'error'; content:\n{}", code.code
+    );
+    assert!(
+        code.code.contains("::Error("),
+        "visitor bridge must map 'error' array to Error variant; content:\n{}", code.code
+    );
+    // Unknown strings must fall through to Continue (not Custom)
+    assert!(
+        !code.code.contains("_ => ::Custom(other.to_string())"),
+        "unknown visitor return must not map to Custom; content:\n{}", code.code
+    );
+}
+
+/// Bug 8 regression: {ClassName}Api stub methods with error_type must have @throws annotation.
+#[test]
+fn test_stubs_api_class_methods_have_throws_annotation() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "convert".to_string(),
+            rust_path: "test_lib::convert".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "html".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("ConversionError".to_string()),
+            doc: "Convert HTML to markdown".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    assert!(
+        content.contains("@throws"),
+        "Api class stub must have @throws annotation for methods with error_type; content:\n{content}"
+    );
+    assert!(
+        content.contains("TestLibException"),
+        "Api class @throws must reference the exception class; content:\n{content}"
+    );
+}
+
+/// Bug 7 regression: is_return_type structs with no defaults should emit `readonly class` in stubs.
+#[test]
+fn test_stubs_return_types_emit_readonly_class() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "ConversionResult".to_string(),
+                rust_path: "test_lib::ConversionResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("content", TypeRef::String, false)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true, // This is a result type
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+            TypeDef {
+                name: "ConversionOptions".to_string(),
+                rust_path: "test_lib::ConversionOptions".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), true)],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: true, // Options have defaults — NOT readonly
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    // Return type must be readonly class
+    assert!(
+        content.contains("readonly class ConversionResult"),
+        "is_return_type struct must emit readonly class; content:\n{content}"
+    );
+    // Input/options type must remain plain class
+    assert!(
+        !content.contains("readonly class ConversionOptions"),
+        "has_default struct must NOT emit readonly class; content:\n{content}"
+    );
+    assert!(
+        content.contains("class ConversionOptions"),
+        "input type must emit plain class; content:\n{content}"
+    );
+}

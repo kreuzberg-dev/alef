@@ -444,55 +444,50 @@ fn gen_visitor_bridge(
         .next()
         .unwrap_or("html_to_markdown_rs")
         .to_string();
-    // Helper: convert NodeContext to a PHP array (Zval)
-    writeln!(out, "fn nodecontext_to_php_array(").unwrap();
+    // Helper: convert NodeContext to a typed PHP object (NodeContext #[php_class] instance).
+    // This is preferred over passing a raw PHP array because PHP callers can then use
+    // property access ($ctx->tagName) with full PHPStan type support.
+    writeln!(out, "fn nodecontext_to_php_object(").unwrap();
     writeln!(out, "    ctx: &{core_crate}::visitor::NodeContext,").unwrap();
-    writeln!(out, ") -> ext_php_rs::boxed::ZBox<ext_php_rs::types::ZendHashTable> {{").unwrap();
-    writeln!(out, "    let mut arr = ext_php_rs::types::ZendHashTable::new();").unwrap();
+    writeln!(out, ") -> ext_php_rs::types::Zval {{").unwrap();
+    writeln!(out, "    let binding = NodeContext {{").unwrap();
     writeln!(
         out,
-        "    arr.insert(\"nodeType\", ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", ctx.node_type)).unwrap_or_default()).ok();"
+        "        node_type: format!(\"{{:?}}\", ctx.node_type),"
+    )
+    .unwrap();
+    writeln!(out, "        tag_name: ctx.tag_name.clone(),").unwrap();
+    writeln!(
+        out,
+        "        attributes: ctx.attributes.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),"
+    )
+    .unwrap();
+    writeln!(out, "        depth: ctx.depth as i64,").unwrap();
+    writeln!(
+        out,
+        "        index_in_parent: ctx.index_in_parent as i64,"
+    )
+    .unwrap();
+    writeln!(out, "        parent_tag: ctx.parent_tag.clone(),").unwrap();
+    writeln!(out, "        is_inline: ctx.is_inline,").unwrap();
+    writeln!(out, "    }};").unwrap();
+    writeln!(
+        out,
+        "    let class_obj = ext_php_rs::types::ZendClassObject::<NodeContext>::new(binding);"
+    )
+    .unwrap();
+    writeln!(out, "    let mut zval = ext_php_rs::types::Zval::new();").unwrap();
+    writeln!(
+        out,
+        "    // SAFETY: class_obj is a freshly allocated PHP object of the correct type."
     )
     .unwrap();
     writeln!(
         out,
-        "    arr.insert(\"tagName\", ext_php_rs::types::Zval::try_from(ctx.tag_name.clone()).unwrap_or_default()).ok();"
+        "    unsafe {{ zval.set_object(class_obj.into_raw().cast()) }}"
     )
     .unwrap();
-    writeln!(
-        out,
-        "    arr.insert(\"depth\", ext_php_rs::types::Zval::try_from(ctx.depth as i64).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    arr.insert(\"indexInParent\", ext_php_rs::types::Zval::try_from(ctx.index_in_parent as i64).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "    arr.insert(\"isInline\", ext_php_rs::types::Zval::try_from(ctx.is_inline).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    if let Some(ref pt) = ctx.parent_tag {{").unwrap();
-    writeln!(
-        out,
-        "        arr.insert(\"parentTag\", ext_php_rs::types::Zval::try_from(pt.clone()).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    let mut attrs = ext_php_rs::types::ZendHashTable::new();").unwrap();
-    writeln!(out, "    for (k, v) in &ctx.attributes {{").unwrap();
-    writeln!(
-        out,
-        "        attrs.insert(k.as_str(), ext_php_rs::types::Zval::try_from(v.clone()).unwrap_or_default()).ok();"
-    )
-    .unwrap();
-    writeln!(out, "    }}").unwrap();
-    writeln!(out, "    let mut attrs_zval = ext_php_rs::types::Zval::new();").unwrap();
-    writeln!(out, "    attrs_zval.set_hashtable(attrs);").unwrap();
-    writeln!(out, "    arr.insert(\"attributes\", attrs_zval).ok();").unwrap();
-    writeln!(out, "    arr").unwrap();
+    writeln!(out, "    zval").unwrap();
     writeln!(out, "}}").unwrap();
     writeln!(out).unwrap();
 
@@ -605,14 +600,9 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
                 if n == "NodeContext" {
                     writeln!(
                         out,
-                        "        let ctx_arr = nodecontext_to_php_array({}{});",
+                        "        args.push(nodecontext_to_php_object({}{}));",
                         if p.is_ref { "" } else { "&" },
                         p.name
-                    )
-                    .unwrap();
-                    writeln!(
-                        out,
-                        "        args.push(ext_php_rs::convert::IntoZval::into_zval(ctx_arr, false).unwrap_or_default());"
                     )
                     .unwrap();
                     continue;
@@ -683,10 +673,41 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     )
     .unwrap();
 
-    // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
+    // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>).
+    // Visitors may return either a plain string ("continue", "skip", "preserve_html")
+    // or an associative array (["custom" => "..."] or ["error" => "..."]).
+    // Check for array shapes first so Custom/Error variants are reachable.
     writeln!(out, "        match result {{").unwrap();
     writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
     writeln!(out, "            Ok(val) => {{").unwrap();
+    writeln!(
+        out,
+        "                if let Some(arr) = val.array() {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                    if let Some(custom_val) = arr.get(\"custom\") {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                        return {ret_ty}::Custom(custom_val.string().unwrap_or_default().to_string());"
+    )
+    .unwrap();
+    writeln!(out, "                    }}").unwrap();
+    writeln!(
+        out,
+        "                    if let Some(error_val) = arr.get(\"error\") {{"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                        return {ret_ty}::Error(error_val.string().unwrap_or_default().to_string());"
+    )
+    .unwrap();
+    writeln!(out, "                    }}").unwrap();
+    writeln!(out, "                }}").unwrap();
     writeln!(
         out,
         "                let s = val.string().unwrap_or_default().to_lowercase();"
@@ -700,7 +721,9 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
         "                    \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
     )
     .unwrap();
-    writeln!(out, "                    other => {ret_ty}::Custom(other.to_string()),").unwrap();
+    // Unknown string values fall back to Continue (not Custom) — Custom is only
+    // expressible via the ["custom" => "..."] array shape above.
+    writeln!(out, "                    _ => {ret_ty}::Continue,").unwrap();
     writeln!(out, "                }}").unwrap();
     writeln!(out, "            }}").unwrap();
     writeln!(out, "        }}").unwrap();
