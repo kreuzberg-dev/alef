@@ -50,6 +50,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   causing the sweep to delete freshly-generated stub files (e.g. `.pyi`) as orphans
   on the second generate run.
 
+- fix(csharp): `ConversionOptionsBuilder.Dispose()` and `VisitorHandle.Dispose()` were
+  no-op stubs. Opaque handles now emit a `{Name}SafeHandle : SafeHandle` inner class for
+  deterministic, exception-safe cleanup. The public wrapper delegates `Dispose()` to it.
+
+- fix(csharp): `optionsHandle` and `visitorHandle` were leaked when `Convert()` or
+  `ConvertWithVisitor()` threw. Both handles are now freed in a unified `try/finally` block.
+
+- fix(csharp): `Marshal.PtrToStringAnsi` used throughout — replaced everywhere with
+  `Marshal.PtrToStringUTF8` so non-ASCII characters (e.g. Unicode URLs, CJK text) are
+  decoded correctly on all platforms.
+
+- fix(csharp): typed exceptions (`InvalidInputException`, `ConversionErrorException`) were
+  never thrown. `GetLastError()` now dispatches on the native error code and emits `if`
+  branches for each registered exception type.
+
+- fix(csharp): `NodeContext.NodeType` was typed `int` instead of the `NodeType` enum.
+  `DecodeNodeContext` now casts `Marshal.ReadInt32` to `(NodeType)`.
+
+- fix(csharp): stale generated files `IVisitor.cs` and `VisitorCallbacks.cs` were still
+  emitted by `gen_visitor_files`. They are superseded by `IHtmlVisitor`/`HtmlVisitorBridge`
+  in the trait-bridge pattern. Both files are removed from generation and deleted from
+  committed output.
+
+- fix(csharp): bare `catch { return 0; }` in visitor upcall thunks swallowed exceptions
+  silently. The catch clause now captures the exception and returns the Error discriminant
+  (4) with the message encoded via `EncodeString`.
+
+- fix(csharp): outer `packages/csharp/HtmlToMarkdown.csproj` was a NuGet wrapper that
+  double-included the inner project's sources, producing duplicate type definitions.
+  Added `<Compile Remove="HtmlToMarkdown/**" />`, `<ProjectReference>`, and
+  `<GenerateAssemblyInfo>false</GenerateAssemblyInfo>`.
+
+- fix(csharp): `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` was absent from
+  `Directory.Build.props`. Added alongside `<Nullable>enable</Nullable>`.
+
+- fix(csharp): `using System.Threading.Tasks` was emitted unconditionally. It is now
+  conditionalized on whether the API has any `async` functions or methods.
+
+- fix(csharp): `ConvertWithVisitor` accepted `IVisitor` (old generated interface) instead
+  of `IHtmlVisitor` (trait-bridge interface from `TraitBridges.cs`). The method now takes
+  `IHtmlVisitor` and wraps it in `HtmlVisitorBridge` instead of the removed `VisitorCallbacks`.
+
 ## [0.14.0] - 2026-05-02
 
 ### Changed
