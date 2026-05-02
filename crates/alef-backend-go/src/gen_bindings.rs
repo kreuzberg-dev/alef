@@ -155,7 +155,18 @@ impl Backend for GoBackend {
         // Determine if any bridge is configured for the visitor pattern.
         // Requires both trait_bridges to be present AND visitor_callbacks = true in [ffi].
         let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
-        let has_visitor_bridge = !config.trait_bridges.is_empty() && visitor_callbacks_enabled;
+        let _has_visitor_bridge = !config.trait_bridges.is_empty() && visitor_callbacks_enabled;
+
+        // visitor.go (ConvertWithVisitor + callback trampolines) is only generated for
+        // direct-parameter visitor bridges.  When bind_via = "options_field", the visitor
+        // is embedded in the options struct and handled entirely in binding.go; emitting
+        // visitor.go with the old visitor_create / convert_with_visitor symbols would
+        // reference stale FFI functions that no longer exist.
+        let has_direct_visitor_bridge = visitor_callbacks_enabled
+            && config
+                .trait_bridges
+                .iter()
+                .any(|b| b.bind_via != BridgeBinding::OptionsField);
 
         // Determine if any plugin-style bridges (with register_fn) are configured.
         // These are independent of visitor_callbacks and generate trait_bridges.go.
@@ -227,14 +238,24 @@ impl Backend for GoBackend {
             generated_header: true,
         }];
 
-        // Generate visitor.go when a visitor bridge is configured.
-        if has_visitor_bridge {
+        // Generate visitor.go only for direct-parameter visitor bridges.
+        // Options-field bridges embed the visitor in the options struct (handled in binding.go)
+        // and must NOT generate visitor.go, which would reference stale FFI symbols.
+        if has_direct_visitor_bridge {
+            // Use the first direct-param bridge's trait name for the VTable type derivation.
+            let vtable_trait_name = config
+                .trait_bridges
+                .iter()
+                .find(|b| b.bind_via != BridgeBinding::OptionsField)
+                .map(|b| b.trait_name.as_str())
+                .unwrap_or("Visitor");
             let visitor_content = strip_trailing_whitespace(&crate::gen_visitor::gen_visitor_file(
                 &pkg_name,
                 &ffi_prefix,
                 &ffi_header,
                 &ffi_crate_dir,
                 &to_root,
+                vtable_trait_name,
             ));
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir).join("visitor.go"),
@@ -2037,7 +2058,9 @@ fn go_return_expr_inner(
             }
         }
         TypeRef::String | TypeRef::Char | TypeRef::Path => {
-            format!("func() *string {{ v := C.GoString({}); return &v }}()", var_name)
+            format!(
+                "func() *string {{ if {var_name} == nil {{ return nil }}; v := C.GoString({var_name}); return &v }}()"
+            )
         }
         TypeRef::Json => {
             format!("func() *json.RawMessage {{ v := json.RawMessage(C.GoString({var_name})); return &v }}()")
