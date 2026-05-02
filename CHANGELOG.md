@@ -67,6 +67,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   WASM, Dart, C) require equivalent updates to move visitor from positional
   arg to options field assignment (patterns will vary per language syntax).
 
+- fix(backend-napi): resolve all compile errors when `bind_via = "options_field"`
+  is used in `[[trait_bridges]]` with a NAPI-RS binding:
+  - `gen_struct` bridge-field substitution (emit `Option<Object<'static>>` instead of
+    `Option<JsVisitorHandle>`) is now applied BEFORE the `field.sanitized` guard, so it
+    correctly fires for bridge fields that are NOT sanitized (e.g. `visitor` in
+    `ConversionOptions` has `sanitized: false`).
+  - `gen_struct` now also builds a set of all bridge `type_alias` values and applies the
+    `Option<Object<'static>>` substitution to ANY field whose type is a bridge alias
+    (e.g. `ConversionOptionsUpdate.visitor`), not only fields in the declared
+    `options_type`. This prevents `JsVisitorHandle: FromNapiValue not satisfied` errors
+    in Update-pattern structs.
+  - `bridge_fields_by_type` (used to populate `force_default_fields` for From
+    conversions) is extended by case (b): any type with a field whose type is a bridge
+    type alias is now included, so binding→core and core→binding `From` impls emit
+    `Default::default()` instead of `val.visitor.map(Into::into)` for those fields.
+  - `gen_opaque_struct_methods` now skips methods whose params contain a `type_alias`
+    of an `options_field` bridge (e.g. `ConversionOptionsBuilder::visitor()`),
+    preventing uncompilable Arc-vs-Rc type mismatches in the generated call args.
+
 - fix(backend-pyo3): resolve all compile errors when `bind_via = "options_field"`
   is used in `[[trait_bridges]]` with a PyO3 binding:
   - `extra_field_attrs` now returns `vec![]` for bridge fields, preventing

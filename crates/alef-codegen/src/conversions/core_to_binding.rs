@@ -50,6 +50,19 @@ pub fn gen_from_core_to_binding_cfg(
         {
             continue;
         }
+        // Bridge fields: the binding struct stores a different type (e.g. Object<'static>)
+        // that cannot be round-tripped from the core type. Leave at Default::default(); the
+        // convert wrapper manages the actual bridge setup.
+        if config.force_default_fields.contains(&field.name.as_str()) {
+            let needs_some_wrap = !field.optional && (config.optionalize_defaults && typ.has_default);
+            let expr = if needs_some_wrap {
+                format!("{}: Some(Default::default())", field.name)
+            } else {
+                format!("{}: Default::default()", field.name)
+            };
+            writeln!(out, "            {expr},").ok();
+            continue;
+        }
         let base_conversion = field_conversion_from_core_cfg(
             &field.name,
             &field.ty,

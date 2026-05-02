@@ -76,6 +76,15 @@ pub struct ConversionConfig<'a> {
     /// When present, `val.<binding_name>` is used for binding-side access and the original
     /// `field_name` is used for core-side access (struct literal and assignment targets).
     pub binding_field_renames: Option<&'a std::collections::HashMap<String, String>>,
+    /// Field names that must always emit `Default::default()` in both binding→core and
+    /// core→binding `From` implementations, regardless of the field's IR type.
+    ///
+    /// Used by NAPI (and other backends) for bridge fields: the visitor field on
+    /// `ConversionOptions` is typed as `Object<'static>` in the binding struct but the
+    /// core type is an opaque handle.  The `From` impl must leave the field at `None`
+    /// (i.e. `Default::default()`) in both directions; the actual bridge setup is performed
+    /// by the hand-generated `gen_bridge_field_function` wrapper.
+    pub force_default_fields: &'a [&'a str],
 }
 
 impl<'a> ConversionConfig<'a> {
