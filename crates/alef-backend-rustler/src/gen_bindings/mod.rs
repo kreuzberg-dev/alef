@@ -7,7 +7,7 @@ use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{AlefConfig, BridgeBinding, Language, resolve_output_dir};
 use alef_core::ir::ApiSurface;
 use alef_core::ir::TypeRef;
 use heck::{ToPascalCase, ToSnakeCase};
@@ -180,11 +180,30 @@ impl Backend for RustlerBackend {
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
         {
             let bridge_param = crate::trait_bridge::find_bridge_param(func, &active_bridges);
+            let bridge_field =
+                crate::trait_bridge::find_bridge_field(func, &api.types, &active_bridges);
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 builder.add_item(&crate::trait_bridge::gen_bridge_function(
                     func,
                     param_idx,
                     bridge_cfg,
+                    &mapper,
+                    &opaque_types,
+                    &default_types,
+                    &core_import,
+                ));
+            } else if let Some(ref bfm) = bridge_field {
+                // options-field bridge: regular NIF + async visitor variant
+                builder.add_item(&gen_nif_function(
+                    func,
+                    &mapper,
+                    &opaque_types,
+                    &default_types,
+                    &core_import,
+                ));
+                builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
+                    func,
+                    bfm,
                     &mapper,
                     &opaque_types,
                     &default_types,
@@ -497,25 +516,56 @@ impl Backend for RustlerBackend {
             // Count how many trailing parameters are optional so we can emit shorter-arity overloads.
             let trailing_optional_count = func.params.iter().rev().take_while(|p| p.optional).count();
 
-            // Detect if this function has a visitor bridge param.
+            // Detect function_param visitor bridge (legacy positional mode).
             let visitor_bridge_param_idx: Option<usize> = func.params.iter().position(|p| {
                 config.trait_bridges.iter().any(|b| {
-                    b.param_name.as_deref() == Some(p.name.as_str()) || {
-                        let named = match &p.ty {
-                            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                            alef_core::ir::TypeRef::Optional(inner) => {
-                                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                    Some(n.as_str())
-                                } else {
-                                    None
+                    b.bind_via == BridgeBinding::FunctionParam
+                        && (b.param_name.as_deref() == Some(p.name.as_str()) || {
+                            let named = match &p.ty {
+                                alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                                alef_core::ir::TypeRef::Optional(inner) => {
+                                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                        Some(n.as_str())
+                                    } else {
+                                        None
+                                    }
                                 }
-                            }
-                            _ => None,
-                        };
-                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
-                    }
+                                _ => None,
+                            };
+                            named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                        })
                 })
             });
+
+            // Detect options_field visitor bridge: visitor is embedded in the options struct.
+            // Returns (options_param_idx, field_name) when matched.
+            let options_field_bridge: Option<(usize, String)> = func
+                .params
+                .iter()
+                .enumerate()
+                .find_map(|(idx, p)| {
+                    let type_name = match &p.ty {
+                        alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                        alef_core::ir::TypeRef::Optional(inner) => {
+                            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                Some(n.as_str())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    config.trait_bridges.iter().find_map(|b| {
+                        if b.bind_via == BridgeBinding::OptionsField
+                            && type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
+                        {
+                            let field = b.resolved_options_field().unwrap_or("visitor").to_string();
+                            Some((idx, field))
+                        } else {
+                            None
+                        }
+                    })
+                });
 
             // Emit one @spec/@doc per arity variant (shortest to longest).
             // The shortest arity fills optional params with nil.
@@ -563,8 +613,61 @@ impl Backend for RustlerBackend {
                     .map(|(i, p)| if i < *arity { p.clone() } else { "nil".to_string() })
                     .collect();
 
-                // When a visitor is provided (non-nil at the bridge param index), delegate to
-                // the async visitor variant which drives a receive loop.
+                // options_field bridge: visitor is embedded in the options map.
+                // Extract `:visitor` from options before calling the NIF.
+                if let Some((opts_idx, ref field_name)) = options_field_bridge {
+                    if *arity > opts_idx {
+                        let opts_param = &all_params[opts_idx];
+                        // Single clause handles both visitor and no-visitor by inspecting the map.
+                        content.push_str(&format!(
+                            "  def {nif_fn_name}({p}) when is_map({opts_param}) do\n",
+                            p = arity_params.join(", ")
+                        ));
+                        content.push_str(&format!(
+                            "    {{visitor, clean_opts}} = Map.pop({opts_param}, :{field_name})\n"
+                        ));
+                        content.push_str("    if is_map(visitor) do\n");
+                        // Build NIF args: replace opts param with JSON-encoded clean opts, append visitor.
+                        let with_visitor_args: Vec<String> = nif_call_args
+                            .iter()
+                            .enumerate()
+                            .map(|(i, a)| {
+                                if i == opts_idx {
+                                    "if map_size(clean_opts) == 0, do: nil, else: Jason.encode!(clean_opts)".to_string()
+                                } else {
+                                    a.clone()
+                                }
+                            })
+                            .collect();
+                        let with_visitor_args_str = with_visitor_args.join(", ");
+                        content.push_str(&format!(
+                            "      :ok = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args_str}, visitor)\n"
+                        ));
+                        content.push_str("      do_visitor_receive_loop(visitor)\n");
+                        content.push_str("    else\n");
+                        // No visitor: call regular NIF with options as JSON.
+                        let plain_args: Vec<String> = nif_call_args
+                            .iter()
+                            .enumerate()
+                            .map(|(i, a)| {
+                                if i == opts_idx {
+                                    format!("if map_size({opts_param}) == 0, do: nil, else: Jason.encode!({opts_param})")
+                                } else {
+                                    a.clone()
+                                }
+                            })
+                            .collect();
+                        let plain_args_str = plain_args.join(", ");
+                        content.push_str(&format!(
+                            "      {native_mod}.{nif_fn_name}({plain_args_str})\n"
+                        ));
+                        content.push_str("    end\n");
+                        content.push_str("  end\n\n");
+                        continue;
+                    }
+                }
+
+                // function_param bridge: visitor is a direct positional parameter.
                 if let Some(vis_idx) = visitor_bridge_param_idx {
                     if *arity > vis_idx {
                         // Full-arity def: visitor param is present in signature.
@@ -634,23 +737,42 @@ impl Backend for RustlerBackend {
             }
         }
 
-        // Emit the visitor receive loop helper if any function has a visitor bridge.
+        // Emit the visitor receive loop helper if any function has a visitor bridge
+        // (function_param or options_field mode).
         let has_visitor_bridges = api.functions.iter().any(|func| {
             func.params.iter().any(|p| {
                 config.trait_bridges.iter().any(|b| {
-                    b.param_name.as_deref() == Some(p.name.as_str()) || {
-                        let named = match &p.ty {
-                            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                            alef_core::ir::TypeRef::Optional(inner) => {
-                                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                    Some(n.as_str())
-                                } else {
-                                    None
+                    match b.bind_via {
+                        BridgeBinding::FunctionParam => {
+                            b.param_name.as_deref() == Some(p.name.as_str())
+                                || match &p.ty {
+                                    alef_core::ir::TypeRef::Named(n) => {
+                                        b.type_alias.as_deref() == Some(n.as_str())
+                                    }
+                                    alef_core::ir::TypeRef::Optional(inner) => {
+                                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                            b.type_alias.as_deref() == Some(n.as_str())
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    _ => false,
                                 }
-                            }
-                            _ => None,
-                        };
-                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                        }
+                        BridgeBinding::OptionsField => {
+                            let type_name = match &p.ty {
+                                alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                                alef_core::ir::TypeRef::Optional(inner) => {
+                                    if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                        Some(n.as_str())
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => None,
+                            };
+                            type_name.map(|n| b.options_type.as_deref() == Some(n)).unwrap_or(false)
+                        }
                     }
                 })
             })
