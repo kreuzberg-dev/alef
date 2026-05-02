@@ -145,7 +145,7 @@ Host language callback to Rust trait. Generates a bridge struct that wraps a hos
 name = "handler"
 pattern = "callback_bridge"
 core_path = "my_crate::handler_trait"
-trait_name = "SpikardHandler"
+trait_name = "MyHandler"
 trait_method = "handle"
 returns = "Response"
 error_type = "HandlerError"

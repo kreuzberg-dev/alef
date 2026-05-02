@@ -186,7 +186,7 @@ pub(super) fn gen_field_accessor(
     let field_core_import = if let Some(ref rust_path) = field.type_rust_path {
         // type_rust_path may be e.g. "types::extraction::OutputFormat" (relative)
         // or "kreuzberg::types::OutputFormat" (already fully qualified with crate prefix)
-        // or "spikard_http::openapi::OpenApiConfig" (sibling workspace crate, common in
+        // or "mylib_http::openapi::OpenApiConfig" (sibling workspace crate, common in
         // multi-crate workspaces where the umbrella crate re-exports types).
         // We need the module path prefix without the type name itself.
         // Normalize dashes to underscores since IR paths use Cargo package names (dashes)
@@ -196,9 +196,9 @@ pub(super) fn gen_field_accessor(
             let module_prefix = &rust_path_norm[..pos];
             // Avoid double-prefixing: detect when module_prefix is already crate-qualified
             // — either with core_import directly, or with a sibling workspace crate whose
-            // name starts with the same prefix (e.g. core_import "spikard" → "spikard_http",
-            // "spikard_core", "spikard_graphql"). The trailing `::` and `_` checks ensure
-            // we only match crate-name segments, not unrelated identifiers like "spikardly".
+            // name starts with the same prefix (e.g. core_import "mylib" → "mylib_http",
+            // "mylib_core", "mylib_extra"). The trailing `::` and `_` checks ensure
+            // we only match crate-name segments, not unrelated identifiers.
             if module_prefix == core_import
                 || module_prefix.starts_with(&format!("{core_import}::"))
                 || module_prefix.starts_with(&format!("{core_import}_"))
@@ -215,7 +215,7 @@ pub(super) fn gen_field_accessor(
     };
 
     // Use path_map for Named types — it knows where the type actually lives
-    // (e.g. spikard_http::ContactInfo) even when field.type_rust_path is None.
+    // (e.g. mylib_http::ContactInfo) even when field.type_rust_path is None.
     // For non-Named types path_map is irrelevant and the call falls through to
     // the standard c_return_type behaviour.
     let mut ret_type = c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned();

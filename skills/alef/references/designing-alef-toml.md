@@ -122,7 +122,7 @@ When extracted paths don't match import paths in binding crates:
 
 ```toml
 [crate]
-path_mappings = { "spikard" = "spikard_http" }
+path_mappings = { "mylib" = "mylib_http" }
 auto_path_mappings = true  # default: auto-derive from crates/{name}/src/
 ```
 

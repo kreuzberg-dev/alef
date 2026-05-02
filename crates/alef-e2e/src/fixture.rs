@@ -18,7 +18,7 @@ pub struct MockResponse {
     #[serde(default)]
     pub stream_chunks: Option<Vec<serde_json::Value>>,
     /// Response headers to apply to the mock response.
-    /// Bridged from `http.expected_response.headers` for spikard-style fixtures.
+    /// Bridged from `http.expected_response.headers` for consumer-style fixtures.
     #[serde(default)]
     pub headers: HashMap<String, String>,
 }
@@ -250,14 +250,14 @@ impl Fixture {
 
     /// Returns true if this fixture requires a mock HTTP server.
     /// This is true when either `mock_response` (liter-llm shape) or
-    /// `http.expected_response` (spikard shape) is present.
+    /// `http.expected_response` (consumer shape) is present.
     pub fn needs_mock_server(&self) -> bool {
         self.mock_response.is_some() || self.http.is_some()
     }
 
     /// Returns the effective mock response for this fixture, bridging both schemas:
     /// - liter-llm shape: `mock_response: { status, body, stream_chunks }`
-    /// - spikard shape: `http.expected_response: { status_code, body, headers }`
+    /// - consumer shape: `http.expected_response: { status_code, body, headers }`
     ///
     /// Returns `None` if neither schema is present.
     pub fn as_mock_response(&self) -> Option<MockResponse> {

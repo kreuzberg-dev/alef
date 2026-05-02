@@ -1658,7 +1658,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
 fn test_wasm_core_crate_override_and_exclude_extra_dependencies() {
     let backend = WasmBackend;
     let api = ApiSurface {
-        crate_name: "spikard".to_string(),
+        crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
         functions: vec![],
@@ -1666,14 +1666,14 @@ fn test_wasm_core_crate_override_and_exclude_extra_dependencies() {
         errors: vec![],
     };
     let mut config = make_config();
-    config.crate_config.name = "spikard".to_string();
+    config.crate_config.name = "mylib".to_string();
     let mut crate_extras = std::collections::HashMap::new();
-    crate_extras.insert("spikard-http".to_string(), toml::Value::String("1".to_string()));
-    crate_extras.insert("spikard-graphql".to_string(), toml::Value::String("1".to_string()));
+    crate_extras.insert("mylib-http".to_string(), toml::Value::String("1".to_string()));
+    crate_extras.insert("mylib-graphql".to_string(), toml::Value::String("1".to_string()));
     config.crate_config.extra_dependencies = crate_extras;
     let wasm = config.wasm.as_mut().expect("wasm config seeded");
-    wasm.core_crate_override = Some("spikard-core".to_string());
-    wasm.exclude_extra_dependencies = vec!["spikard-http".to_string(), "spikard-graphql".to_string()];
+    wasm.core_crate_override = Some("mylib-core".to_string());
+    wasm.exclude_extra_dependencies = vec!["mylib-http".to_string(), "mylib-graphql".to_string()];
 
     let files = backend
         .generate_bindings(&api, &config)
@@ -1685,25 +1685,25 @@ fn test_wasm_core_crate_override_and_exclude_extra_dependencies() {
     let content = &cargo_file.content;
 
     assert!(
-        content.contains(r#"spikard-core = { path = "../spikard-core""#),
-        "wasm Cargo.toml must depend on the override crate via path = \"../spikard-core\";\nactual:\n{content}"
+        content.contains(r#"mylib-core = { path = "../mylib-core""#),
+        "wasm Cargo.toml must depend on the override crate via path = \"../mylib-core\";\nactual:\n{content}"
     );
     assert!(
-        !content.contains(r#"spikard = { path = "../spikard""#),
+        !content.contains(r#"mylib = { path = "../mylib""#),
         "wasm Cargo.toml must not also depend on the umbrella crate when override is set;\nactual:\n{content}"
     );
     assert!(
-        !content.contains("spikard-http"),
-        "wasm Cargo.toml must filter out excluded extra dep `spikard-http`;\nactual:\n{content}"
+        !content.contains("mylib-http"),
+        "wasm Cargo.toml must filter out excluded extra dep `mylib-http`;\nactual:\n{content}"
     );
     assert!(
-        !content.contains("spikard-graphql"),
-        "wasm Cargo.toml must filter out excluded extra dep `spikard-graphql`;\nactual:\n{content}"
+        !content.contains("mylib-graphql"),
+        "wasm Cargo.toml must filter out excluded extra dep `mylib-graphql`;\nactual:\n{content}"
     );
     // The published package name must remain `<crate.name>-wasm` regardless of override.
     assert!(
-        content.contains(r#"name = "spikard-wasm""#),
-        "wasm Cargo.toml package name must remain `spikard-wasm` when override is set;\nactual:\n{content}"
+        content.contains(r#"name = "mylib-wasm""#),
+        "wasm Cargo.toml package name must remain `mylib-wasm` when override is set;\nactual:\n{content}"
     );
 }
 

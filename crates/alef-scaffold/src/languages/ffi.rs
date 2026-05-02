@@ -28,8 +28,8 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &AlefConfig) -> anyhow::Res
     //   Bump intentionally and verify generated headers in CI when updating.
     // - `[crate.extra_dependencies]` from alef.toml is merged in. Required for
     //   projects whose public surface spans multiple workspace crates (e.g.
-    //   spikard-core, spikard-http, spikard-graphql) — the FFI bindings codegen
-    //   emits qualified paths like `spikard_http::ServerConfig` and needs each
+    //   mylib-core, mylib-http, mylib-extra) — the FFI bindings codegen
+    //   emits qualified paths like `mylib_http::ServerConfig` and needs each
     //   referenced crate as a direct dependency.
     let extra_deps = config.extra_deps_for_language(Language::Ffi);
     let mut extra_dep_lines: Vec<String> = extra_deps
