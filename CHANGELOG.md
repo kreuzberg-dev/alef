@@ -66,6 +66,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Python bindings previously dropped required string fields such as `ProcessConfig.language`, causing generated e2e
   tests to fail with missing-field deserialization errors.
 
+- fix(backend-wasm): enum `Default` impls now use the variant marked `#[default]` in the Rust source
+  (`is_default == true` in the IR) rather than unconditionally using the first variant. This fixes
+  `WasmHeadingStyle`, `WasmCodeBlockStyle`, and `WasmPreprocessingPreset` defaulting to the wrong
+  variant.
+
+- fix(backend-wasm): visitor `VisitResult` dispatch now recognises JS object shapes `{ custom: "…" }`
+  and `{ error: "…" }` via `js_sys::Reflect::get`, enabling callers to return `Custom` variant results
+  without relying on string coercion that silently produced `Continue`.
+
+- fix(e2e): WASM visitor fixtures now merge `visitor` into the options object (2nd argument) rather
+  than appending it as a 3rd positional argument. `convert(html, { visitor: v } as unknown as
+  WasmConversionOptions)` is the correct calling convention; the old form silently ignored the visitor.
+
 ## [0.13.11] - 2026-05-02
 
 ### Fixed
