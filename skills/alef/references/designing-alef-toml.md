@@ -11,7 +11,7 @@ Choose your filtering approach based on API surface size.
 When most types are internal and only a few are public-facing:
 
 ```toml
-[include]
+[crates.include]
 types = ["ConversionOptions", "MetadataConfig", "ConversionResult"]
 functions = ["convert"]
 ```
@@ -21,7 +21,7 @@ functions = ["convert"]
 When most types should be exposed but some are FFI-incompatible:
 
 ```toml
-[exclude]
+[crates.exclude]
 types = [
   # Traits (can't cross FFI boundary)
   "LlmClient",
@@ -66,7 +66,7 @@ functions = ["internal_helper", "build_provider"]
 Use dot-notation `"TypeName.method_name"` to exclude specific methods while keeping the type:
 
 ```toml
-[exclude]
+[crates.exclude]
 methods = [
   "CrawlResult.new",           # Hide constructor (use builder/factory)
   "DefaultClient.chat_raw",    # Hide raw API, expose high-level
@@ -79,7 +79,7 @@ methods = [
 ### Single-crate library
 
 ```toml
-[crate]
+[[crates]]
 name = "my-library"
 sources = ["src/lib.rs", "src/types.rs", "src/config.rs"]
 ```
@@ -91,7 +91,7 @@ Cherry-pick source files — don't include the whole crate tree. Only list files
 When a facade crate re-exports types from internal crates:
 
 ```toml
-[crate]
+[[crates]]
 name = "kreuzberg"
 core_import = "kreuzberg"
 sources = [
@@ -106,12 +106,12 @@ workspace_root = "."
 When types come from different crates and you need rust_path to reflect the actual crate:
 
 ```toml
-[crate]
+[[crates]]
 name = "tree-sitter-language-pack"
 core_import = "tree_sitter_language_pack"
 sources = []  # Ignored when source_crates is non-empty
 
-[[crate.source_crates]]
+[[crates.source_crates]]
 name = "tree-sitter-language-pack"
 sources = ["crates/ts-pack-core/src/lib.rs"]
 ```
@@ -121,7 +121,7 @@ sources = ["crates/ts-pack-core/src/lib.rs"]
 When extracted paths don't match import paths in binding crates:
 
 ```toml
-[crate]
+[[crates]]
 path_mappings = { "mylib" = "mylib_http" }
 auto_path_mappings = true  # default: auto-derive from crates/{name}/src/
 ```
@@ -131,7 +131,7 @@ auto_path_mappings = true  # default: auto-derive from crates/{name}/src/
 Enable features to include `#[cfg(feature)]` gated fields:
 
 ```toml
-[crate]
+[[crates]]
 features = ["full", "metadata", "serde", "visitor"]
 ```
 
@@ -140,7 +140,7 @@ features = ["full", "metadata", "serde", "visitor"]
 For external crate types that alef can't extract from source — they become handle-based wrappers:
 
 ```toml
-[opaque_types]
+[crates.opaque_types]
 Language = "tree_sitter_language_pack::Language"
 Parser = "tree_sitter_language_pack::Parser"
 Tree = "tree_sitter_language_pack::Tree"
@@ -159,7 +159,7 @@ Define adapters when alef can't auto-generate the binding pattern.
 ### Streaming (iterator/stream)
 
 ```toml
-[[adapters]]
+[[crates.adapters]]
 name = "chat_stream"
 pattern = "streaming"
 core_path = "chat_stream"
@@ -167,7 +167,7 @@ owner_type = "DefaultClient"
 item_type = "ChatCompletionChunk"
 error_type = "LiterLlmError"
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "req"
 type = "ChatCompletionRequest"
 ```
@@ -175,18 +175,18 @@ type = "ChatCompletionRequest"
 ### Sync function with GIL release
 
 ```toml
-[[adapters]]
+[[crates.adapters]]
 name = "convert"
 pattern = "sync_function"
 core_path = "html_to_markdown_rs::convert"
 returns = "ConversionResult"
 gil_release = true
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "html"
 type = "String"
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "options"
 type = "ConversionOptions"
 optional = true
@@ -195,7 +195,7 @@ optional = true
 ### Callback bridge (host implements Rust trait)
 
 ```toml
-[[adapters]]
+[[crates.adapters]]
 name = "visitor"
 pattern = "callback_bridge"
 core_path = "html_to_markdown_rs::visitor"
@@ -204,7 +204,7 @@ trait_method = "handle_element"
 returns = "VisitorAction"
 detect_async = true
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "element"
 type = "ElementInfo"
 ```
@@ -214,7 +214,7 @@ type = "ElementInfo"
 Go, Java, and C# require the C FFI layer. Configure it with:
 
 ```toml
-[ffi]
+[crates.ffi]
 prefix = "htm"                  # C symbol prefix (htm_new, htm_free, etc.)
 header_name = "html_to_markdown.h"
 lib_name = "html_to_markdown_ffi"
@@ -226,24 +226,24 @@ visitor_callbacks = true         # Enable when using callback_bridge adapters
 ### Python
 
 ```toml
-[python]
+[crates.python]
 module_name = "_html_to_markdown"  # Native extension name (underscore prefix convention)
 
-[python.stubs]
+[crates.python.stubs]
 output = "packages/python/html_to_markdown/"
 ```
 
 ### Node/TypeScript
 
 ```toml
-[node]
+[crates.node]
 package_name = "@kreuzberg/html-to-markdown-node"
 ```
 
 ### Go
 
 ```toml
-[go]
+[crates.go]
 module = "github.com/kreuzberg-dev/html-to-markdown/packages/go/v3"
 package_name = "htmltomarkdown"
 ```
@@ -251,17 +251,17 @@ package_name = "htmltomarkdown"
 ### Ruby
 
 ```toml
-[ruby]
+[crates.ruby]
 gem_name = "html_to_markdown"
 
-[ruby.stubs]
+[crates.ruby.stubs]
 output = "packages/ruby/sig/"
 ```
 
 ## DTO Style Selection
 
 ```toml
-[dto]
+[workspace.dto]
 python = "dataclass"         # Most common; "typed-dict" for read-only return types
 python_output = "typed-dict" # Optional: different style for return types
 node = "interface"           # "zod" when runtime validation needed
@@ -274,7 +274,7 @@ php = "readonly-class"       # "array" for associative array consumers
 Add Cargo dependencies to all generated binding crate Cargo.tomls:
 
 ```toml
-[crate]
+[[crates]]
 extra_dependencies = { tokio = { version = "1", features = ["rt-multi-thread"] } }
 ```
 
@@ -285,10 +285,10 @@ extra_dependencies = { tokio = { version = "1", features = ["rt-multi-thread"] }
 When a type's `new()` takes complex args, exclude the constructor and use an adapter:
 
 ```toml
-[exclude]
+[crates.exclude]
 methods = ["MyClient.new"]
 
-[[adapters]]
+[[crates.adapters]]
 name = "create_client"
 pattern = "sync_function"
 core_path = "my_crate::MyClient::builder"
@@ -300,7 +300,7 @@ returns = "MyClient"
 Keep the type but hide internal methods:
 
 ```toml
-[exclude]
+[crates.exclude]
 methods = [
   "MyType.internal_helper",
   "MyType.debug_dump",
@@ -313,7 +313,7 @@ methods = [
 Some functions can't work in WASM (blocking I/O, threads):
 
 ```toml
-[wasm]
+[crates.wasm]
 exclude_functions = ["blocking_read", "spawn_worker"]
 exclude_types = ["ThreadPool"]
 ```

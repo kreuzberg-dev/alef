@@ -277,19 +277,19 @@ Three optional per-language fields cover the most common reasons consumers used 
 ```toml
 # Wrap every default tool invocation. Common for projects that need to
 # inherit the package-manager environment without a `before` hook.
-[python]
+[crates.python]
 run_wrapper = "uv run --no-sync"  # → "uv run --no-sync ruff format packages/python"
 
 # Append extra paths to default lint commands.
-[python]
+[crates.python]
 extra_lint_paths = ["scripts"]    # → "ruff format packages/python scripts"
 
 # For Maven / .NET, point default lint/build/test commands at a project
 # descriptor instead of the package directory.
-[java]
+[crates.java]
 project_file = "pom.xml"
 
-[csharp]
+[crates.csharp]
 project_file = "MySolution.slnx"
 ```
 
@@ -302,35 +302,49 @@ Alef is configured via `alef.toml` in your project root. Run `alef init` to gene
 ### Minimal Example
 
 ```toml
-languages = ["python", "node", "go", "java"]
+[workspace]
+languages = ["python", "node"]
 
-[crate]
+[[crates]]
 name = "my-library"
 sources = ["src/lib.rs", "src/types.rs"]
 
-[output]
+[crates.output]
 python = "crates/my-library-py/src/"
 node = "crates/my-library-node/src/"
-ffi = "crates/my-library-ffi/src/"
 
-[python]
+[crates.python]
 module_name = "_my_library"
 
-[node]
+[crates.node]
 package_name = "@myorg/my-library"
 
-[dto]
+[workspace.dto]
 python = "dataclass"
 node = "interface"
 ```
 
-`languages` is a top-level array, so it must appear **before** the first `[table]` header — otherwise TOML scopes it as `[crate].languages` and parsing fails.
+The new schema supports multiple crates published from a single workspace. Configuration splits into:
+- `[workspace]` — shared defaults (tools, DTO styles, pipelines, formatters).
+- `[[crates]]` — per-crate settings (name, sources, language-specific config, output paths).
 
-### `[crate]` -- Source Configuration
+Language-specific sections like `[crates.python]` / `[crates.node]` nest under each `[[crates]]` entry.
+
+### Migrating from the legacy schema
+
+If your `alef.toml` uses the old `[crate]` table (single-crate layout), run:
+
+```bash
+alef migrate --write
+```
+
+This converts the legacy schema to `[workspace]` + `[[crates]]` automatically. See `alef migrate --help` for a dry-run preview.
+
+### `[[crates]]` -- Source Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | string | *required* | Rust crate name |
+| `name` | string | *required* | Rust crate name (used with `--crate <name>` filter) |
 | `sources` | string[] | *required* | Rust source files to extract |
 | `version_from` | string | `"Cargo.toml"` | File to read version from (supports workspace Cargo.toml) |
 | `core_import` | string | `{name}` with `-` replaced by `_` | Import path for the core crate in generated bindings |
@@ -339,35 +353,61 @@ node = "interface"
 | `features` | string[] | `[]` | Cargo features treated as always-present (`#[cfg(feature)]` fields are included) |
 | `path_mappings` | map | `{}` | Rewrite extracted Rust path prefixes (e.g., `{ "mylib" = "mylib_http" }`) |
 
-### `languages` -- Target Languages
+### `[workspace]` and `languages` -- Target Languages
 
-Top-level array of languages to generate bindings for:
+Specify target languages in `[workspace].languages` (workspace default) or per-crate under `[[crates]].languages` (crate override):
 
 ```toml
+[workspace]
 languages = ["python", "node", "ruby", "php", "elixir", "wasm", "ffi", "go", "java", "csharp", "r"]
+
+[[crates]]
+name = "core"
+languages = ["python", "node"]  # Override workspace default for this crate
+sources = ["src/lib.rs"]
 ```
 
 The `ffi` language generates the C FFI layer required by `go`, `java`, and `csharp`. If you enable any of those three, `ffi` is implicitly included.
 
-### `[exclude]` / `[include]` -- Filtering
+### `--crate <name>` Filter
+
+All commands accept one or more `--crate <name>` flags to limit processing to specific crates:
+
+```bash
+alef generate --crate core             # Only generate for 'core' crate
+alef build --crate core --crate utils  # Build for 'core' and 'utils' crates
+alef test                              # All crates
+```
+
+When omitted, all crates in the workspace are processed.
+
+### `[crates.exclude]` / `[crates.include]` -- Filtering
+
+Per-crate type and function filtering:
 
 ```toml
-[exclude]
+[[crates]]
+name = "my-library"
+
+[crates.exclude]
 types = ["InternalHelper"]
 functions = ["deprecated_fn"]
 methods = ["MyType.internal_method"]   # dot-notation: "TypeName.method_name"
 
-[include]
+[crates.include]
 types = ["PublicApi", "Config"]        # whitelist only these types
 functions = ["extract", "parse"]       # whitelist only these functions
 ```
 
-### `[output]` -- Output Directories
+### `[crates.output]` -- Output Directories
 
-Per-language output directories for generated Rust binding code:
+Per-language output directories for each crate's generated Rust binding code:
 
 ```toml
-[output]
+[[crates]]
+name = "my-library"
+
+[crates.output]
 python = "crates/{name}-py/src/"
 node = "crates/{name}-node/src/"
 ruby = "crates/{name}-rb/src/"
@@ -381,79 +421,81 @@ csharp = "packages/csharp/"
 r = "crates/{name}-extendr/src/"
 ```
 
-The `{name}` placeholder is replaced with the crate name.
+The `{name}` placeholder is replaced with the crate name from `[[crates]].name`.
 
-### Language-Specific Sections
+### Per-Crate Language-Specific Sections
+
+Language-specific configuration is nested under `[[crates]]`. For example, `[crates.python]` configures the Python binding for that crate.
 
 <details>
-<summary><strong>[python]</strong></summary>
+<summary><strong>[crates.python]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `module_name` | string | `_{name}` | Python module name (the native extension name) |
 | `async_runtime` | string | -- | Async runtime spec for `pyo3_async_runtimes` |
 | `stubs.output` | string | -- | Output directory for `.pyi` stub files |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[node]</strong></summary>
+<summary><strong>[crates.node]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `package_name` | string | `{name}` | npm package name |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[ruby]</strong></summary>
+<summary><strong>[crates.ruby]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `gem_name` | string | `{name}` with `_` | Ruby gem name |
 | `stubs.output` | string | -- | Output directory for `.rbs` type stubs |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[php]</strong></summary>
+<summary><strong>[crates.php]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `extension_name` | string | `{name}` with `_` | PHP extension name |
 | `feature_gate` | string | `"extension-module"` | Feature gate wrapping all generated code |
 | `stubs.output` | string | -- | Output directory for PHP facades/stubs |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[elixir]</strong></summary>
+<summary><strong>[crates.elixir]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `app_name` | string | `{name}` with `_` | Elixir application name |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[wasm]</strong></summary>
+<summary><strong>[crates.wasm]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `exclude_functions` | string[] | `[]` | Functions to exclude from WASM bindings |
 | `exclude_types` | string[] | `[]` | Types to exclude from WASM bindings |
 | `type_overrides` | map | `{}` | Override types (e.g., `{ "DOMNode" = "JsValue" }`) |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[ffi]</strong></summary>
+<summary><strong>[crates.ffi]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -462,59 +504,59 @@ The `{name}` placeholder is replaced with the crate name.
 | `header_name` | string | `{prefix}.h` | Generated C header filename |
 | `lib_name` | string | `{prefix}_ffi` | Native library name (for Go/Java/C# linking) |
 | `visitor_callbacks` | bool | `false` | Generate visitor/callback FFI support |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[go]</strong></summary>
+<summary><strong>[crates.go]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `module` | string | `github.com/kreuzberg-dev/{name}` | Go module path |
 | `package_name` | string | derived from module path | Go package name |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[java]</strong></summary>
+<summary><strong>[crates.java]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `package` | string | `dev.kreuzberg` | Java package name |
 | `ffi_style` | string | `"panama"` | FFI binding style (Panama Foreign Function & Memory API) |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[csharp]</strong></summary>
+<summary><strong>[crates.csharp]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `namespace` | string | PascalCase of `{name}` | C# namespace |
 | `target_framework` | string | -- | Target framework version |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
-<summary><strong>[r]</strong></summary>
+<summary><strong>[crates.r]</strong></summary>
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `package_name` | string | `{name}` | R package name |
-| `features` | string[] | inherits `[crate] features` | Per-language Cargo feature override |
+| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
-### `[dto]` -- Type Generation Styles
+### `[workspace.dto]` -- Type Generation Styles
 
-Controls how Rust structs are represented in each language's public API:
+Controls how Rust structs are represented in each language's public API (workspace default):
 
 ```toml
-[dto]
+[workspace.dto]
 python = "dataclass"         # dataclass | typed-dict | pydantic | msgspec
 python_output = "typed-dict"  # separate style for return types (optional)
 node = "interface"           # interface | zod
@@ -527,12 +569,21 @@ csharp = "record"            # record
 r = "list"                   # list | r6
 ```
 
-### `[scaffold]` -- Package Metadata
-
-Metadata used when generating package manifests:
+Per-crate overrides are supported (though less common):
 
 ```toml
-[scaffold]
+[[crates]]
+name = "core"
+[crates.dto]
+python = "pydantic"
+```
+
+### `[workspace.scaffold]` -- Package Metadata
+
+Metadata used when generating package manifests (shared across all crates):
+
+```toml
+[workspace.scaffold]
 description = "My library for doing things"
 license = "MIT"
 repository = "https://github.com/org/repo"
@@ -541,12 +592,15 @@ authors = ["Your Name"]
 keywords = ["parsing", "extraction"]
 ```
 
-### `[[adapters]]` -- Custom FFI Adapters
+### `[[crates.adapters]]` -- Custom FFI Adapters
 
-Define custom binding patterns that alef can't extract automatically:
+Define custom binding patterns that alef can't extract automatically (per-crate):
 
 ```toml
-[[adapters]]
+[[crates]]
+name = "my-library"
+
+[[crates.adapters]]
 name = "convert"
 pattern = "sync_function"
 core_path = "my_crate::convert"
@@ -561,12 +615,12 @@ gil_release = true    # Python: release GIL during call
 
 Supported patterns: `sync_function`, `async_method`, `callback_bridge`, `streaming`, `server_lifecycle`.
 
-### `[generate]` / `[generate_overrides.<lang>]` -- Generation Control
+### `[workspace.generate]` / `[workspace.generate_overrides.<lang>]` -- Generation Control
 
-Toggle individual generation passes (all default to `true`):
+Toggle individual generation passes (all default to `true`; workspace-level defaults):
 
 ```toml
-[generate]
+[workspace.generate]
 bindings = true          # struct wrappers, From impls, module init
 errors = true            # error type hierarchies from thiserror enums
 configs = true           # config builder constructors from Default types
@@ -576,27 +630,27 @@ package_metadata = true  # package manifests (pyproject.toml, package.json, etc.
 public_api = true        # idiomatic public API wrappers
 
 # Override per language:
-[generate_overrides.wasm]
+[workspace.generate_overrides.wasm]
 async_wrappers = false
 ```
 
-### `[sync]` -- Version Synchronization
+### `[workspace.sync]` -- Version Synchronization
 
-Configure the `alef sync-versions` command (use `--set <version>` to override the version read from `Cargo.toml`):
+Configure the `alef sync-versions` command (workspace-level; use `--set <version>` to override):
 
 ```toml
-[sync]
+[workspace.sync]
 extra_paths = ["packages/go/go.mod"]
 
-[[sync.text_replacements]]
+[[workspace.sync.text_replacements]]
 path = "crates/*/cbindgen.toml"
 search = 'header = ".*"'
 replace = 'header = "/* v{version} */"'
 ```
 
-### `[test.<lang>]` / `[lint.<lang>]` / `[update.<lang>]` / `[setup.<lang>]` / `[clean.<lang>]` / `[build_commands.<lang>]`
+### `[crates.test.<lang>]` / `[crates.lint.<lang>]` / etc. -- Command Overrides
 
-Override per-language commands for any operational task. All fields accept a string or an array of strings.
+Override per-language commands for any operational task (per-crate). All fields accept a string or an array of strings.
 
 Every command config section supports two hook fields:
 
@@ -604,56 +658,62 @@ Every command config section supports two hook fields:
 - **`before`** -- Command(s) to run before the main command. Unlike `precondition`, failure aborts the command for that language. Accepts a single string or an array. Use this to build prerequisites (e.g., FFI libraries, maturin develop).
 
 ```toml
+[[crates]]
+name = "my-library"
+
 # Go lint needs the FFI shared library built first
-[lint.go]
+[crates.lint.go]
 precondition = "test -f target/release/libmy_lib_ffi.dylib"
 format = "gofmt -w packages/go/"
 check = "cd packages/go && golangci-lint run ./..."
 
 # Python test needs maturin develop first
-[test.python]
+[crates.test.python]
 before = "cd packages/python && maturin develop --release"
 command = "cd packages/python && uv run pytest tests/ -v"
 coverage = "cd packages/python && uv run pytest --cov=. --cov-report=lcov"
 
 # Node test needs the NAPI binding built first
-[test.node]
+[crates.test.node]
 before = "napi build --platform --manifest-path crates/my-lib-node/Cargo.toml"
 command = "npx vitest run"
 
-[lint.python]
+[crates.lint.python]
 format = "ruff format packages/python/"
 check = "ruff check packages/python/"
 typecheck = "mypy packages/python/"
 
-[update.node]
+[crates.update.node]
 update = "pnpm up"
 upgrade = "pnpm up --latest"
 
-[setup.python]
+[crates.setup.python]
 install = "uv sync"
 
-[clean.rust]
+[crates.clean.rust]
 clean = "cargo clean"
 
-[build_commands.python]
+[crates.build_commands.python]
 build = "maturin develop"
 build_release = "maturin build --release"
 ```
 
-Rust is a first-class language in all pipelines -- add `"rust"` to your `languages` array to include Rust in `alef build`, `alef test`, `alef lint`, etc. alongside your binding languages.
+Rust is a first-class language in all pipelines -- add `"rust"` to the `[workspace].languages` array (or per-crate `languages`) to include Rust in `alef build`, `alef test`, `alef lint`, etc. alongside your binding languages.
 
-### `[e2e]` -- E2E Test Generation
+### `[crates.e2e]` -- E2E Test Generation
 
-Configure fixture-driven test generation:
+Configure fixture-driven test generation (per-crate):
 
 ```toml
-[e2e]
+[[crates]]
+name = "my-library"
+
+[crates.e2e]
 fixtures = "fixtures"
 output = "e2e"
 languages = ["python", "node", "rust", "go"]
 
-[e2e.call]
+[crates.e2e.call]
 function = "extract"
 module = "my_library"
 async = true
@@ -662,26 +722,29 @@ args = [
 ]
 ```
 
-### `[opaque_types]` -- External Type Declarations
+### `[workspace.opaque_types]` -- External Type Declarations
 
-Declare types from external crates that alef can't extract:
+Declare types from external crates that alef can't extract (workspace-level; shared across crates):
 
 ```toml
-[opaque_types]
+[workspace.opaque_types]
 Tree = "tree_sitter_language_pack::Tree"
 ```
 
 These get opaque wrapper structs in all backends with handle-based FFI access.
 
-### `[custom_modules]` / `[custom_registrations]` -- Hand-Written Code
+### `[crates.custom_modules]` / `[crates.custom_registrations]` -- Hand-Written Code
 
-Declare hand-written modules that alef should include in `mod` declarations and module init:
+Declare hand-written modules that alef should include in `mod` declarations and module init (per-crate):
 
 ```toml
-[custom_modules]
+[[crates]]
+name = "my-library"
+
+[crates.custom_modules]
 python = ["custom_handler"]
 
-[custom_registrations.python]
+[crates.custom_registrations.python]
 classes = ["CustomHandler"]
 functions = ["custom_extract"]
 init_calls = ["register_custom_types(m)?;"]

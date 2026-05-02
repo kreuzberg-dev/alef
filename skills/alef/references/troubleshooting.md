@@ -255,7 +255,7 @@ repos:
 **Fix:** Check `[dto]` in alef.toml:
 
 ```toml
-[dto]
+[workspace.dto]
 python = "dataclass"    # or "typed-dict", "pydantic", "msgspec"
 node = "interface"      # or "zod"
 ruby = "struct"         # or "dry-struct", "data"

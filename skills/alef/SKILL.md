@@ -60,10 +60,13 @@ This creates `alef.toml` with your crate's configuration.
 ### 2. Generate Bindings
 
 ```bash
-alef generate              # Generate all configured languages
+alef generate              # Generate all configured languages (all crates)
 alef generate --lang node  # Generate for specific language
+alef generate --crate my-library  # Restrict to a single crate
 alef generate --clean      # Regenerate everything (ignore cache)
 ```
+
+When your workspace has multiple crates, use `--crate <name>` (repeatable) to restrict operations to a subset. If omitted, all crates are processed.
 
 ### 3. Build
 
@@ -99,35 +102,45 @@ alef publish validate
 
 ## Minimal Configuration
 
+Alef now uses a multi-crate schema. A `[workspace]` section defines shared defaults; each `[[crates]]` entry describes one independently published binding package:
+
 ```toml
+[workspace]
 languages = ["python", "node", "go", "java"]
 
-[crate]
+[[crates]]
 name = "my-library"
 sources = ["src/lib.rs", "src/types.rs"]
 
-[output]
+[crates.output]
 python = "crates/my-library-py/src/"
 node = "crates/my-library-node/src/"
 ffi = "crates/my-library-ffi/src/"
 
-# Optional: tweak which package managers the default pipeline commands use.
-[tools]
+[workspace.tools]
 python_package_manager = "uv"      # uv | pip | poetry  (default: uv)
 node_package_manager = "pnpm"      # pnpm | npm | yarn  (default: pnpm)
 
-[python]
+[crates.python]
 module_name = "_my_library"
-# run_wrapper, extra_lint_paths, project_file are accepted on every language
-# section to absorb common override patterns without redefining whole tables.
 
-[node]
+[crates.node]
 package_name = "@myorg/my-library"
 
-[dto]
+[workspace.dto]
 python = "dataclass"
 node = "interface"
 ```
+
+### Legacy `alef.toml` Migration
+
+If you have an existing `alef.toml` in the old single-crate schema (with top-level `[crate]`, `languages`, etc.), run this migration command:
+
+```bash
+alef migrate --write
+```
+
+This rewrites your config to the new `[workspace]` + `[[crates]]` layout atomically. The migration handles naming, path updates, and other structural changes automatically. Review the output and fix any path issues if needed, then continue as normal.
 
 `alef.toml` is validated at load time. Custom `[lint|test|build_commands|setup|update|clean].<lang>` tables that override a main command must declare a `precondition`; redundant fields (value identical to the built-in default) emit a `tracing::warn!` so the file stays minimal.
 
@@ -215,7 +228,7 @@ sources_hash    = blake3( sorted(rust_source_files) )
 
 `alef generate` writes whitespace-normalised codegen output and finalises the hash *after* the optional formatter pass (`--format`) has run, so the on-disk hash always describes the on-disk byte content. `alef verify` reads each alef-headered file, strips the `alef:hash:` line, recomputes the same hash, and compares — no regeneration, no writes. Without `--format`, `alef generate` does not invoke any formatter; if you keep formatters in pre-commit hooks, run `alef fmt` (or `alef generate --format`) before committing so the hash matches the formatted bytes.
 
-The hash deliberately does **not** include the alef CLI version or `alef.toml`. Bumping the alef CLI on a tagged repo does not by itself flag any file as stale; verify only goes red when (a) a `[crate].sources` rust file changed, (b) an alef-generated file was edited or mutated by something post-format, or (c) `alef generate` would now produce a different file body. The IR cache (`.alef/ir.json`) keys on `sources_hash` alone — pass `--clean` to bust it when the alef extractor itself has changed.
+The hash deliberately does **not** include the alef CLI version or `alef.toml`. Bumping the alef CLI on a tagged repo does not by itself flag any file as stale; verify only goes red when (a) a crate's `sources` rust file changed, (b) an alef-generated file was edited or mutated by something post-format, or (c) `alef generate` would now produce a different file body. The IR cache (`.alef/<crate>/ir.json`) keys on `sources_hash` alone — pass `--clean` to bust it when the alef extractor itself has changed.
 
 `--lang`, `--compile`, `--lint` flags on verify are accepted for backwards compatibility but ignored — verify is a per-file hash compare. Use `alef build` / `alef lint` / `alef test` for the per-language checks those flags used to imply.
 
@@ -225,10 +238,10 @@ See `references/cli-reference.md#alef-verify` for the full mental model.
 
 1. **Missing `ffi` language**: Go, Java, and C# require the C FFI layer. Add `ffi` to `languages` or it's implicitly included.
 2. **Stale bindings after Rust changes**: Run `alef generate` or `alef all` after modifying your Rust source files.
-3. **Wrong DTO style**: Check `[dto]` section. Python `typed-dict` is read-only, `dataclass` is mutable. Choose based on usage.
+3. **Wrong DTO style**: Check `[workspace.dto]` or `[crates.dto]`. Python `typed-dict` is read-only, `dataclass` is mutable. Choose based on usage.
 4. **Types not appearing**: Check `[exclude]`/`[include]` filters. Use `alef extract -o /dev/stdout | jq` to inspect the IR.
 5. **Version mismatch**: Always use `alef sync-versions` instead of manually editing package manifests.
-6. **Opaque vs transparent types**: Types with private fields or complex generics need `[opaque_types]` config.
+6. **Opaque vs transparent types**: Types with private fields or complex generics need `[crates.opaque_types]` config.
 
 ## Additional References
 

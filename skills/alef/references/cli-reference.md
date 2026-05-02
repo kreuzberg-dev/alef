@@ -5,6 +5,7 @@ All commands accept these global flags:
 | Flag | Description |
 |------|-------------|
 | `--config <path>` | Path to `alef.toml` (default: `alef.toml`) |
+| `--crate <name>` | Restrict to a specific crate by name (repeatable; omit for all crates) |
 | `-j`, `--jobs <n>` | Maximum parallel jobs (`0` = all cores, `1` = sequential, default `0`) |
 | `-v`, `--verbose` | Increase log verbosity (`-v` info, `-vv` debug, `-vvv` trace). Overridden by `RUST_LOG`. |
 | `-q`, `--quiet` | Suppress everything below `error`. Overridden by `RUST_LOG`. |
@@ -393,6 +394,25 @@ alef init
 alef init --lang python,node,ruby,go
 alef init --format
 ```
+
+---
+
+## `alef migrate`
+
+Migrate legacy single-crate `alef.toml` schema to the new multi-crate `[workspace]` + `[[crates]]` layout.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `path` | path | `alef.toml` from `--config` | Path to the legacy `alef.toml` to migrate |
+| `--write` | bool | `false` | Write the migrated config back to the file (dry-run by default) |
+
+```bash
+alef migrate              # Show what would change (dry-run)
+alef migrate --write      # Rewrite alef.toml with migrated layout
+alef migrate path/to/alef.toml --write
+```
+
+The migration is atomic: if `--write` is passed, the entire config is rewritten in one operation. The new config will have a `[workspace]` section with shared defaults and a single `[[crates]]` entry containing the original `[crate]` data mapped to per-crate fields.
 
 ---
 

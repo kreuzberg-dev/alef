@@ -23,18 +23,18 @@ Synchronous function bridging. Calls a Rust core function directly with type con
 ### alef.toml config
 
 ```toml
-[[adapters]]
+[[crates.adapters]]
 name = "convert"
 pattern = "sync_function"
 core_path = "html_to_markdown_rs::convert"
 returns = "ConvertResult"
 gil_release = true
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "input"
 type = "String"
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "options"
 type = "ConvertOptions"
 optional = true
@@ -84,7 +84,7 @@ Async method with runtime management. Calls an async method on an owned inner co
 ### alef.toml config
 
 ```toml
-[[adapters]]
+[[crates.adapters]]
 name = "extract"
 pattern = "async_method"
 core_path = "extract"
@@ -92,7 +92,7 @@ owner_type = "Client"
 returns = "ExtractionResult"
 error_type = "ExtractionError"
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "request"
 type = "ExtractionRequest"
 ```
@@ -141,7 +141,7 @@ Host language callback to Rust trait. Generates a bridge struct that wraps a hos
 ### alef.toml config
 
 ```toml
-[[adapters]]
+[[crates.adapters]]
 name = "handler"
 pattern = "callback_bridge"
 core_path = "my_crate::handler_trait"
@@ -151,7 +151,7 @@ returns = "Response"
 error_type = "HandlerError"
 detect_async = true
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "input"
 type = "Request"
 ```
@@ -208,7 +208,7 @@ Iterator/stream patterns. Wraps a Rust `Stream` to expose it as a language-nativ
 ### alef.toml config
 
 ```toml
-[[adapters]]
+[[crates.adapters]]
 name = "extract_stream"
 pattern = "streaming"
 core_path = "extract_stream"
@@ -216,7 +216,7 @@ owner_type = "Client"
 item_type = "Chunk"
 error_type = "ExtractionError"
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "request"
 type = "ExtractionRequest"
 ```
@@ -278,7 +278,7 @@ compile_error!("adapter pattern not yet implemented: {name}")
 ### alef.toml config (planned)
 
 ```toml
-[[adapters]]
+[[crates.adapters]]
 name = "server"
 pattern = "server_lifecycle"
 core_path = "my_crate::Server"
@@ -295,7 +295,7 @@ No backends currently support this pattern.
 Full fields available on `[[adapters]]`:
 
 ```toml
-[[adapters]]
+[[crates.adapters]]
 name = "function_name"           # Required: function/method name
 pattern = "sync_function"        # Required: one of sync_function, async_method, callback_bridge, streaming, server_lifecycle
 core_path = "crate::path::fn"    # Required: Rust path to core function/method
@@ -308,7 +308,7 @@ trait_name = "TraitName"         # Optional: callback_bridge trait to implement
 trait_method = "method"          # Optional: callback_bridge trait method name
 detect_async = false             # Optional: callback_bridge async detection at construction
 
-[[adapters.params]]
+[[crates.adapters.params]]
 name = "param_name"              # Required: parameter name
 type = "ParamType"               # Required: Rust type name
 optional = false                 # Optional: wrap in Option, use .map(Into::into) for conversion

@@ -45,7 +45,7 @@ Configured via `[dto] python = "..."` and optionally `[dto] python_output = "...
 ### Key configuration
 
 ```toml
-[python]
+[crates.python]
 module_name = "_my_lib"       # Python native module name (default: _{crate_name})
 async_runtime = "tokio"       # Async runtime for pyo3-async-runtimes
 serde_rename_all = "snake_case"  # Field naming (default: snake_case)
@@ -87,7 +87,7 @@ Configured via `[dto] node = "..."`.
 ### Key configuration
 
 ```toml
-[node]
+[crates.node]
 package_name = "my-lib"          # npm package name
 serde_rename_all = "camelCase"   # Field naming (default: camelCase)
 ```
@@ -118,7 +118,7 @@ No configurable DTO styles. Uses wasm-bindgen's native type mapping with `JsValu
 ### Key configuration
 
 ```toml
-[wasm]
+[crates.wasm]
 exclude_functions = ["blocking_fn"]  # Functions to skip (e.g., blocking I/O)
 exclude_types = ["InternalType"]     # Types to skip
 type_overrides = { "Path" = "String" }  # Remap types for WASM compatibility
@@ -160,7 +160,7 @@ Configured via `[dto] ruby = "..."`.
 ### Key configuration
 
 ```toml
-[ruby]
+[crates.ruby]
 gem_name = "my_lib"              # RubyGems package name
 serde_rename_all = "snake_case"  # Field naming (default: snake_case)
 
@@ -200,7 +200,7 @@ Configured via `[dto] php = "..."`.
 ### Key configuration
 
 ```toml
-[php]
+[crates.php]
 extension_name = "my_lib"            # PHP extension name
 feature_gate = "extension-module"    # Feature gate for ext-php-rs
 serde_rename_all = "snake_case"      # Field naming (default: snake_case)
@@ -237,7 +237,7 @@ No configurable DTO styles. Types are serialized as JSON strings over the C boun
 ### Key configuration
 
 ```toml
-[ffi]
+[crates.ffi]
 prefix = "my_lib"              # Function prefix (e.g., my_lib_new, my_lib_free)
 error_style = "last_error"     # Error reporting style (default: "last_error")
 header_name = "my_lib.h"       # Generated C header filename
@@ -279,7 +279,7 @@ Configured via `[dto] go = "..."`.
 ### Key configuration
 
 ```toml
-[go]
+[crates.go]
 module = "github.com/kreuzberg-dev/my-lib"  # Go module path
 package_name = "mylib"                       # Go package name
 serde_rename_all = "snake_case"              # JSON field naming (default: snake_case)
@@ -319,7 +319,7 @@ Configured via `[dto] java = "..."`.
 ### Key configuration
 
 ```toml
-[java]
+[crates.java]
 package = "dev.kreuzberg"        # Java package name (also used as Maven groupId)
 ffi_style = "panama"             # FFI mechanism (default: "panama")
 serde_rename_all = "camelCase"   # Field naming (default: camelCase)
@@ -358,7 +358,7 @@ Configured via `[dto] csharp = "..."`.
 ### Key configuration
 
 ```toml
-[csharp]
+[crates.csharp]
 namespace = "MyLib"                  # C# namespace (default: PascalCase of crate name)
 target_framework = "net8.0"          # Target .NET framework
 serde_rename_all = "camelCase"       # Field naming (default: camelCase)
@@ -397,7 +397,7 @@ Configured via `[dto] elixir = "..."`.
 ### Key configuration
 
 ```toml
-[elixir]
+[crates.elixir]
 app_name = "my_lib"              # Elixir application name
 serde_rename_all = "snake_case"  # Field naming (default: snake_case)
 ```
@@ -434,7 +434,7 @@ Configured via `[dto] r = "..."`.
 ### Key configuration
 
 ```toml
-[r]
+[crates.r]
 package_name = "mylib"             # R package name
 serde_rename_all = "snake_case"    # Field naming (default: snake_case)
 ```
@@ -470,7 +470,7 @@ serde_rename_all = "snake_case"    # Field naming (default: snake_case)
 ### Key configuration
 
 ```toml
-[kotlin]
+[crates.kotlin]
 package = "dev.kreuzberg.kreuzberg"
 target  = "jvm"             # or "native" — Kotlin/Native via FFI (planned)
 exclude_functions = []
@@ -499,7 +499,7 @@ Trait bridges emit a Kotlin `interface` plus a typealias to the Java FFI-managed
 ### Key configuration
 
 ```toml
-[gleam]
+[crates.gleam]
 app_name   = "kreuzberg"
 nif_module = "Elixir.Kreuzberg.Native"
 ```
@@ -531,7 +531,7 @@ For each `[[trait_bridges]]`, the backend emits:
 ### Key configuration
 
 ```toml
-[swift]
+[crates.swift]
 module_name        = "Kreuzberg"
 exclude_types      = []
 exclude_functions  = []
@@ -572,7 +572,7 @@ Each trait emits:
 ### Key configuration
 
 ```toml
-[dart]
+[crates.dart]
 pubspec_name = "kreuzberg"
 frb_version  = "2"
 ```
@@ -610,7 +610,7 @@ Each trait emits:
 ### Key configuration
 
 ```toml
-[zig]
+[crates.zig]
 module_name = "kreuzberg"
 ```
 
@@ -647,7 +647,7 @@ zig = "packages/zig/src/"
 ### DTO config section
 
 ```toml
-[dto]
+[workspace.dto]
 python = "dataclass"
 python_output = "typed-dict"   # Optional: different style for return types
 node = "interface"
