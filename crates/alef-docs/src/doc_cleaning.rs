@@ -182,12 +182,56 @@ pub(crate) fn clean_doc_inline(doc: &str, lang: Language) -> String {
         .replace('|', "\\|")
 }
 
+/// Returns true if a line is a rustdoc-hidden line inside a code fence.
+///
+/// Rustdoc treats lines starting with `# ` (or just `# `) inside ` ```rust ` fences
+/// as compile-only setup that is hidden when rendered. Every non-Rust host renders
+/// them literally, so they must be stripped before emission.
+pub(crate) fn is_rustdoc_hidden_line(line: &str) -> bool {
+    // Match `# <anything>` and bare `# ` — but NOT `## ` (markdown subheading
+    // inside a fence) or `#!` (Rust attribute).
+    let trimmed = line.trim_start();
+    if trimmed == "#" {
+        return true;
+    }
+    if let Some(rest) = trimmed.strip_prefix('#') {
+        // Real rustdoc-hidden begins with `# ` — single space after the hash.
+        // Reject `##`, `#!`, `#[`.
+        return rest.starts_with(' ');
+    }
+    false
+}
+
+/// Returns true if a labelling line is a dangling header for a removed example
+/// block. Used to strip orphaned paragraphs left when a `\`\`\`rust\`\`\`` block was
+/// stripped wholesale (e.g. "Simple usage:", "Example:", "Per-file overrides:").
+fn is_orphan_example_label(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() || !t.ends_with(':') {
+        return false;
+    }
+    let lower = t.trim_end_matches(':').to_lowercase();
+    matches!(
+        lower.as_str(),
+        "example"
+            | "examples"
+            | "simple usage"
+            | "basic usage"
+            | "usage"
+            | "for example"
+            | "per-file configuration overrides"
+            | "per-file overrides"
+    )
+}
+
 /// Strip Rust-specific doc sections (`# Example`, `# Arguments`, `# Fields`).
 ///
 /// Also strips fenced code blocks that contain Rust-specific syntax
 /// (use statements, unwrap(), assert!, etc.) regardless of which section they appear in.
+/// Strips rustdoc-hidden lines (`# ...`) inside code fences and orphaned example
+/// label paragraphs ("Example:", "Simple usage:") left dangling after a fence is removed.
 pub(crate) fn strip_rust_sections(doc: &str) -> String {
-    let mut out = String::new();
+    let mut out: Vec<String> = Vec::new();
     let mut skip_section = false;
     let mut in_code_block = false;
     let mut code_block_buf = String::new();
@@ -199,9 +243,25 @@ pub(crate) fn strip_rust_sections(doc: &str) -> String {
                 // End of code block — decide whether to emit it
                 in_code_block = false;
                 if !skip_section && !is_rust_code_block(&code_block_buf) {
-                    out.push_str(&code_block_buf);
-                    out.push_str(line);
-                    out.push('\n');
+                    for code_line in code_block_buf.lines() {
+                        out.push(code_line.to_string());
+                    }
+                    out.push(line.to_string());
+                } else if !skip_section {
+                    // Block was stripped — also strip any orphan label paragraph
+                    // immediately preceding it (and trailing blank line).
+                    while out.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
+                        out.pop();
+                    }
+                    if let Some(last) = out.last() {
+                        if is_orphan_example_label(last) {
+                            out.pop();
+                            // Also drop another trailing blank line if present
+                            while out.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
+                                out.pop();
+                            }
+                        }
+                    }
                 }
                 code_block_buf.clear();
                 continue;
@@ -217,8 +277,11 @@ pub(crate) fn strip_rust_sections(doc: &str) -> String {
 
         if in_code_block {
             if !skip_section {
-                code_block_buf.push_str(line);
-                code_block_buf.push('\n');
+                // Drop rustdoc-hidden lines (`# ...`) inside the fence.
+                if !is_rustdoc_hidden_line(line) {
+                    code_block_buf.push_str(line);
+                    code_block_buf.push('\n');
+                }
             }
             continue;
         }
@@ -256,11 +319,14 @@ pub(crate) fn strip_rust_sections(doc: &str) -> String {
             continue;
         }
 
-        out.push_str(line);
-        out.push('\n');
+        out.push(line.to_string());
     }
 
-    out
+    let mut joined = out.join("\n");
+    if !joined.is_empty() {
+        joined.push('\n');
+    }
+    joined
 }
 
 /// Returns true if a code block's content contains Rust-specific patterns.
@@ -268,8 +334,12 @@ pub(crate) fn is_rust_code_block(content: &str) -> bool {
     // Opening fence line may declare "rust" or "no_run" etc.
     let first_line = content.lines().next().unwrap_or("");
     let fence_lang = first_line.trim_start_matches('`').trim().to_lowercase();
-    if matches!(fence_lang.as_str(), "rust" | "rust,no_run" | "rust,ignore" | "") {
-        // Check if content looks like Rust
+    // Any explicit rust-prefixed fence is rust.
+    if fence_lang.starts_with("rust") || fence_lang == "no_run" || fence_lang == "ignore" {
+        return true;
+    }
+    // Untagged fences may still be rust — heuristic check.
+    if fence_lang.is_empty() {
         for line in content.lines().skip(1) {
             if line.starts_with("use ")
                 || line.contains("unwrap()")
@@ -281,6 +351,7 @@ pub(crate) fn is_rust_code_block(content: &str) -> bool {
                 || line.contains(".to_string()")
                 || line.contains("html_to_markdown")
                 || line.contains("r#\"")
+                || is_rustdoc_hidden_line(line)
             {
                 return true;
             }
