@@ -127,6 +127,24 @@ impl Backend for ExtendrBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        // Map of options-struct name → set of field names that carry a trait-bridge handle
+        // (bind_via = "options_field"). These fields are rendered as `Option<extendr_api::Robj>`
+        // in the binding struct and skipped in the standard `From` impl — the convert wrapper
+        // pulls them off, builds the bridge, and attaches it to the core options.
+        let bridge_fields_by_type: HashMap<&str, HashSet<String>> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| b.bind_via == BridgeBinding::OptionsField)
+            .filter_map(|b| {
+                let type_name = b.options_type.as_deref()?;
+                let field_name = b.resolved_options_field()?.to_string();
+                Some((type_name, field_name))
+            })
+            .fold(HashMap::new(), |mut acc, (type_name, field_name)| {
+                acc.entry(type_name).or_default().insert(field_name);
+                acc
+            });
+
         // Generate type bindings
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
@@ -142,15 +160,26 @@ impl Backend for ExtendrBackend {
                 // Emitting gen_struct_default_impl here would produce a conflicting
                 // `impl Default` compile error. The derive covers all types where
                 // can_generate_default_impl is true (all field types implement Default).
-                builder.add_item(&generators::gen_struct(typ, self, &cfg));
+                let bridge_fields = bridge_fields_by_type.get(typ.name.as_str());
+                if let Some(fields) = bridge_fields {
+                    builder.add_item(&gen_extendr_struct_with_bridge_fields(typ, self, fields));
+                } else {
+                    builder.add_item(&generators::gen_struct(typ, self, &cfg));
+                }
                 let impl_block = generators::gen_impl_block(typ, self, &cfg, &adapter_bodies, &opaque_types);
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }
                 // Generate config constructor if type has Default
                 if typ.has_default && !typ.fields.is_empty() {
-                    let map_fn = |ty: &alef_core::ir::TypeRef| self.map_type(ty);
-                    let config_fn = alef_codegen::config_gen::gen_extendr_kwargs_constructor(typ, &map_fn);
+                    let bridge_fields = bridge_fields_by_type.get(typ.name.as_str());
+                    let config_fn = if let Some(fields) = bridge_fields {
+                        let map_fn = |ty: &alef_core::ir::TypeRef| self.map_type(ty);
+                        gen_extendr_kwargs_constructor_with_bridge_fields(typ, &map_fn, fields)
+                    } else {
+                        let map_fn = |ty: &alef_core::ir::TypeRef| self.map_type(ty);
+                        alef_codegen::config_gen::gen_extendr_kwargs_constructor(typ, &map_fn)
+                    };
                     builder.add_item(&config_fn);
                 }
             }
@@ -170,16 +199,24 @@ impl Backend for ExtendrBackend {
         let input_types = alef_codegen::conversions::input_type_names(api);
         let extendr_conversion_cfg = alef_codegen::conversions::ConversionConfig::default();
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-            // binding→core: emit when type is used as input and all fields are
-            // convertible (mirrors pyo3/magnus emission paths).
-            if input_types.contains(&typ.name)
-                && alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core)
-            {
-                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
-                    typ,
-                    &core_import,
-                    &extendr_conversion_cfg,
-                ));
+            // binding→core: emit when type is used as input. Types with bridge fields are
+            // not eligible for the standard convertibility check (their bridge fields
+            // reference the trait type which has no binding counterpart), so emit a
+            // hand-rolled From impl that skips them.
+            if input_types.contains(&typ.name) {
+                if let Some(skip_fields) = bridge_fields_by_type.get(typ.name.as_str()) {
+                    builder.add_item(&gen_extendr_from_binding_to_core_skipping_fields(
+                        typ,
+                        &core_import,
+                        skip_fields,
+                    ));
+                } else if alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core) {
+                    builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
+                        typ,
+                        &core_import,
+                        &extendr_conversion_cfg,
+                    ));
+                }
             }
             // core→binding: emit whenever the conversion can be generated.  Allows
             // `core_value.into()` in return positions.
@@ -223,15 +260,26 @@ impl Backend for ExtendrBackend {
                     &opaque_types,
                     &core_import,
                 ));
-            } else {
-                builder.add_item(&generators::gen_function(
-                    func,
-                    self,
-                    &cfg,
-                    &adapter_bodies,
-                    &opaque_types,
-                ));
+                continue;
             }
+            let bridge_field = crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
+            if let Some(bridge_match) = bridge_field {
+                builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
+                    func,
+                    &bridge_match,
+                    self,
+                    &opaque_types,
+                    &core_import,
+                ));
+                continue;
+            }
+            builder.add_item(&generators::gen_function(
+                func,
+                self,
+                &cfg,
+                &adapter_bodies,
+                &opaque_types,
+            ));
         }
 
         // Trait bridge wrappers — generate extendr bridge structs that delegate to R list objects
@@ -366,4 +414,147 @@ impl Backend for ExtendrBackend {
             post_build: vec![],
         })
     }
+}
+
+/// Generate an extendr binding struct where the named bridge fields are emitted as
+/// `Option<extendr_api::Robj>` with `#[serde(skip)]` instead of their core IR type.
+///
+/// R callers attach a visitor (or other trait bridge handle) by setting the field on the
+/// options list to a closure / R object. The convert wrapper extracts it before forwarding
+/// the options to the core function.
+fn gen_extendr_struct_with_bridge_fields(
+    typ: &TypeDef,
+    mapper: &dyn TypeMapper,
+    bridge_fields: &HashSet<String>,
+) -> String {
+    let mut sb = alef_codegen::builder::StructBuilder::new(&typ.name);
+    sb.add_derive("Clone");
+    sb.add_derive("Default");
+    sb.add_derive("serde::Serialize");
+    sb.add_derive("serde::Deserialize");
+    if typ.has_default {
+        sb.add_attr("serde(default)");
+    }
+    for field in &typ.fields {
+        if field.cfg.is_some() {
+            continue;
+        }
+        if bridge_fields.contains(&field.name) {
+            sb.add_field_with_doc(
+                &field.name,
+                "Option<extendr_api::Robj>",
+                vec!["serde(skip)".to_string()],
+                &field.doc,
+            );
+            continue;
+        }
+        let ty = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
+            mapper.optional(&mapper.map_type(&field.ty))
+        } else {
+            mapper.map_type(&field.ty)
+        };
+        let mut attrs: Vec<String> = Vec::new();
+        if field.sanitized {
+            attrs.push("serde(skip)".to_string());
+        }
+        sb.add_field_with_doc(&field.name, &ty, attrs, &field.doc);
+    }
+    sb.build()
+}
+
+/// Like `alef_codegen::config_gen::gen_extendr_kwargs_constructor` but renders bridge fields as
+/// `Option<extendr_api::Robj>` so R callers can pass an R closure or list to the field.
+fn gen_extendr_kwargs_constructor_with_bridge_fields(
+    typ: &TypeDef,
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    bridge_fields: &HashSet<String>,
+) -> String {
+    let mut out = String::with_capacity(512);
+    writeln!(out, "#[extendr]").ok();
+    writeln!(out, "pub fn new_{}(", typ.name.to_lowercase()).ok();
+    for (i, field) in typ.fields.iter().enumerate() {
+        let comma = if i < typ.fields.len() - 1 { "," } else { "" };
+        if bridge_fields.contains(&field.name) {
+            writeln!(out, "    {}: Option<extendr_api::Robj>{}", field.name, comma).ok();
+        } else {
+            let field_type = type_mapper(&field.ty);
+            writeln!(out, "    {}: Option<{}>{}", field.name, field_type, comma).ok();
+        }
+    }
+    writeln!(out, ") -> {} {{", typ.name).ok();
+    writeln!(out, "    let mut __out = <{}>::default();", typ.name).ok();
+    for field in &typ.fields {
+        if bridge_fields.contains(&field.name) {
+            // Bridge fields are `Option<extendr_api::Robj>` on the binding struct — wrap in Some.
+            writeln!(
+                out,
+                "    if let Some(v) = {name} {{ __out.{name} = Some(v); }}",
+                name = field.name
+            )
+            .ok();
+        } else {
+            writeln!(
+                out,
+                "    if let Some(v) = {name} {{ __out.{name} = v; }}",
+                name = field.name
+            )
+            .ok();
+        }
+    }
+    writeln!(out, "    __out").ok();
+    writeln!(out, "}}").ok();
+    out
+}
+
+/// Custom `From<{Binding}> for {core::Type}` impl that leaves the named bridge fields at
+/// their `Default` value (typically `None`). The convert wrapper sets them after building
+/// the bridge from the field value.
+fn gen_extendr_from_binding_to_core_skipping_fields(
+    typ: &TypeDef,
+    core_import: &str,
+    skip_fields: &HashSet<String>,
+) -> String {
+    use alef_core::ir::PrimitiveType;
+
+    let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
+    let binding_name = &typ.name;
+    let mut out = String::with_capacity(512);
+    writeln!(out, "#[allow(clippy::redundant_closure, clippy::useless_conversion)]").ok();
+    writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
+    writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
+    writeln!(out, "        let mut __result = {core_path}::default();").ok();
+    for field in &typ.fields {
+        if skip_fields.contains(&field.name) || field.sanitized || field.cfg.is_some() {
+            continue;
+        }
+        let conversion = match &field.ty {
+            TypeRef::Named(_) => {
+                if field.optional || matches!(&field.ty, TypeRef::Optional(_)) {
+                    format!("val.{0}.map(Into::into)", field.name)
+                } else {
+                    format!("val.{0}.into()", field.name)
+                }
+            }
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::Named(_) => format!("val.{0}.map(Into::into)", field.name),
+                _ => format!("val.{}", field.name),
+            },
+            TypeRef::Duration => {
+                if field.optional {
+                    format!("val.{0}.map(std::time::Duration::from_millis)", field.name)
+                } else {
+                    format!("std::time::Duration::from_millis(val.{})", field.name)
+                }
+            }
+            TypeRef::Primitive(PrimitiveType::I64) | TypeRef::Primitive(PrimitiveType::U64) => {
+                format!("val.{}", field.name)
+            }
+            _ => format!("val.{}", field.name),
+        };
+        writeln!(out, "        __result.{} = {conversion};", field.name).ok();
+    }
+    writeln!(out, "        __result").ok();
+    writeln!(out, "    }}").ok();
+    write!(out, "}}").ok();
+    out
 }

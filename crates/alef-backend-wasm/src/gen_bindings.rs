@@ -6,10 +6,11 @@ use alef_codegen::naming::to_node_name;
 use alef_codegen::shared::{self, constructor_parts};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{AlefConfig, BridgeBinding, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use alef_core::template_versions as tv;
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -243,12 +244,35 @@ impl Backend for WasmBackend {
         // is treated as if it were `#[cfg]`-gated, so the binding struct omits it and
         // the From impl uses `..Default::default()` to fill it.
         let exclude_fields_map = wasm_config.map(|c| c.exclude_fields.clone()).unwrap_or_default();
-        // Build a fresh ApiSurface clone with exclude_fields applied: each field in
-        // the exclude list gets `cfg: Some("excluded_via_alef_toml")` so all
-        // downstream cfg-skip code paths (binding struct gen, From impls, builder
-        // patterns) treat it as native-only and emit ..Default::default() on wasm.
+
+        // Build a map of bridge fields: `HashMap<TypeName, Vec<FieldName>>` for all
+        // `bind_via = "options_field"` bridges.  These fields are exposed as
+        // `Option<JsValue>` in the binding struct but must be skipped in From conversions
+        // (the JsValue can't be automatically converted to a VisitorHandle).
+        let bridge_fields_map: HashMap<String, Vec<String>> = {
+            let mut map: HashMap<String, Vec<String>> = HashMap::new();
+            for bridge in &config.trait_bridges {
+                if bridge.bind_via != BridgeBinding::OptionsField {
+                    continue;
+                }
+                let Some(options_type) = bridge.options_type.as_deref() else {
+                    continue;
+                };
+                // resolved_options_field() falls back to param_name, which covers the common
+                // case where the field name and parameter name are the same (e.g. "visitor").
+                if let Some(name) = bridge.resolved_options_field().map(str::to_string) {
+                    map.entry(options_type.to_string()).or_default().push(name);
+                }
+            }
+            map
+        };
+
+        // Build a fresh ApiSurface clone with exclude_fields and bridge_fields applied.
+        // Bridge fields get `cfg: Some("alef_bridge_field")` so the From conversion
+        // emits `..Default::default()` for them (the JsValue field can't auto-convert to
+        // the core handle type).
         let api_owned;
-        let api: &ApiSurface = if exclude_fields_map.is_empty() {
+        let api: &ApiSurface = if exclude_fields_map.is_empty() && bridge_fields_map.is_empty() {
             api
         } else {
             api_owned = {
@@ -259,6 +283,16 @@ impl Backend for WasmBackend {
                             if skip_list.iter().any(|s| s == &field.name) && field.cfg.is_none() {
                                 field.cfg = Some("alef_excluded".to_string());
                                 typ.has_stripped_cfg_fields = true;
+                            }
+                        }
+                    }
+                    if let Some(bridge_field_names) = bridge_fields_map.get(&typ.name) {
+                        for field in &mut typ.fields {
+                            if bridge_field_names.iter().any(|n| n == &field.name) {
+                                // Mark as sanitized so From conversion emits Default::default().
+                                // `sanitized` (not `cfg`) keeps `convertible_types` working:
+                                // Optional<T> sanitized fields pass the default-type check.
+                                field.sanitized = true;
                             }
                         }
                     }
@@ -361,11 +395,13 @@ impl Backend for WasmBackend {
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&gen_struct(typ, &mapper, &exclude_types, &prefix));
+                let type_bridge_fields = bridge_fields_map.get(&typ.name).map(Vec::as_slice).unwrap_or(&[]);
+                builder.add_item(&gen_struct(typ, &mapper, &exclude_types, type_bridge_fields, &prefix));
                 builder.add_item(&gen_struct_methods(
                     typ,
                     &mapper,
                     &exclude_types,
+                    type_bridge_fields,
                     &core_import,
                     &opaque_types,
                     &api.enums,
@@ -392,11 +428,25 @@ impl Backend for WasmBackend {
                     continue;
                 }
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+                let bridge_field =
+                    crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
+                    // Legacy positional bridging: visitor is a direct function parameter.
                     builder.add_item(&crate::trait_bridge::gen_bridge_function(
                         func,
                         param_idx,
                         bridge_cfg,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                        &prefix,
+                    ));
+                } else if let Some(ref bridge_match) = bridge_field {
+                    // Options-field bridging: visitor lives inside the options struct.
+                    // The standalone convert_with_visitor is not emitted in this mode.
+                    builder.add_item(&crate::trait_bridge::gen_bridge_field_function(
+                        func,
+                        bridge_match,
                         &mapper,
                         &opaque_types,
                         &core_import,
@@ -889,7 +939,18 @@ fn gen_opaque_static_method(
 }
 
 /// Generate a wasm-bindgen struct definition with private fields.
-fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], prefix: &str) -> String {
+///
+/// `bridge_fields` lists field names that belong to an options-field bridge. These
+/// fields are emitted as `Option<JsValue>` regardless of their IR type because the
+/// JS-side visitor object cannot be automatically converted to a Rust handle; the
+/// conversion happens in the generated function wrapper instead.
+fn gen_struct(
+    typ: &TypeDef,
+    mapper: &WasmMapper,
+    exclude_types: &[String],
+    bridge_fields: &[String],
+    prefix: &str,
+) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let mut out = String::with_capacity(512);
     out.push_str(&emit_rustdoc(&typ.doc));
@@ -902,6 +963,14 @@ fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], pref
     writeln!(out, "pub struct {} {{", js_name).ok();
 
     for field in &typ.fields {
+        // Bridge fields are emitted as Option<JsValue> — handle before the cfg-gated check
+        // (the cfg sentinel is set in the cloned API to make From impls skip them, but we
+        // still need the actual field declaration in the struct).
+        let is_bridge_field = bridge_fields.iter().any(|n| n == &field.name);
+        if is_bridge_field {
+            writeln!(out, "    {}: Option<wasm_bindgen::JsValue>,", field.name).ok();
+            continue;
+        }
         // Skip cfg-gated fields — they depend on features that may not be enabled
         if field.cfg.is_some() {
             continue;
@@ -936,10 +1005,15 @@ fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], pref
 }
 
 /// Generate wasm-bindgen methods for a struct.
+///
+/// `bridge_fields` lists field names that belong to an options-field bridge. These
+/// get `Option<JsValue>` getters/setters and are excluded from the `new()` constructor
+/// (callers set them via the setter after construction).
 fn gen_struct_methods(
     typ: &TypeDef,
     mapper: &WasmMapper,
     exclude_types: &[String],
+    bridge_fields: &[String],
     core_import: &str,
     opaque_types: &AHashSet<String>,
     api_enums: &[EnumDef],
@@ -950,7 +1024,7 @@ fn gen_struct_methods(
     impl_builder.add_attr("wasm_bindgen");
 
     if !typ.fields.is_empty() {
-        impl_builder.add_method(&gen_new_method(typ, mapper, exclude_types, prefix));
+        impl_builder.add_method(&gen_new_method(typ, mapper, exclude_types, bridge_fields, prefix));
     }
 
     // Collect enum names for Copy detection in getters.
@@ -958,6 +1032,17 @@ fn gen_struct_methods(
     let enum_names: AHashSet<String> = api_enums.iter().map(|e| e.name.clone()).collect();
 
     for field in &typ.fields {
+        // Bridge fields get JsValue getter/setter regardless of the IR type.
+        let is_bridge_field = bridge_fields.iter().any(|n| n == &field.name);
+        if is_bridge_field {
+            impl_builder.add_method(&gen_bridge_field_getter(field));
+            impl_builder.add_method(&gen_bridge_field_setter(field));
+            continue;
+        }
+        // Skip cfg-gated fields (they don't exist in the binding struct).
+        if field.cfg.is_some() {
+            continue;
+        }
         // Skip fields whose type references an excluded type (the Js* wrapper won't exist)
         if field_references_excluded_type(&field.ty, exclude_types) {
             continue;
@@ -991,15 +1076,53 @@ fn gen_struct_methods(
     impl_builder.build()
 }
 
+/// Generate a `#[wasm_bindgen(getter)]` for a bridge field typed as `Option<JsValue>`.
+fn gen_bridge_field_getter(field: &FieldDef) -> String {
+    let js_name = to_node_name(&field.name);
+    let js_name_attr = if js_name != field.name {
+        format!(", js_name = \"{js_name}\"")
+    } else {
+        String::new()
+    };
+    format!(
+        "#[wasm_bindgen(getter{js_name_attr})]\npub fn {}(&self) -> Option<wasm_bindgen::JsValue> {{\n    self.{}.clone()\n}}",
+        field.name, field.name
+    )
+}
+
+/// Generate a `#[wasm_bindgen(setter)]` for a bridge field typed as `Option<JsValue>`.
+fn gen_bridge_field_setter(field: &FieldDef) -> String {
+    let js_name = to_node_name(&field.name);
+    let js_name_attr = if js_name != field.name {
+        format!(", js_name = \"{js_name}\"")
+    } else {
+        String::new()
+    };
+    format!(
+        "#[wasm_bindgen(setter{js_name_attr})]\npub fn set_{}(&mut self, value: Option<wasm_bindgen::JsValue>) {{\n    self.{} = value;\n}}",
+        field.name, field.name
+    )
+}
+
 /// Generate a constructor method.
-fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], prefix: &str) -> String {
+fn gen_new_method(
+    typ: &TypeDef,
+    mapper: &WasmMapper,
+    exclude_types: &[String],
+    bridge_fields: &[String],
+    prefix: &str,
+) -> String {
     let map_fn = |ty: &alef_core::ir::TypeRef| mapper.map_type(ty);
 
-    // Filter out fields whose types reference excluded types
+    // Filter out fields whose types reference excluded types and bridge fields.
+    // Bridge fields are Option<JsValue> and set via the setter after construction.
     let filtered_fields: Vec<_> = typ
         .fields
         .iter()
-        .filter(|f| !field_references_excluded_type(&f.ty, exclude_types))
+        .filter(|f| {
+            !field_references_excluded_type(&f.ty, exclude_types)
+                && !bridge_fields.iter().any(|n| n == &f.name)
+        })
         .cloned()
         .collect();
 

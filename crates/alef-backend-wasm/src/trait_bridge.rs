@@ -980,3 +980,222 @@ pub fn gen_bridge_function(
 
     out
 }
+
+/// Generate a WASM function wrapper where the bridge handle lives inside an options
+/// struct field (`bind_via = "options_field"`).
+///
+/// Emits a function that:
+/// 1. Accepts the options param as the binding struct type (`{prefix}{OptionsType}`).
+/// 2. Extracts the `visitor: Option<JsValue>` field from the binding options.
+/// 3. Converts the binding options to the core type via `From` (visitor defaults to `None`).
+/// 4. If a JS visitor was provided, wraps it in the bridge struct and attaches to core options.
+/// 5. Calls the core function with the modified options.
+#[allow(clippy::too_many_arguments)]
+pub fn gen_bridge_field_function(
+    func: &FunctionDef,
+    bridge_match: &BridgeFieldMatch<'_>,
+    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    opaque_types: &ahash::AHashSet<String>,
+    core_import: &str,
+    prefix: &str,
+) -> String {
+    use alef_codegen::naming::to_node_name;
+
+    let struct_name = format!("Wasm{}Bridge", bridge_match.bridge.trait_name);
+    let handle_path = format!(
+        "{core_import}::{}",
+        bridge_match.bridge.type_alias.as_deref().unwrap_or("VisitorHandle")
+    );
+    let options_param_name = &bridge_match.param_name;
+    let options_type_name = &bridge_match.options_type;
+    let field_name = &bridge_match.field_name;
+    let param_idx = bridge_match.param_index;
+    let param_is_optional = bridge_match.param_is_optional;
+
+    // Build parameter list: options param typed as binding struct, others as-is.
+    let mut sig_parts = Vec::new();
+    for (idx, p) in func.params.iter().enumerate() {
+        if idx == param_idx {
+            let binding_opts = format!("{prefix}{options_type_name}");
+            if param_is_optional {
+                sig_parts.push(format!("{options_param_name}: Option<{binding_opts}>"));
+            } else {
+                sig_parts.push(format!("{options_param_name}: {binding_opts}"));
+            }
+        } else {
+            let ty = mapper.map_type(&p.ty);
+            let mapped_ty = if p.optional { format!("Option<{ty}>") } else { ty };
+            sig_parts.push(format!("{}: {mapped_ty}", p.name));
+        }
+    }
+    let params_str = sig_parts.join(", ");
+
+    let return_type = mapper.map_type(&func.return_type);
+    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let err_conv = ".map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))";
+    let core_options_type = format!("{core_import}::{options_type_name}");
+
+    // Step 1: extract the JsValue visitor and convert binding options to core.
+    let extract_and_convert = if param_is_optional {
+        format!(
+            "let mut __opt_binding = {options_param_name};\n    \
+             let {field_name}_js: Option<wasm_bindgen::JsValue> = __opt_binding.as_mut().and_then(|o| o.{field_name}.take());\n    \
+             let mut {options_param_name}_core: Option<{core_options_type}> = \
+             __opt_binding.map({core_options_type}::from);"
+        )
+    } else {
+        format!(
+            "let mut {options_param_name}_binding = {options_param_name};\n    \
+             let {field_name}_js: Option<wasm_bindgen::JsValue> = {options_param_name}_binding.{field_name}.take();\n    \
+             let mut {options_param_name}_core: {core_options_type} = \
+             {core_options_type}::from({options_param_name}_binding);"
+        )
+    };
+
+    // Step 2: build bridge wrapper and attach to core options.
+    let attach_bridge = if param_is_optional {
+        format!(
+            "if let Some(js_val) = {field_name}_js {{\n        \
+             let bridge = {struct_name}::new(js_val);\n        \
+             let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path};\n        \
+             if let Some(ref mut opts) = {options_param_name}_core {{\n            \
+             opts.{field_name} = Some(handle);\n        \
+             }}\n    \
+             }}"
+        )
+    } else {
+        format!(
+            "if let Some(js_val) = {field_name}_js {{\n        \
+             let bridge = {struct_name}::new(js_val);\n        \
+             let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path};\n        \
+             {options_param_name}_core.{field_name} = Some(handle);\n    \
+             }}"
+        )
+    };
+
+    // Step 3: let bindings for other Named non-opaque params.
+    let serde_bindings: String = func
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(idx, p)| {
+            if *idx == param_idx {
+                return false;
+            }
+            let named = match &p.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() { Some(n.as_str()) } else { None }
+                }
+                _ => None,
+            };
+            named.is_some_and(|n| !opaque_types.contains(n))
+        })
+        .map(|(_, p)| {
+            let name = &p.name;
+            let core_path = format!(
+                "{core_import}::{}",
+                match &p.ty {
+                    TypeRef::Named(n) => n.clone(),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() { n.clone() } else { String::new() }
+                    }
+                    _ => String::new(),
+                }
+            );
+            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                format!("let {name}_core: Option<{core_path}> = {name}.map({core_path}::from);\n    ")
+            } else {
+                format!("let {name}_core: {core_path} = {core_path}::from({name});\n    ")
+            }
+        })
+        .collect();
+
+    // Step 4: build call args.
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .enumerate()
+        .map(|(idx, p)| {
+            if idx == param_idx {
+                return format!("{options_param_name}_core");
+            }
+            match &p.ty {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if p.optional {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                    } else {
+                        format!("&{}.inner", p.name)
+                    }
+                }
+                TypeRef::Named(_) => format!("{}_core", p.name),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        if opaque_types.contains(n.as_str()) {
+                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                        } else {
+                            format!("{}_core", p.name)
+                        }
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                TypeRef::String | TypeRef::Char => {
+                    if p.is_ref { format!("&{}", p.name) } else { p.name.clone() }
+                }
+                _ => p.name.clone(),
+            }
+        })
+        .collect();
+    let call_args_str = call_args.join(", ");
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) { path } else { format!("{core_import}::{}", func.name) }
+    };
+    let core_call = format!("{core_fn_path}({call_args_str})");
+
+    let return_wrap = match &func.return_type {
+        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+            format!("{prefix}{name} {{ inner: std::sync::Arc::new(val) }}")
+        }
+        TypeRef::Named(_) => "val.into()".to_string(),
+        TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
+        _ => "val".to_string(),
+    };
+
+    let js_name = to_node_name(&func.name);
+    let js_name_attr = if js_name != func.name {
+        format!("(js_name = \"{}\")", js_name)
+    } else {
+        String::new()
+    };
+
+    let body = if func.error_type.is_some() {
+        if return_wrap == "val" {
+            format!(
+                "{extract_and_convert}\n    {attach_bridge}\n    {serde_bindings}{core_call}{err_conv}"
+            )
+        } else {
+            format!(
+                "{extract_and_convert}\n    {attach_bridge}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){err_conv}"
+            )
+        }
+    } else {
+        format!("{extract_and_convert}\n    {attach_bridge}\n    {serde_bindings}{core_call}")
+    };
+
+    let func_name = &func.name;
+    let mut out = String::with_capacity(2048);
+    if func.error_type.is_some() {
+        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
+    }
+    // Bridge type is gated to wasm32; functions that use it must be too.
+    writeln!(out, "#[cfg(target_arch = \"wasm32\")]").ok();
+    writeln!(out, "#[wasm_bindgen{js_name_attr}]").ok();
+    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
+    writeln!(out, "    {body}").ok();
+    writeln!(out, "}}").ok();
+
+    out
+}

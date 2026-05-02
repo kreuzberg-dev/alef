@@ -1,13 +1,31 @@
 use crate::type_map::{go_optional_type, go_type};
+use alef_codegen::generators::trait_bridge::find_bridge_field;
 use alef_codegen::naming::{go_param_name, go_type_name, to_go_name};
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
-use alef_core::config::{AdapterPattern, AlefConfig, Language, resolve_output_dir};
+use alef_core::config::{AdapterPattern, AlefConfig, BridgeBinding, Language, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, DefaultValue, EnumDef, FieldDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::PathBuf;
+
+/// Info about a trait bridge that is bound via an options struct field rather than a
+/// direct function parameter.
+///
+/// Carries everything the code generators need to:
+/// - Inject a synthetic interface field on the Go options struct.
+/// - Emit a `With*` functional option constructor for the visitor.
+/// - Call the FFI setter (`{prefix}_options_set_{field_name}`) in the convert wrapper.
+#[derive(Clone, Debug)]
+struct OptionsFieldBridgeInfo {
+    /// IR name of the options struct type (e.g., `"ConversionOptions"`).
+    options_type: String,
+    /// Name of the field on the options struct that holds the bridge handle (e.g., `"visitor"`).
+    field_name: String,
+    /// IR name of the trait (e.g., `"HtmlVisitor"`). Used as the Go interface type name.
+    trait_name: String,
+}
 
 /// Returns true if a field is a tuple struct positional field (e.g., `_0`, `_1`, `0`, `1`).
 /// Go structs require named fields, so these must be skipped.
@@ -160,6 +178,26 @@ impl Backend for GoBackend {
             .map(|f| f.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
 
+        // Build info for options-field bridges. These bridges bind the visitor handle as a
+        // field on the options struct rather than as a direct function parameter.
+        let options_field_bridges: Vec<OptionsFieldBridgeInfo> = config
+            .trait_bridges
+            .iter()
+            .filter(|b| b.bind_via == BridgeBinding::OptionsField)
+            .filter_map(|b| {
+                let options_type = b.options_type.as_deref()?.to_string();
+                let field_name = b
+                    .resolved_options_field()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| b.trait_name.to_snake_case());
+                Some(OptionsFieldBridgeInfo {
+                    options_type,
+                    field_name,
+                    trait_name: b.trait_name.clone(),
+                })
+            })
+            .collect();
+
         let content = format_go_code(&strip_trailing_whitespace(&gen_go_file(
             api,
             config,
@@ -173,6 +211,7 @@ impl Backend for GoBackend {
             &bridge_type_aliases,
             &streaming_methods,
             &ffi_exclude_functions,
+            &options_field_bridges,
         )));
 
         // Build adapter body map (consumed by generators via body substitution)
@@ -336,6 +375,7 @@ fn gen_go_file(
     bridge_type_aliases: &HashSet<String>,
     streaming_methods: &HashSet<String>,
     ffi_exclude_functions: &HashSet<String>,
+    options_field_bridges: &[OptionsFieldBridgeInfo],
 ) -> String {
     let mut out = String::with_capacity(4096);
 
@@ -386,6 +426,10 @@ fn gen_go_file(
     }
     if !api.errors.is_empty() {
         imports.insert(1.min(imports.len()), "\"errors\"");
+    }
+    // Options-field bridges use cgo.NewHandle to pass Go interface values to C.
+    if !options_field_bridges.is_empty() {
+        imports.push("\"runtime/cgo\"");
     }
     writeln!(
         out,
@@ -463,6 +507,19 @@ fn gen_go_file(
         std::collections::HashSet::new()
     };
 
+    // Emit Go interface types for options-field bridges. These lightweight interfaces
+    // only expose the trait's own methods — no plugin lifecycle boilerplate.
+    for bridge_info in options_field_bridges {
+        if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_info.trait_name) {
+            writeln!(
+                out,
+                "{}\n",
+                gen_options_field_bridge_interface(trait_def, bridge_info)
+            )
+            .ok();
+        }
+    }
+
     // Generate enum types and constants
     // Only unit enums map to `type X string` — data enums are generated as Go structs below.
     let unit_enum_names: std::collections::HashSet<&str> = api
@@ -512,13 +569,23 @@ fn gen_go_file(
                 writeln!(out, "{}\n", gen_opaque_type(typ, ffi_prefix)).ok();
             }
         } else {
-            writeln!(out, "{}\n", gen_struct_type(typ, &unit_enum_names)).ok();
+            writeln!(
+                out,
+                "{}\n",
+                gen_struct_type(typ, &unit_enum_names, options_field_bridges)
+            )
+            .ok();
             // Generate functional options pattern if type has defaults.
             // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update
             // structs that share field names with the primary config type, producing duplicate
             // With* function declarations.
             if typ.has_default && !typ.name.ends_with("Update") {
-                writeln!(out, "{}\n", gen_config_options(typ, &unit_enum_names)).ok();
+                writeln!(
+                    out,
+                    "{}\n",
+                    gen_config_options(typ, &unit_enum_names, options_field_bridges)
+                )
+                .ok();
             }
         }
     }
@@ -541,7 +608,6 @@ fn gen_go_file(
                 bridge_param_names,
                 bridge_type_aliases,
                 &api.types,
-                options_field_bridges,
                 &config.trait_bridges,
             )
         )
@@ -881,16 +947,69 @@ fn gen_opaque_type_free_only(typ: &TypeDef, _ffi_prefix: &str) -> String {
     String::new()
 }
 
+/// Generate a Go interface type for an options-field bridge trait.
+///
+/// Unlike plugin bridges (which emit full trampolines + lifecycle methods), options-field
+/// bridge interfaces are lightweight: only the trait's own methods are included. The caller
+/// implements the interface and attaches it to the options struct; the generated convert
+/// wrapper calls the FFI setter to hand the handle to Rust.
+fn gen_options_field_bridge_interface(trait_def: &TypeDef, bridge_info: &OptionsFieldBridgeInfo) -> String {
+    let mut out = String::with_capacity(512);
+    let trait_name = &bridge_info.trait_name;
+    writeln!(out, "// {trait_name} is the Go interface for the {trait_name} trait.").ok();
+    writeln!(out, "type {trait_name} interface {{").ok();
+    for method in &trait_def.methods {
+        let mut params = Vec::new();
+        for p in &method.params {
+            let go_ty = crate::trait_bridge::rust_to_go_type_pub(&p.ty);
+            params.push(format!("{} {}", go_param_name(&p.name), go_ty));
+        }
+        let return_type = if method.error_type.is_some() {
+            match &method.return_type {
+                TypeRef::Unit => "error".to_string(),
+                rt => format!("({}, error)", crate::trait_bridge::rust_to_go_type_pub(rt)),
+            }
+        } else {
+            crate::trait_bridge::rust_to_go_type_pub(&method.return_type)
+        };
+        let params_str = params.join(", ");
+        let method_go_name = method.name.to_pascal_case();
+        writeln!(out, "\t// {method_go_name} calls the {method_go_name} method.").ok();
+        writeln!(out, "\t{method_go_name}({params_str}) {return_type}").ok();
+        writeln!(out).ok();
+    }
+    writeln!(out, "}}").ok();
+    out
+}
+
 /// Generate a Go struct type definition with json tags for marshaling.
-fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
+fn gen_struct_type(
+    typ: &TypeDef,
+    enum_names: &std::collections::HashSet<&str>,
+    options_field_bridges: &[OptionsFieldBridgeInfo],
+) -> String {
     let mut out = String::with_capacity(1024);
 
     let go_name = go_type_name(&typ.name);
     emit_type_doc(&mut out, &go_name, &typ.doc, "is a type.");
     writeln!(out, "type {} struct {{", go_name).ok();
 
+    // Collect bridge field names for this type so we can skip them below.
+    // Options-field bridge fields (e.g. `visitor: Option<VisitorHandle>`) are replaced by a
+    // synthetic Go interface field; emitting both would produce a duplicate.
+    let bridge_field_names_for_type: std::collections::HashSet<&str> = options_field_bridges
+        .iter()
+        .filter(|b| b.options_type == typ.name)
+        .map(|b| b.field_name.as_str())
+        .collect();
+
     for field in &typ.fields {
         if is_tuple_field(field) {
+            continue;
+        }
+
+        // Skip raw IR fields that are replaced by a synthetic Go interface field below.
+        if bridge_field_names_for_type.contains(field.name.as_str()) {
             continue;
         }
 
@@ -935,6 +1054,28 @@ fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) 
             }
         }
         writeln!(out, "\t{} {} `{}`", to_go_name(&field.name), field_type, json_tag).ok();
+    }
+
+    // Inject a synthetic Go interface field for each options-field bridge whose options_type
+    // matches this struct. The field carries `json:"-"` so it is excluded from JSON
+    // marshaling — the bridge handle is instead passed via an FFI setter after the C options
+    // handle is created.
+    for bridge in options_field_bridges {
+        if bridge.options_type == typ.name {
+            writeln!(
+                out,
+                "\t// {} is the optional visitor implementation attached to these options.",
+                to_go_name(&bridge.field_name),
+            )
+            .ok();
+            writeln!(
+                out,
+                "\t{} {} `json:\"-\"`",
+                to_go_name(&bridge.field_name),
+                bridge.trait_name,
+            )
+            .ok();
+        }
     }
 
     writeln!(out, "}}").ok();
@@ -985,6 +1126,8 @@ fn gen_function_wrapper(
     opaque_names: &std::collections::HashSet<&str>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
+    api_types: &[TypeDef],
+    all_bridge_configs: &[alef_core::config::TraitBridgeConfig],
 ) -> String {
     let mut out = String::with_capacity(2048);
 
@@ -1072,6 +1215,26 @@ fn gen_function_wrapper(
             )
         )
         .ok();
+    }
+
+    // For options-field bridges: after the options C handle is created, check whether the Go
+    // options struct carries a non-nil visitor and, if so, build a cgo.Handle for it and call
+    // the FFI setter (`{prefix}_options_set_{field}`) so Rust can dispatch visitor callbacks.
+    if let Some(bfm) = find_bridge_field(func, api_types, all_bridge_configs) {
+        let go_opts_param = go_param_name(&bfm.param_name);
+        let c_opts_name = go_param_name(&format!("c_{}", bfm.param_name));
+        let go_field_name = to_go_name(&bfm.field_name);
+        let field_snake = bfm.field_name.to_snake_case();
+        writeln!(out, "\tif {go_opts_param}.{go_field_name} != nil {{").ok();
+        writeln!(out, "\t\tvisitorHandle := cgo.NewHandle({go_opts_param}.{go_field_name})").ok();
+        writeln!(out, "\t\tdefer visitorHandle.Delete()").ok();
+        writeln!(
+            out,
+            "\t\tC.{ffi_prefix}_options_set_{field_snake}({c_opts_name}, unsafe.Pointer(uintptr(visitorHandle)))"
+        )
+        .ok();
+        writeln!(out, "\t}}").ok();
+        writeln!(out).ok();
     }
 
     // Build the C call with converted parameters.
@@ -1924,7 +2087,11 @@ fn go_return_expr_inner(
 
 /// Generate functional options pattern for Go config types with defaults.
 /// Produces ConfigOption type and WithFieldName constructors.
-fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
+fn gen_config_options(
+    typ: &TypeDef,
+    enum_names: &std::collections::HashSet<&str>,
+    options_field_bridges: &[OptionsFieldBridgeInfo],
+) -> String {
     let mut out = String::with_capacity(2048);
 
     // ConfigOption type definition
@@ -1967,6 +2134,33 @@ fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str
         .ok();
         writeln!(out, "}}").ok();
         writeln!(out).ok();
+    }
+
+    // Emit With* constructors for synthetic options-field bridge interface fields.
+    for bridge in options_field_bridges {
+        if bridge.options_type == typ.name {
+            let field_go_name = to_go_name(&bridge.field_name);
+            writeln!(
+                out,
+                "// With{}{} sets the {} field to the given visitor implementation.",
+                go_name, bridge.trait_name, bridge.field_name,
+            )
+            .ok();
+            writeln!(
+                out,
+                "func With{}{}(v {}) {}Option {{",
+                go_name, bridge.trait_name, bridge.trait_name, go_name,
+            )
+            .ok();
+            writeln!(
+                out,
+                "\treturn func(c *{}) {{ c.{} = v }}",
+                go_name, field_go_name,
+            )
+            .ok();
+            writeln!(out, "}}").ok();
+            writeln!(out).ok();
+        }
     }
 
     // Generate NewConfig constructor

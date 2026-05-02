@@ -136,6 +136,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Does NOT emit a standalone `convertWithVisitor` function.
   Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
   the PHP `trait_bridge` module.
+- feat(backend-go): support `bind_via = "options_field"` in `[[trait_bridges]]`.
+  When a visitor bridge is configured in options-field mode the Go/cgo backend now:
+  - Emits a lightweight `type {Trait} interface` (trait methods only, no plugin lifecycle) in `binding.go`.
+  - Injects a synthetic `{Field} {Trait} \`json:"-"\`` field on the Go options struct,
+    skipping the raw IR `Option<VisitorHandle>` field so JSON marshaling ignores it.
+  - Adds a `WithConversionOptions{Trait}` functional-option constructor.
+  - Adds `"runtime/cgo"` to the imports when any options-field bridge is active.
+  - In the `Convert` wrapper, after the C options handle is created, checks
+    `options.{Field} != nil`, creates a `cgo.NewHandle`, defers `handle.Delete()`,
+    and calls `C.{prefix}_options_set_{field}(cOptions, ...)` to pass the visitor to Rust.
+  - Does NOT emit a separate `ConvertWithVisitor` function in this mode.
 - feat(backend-magnus): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a visitor bridge is configured in options-field mode the Ruby/Magnus backend now:
   - Renders the bridge field as `Option<magnus::Value>` on the binding options struct

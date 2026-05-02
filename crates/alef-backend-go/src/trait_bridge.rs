@@ -570,6 +570,11 @@ fn rust_to_plain_c_type(ty: &TypeRef) -> String {
     }
 }
 
+/// Convert a Rust TypeRef to a Go type string (public re-export for use in gen_bindings).
+pub fn rust_to_go_type_pub(ty: &TypeRef) -> String {
+    rust_to_go_type(ty)
+}
+
 /// Convert a Rust TypeRef to a Go type string.
 fn rust_to_go_type(ty: &TypeRef) -> String {
     match ty {

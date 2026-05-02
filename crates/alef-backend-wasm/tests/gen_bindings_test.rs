@@ -1901,3 +1901,296 @@ fn extract_fn_snippet<'a>(content: &'a str, marker: &str) -> &'a str {
     let end = (start + 200).min(content.len());
     &content[start..end]
 }
+
+// ---------------------------------------------------------------------------
+// Options-field bridge (bind_via = "options_field") tests — mirrors h2m shape
+// ---------------------------------------------------------------------------
+
+/// Build a `TraitBridgeConfig` for the `options_field` pattern used by h2m's HtmlVisitor.
+fn make_options_field_bridge_cfg(
+    trait_name: &str,
+    type_alias: &str,
+    options_type: &str,
+    param_name: &str,
+) -> alef_core::config::TraitBridgeConfig {
+    alef_core::config::TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: Some(type_alias.to_string()),
+        param_name: Some(param_name.to_string()),
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::OptionsField,
+        options_type: Some(options_type.to_string()),
+        options_field: None,
+    }
+}
+
+/// Build an `ApiSurface` modelling `convert(html: &str, options: Option<ConversionOptions>)`
+/// with `ConversionOptions` having a `visitor: Option<VisitorHandle>` field.
+fn make_h2m_api() -> ApiSurface {
+    let visitor_handle_field = FieldDef {
+        name: "visitor".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
+        optional: true,
+        default: None,
+        doc: "Optional visitor".to_string(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: alef_core::ir::CoreWrapper::None,
+        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+        newtype_wrapper: None,
+    };
+    let parser_field = FieldDef {
+        name: "parser".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        default: None,
+        doc: "Parser selection".to_string(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: alef_core::ir::CoreWrapper::None,
+        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+        newtype_wrapper: None,
+    };
+    let conversion_options = TypeDef {
+        name: "ConversionOptions".to_string(),
+        rust_path: "my_lib::ConversionOptions".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![visitor_handle_field, parser_field],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Conversion options".to_string(),
+        cfg: None,
+    };
+    let convert_fn = FunctionDef {
+        name: "convert".to_string(),
+        rust_path: "my_lib::convert".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "html".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "options".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string()))),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+        ],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: Some("ConversionError".to_string()),
+        doc: "Convert HTML to Markdown".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![conversion_options],
+        functions: vec![convert_fn],
+        enums: vec![],
+        errors: vec![],
+    }
+}
+
+#[test]
+fn test_options_field_bridge_visitor_field_typed_as_jsvalue() {
+    // The WasmConversionOptions struct must expose a `visitor: Option<JsValue>` field,
+    // not a `visitor: Option<WasmVisitorHandle>` (the type alias doesn't exist in WASM).
+    let backend = WasmBackend;
+    let api = make_h2m_api();
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg(
+        "HtmlVisitor",
+        "VisitorHandle",
+        "ConversionOptions",
+        "visitor",
+    )];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The binding struct must have a JsValue visitor field, not the opaque handle type.
+    assert!(
+        content.contains("Option<wasm_bindgen::JsValue>"),
+        "visitor field on WasmConversionOptions must be Option<JsValue>;\ncontent snippet:\n{}",
+        extract_field_snippet(content, "visitor")
+    );
+    // The opaque type alias must NOT appear as a field type.
+    assert!(
+        !content.contains("WasmVisitorHandle"),
+        "WasmVisitorHandle must not appear as a binding struct field — visitor is bridged via JsValue"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_from_impl_defaults_visitor() {
+    // The From<WasmConversionOptions> for ConversionOptions impl must default the visitor
+    // field (since the JsValue cannot be auto-converted), so it must not include a
+    // `visitor: val.visitor` assignment.
+    let backend = WasmBackend;
+    let api = make_h2m_api();
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg(
+        "HtmlVisitor",
+        "VisitorHandle",
+        "ConversionOptions",
+        "visitor",
+    )];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The From impl must exist (ConversionOptions is an input type).
+    assert!(
+        content.contains("impl From<WasmConversionOptions>"),
+        "must generate From<WasmConversionOptions> impl"
+    );
+    // The impl must NOT assign `visitor: val.visitor` — it would try to convert JsValue
+    // to Option<VisitorHandle> which is not possible automatically.
+    let from_start = content.find("impl From<WasmConversionOptions>").unwrap_or(0);
+    let from_end = content[from_start..].find("\nimpl ").map(|i| from_start + i).unwrap_or(content.len());
+    let from_block = &content[from_start..from_end];
+    assert!(
+        !from_block.contains("visitor: val.visitor"),
+        "From impl must not directly assign val.visitor (JsValue is not VisitorHandle);\nfrom block:\n{from_block}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_convert_fn_uses_bridge_wrapper() {
+    // The generated `convert(html, options)` function must extract the JsValue from options
+    // and build the WasmHtmlVisitorBridge, then attach it to core options before calling core.
+    let backend = WasmBackend;
+    let api = make_h2m_api();
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg(
+        "HtmlVisitor",
+        "VisitorHandle",
+        "ConversionOptions",
+        "visitor",
+    )];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The convert function must be present.
+    assert!(
+        content.contains("pub fn convert("),
+        "must generate convert function;\ncontent snippet:\n{}",
+        extract_fn_snippet(content, "convert")
+    );
+    // It must construct the bridge wrapper from the extracted JsValue.
+    assert!(
+        content.contains("WasmHtmlVisitorBridge::new("),
+        "convert must build WasmHtmlVisitorBridge from the JsValue visitor"
+    );
+    // It must attach the handle to core options.
+    assert!(
+        content.contains("visitor_js"),
+        "convert must extract the visitor JsValue from options"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_no_standalone_convert_with_visitor() {
+    // When bind_via = "options_field", NO standalone `convert_with_visitor` function
+    // should be generated — the visitor is embedded in ConversionOptions.
+    let backend = WasmBackend;
+    let api = make_h2m_api();
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg(
+        "HtmlVisitor",
+        "VisitorHandle",
+        "ConversionOptions",
+        "visitor",
+    )];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        !content.contains("convert_with_visitor"),
+        "options_field mode must not emit a standalone convert_with_visitor function"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_new_constructor_excludes_visitor() {
+    // The WasmConversionOptions::new() constructor must not include a `visitor` parameter —
+    // callers set it via the setter `set_visitor` after construction.
+    let backend = WasmBackend;
+    let api = make_h2m_api();
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg(
+        "HtmlVisitor",
+        "VisitorHandle",
+        "ConversionOptions",
+        "visitor",
+    )];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // Find the new() constructor body
+    let new_fn_start = content.find("fn new(").unwrap_or(0);
+    let new_fn_end = content[new_fn_start..]
+        .find('}')
+        .map(|i| new_fn_start + i + 1)
+        .unwrap_or(content.len());
+    let new_fn = &content[new_fn_start..new_fn_end];
+
+    assert!(
+        !new_fn.contains("visitor"),
+        "WasmConversionOptions::new() must not include a visitor parameter;\nnew fn:\n{new_fn}"
+    );
+
+    // But a setter must be generated.
+    assert!(
+        content.contains("fn set_visitor("),
+        "must generate set_visitor setter for bridge field"
+    );
+    // And a getter.
+    assert!(
+        content.contains("fn visitor(") || content.contains("fn visitor "),
+        "must generate visitor getter for bridge field"
+    );
+}

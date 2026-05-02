@@ -958,3 +958,153 @@ pub fn gen_bridge_function(
 
     out
 }
+
+/// Generate an extendr free function where the visitor bridge lives as a field on the
+/// options struct (`bind_via = "options_field"`).
+///
+/// The generated wrapper:
+/// 1. Accepts the options parameter as `Option<{OptionsType}>` (R passes NULL when omitted).
+/// 2. Falls back to `Default::default()` when the caller omits options.
+/// 3. Extracts the visitor field (`Option<extendr_api::Robj>`) before converting to core.
+/// 4. Converts the binding options to the core options struct (the bridge field is `serde(skip)`
+///    on the binding, and the custom `From` impl skips it on conversion — the core field
+///    starts as `None`).
+/// 5. Builds `R{Trait}Bridge` from the visitor field value when present and attaches it to
+///    the core options' bridge field via `Rc<RefCell<...>>`.
+/// 6. Calls the core function.
+#[allow(clippy::too_many_arguments)]
+pub fn gen_bridge_field_function(
+    func: &FunctionDef,
+    bridge_match: &BridgeFieldMatch<'_>,
+    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    opaque_types: &ahash::AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let struct_name = format!("R{}Bridge", bridge_match.bridge.trait_name);
+    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+
+    let options_type = &bridge_match.options_type;
+    let field_name = &bridge_match.field_name;
+    let param_name = &bridge_match.param_name;
+    let _ = bridge_match.param_is_optional; // Always exposed as Option<...> on the R signature.
+
+    // Build parameter list — the options param is always `Option<OptionsType>` so callers can
+    // pass NULL.  Other params keep their normal mapping.
+    let mut sig_parts = Vec::new();
+    for (idx, p) in func.params.iter().enumerate() {
+        if idx == bridge_match.param_index {
+            sig_parts.push(format!("{}: Option<{}>", p.name, options_type));
+        } else {
+            let promoted = idx > bridge_match.param_index || func.params[..idx].iter().any(|pp| pp.optional);
+            let ty = if p.optional || promoted {
+                format!("Option<{}>", mapper.map_type(&p.ty))
+            } else {
+                mapper.map_type(&p.ty)
+            };
+            sig_parts.push(format!("{}: {}", p.name, ty));
+        }
+    }
+    let params_str = sig_parts.join(", ");
+
+    let return_type = mapper.map_type(&func.return_type);
+    let has_error = func.error_type.is_some();
+    let ret = mapper.wrap_return(&return_type, has_error);
+
+    let err_conv = ".map_err(|e| extendr_api::Error::Other(e.to_string()))";
+
+    let deser_block =
+        format!("let mut {param_name}_binding: {options_type} = {param_name}.unwrap_or_default();");
+
+    let visitor_extract = format!(
+        "let _visitor_robj: Option<extendr_api::Robj> = {param_name}_binding.{field_name}.take();"
+    );
+
+    let core_opts_bind = format!(
+        "let mut {param_name}_core: {core_import}::{options_type} = {param_name}_binding.into();"
+    );
+
+    let bridge_attach = format!(
+        "if let Some(_v) = _visitor_robj {{\n        \
+         if !_v.is_null() && !_v.is_na() {{\n            \
+         let _bridge = {struct_name}::new(_v);\n            \
+         {param_name}_core.{field_name} = Some(std::rc::Rc::new(std::cell::RefCell::new(_bridge)) as {handle_path});\n        \
+         }}\n    \
+         }}"
+    );
+
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .enumerate()
+        .map(|(idx, p)| {
+            if idx == bridge_match.param_index {
+                return format!("{param_name}_core");
+            }
+            match &p.ty {
+                TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                    if p.optional {
+                        format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                    } else {
+                        format!("&{}.inner", p.name)
+                    }
+                }
+                TypeRef::String | TypeRef::Char => {
+                    if p.is_ref {
+                        format!("&{}", p.name)
+                    } else {
+                        p.name.clone()
+                    }
+                }
+                _ => p.name.clone(),
+            }
+        })
+        .collect();
+    let call_args_str = call_args.join(", ");
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+    let core_call = format!("{core_fn_path}({call_args_str})");
+
+    let return_wrap = match &func.return_type {
+        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+        }
+        TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
+        _ => "val".to_string(),
+    };
+
+    let body = if has_error {
+        if return_wrap == "val" {
+            format!(
+                "{deser_block}\n    {visitor_extract}\n    {core_opts_bind}\n    {bridge_attach}\n    {core_call}{err_conv}"
+            )
+        } else {
+            format!(
+                "{deser_block}\n    {visitor_extract}\n    {core_opts_bind}\n    {bridge_attach}\n    {core_call}.map(|val| {return_wrap}){err_conv}"
+            )
+        }
+    } else {
+        format!(
+            "{deser_block}\n    {visitor_extract}\n    {core_opts_bind}\n    {bridge_attach}\n    {core_call}"
+        )
+    };
+
+    let func_name = &func.name;
+    let mut out = String::with_capacity(1024);
+    if has_error {
+        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
+    }
+    writeln!(out, "#[extendr]").ok();
+    writeln!(out, "#[allow(unused_variables)]").ok();
+    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
+    writeln!(out, "    {body}").ok();
+    writeln!(out, "}}").ok();
+
+    out
+}
