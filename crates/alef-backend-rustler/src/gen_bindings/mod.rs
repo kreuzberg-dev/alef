@@ -53,6 +53,59 @@ impl Backend for RustlerBackend {
         let exclude_types: AHashSet<&str> = elixir_config
             .map(|c| c.exclude_types.iter().map(String::as_str).collect())
             .unwrap_or_default();
+        let cpu_bound_functions: AHashSet<String> = elixir_config
+            .map(|c| c.cpu_bound_functions.iter().cloned().collect())
+            .unwrap_or_default();
+
+        // For options_field bridges, the bridge field (e.g. "visitor") is handled at the
+        // Elixir layer via Map.pop — it must not appear as a typed struct field in the NIF
+        // bindings because VisitorHandle (Rc<RefCell<dyn Trait>>) cannot implement
+        // Rustler's Encoder/Decoder or Send+Sync traits.
+        // Build a map: type_name -> set of field names to exclude.
+        // We also cover update structs (e.g. ConversionOptionsUpdate) by scanning all IR types
+        // for the same field name with a type matching the bridge trait alias.
+        let mut bridge_excluded_fields: std::collections::HashMap<String, AHashSet<String>> =
+            std::collections::HashMap::new();
+        for b in config
+            .trait_bridges
+            .iter()
+            .filter(|b| b.bind_via == BridgeBinding::OptionsField)
+            .filter(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"))
+        {
+            let field_name = b.resolved_options_field().unwrap_or("visitor").to_string();
+            let trait_alias = b.type_alias.as_deref().unwrap_or(&b.trait_name);
+            if let Some(opts_type) = b.options_type.as_deref() {
+                bridge_excluded_fields
+                    .entry(opts_type.to_string())
+                    .or_default()
+                    .insert(field_name.clone());
+            }
+            // Also exclude from any other IR type that has this field with the trait alias type.
+            for typ in api.types.iter() {
+                if typ.fields.iter().any(|f| {
+                    if f.name != field_name {
+                        return false;
+                    }
+                    let type_name = match &f.ty {
+                        alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                        alef_core::ir::TypeRef::Optional(inner) => {
+                            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                Some(n.as_str())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    type_name == Some(trait_alias)
+                }) {
+                    bridge_excluded_fields
+                        .entry(typ.name.clone())
+                        .or_default()
+                        .insert(field_name.clone());
+                }
+            }
+        }
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
@@ -97,6 +150,7 @@ impl Backend for RustlerBackend {
             builder.add_import("std::sync::Arc");
         }
 
+        let empty_set: AHashSet<String> = AHashSet::new();
         for typ in api
             .types
             .iter()
@@ -107,7 +161,8 @@ impl Backend for RustlerBackend {
             } else {
                 // gen_struct adds Default to derives when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&gen_struct(typ, &mapper, &module_prefix));
+                let excl = bridge_excluded_fields.get(typ.name.as_str()).unwrap_or(&empty_set);
+                builder.add_item(&gen_struct(typ, &mapper, &module_prefix, excl));
                 // Generate config constructor if type has Default
                 if typ.has_default && !typ.fields.is_empty() {
                     let config_impl = gen_rustler_config_impl(typ, &mapper);
@@ -205,6 +260,7 @@ impl Backend for RustlerBackend {
                     &opaque_types,
                     &default_types,
                     &core_import,
+                    &cpu_bound_functions,
                 ));
             }
         }
@@ -644,6 +700,27 @@ impl Backend for RustlerBackend {
                         content.push_str(&format!("      {native_mod}.{nif_fn_name}({plain_args_str})\n"));
                         content.push_str("    end\n");
                         content.push_str("  end\n\n");
+
+                        // Nil clause: options is nil — pass nil directly to the NIF.
+                        let nil_clause_params: Vec<String> = arity_params
+                            .iter()
+                            .enumerate()
+                            .map(|(i, p)| if i == opts_idx { "nil".to_string() } else { p.clone() })
+                            .collect();
+                        let nil_nif_args: Vec<String> = nif_call_args
+                            .iter()
+                            .enumerate()
+                            .map(|(i, a)| if i == opts_idx { "nil".to_string() } else { a.clone() })
+                            .collect();
+                        content.push_str(&format!(
+                            "  def {nif_fn_name}({}) do\n",
+                            nil_clause_params.join(", ")
+                        ));
+                        content.push_str(&format!(
+                            "    {native_mod}.{nif_fn_name}({})\n",
+                            nil_nif_args.join(", ")
+                        ));
+                        content.push_str("  end\n\n");
                         continue;
                     }
                 }
@@ -720,24 +797,29 @@ impl Backend for RustlerBackend {
             }
         }
 
-        // Emit the visitor receive loop helper if any function has a visitor bridge.
+        // Emit the visitor receive loop helper if any function has a visitor bridge
+        // (function_param or options_field mode).
         let has_visitor_bridges = api.functions.iter().any(|func| {
             func.params.iter().any(|p| {
-                config.trait_bridges.iter().any(|b| {
-                    b.param_name.as_deref() == Some(p.name.as_str()) || {
-                        let named = match &p.ty {
-                            alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                            alef_core::ir::TypeRef::Optional(inner) => {
-                                if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                    Some(n.as_str())
-                                } else {
-                                    None
-                                }
-                            }
-                            _ => None,
-                        };
-                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                let named = match &p.ty {
+                    alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
                     }
+                    _ => None,
+                };
+                config.trait_bridges.iter().any(|b| {
+                    // function_param: match by param_name or type_alias
+                    let is_function_param = b.param_name.as_deref() == Some(p.name.as_str())
+                        || named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false);
+                    // options_field: match when the param type is the configured options_type
+                    let is_options_field = b.bind_via == BridgeBinding::OptionsField
+                        && named.is_some_and(|n| b.options_type.as_deref() == Some(n));
+                    is_function_param || is_options_field
                 })
             })
         });

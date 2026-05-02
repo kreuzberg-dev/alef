@@ -1,12 +1,12 @@
 use alef_codegen::builder::RustFileBuilder;
-use alef_codegen::doc_emission;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
 use std::borrow::Cow;
+use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 pub struct ExtendrBackend;
@@ -283,55 +283,6 @@ impl Backend for ExtendrBackend {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         let package_name = config.r_package_name();
-        let prefix = config.ffi_prefix();
-
-        // Generate R namespace file with wrapper functions
-        let mut content = hash::header(CommentStyle::Hash);
-        content.push('\n');
-
-        // Add useDynLib directive
-        content.push_str(&format!("#' @useDynLib {}, .registration = TRUE\n", package_name));
-        content.push_str("NULL\n\n");
-
-        // Generate wrapper functions for all API functions
-        for func in &api.functions {
-            // Emit roxygen documentation
-            doc_emission::emit_roxygen(&mut content, &func.doc);
-            // Add @export tag for public functions
-            content.push_str("#' @export\n");
-
-            content.push_str(&format!("{} <- function(", func.name));
-
-            // Parameters with default values
-            let params: Vec<String> = func
-                .params
-                .iter()
-                .map(|p| {
-                    if p.optional {
-                        format!("{} = NULL", p.name)
-                    } else {
-                        p.name.clone()
-                    }
-                })
-                .collect();
-            content.push_str(&params.join(", "));
-
-            content.push_str(") {\n");
-
-            // Call the native function
-            let param_names: Vec<String> = func.params.iter().map(|p| p.name.clone()).collect();
-            content.push_str(&format!(
-                "  .Call(\"{}_{}\"{})\n",
-                prefix,
-                func.name,
-                if param_names.is_empty() {
-                    String::new()
-                } else {
-                    format!(", {}", param_names.join(", "))
-                }
-            ));
-            content.push_str("}\n\n");
-        }
 
         // The R wrapper file always goes into the package's R/ directory (e.g. packages/r/R/).
         // We derive this from the rust output path: strip the conventional Rust-source suffix
@@ -349,11 +300,33 @@ impl Backend for ExtendrBackend {
             "packages/r/R/".to_string()
         };
 
-        Ok(vec![GeneratedFile {
-            path: PathBuf::from(&r_wrapper_dir).join(format!("{}.R", package_name)),
-            content,
+        let mut files = Vec::new();
+
+        // {package_name}.R: only @useDynLib — no function wrappers.
+        // extendr auto-generates extendr-wrappers.R at build time with the correct
+        // `wrap__<funcname>` symbol references. Emitting a second convert() here would
+        // create a duplicate export and call the wrong (non-existent) symbol.
+        let mut pkg_content = hash::header(CommentStyle::Hash);
+        pkg_content.push('\n');
+        pkg_content.push_str(&format!("#' @useDynLib {package_name}, .registration = TRUE\n"));
+        pkg_content.push_str("NULL\n");
+        files.push(GeneratedFile {
+            path: PathBuf::from(&r_wrapper_dir).join(format!("{package_name}.R")),
+            content: pkg_content,
             generated_header: false,
-        }])
+        });
+
+        // options.R: generated from ConversionOptions IR so all fields are present.
+        if let Some(opts_type) = api.types.iter().find(|t| t.name == "ConversionOptions" && !t.is_trait) {
+            let options_r = gen_conversion_options_r(opts_type);
+            files.push(GeneratedFile {
+                path: PathBuf::from(&r_wrapper_dir).join("options.R"),
+                content: options_r,
+                generated_header: true,
+            });
+        }
+
+        Ok(files)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
@@ -364,6 +337,90 @@ impl Backend for ExtendrBackend {
             post_build: vec![],
         })
     }
+}
+
+/// Generate the `options.R` file for the R package from the `ConversionOptions` IR type.
+///
+/// Produces a roxygen-documented `conversion_options()` helper function with one parameter per
+/// field (all defaulting to `NULL`). R callers use named arguments to override individual
+/// settings; unset parameters remain `NULL` and are omitted from the resulting list so that the
+/// Rust side applies its own defaults.
+fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
+    use alef_core::ir::PrimitiveType;
+
+    let mut out = String::with_capacity(2048);
+
+    // Function-level roxygen header
+    writeln!(out, "#' Create a ConversionOptions list for HTML-to-Markdown conversion").ok();
+    writeln!(out, "#'").ok();
+    writeln!(out, "#' All parameters default to `NULL`, which means the Rust default is used.").ok();
+    writeln!(out, "#' Pass named arguments to override individual settings.").ok();
+    writeln!(out, "#'").ok();
+
+    // Per-field roxygen @param lines. Strip leading underscore from names —
+    // Rust uses `_ctx` etc. for unused default-impl params; R callers write without the prefix.
+    for field in &opts_type.fields {
+        let rname = field.name.trim_start_matches('_');
+        let doc_text = if field.doc.is_empty() {
+            rname.to_string()
+        } else {
+            let first = field.doc.lines().next().unwrap_or(rname);
+            first.trim_end_matches('.').to_string()
+        };
+        if field.cfg.is_some() {
+            writeln!(out, "#' @param {rname} (feature-gated) {doc_text}").ok();
+        } else {
+            writeln!(out, "#' @param {rname} {doc_text}").ok();
+        }
+    }
+
+    writeln!(out, "#' @return A named list suitable for the `options` argument of [convert()].").ok();
+    writeln!(out, "#' @export").ok();
+
+    // Function signature: all fields as NULL-defaulted params
+    let params: Vec<String> = opts_type
+        .fields
+        .iter()
+        .map(|f| format!("{} = NULL", f.name.trim_start_matches('_')))
+        .collect();
+    writeln!(out, "conversion_options <- function(").ok();
+    for (i, param) in params.iter().enumerate() {
+        if i + 1 < params.len() {
+            writeln!(out, "  {param},").ok();
+        } else {
+            writeln!(out, "  {param}").ok();
+        }
+    }
+    writeln!(out, ") {{").ok();
+
+    // Body: collect non-NULL values into a list
+    writeln!(out, "  opts <- list()").ok();
+    for field in &opts_type.fields {
+        let rname = field.name.trim_start_matches('_');
+        // Integer coercion for numeric fields that map to Rust integer types
+        let needs_int = matches!(
+            &field.ty,
+            TypeRef::Primitive(PrimitiveType::U8)
+                | TypeRef::Primitive(PrimitiveType::U16)
+                | TypeRef::Primitive(PrimitiveType::U32)
+                | TypeRef::Primitive(PrimitiveType::U64)
+                | TypeRef::Primitive(PrimitiveType::I8)
+                | TypeRef::Primitive(PrimitiveType::I16)
+                | TypeRef::Primitive(PrimitiveType::I32)
+                | TypeRef::Primitive(PrimitiveType::I64)
+                | TypeRef::Primitive(PrimitiveType::Usize)
+        );
+        let assign_val = if needs_int {
+            format!("as.integer({rname})")
+        } else {
+            rname.to_string()
+        };
+        writeln!(out, "  if (!is.null({rname})) opts${rname} <- {assign_val}").ok();
+    }
+    writeln!(out, "  opts").ok();
+    writeln!(out, "}}").ok();
+
+    out
 }
 
 #[cfg(test)]

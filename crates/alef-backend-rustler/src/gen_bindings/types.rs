@@ -23,7 +23,16 @@ pub(super) fn gen_opaque_resource(typ: &TypeDef, core_import: &str, _opaque_type
 
 /// Generate a Rustler NIF struct definition using the shared TypeMapper.
 /// Rustler 0.37: NifStruct is a derive macro with #[module = "..."] attribute.
-pub(super) fn gen_struct(typ: &TypeDef, mapper: &crate::type_map::RustlerMapper, module_prefix: &str) -> String {
+///
+/// Fields listed in `exclude_fields` are omitted from the generated struct —
+/// used to skip bridge fields (e.g. visitor) that are handled at the Elixir layer
+/// and cannot implement Rustler's Encoder/Decoder traits.
+pub(super) fn gen_struct(
+    typ: &TypeDef,
+    mapper: &crate::type_map::RustlerMapper,
+    module_prefix: &str,
+    exclude_fields: &AHashSet<String>,
+) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
     if typ.has_default {
@@ -47,6 +56,10 @@ pub(super) fn gen_struct(typ: &TypeDef, mapper: &crate::type_map::RustlerMapper,
     writeln!(out, "pub struct {} {{", typ.name).ok();
 
     for field in &typ.fields {
+        // Skip fields excluded by the caller (e.g. options_field bridge fields).
+        if exclude_fields.contains(&field.name) {
+            continue;
+        }
         // When field.ty is already Optional(T) and field.optional is also true, the type is
         // a double-optional (Option<Option<T>>) in core — map_type already produces Option<T>,
         // so wrapping again would give Option<Option<T>> which is correct for the struct but
@@ -176,22 +189,27 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
         writeln!(out, "}}").ok();
     }
 
-    // Default impl for config constructor unwrap_or_default()
-    if let Some(first) = enum_def.variants.first() {
+    // Default impl: use the variant marked is_default=true; fall back to the first variant.
+    let default_variant = enum_def
+        .variants
+        .iter()
+        .find(|v| v.is_default)
+        .or_else(|| enum_def.variants.first());
+    if let Some(dv) = default_variant {
         write!(
             out,
             "\n#[allow(clippy::derivable_impls)]\nimpl Default for {name} {{\n    fn default() -> Self {{"
         )
         .ok();
-        if has_data && !first.fields.is_empty() {
-            let field_defaults: Vec<String> = first
+        if has_data && !dv.fields.is_empty() {
+            let field_defaults: Vec<String> = dv
                 .fields
                 .iter()
                 .map(|f| format!("{}: Default::default()", f.name))
                 .collect();
-            write!(out, " Self::{} {{ {} }} }}\n}}", first.name, field_defaults.join(", ")).ok();
+            write!(out, " Self::{} {{ {} }} }}\n}}", dv.name, field_defaults.join(", ")).ok();
         } else {
-            write!(out, " Self::{} }}\n}}", first.name).ok();
+            write!(out, " Self::{} }}\n}}", dv.name).ok();
         }
     }
 

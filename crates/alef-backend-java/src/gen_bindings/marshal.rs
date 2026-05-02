@@ -90,7 +90,7 @@ pub(crate) fn marshal_param_to_ffi(
                 let _free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
                 writeln!(
                     out,
-                    "            var {}Json = {} != null ? createObjectMapper().writeValueAsString({}) : null;",
+                    "            var {}Json = {} != null ? MAPPER.writeValueAsString({}) : null;",
                     cname, name, name
                 )
                 .ok();
@@ -175,7 +175,7 @@ pub(crate) fn marshal_param_to_ffi(
             let cname = "c".to_string() + name;
             writeln!(
                 out,
-                "            var {}Json = createObjectMapper().writeValueAsString({});",
+                "            var {}Json = MAPPER.writeValueAsString({});",
                 cname, name
             )
             .ok();
@@ -226,7 +226,7 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
     let needs_read_cstring = out.contains("readCString(");
     let needs_read_bytes = out.contains("readBytes(");
     let needs_read_json_list = out.contains("readJsonList(");
-    let needs_create_object_mapper = out.contains("createObjectMapper()") || needs_read_json_list;
+    let needs_create_object_mapper = out.contains("MAPPER.") || needs_read_json_list;
 
     if !needs_check_last_error
         && !needs_read_cstring
@@ -262,7 +262,16 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
             "            String msg = ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);"
         )
         .ok();
-        writeln!(out, "            throw new {}Exception(errCode, msg);", class_name).ok();
+        writeln!(out, "            switch (errCode) {{").ok();
+        writeln!(out, "                case 1 -> throw new InvalidInputException(msg);").ok();
+        writeln!(out, "                case 2 -> throw new ConversionErrorException(msg);").ok();
+        writeln!(
+            out,
+            "                default -> throw new {}Exception(errCode, msg);",
+            class_name
+        )
+        .ok();
+        writeln!(out, "            }}").ok();
         writeln!(out, "        }}").ok();
         writeln!(out, "    }}").ok();
         writeln!(out).ok();
@@ -297,6 +306,12 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         )
         .ok();
         writeln!(out, "    }}").ok();
+        writeln!(out).ok();
+        writeln!(
+            out,
+            "    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = createObjectMapper();"
+        )
+        .ok();
         writeln!(out).ok();
     }
 
@@ -353,7 +368,7 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         )
         .ok();
         writeln!(out, "            {}.invoke(resultPtr);", free_handle).ok();
-        writeln!(out, "            return createObjectMapper().readValue(json, typeRef);").ok();
+        writeln!(out, "            return MAPPER.readValue(json, typeRef);").ok();
         writeln!(out, "        }} catch (Throwable e) {{").ok();
         writeln!(
             out,

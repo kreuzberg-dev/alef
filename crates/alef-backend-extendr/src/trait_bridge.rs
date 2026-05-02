@@ -72,7 +72,9 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 .params
                 .iter()
                 .zip(args.iter())
-                .map(|(p, expr)| format!("(\"{}\", {})", p.name, expr))
+                // Strip leading underscore: Rust uses `_ctx` for unused default-impl params;
+                // R callers write `function(ctx, ...)` without the prefix.
+                .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
                 .collect();
             let pairs_str = pairs.join(", ");
             writeln!(out, "let args = extendr_api::Pairlist::from_pairs(&[{pairs_str}]);").ok();
@@ -266,7 +268,9 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 .params
                 .iter()
                 .zip(args.iter())
-                .map(|(p, expr)| format!("(\"{}\", {})", p.name, expr))
+                // Strip leading underscore: Rust uses `_ctx` for unused default-impl params;
+                // R callers write `function(ctx, ...)` without the prefix.
+                .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
                 .collect();
             let pairs_str = pairs.join(", ");
             writeln!(out, "    let args = extendr_api::Pairlist::from_pairs(&[{pairs_str}]);").ok();
@@ -629,7 +633,9 @@ fn gen_visitor_method_extendr(
             .params
             .iter()
             .zip(args.iter())
-            .map(|(p, expr)| format!("(\"{}\", {})", p.name, expr))
+            // Strip leading underscore: Rust uses `_ctx` for unused default-impl params;
+            // R callers write `function(ctx, ...)` without the prefix.
+            .map(|(p, expr)| format!("(\"{}\", {})", p.name.trim_start_matches('_'), expr))
             .collect();
         let pairs_str = pairs.join(", ");
         writeln!(

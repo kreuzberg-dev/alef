@@ -1,6 +1,7 @@
 //! Python exception hierarchy and `__init__.py` generation.
 
 use ahash::AHashSet;
+use alef_codegen::doc_emission::doc_first_paragraph_joined;
 use alef_codegen::generators;
 use alef_core::config::{DtoConfig, PythonDtoStyle};
 use alef_core::hash::{self, CommentStyle};
@@ -24,7 +25,7 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
         }
         out.push_str(&format!("class {}(Exception):\n", error.name));
         let doc = if !error.doc.is_empty() {
-            let first_line = sanitize_python_doc(error.doc.lines().next().unwrap_or("").trim());
+            let first_line = sanitize_python_doc(&doc_first_paragraph_joined(&error.doc));
             if first_line.ends_with('.') {
                 first_line
             } else {
@@ -44,7 +45,7 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
             }
             out.push_str(&format!("class {}({}):\n", variant_name, error.name));
             let doc = if !variant.doc.is_empty() {
-                let first_line = sanitize_python_doc(variant.doc.lines().next().unwrap_or("").trim());
+                let first_line = sanitize_python_doc(&doc_first_paragraph_joined(&variant.doc));
                 if first_line.ends_with('.') {
                     first_line
                 } else {

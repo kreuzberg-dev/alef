@@ -170,8 +170,16 @@ pub(super) fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
     )
     .ok();
     writeln!(out, "            return encodeVisitResult(result, outCustom, outLen);").ok();
-    writeln!(out, "        }} catch (Throwable ignored) {{").ok();
-    writeln!(out, "            return 0;").ok();
+    writeln!(out, "        }} catch (Throwable t) {{").ok();
+    writeln!(
+        out,
+        "            // Record the first visitor exception; subsequent errors are suppressed."
+    )
+    .ok();
+    writeln!(out, "            if (visitorError == null) {{").ok();
+    writeln!(out, "                visitorError = t;").ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out, "            return VISIT_RESULT_ERROR;").ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();

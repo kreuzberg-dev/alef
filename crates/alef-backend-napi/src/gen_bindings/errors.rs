@@ -104,9 +104,15 @@ pub(super) fn gen_dts(
                     let js_name = to_node_name(&field.name);
                     let ts_ty = dts_type(&field.ty, prefix);
                     lines.extend(format_jsdoc(&field.doc, "  "));
-                    // Only mark a field optional when the underlying Rust type is Option<T>.
-                    // Required fields must not carry `?` — callers are expected to provide them.
-                    if matches!(field.ty, TypeRef::Optional(_)) {
+                    // Mark a field optional when:
+                    //   1. The underlying Rust type is Option<T> (TypeRef::Optional)
+                    //   2. The field itself has `optional = true` in the IR (e.g. *Update struct fields)
+                    //   3. The parent type has `has_default = true` — the NAPI binding wraps every
+                    //      field in Option<T> so callers can omit fields and rely on defaults.
+                    let is_optional = matches!(field.ty, TypeRef::Optional(_))
+                        || field.optional
+                        || typ.has_default;
+                    if is_optional {
                         lines.push(format!("  {js_name}?: {ts_ty}"));
                     } else {
                         lines.push(format!("  {js_name}: {ts_ty}"));

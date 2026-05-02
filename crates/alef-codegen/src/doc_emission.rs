@@ -254,6 +254,26 @@ fn escape_javadoc_html_entities(s: &str) -> String {
     out
 }
 
+/// Return the first paragraph of a doc comment as a single joined line.
+///
+/// Collects lines until the first blank line, trims each, then joins with a
+/// space. This handles wrapped sentences like:
+///
+/// ```text
+/// Convert HTML to Markdown, returning
+/// a `ConversionResult`.
+/// ```
+///
+/// which would otherwise be truncated at the comma when callers use
+/// `.lines().next()`.
+pub fn doc_first_paragraph_joined(doc: &str) -> String {
+    doc.lines()
+        .take_while(|l| !l.trim().is_empty())
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,5 +391,34 @@ mod tests {
         emit_gleam_doc(&mut out, "", "");
         emit_zig_doc(&mut out, "", "");
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_doc_first_paragraph_joined_single_line() {
+        assert_eq!(doc_first_paragraph_joined("Simple doc."), "Simple doc.");
+    }
+
+    #[test]
+    fn test_doc_first_paragraph_joined_wrapped_sentence() {
+        // Simulates a docstring like convert's: "Convert HTML to Markdown,\nreturning a result."
+        let doc = "Convert HTML to Markdown,\nreturning a result.";
+        assert_eq!(
+            doc_first_paragraph_joined(doc),
+            "Convert HTML to Markdown, returning a result."
+        );
+    }
+
+    #[test]
+    fn test_doc_first_paragraph_joined_stops_at_blank_line() {
+        let doc = "First paragraph.\nStill first.\n\nSecond paragraph.";
+        assert_eq!(
+            doc_first_paragraph_joined(doc),
+            "First paragraph. Still first."
+        );
+    }
+
+    #[test]
+    fn test_doc_first_paragraph_joined_empty() {
+        assert_eq!(doc_first_paragraph_joined(""), "");
     }
 }

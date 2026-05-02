@@ -120,143 +120,6 @@ pub(super) fn gen_visitor_interface(package: &str, _class_name: &str) -> String 
     out
 }
 
-/// Generate `VisitContext.java` — the context type passed to `TestVisitor` callbacks.
-pub(super) fn gen_visit_context(package: &str) -> String {
-    let mut out = String::with_capacity(1024);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {package};").ok();
-    writeln!(out).ok();
-    writeln!(out, "/** Context passed to every visitor callback. */").ok();
-    writeln!(out, "public record VisitContext(").ok();
-    writeln!(out, "        /** Coarse-grained node type tag. */").ok();
-    writeln!(out, "        int nodeType,").ok();
-    writeln!(out, "        /** HTML element tag name (e.g. \"div\"). */").ok();
-    writeln!(out, "        String tagName,").ok();
-    writeln!(out, "        /** DOM depth (0 = root). */").ok();
-    writeln!(out, "        long depth,").ok();
-    writeln!(out, "        /** 0-based sibling index. */").ok();
-    writeln!(out, "        long indexInParent,").ok();
-    writeln!(out, "        /** Parent element tag name, or null at the root. */").ok();
-    writeln!(out, "        String parentTag,").ok();
-    writeln!(out, "        /** True when this element is treated as inline. */").ok();
-    writeln!(out, "        boolean isInline").ok();
-    writeln!(out, ") {{}}").ok();
-    out
-}
-
-/// Generate `TestVisitor.java` — visitor interface using `VisitContext` (test-friendly).
-///
-/// Same shape as `Visitor` but uses `VisitContext` instead of `NodeContext` so
-/// e2e tests do not need to import the raw FFI type.
-pub(super) fn gen_test_visitor_interface(package: &str) -> String {
-    let mut out = String::with_capacity(4096);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {package};").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "/** Test-friendly visitor interface using VisitContext instead of NodeContext. */"
-    )
-    .ok();
-    writeln!(out, "public interface TestVisitor {{").ok();
-    for spec in CALLBACKS {
-        let params = test_iface_param_str(spec);
-        writeln!(out, "    /** {} */", spec.doc).ok();
-        writeln!(
-            out,
-            "    default VisitResult {}({}) {{ return VisitResult.continueDefault(); }}",
-            spec.java_method, params
-        )
-        .ok();
-    }
-    writeln!(out, "}}").ok();
-    out
-}
-
-/// Generate `TestVisitorAdapter.java` — adapts `TestVisitor` to `Visitor` by converting
-/// `NodeContext` → `VisitContext` before dispatching to the wrapped `TestVisitor`.
-pub(super) fn gen_test_visitor_adapter(package: &str) -> String {
-    let mut out = String::with_capacity(4096);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {package};").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "/** Adapts a {{@link TestVisitor}} to the {{@link Visitor}} interface. */"
-    )
-    .ok();
-    writeln!(out, "final class TestVisitorAdapter implements Visitor {{").ok();
-    writeln!(out, "    private final TestVisitor delegate;").ok();
-    writeln!(out).ok();
-    writeln!(out, "    TestVisitorAdapter(final TestVisitor delegate) {{").ok();
-    writeln!(
-        out,
-        "        java.util.Objects.requireNonNull(delegate, \"delegate must not be null\");"
-    )
-    .ok();
-    writeln!(out, "        this.delegate = delegate;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "    private static VisitContext toVisitContext(final NodeContext ctx) {{"
-    )
-    .ok();
-    writeln!(
-        out,
-        "        return new VisitContext(ctx.nodeType(), ctx.tagName(), ctx.depth(), ctx.indexInParent(), ctx.parentTag(), ctx.isInline());"
-    )
-    .ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    for spec in CALLBACKS {
-        let node_params = iface_param_str(spec);
-        let visit_params = test_iface_param_str(spec);
-        // Build delegation call args — same as call_args but use 'visitCtx' for context
-        let mut call_args = vec!["visitCtx".to_string()];
-        for ep in spec.extra {
-            call_args.push(ep.java_name.to_string());
-        }
-        if spec.has_is_header {
-            call_args.push("isHeader".to_string());
-        }
-        writeln!(out, "    @Override").ok();
-        // Check if method sig is short enough for one line
-        let single = format!("    public VisitResult {}({}) {{", spec.java_method, node_params);
-        if single.len() <= 100 {
-            writeln!(out, "{}", single).ok();
-        } else {
-            writeln!(out, "    public VisitResult {}(", spec.java_method).ok();
-            writeln!(out, "            {}) {{", node_params).ok();
-        }
-        writeln!(out, "        var visitCtx = toVisitContext(context);").ok();
-        let _ = visit_params; // used for documentation only
-        writeln!(
-            out,
-            "        return delegate.{}({});",
-            spec.java_method,
-            call_args.join(", ")
-        )
-        .ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
-    }
-    writeln!(out, "}}").ok();
-    out
-}
-
-/// Build param string for TestVisitor using VisitContext instead of NodeContext.
-fn test_iface_param_str(spec: &super::callbacks::CallbackSpec) -> String {
-    let mut params = vec!["final VisitContext ctx".to_string()];
-    for ep in spec.extra {
-        params.push(format!("final {} {}", ep.java_type, ep.java_name));
-    }
-    if spec.has_is_header {
-        params.push("final boolean isHeader".to_string());
-    }
-    params.join(", ")
-}
-
 /// Generate `VisitorBridge.java` — builds Panama upcall stubs for all 40 callbacks
 /// and exposes a `MemorySegment callbacksStruct()` pointing to the C struct.
 pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
@@ -317,6 +180,12 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out, "    private final Arena arena;").ok();
     writeln!(out, "    private final MemorySegment struct;").ok();
     writeln!(out, "    private final Visitor visitor;").ok();
+    writeln!(
+        out,
+        "    /** Sticky exception captured during a visitor upcall; surfaced after conversion. */"
+    )
+    .ok();
+    writeln!(out, "    private volatile Throwable visitorError;").ok();
     writeln!(out).ok();
     writeln!(out, "    VisitorBridge(Visitor visitor) {{").ok();
     writeln!(out, "        this.visitor = visitor;").ok();
@@ -386,6 +255,13 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     .ok();
     writeln!(out, "    MemorySegment callbacksStruct() {{").ok();
     writeln!(out, "        return struct;").ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out).ok();
+    writeln!(out, "    void rethrowVisitorError() throws Throwable {{").ok();
+    writeln!(out, "        Throwable err = visitorError;").ok();
+    writeln!(out, "        if (err != null) {{").ok();
+    writeln!(out, "            throw err;").ok();
+    writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
 
@@ -488,11 +364,11 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     // encodeVisitResult helper
     // outCustom and outLen arrive as 0-byte upcall MemorySegments; we must
     // reinterpret them to the correct size before writing (Panama FFM requirement).
-    // We use Arena.global() so the allocated buffer outlives this callback frame —
-    // Rust calls free() on the pointer AFTER the callback returns.
+    // Buffers are allocated into this.arena so they are freed when the bridge closes,
+    // after Rust has finished reading the pointer.
     writeln!(
         out,
-        "    private static int encodeVisitResult(VisitResult result, MemorySegment outCustom, MemorySegment outLen) {{"
+        "    private int encodeVisitResult(VisitResult result, MemorySegment outCustom, MemorySegment outLen) {{"
     )
     .ok();
     writeln!(out, "        return switch (result) {{").ok();
@@ -508,11 +384,7 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     )
     .ok();
     writeln!(out, "            case VisitResult.Custom c -> {{").ok();
-    writeln!(
-        out,
-        "                var buf = Arena.global().allocateFrom(c.markdown());"
-    )
-    .ok();
+    writeln!(out, "                var buf = arena.allocateFrom(c.markdown());").ok();
     writeln!(
         out,
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"
@@ -526,11 +398,7 @@ pub(super) fn gen_visitor_bridge(package: &str, _class_name: &str) -> String {
     writeln!(out, "                yield VISIT_RESULT_CUSTOM;").ok();
     writeln!(out, "            }}").ok();
     writeln!(out, "            case VisitResult.Error e -> {{").ok();
-    writeln!(
-        out,
-        "                var buf = Arena.global().allocateFrom(e.message());"
-    )
-    .ok();
+    writeln!(out, "                var buf = arena.allocateFrom(e.message());").ok();
     writeln!(
         out,
         "                outCustom.reinterpret(ValueLayout.ADDRESS.byteSize()).set(ValueLayout.ADDRESS, 0L, buf);"

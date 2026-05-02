@@ -272,6 +272,91 @@ pub fn gen_trait_bridge(
     out
 }
 
+/// Generate exported `{prefix}_{bridge_snake}_new` and `{prefix}_{bridge_snake}_free`
+/// C functions for options-field bridge mode.
+///
+/// These allow non-Rust callers (Go, Java, C#) to create and destroy a bridge handle
+/// entirely through the C ABI without linking against the Rust crate.  `bridge_new`
+/// takes a fully-populated vtable (function pointers filled in by the caller) and an
+/// opaque `user_data` pointer, boxes a bridge value, and returns a raw pointer.
+/// `bridge_free` destroys it.
+///
+/// Crucially, referencing `vtable: *const {VtableName}` in the exported function
+/// signature forces cbindgen to emit the full struct definition for the vtable type,
+/// which callers (Go) must fill in before calling `bridge_new`.
+///
+/// # Parameters
+///
+/// - `prefix`: C symbol prefix, e.g. `"htm"`.
+/// - `pascal_prefix`: PascalCase prefix, e.g. `"Htm"`.
+/// - `trait_name`: Rust trait name, e.g. `"HtmlVisitor"`.
+pub fn gen_bridge_new_free(prefix: &str, pascal_prefix: &str, trait_name: &str) -> String {
+    let bridge_name = format!("{pascal_prefix}{trait_name}Bridge");
+    let vtable_name = format!("{pascal_prefix}{trait_name}VTable");
+
+    // snake_case: e.g. "HtmHtmlVisitorBridge" → "htm_html_visitor_bridge"
+    let bridge_snake = to_snake_case(&bridge_name);
+    let fn_new = format!("{prefix}_{bridge_snake}_new");
+    let fn_free = format!("{prefix}_{bridge_snake}_free");
+
+    format!(
+        r#"/// Create a new `{bridge_name}` from a vtable and opaque user_data pointer.
+///
+/// Returns a heap-allocated `{bridge_name}` on success, or null if `vtable` is null.
+/// The caller is responsible for calling `{fn_free}` exactly once when the bridge is
+/// no longer needed.
+///
+/// # Safety
+///
+/// `vtable` must be a non-null pointer to a fully initialised `{vtable_name}` that
+/// remains valid for the lifetime of the returned bridge.  `user_data` must be valid
+/// for any thread that calls methods on this bridge.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_new}(
+    vtable: *const {vtable_name},
+    user_data: *const std::ffi::c_void,
+) -> *mut {bridge_name} {{
+    if vtable.is_null() {{
+        return std::ptr::null_mut();
+    }}
+    // SAFETY: vtable is non-null (checked above); caller guarantees it is valid for this call.
+    let bridge = unsafe {{ {bridge_name}::new(String::new(), (*vtable).clone(), user_data) }};
+    Box::into_raw(Box::new(bridge))
+}}
+
+/// Free a `{bridge_name}` created by `{fn_new}`.
+///
+/// After this call `ptr` is invalid. Passing null is a no-op.
+///
+/// # Safety
+///
+/// `ptr` must be either null or a non-null pointer returned by `{fn_new}` that has
+/// not yet been freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_free}(ptr: *mut {bridge_name}) {{
+    if !ptr.is_null() {{
+        // SAFETY: ptr is non-null and was created via Box::into_raw in {fn_new}.
+        drop(unsafe {{ Box::from_raw(ptr) }});
+    }}
+}}"#,
+    )
+}
+
+/// Convert a PascalCase identifier to snake_case for C symbol generation.
+///
+/// Consecutive uppercase letters are treated as a single word to match cbindgen's
+/// behaviour (e.g. `HtmHtmlVisitorBridge` → `htm_html_visitor_bridge`).
+fn to_snake_case(s: &str) -> String {
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_ascii_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.push(ch.to_ascii_lowercase());
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

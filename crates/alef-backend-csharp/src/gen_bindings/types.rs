@@ -9,11 +9,38 @@ use std::collections::HashSet;
 
 pub(super) fn gen_opaque_handle(typ: &TypeDef, namespace: &str) -> String {
     let mut out = csharp_file_header();
-    out.push_str("using System;\n\n");
+    out.push_str("using System;\n");
+    out.push_str("using Microsoft.Win32.SafeHandles;\n");
+    out.push_str("using System.Runtime.InteropServices;\n\n");
 
     out.push_str(&format!("namespace {};\n\n", namespace));
 
-    // Generate doc comment if available
+    let class_name = typ.name.to_pascal_case();
+    let free_method = format!("{}Free", class_name);
+
+    // Internal SafeHandle subclass — owns the native handle and calls Free on finalization.
+    // Bugs 1+9: deterministic cleanup via SafeHandle; no-op Dispose() is eliminated.
+    out.push_str(&format!(
+        "internal sealed class {class_name}SafeHandle : SafeHandle\n"
+    ));
+    out.push_str("{\n");
+    out.push_str(&format!(
+        "    internal {class_name}SafeHandle(IntPtr handle) : base(IntPtr.Zero, true)\n"
+    ));
+    out.push_str("    {\n");
+    out.push_str("        SetHandle(handle);\n");
+    out.push_str("    }\n\n");
+    out.push_str("    public override bool IsInvalid => handle == IntPtr.Zero;\n\n");
+    out.push_str("    protected override bool ReleaseHandle()\n");
+    out.push_str("    {\n");
+    out.push_str(&format!(
+        "        NativeMethods.{free_method}(handle);\n"
+    ));
+    out.push_str("        return true;\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+
+    // Public wrapper class — exposes IDisposable and delegates to SafeHandle.
     if !typ.doc.is_empty() {
         out.push_str("/// <summary>\n");
         for line in typ.doc.lines() {
@@ -21,19 +48,19 @@ pub(super) fn gen_opaque_handle(typ: &TypeDef, namespace: &str) -> String {
         }
         out.push_str("/// </summary>\n");
     }
-
-    let class_name = typ.name.to_pascal_case();
-    out.push_str(&format!("public sealed class {} : IDisposable\n", class_name));
+    out.push_str(&format!("public sealed class {class_name} : IDisposable\n"));
     out.push_str("{\n");
-    out.push_str("    internal IntPtr Handle { get; }\n\n");
-    out.push_str(&format!("    internal {}(IntPtr handle)\n", class_name));
+    out.push_str(&format!(
+        "    private readonly {class_name}SafeHandle _safeHandle;\n\n"
+    ));
+    out.push_str(&format!("    internal {class_name}(IntPtr handle)\n"));
     out.push_str("    {\n");
-    out.push_str("        Handle = handle;\n");
+    out.push_str(&format!(
+        "        _safeHandle = new {class_name}SafeHandle(handle);\n"
+    ));
     out.push_str("    }\n\n");
-    out.push_str("    public void Dispose()\n");
-    out.push_str("    {\n");
-    out.push_str("        // Native free will be called by the runtime\n");
-    out.push_str("    }\n");
+    out.push_str("    internal IntPtr Handle => _safeHandle.DangerousGetHandle();\n\n");
+    out.push_str("    public void Dispose() => _safeHandle.Dispose();\n");
     out.push_str("}\n");
 
     out

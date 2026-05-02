@@ -466,11 +466,33 @@ fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) {
         "    let mut pairs: Vec<(rustler::Term<'a>, rustler::Term<'a>)> = Vec::new();"
     )
     .unwrap();
+    // Encode node_type as a snake_case atom (e.g. DefinitionList -> :definition_list)
+    writeln!(out, "    {{").unwrap();
+    writeln!(out, "        let node_type_debug = format!(\"{{:?}}\", ctx.node_type);").unwrap();
     writeln!(
         out,
-        "    pairs.push((rustler::types::atom::Atom::from_str(env, \"node_type\").unwrap().to_term(env), format!(\"{{:?}}\", ctx.node_type).encode(env)));"
+        "        let node_type_snake: String = node_type_debug.chars().enumerate()"
     )
     .unwrap();
+    writeln!(out, "            .flat_map(|(i, c)| {{").unwrap();
+    writeln!(
+        out,
+        "                if c.is_uppercase() && i > 0 {{ vec!['_', c.to_lowercase().next().unwrap()] }}"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "                else if c.is_uppercase() {{ vec![c.to_lowercase().next().unwrap()] }}"
+    )
+    .unwrap();
+    writeln!(out, "                else {{ vec![c] }}").unwrap();
+    writeln!(out, "            }}).collect();").unwrap();
+    writeln!(
+        out,
+        "        pairs.push((rustler::types::atom::Atom::from_str(env, \"node_type\").unwrap().to_term(env), rustler::types::atom::Atom::from_str(env, &node_type_snake).unwrap().to_term(env)));"
+    )
+    .unwrap();
+    writeln!(out, "    }}").unwrap();
     writeln!(
         out,
         "    pairs.push((rustler::types::atom::Atom::from_str(env, \"tag_name\").unwrap().to_term(env), ctx.tag_name.encode(env)));"

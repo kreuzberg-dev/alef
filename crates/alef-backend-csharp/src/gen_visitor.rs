@@ -53,7 +53,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -72,7 +72,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "output",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawOutput0)!",
+            decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
         }],
         has_is_header: false,
     },
@@ -85,19 +85,19 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "href",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawHref0)!",
+                decode: "Marshal.PtrToStringUTF8(rawHref0)!",
             },
             ExtraParam {
                 cs_name: "text",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawText0)!",
+                decode: "Marshal.PtrToStringUTF8(rawText0)!",
             },
             ExtraParam {
                 cs_name: "title",
                 cs_type: "string?",
                 pinvoke_types: &["IntPtr"],
-                decode: "rawTitle0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawTitle0)",
+                decode: "rawTitle0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawTitle0)",
             },
         ],
         has_is_header: false,
@@ -111,19 +111,19 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "src",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawSrc0)!",
+                decode: "Marshal.PtrToStringUTF8(rawSrc0)!",
             },
             ExtraParam {
                 cs_name: "alt",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawAlt0)!",
+                decode: "Marshal.PtrToStringUTF8(rawAlt0)!",
             },
             ExtraParam {
                 cs_name: "title",
                 cs_type: "string?",
                 pinvoke_types: &["IntPtr"],
-                decode: "rawTitle0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawTitle0)",
+                decode: "rawTitle0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawTitle0)",
             },
         ],
         has_is_header: false,
@@ -143,13 +143,13 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "text",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawText0)!",
+                decode: "Marshal.PtrToStringUTF8(rawText0)!",
             },
             ExtraParam {
                 cs_name: "id",
                 cs_type: "string?",
                 pinvoke_types: &["IntPtr"],
-                decode: "rawId0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawId0)",
+                decode: "rawId0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawId0)",
             },
         ],
         has_is_header: false,
@@ -163,13 +163,13 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "lang",
                 cs_type: "string?",
                 pinvoke_types: &["IntPtr"],
-                decode: "rawLang0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawLang0)",
+                decode: "rawLang0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawLang0)",
             },
             ExtraParam {
                 cs_name: "code",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawCode0)!",
+                decode: "Marshal.PtrToStringUTF8(rawCode0)!",
             },
         ],
         has_is_header: false,
@@ -182,7 +182,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "code",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawCode0)!",
+            decode: "Marshal.PtrToStringUTF8(rawCode0)!",
         }],
         has_is_header: false,
     },
@@ -201,13 +201,13 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "marker",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawMarker0)!",
+                decode: "Marshal.PtrToStringUTF8(rawMarker0)!",
             },
             ExtraParam {
                 cs_name: "text",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawText0)!",
+                decode: "Marshal.PtrToStringUTF8(rawText0)!",
             },
         ],
         has_is_header: false,
@@ -239,7 +239,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "output",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawOutput0)!",
+                decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
             },
         ],
         has_is_header: false,
@@ -271,7 +271,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "output",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawOutput0)!",
+            decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
         }],
         has_is_header: false,
     },
@@ -284,7 +284,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "content",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawContent0)!",
+                decode: "Marshal.PtrToStringUTF8(rawContent0)!",
             },
             ExtraParam {
                 cs_name: "depth",
@@ -303,7 +303,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -315,7 +315,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -327,7 +327,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -339,7 +339,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -351,7 +351,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -363,7 +363,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -375,7 +375,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -402,13 +402,13 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "tagName",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawTagName0)!",
+                decode: "Marshal.PtrToStringUTF8(rawTagName0)!",
             },
             ExtraParam {
                 cs_name: "html",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawHtml0)!",
+                decode: "Marshal.PtrToStringUTF8(rawHtml0)!",
             },
         ],
         has_is_header: false,
@@ -428,7 +428,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -440,7 +440,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -452,7 +452,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "output",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawOutput0)!",
+            decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
         }],
         has_is_header: false,
     },
@@ -465,13 +465,13 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "action",
                 cs_type: "string?",
                 pinvoke_types: &["IntPtr"],
-                decode: "rawAction0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawAction0)",
+                decode: "rawAction0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawAction0)",
             },
             ExtraParam {
                 cs_name: "method",
                 cs_type: "string?",
                 pinvoke_types: &["IntPtr"],
-                decode: "rawMethod0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawMethod0)",
+                decode: "rawMethod0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawMethod0)",
             },
         ],
         has_is_header: false,
@@ -485,19 +485,19 @@ pub const CALLBACKS: &[CallbackSpec] = &[
                 cs_name: "inputType",
                 cs_type: "string",
                 pinvoke_types: &["IntPtr"],
-                decode: "Marshal.PtrToStringAnsi(rawInputType0)!",
+                decode: "Marshal.PtrToStringUTF8(rawInputType0)!",
             },
             ExtraParam {
                 cs_name: "name",
                 cs_type: "string?",
                 pinvoke_types: &["IntPtr"],
-                decode: "rawName0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawName0)",
+                decode: "rawName0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawName0)",
             },
             ExtraParam {
                 cs_name: "value",
                 cs_type: "string?",
                 pinvoke_types: &["IntPtr"],
-                decode: "rawValue0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawValue0)",
+                decode: "rawValue0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawValue0)",
             },
         ],
         has_is_header: false,
@@ -510,7 +510,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -522,7 +522,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "src",
             cs_type: "string?",
             pinvoke_types: &["IntPtr"],
-            decode: "rawSrc0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawSrc0)",
+            decode: "rawSrc0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawSrc0)",
         }],
         has_is_header: false,
     },
@@ -534,7 +534,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "src",
             cs_type: "string?",
             pinvoke_types: &["IntPtr"],
-            decode: "rawSrc0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawSrc0)",
+            decode: "rawSrc0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawSrc0)",
         }],
         has_is_header: false,
     },
@@ -546,7 +546,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "src",
             cs_type: "string?",
             pinvoke_types: &["IntPtr"],
-            decode: "rawSrc0 == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(rawSrc0)",
+            decode: "rawSrc0 == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(rawSrc0)",
         }],
         has_is_header: false,
     },
@@ -570,7 +570,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -589,7 +589,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "text",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawText0)!",
+            decode: "Marshal.PtrToStringUTF8(rawText0)!",
         }],
         has_is_header: false,
     },
@@ -601,7 +601,7 @@ pub const CALLBACKS: &[CallbackSpec] = &[
             cs_name: "output",
             cs_type: "string",
             pinvoke_types: &["IntPtr"],
-            decode: "Marshal.PtrToStringAnsi(rawOutput0)!",
+            decode: "Marshal.PtrToStringUTF8(rawOutput0)!",
         }],
         has_is_header: false,
     },
@@ -612,12 +612,14 @@ pub const CALLBACKS: &[CallbackSpec] = &[
 // ---------------------------------------------------------------------------
 
 /// Returns `(filename, content)` pairs for all visitor-related C# files.
+///
+/// IVisitor.cs and VisitorCallbacks.cs are superseded by IVisitor and VisitorCallbacks
+/// in TraitBridges.cs which use the HtmlVisitorBridge approach. They are intentionally
+/// excluded here; stale committed copies are removed by delete_superseded_visitor_files.
 pub fn gen_visitor_files(namespace: &str) -> Vec<(String, String)> {
     vec![
         ("NodeContext.cs".to_string(), gen_node_context(namespace)),
         ("VisitResult.cs".to_string(), gen_visit_result(namespace)),
-        ("IVisitor.cs".to_string(), gen_ivisitor(namespace)),
-        ("VisitorCallbacks.cs".to_string(), gen_visitor_callbacks(namespace)),
     ]
 }
 
@@ -671,64 +673,53 @@ pub fn gen_convert_with_visitor_method(exception_name: &str, prefix: &str) -> St
     writeln!(out, "    /// </summary>").ok();
     writeln!(
         out,
-        "    public static ConversionResult? ConvertWithVisitor(string html, ConversionOptions? options, IVisitor visitor)"
+        "    public static ConversionResult? ConvertWithVisitor(string html, ConversionOptions? options, IHtmlVisitor visitor)"
     )
     .ok();
     writeln!(out, "    {{").ok();
     writeln!(out, "        ArgumentNullException.ThrowIfNull(html);").ok();
     writeln!(out, "        ArgumentNullException.ThrowIfNull(visitor);").ok();
     writeln!(out).ok();
-    writeln!(out, "        using var callbacks = new VisitorCallbacks(visitor);").ok();
+    writeln!(out, "        using var bridge = new HtmlVisitorBridge(visitor);").ok();
     writeln!(out).ok();
     writeln!(out, "        var optionsHandle = IntPtr.Zero;").ok();
-    writeln!(out, "        if (options != null)").ok();
-    writeln!(out, "        {{").ok();
-    writeln!(
-        out,
-        "            var optionsJson = JsonSerializer.Serialize(options, JsonOptions);"
-    )
-    .ok();
-    writeln!(
-        out,
-        "            optionsHandle = NativeMethods.ConversionOptionsFromJson(optionsJson);"
-    )
-    .ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "        var visitorHandle = NativeMethods.VisitorCreate(callbacks.NativePtr);"
-    )
-    .ok();
-    writeln!(out, "        if (visitorHandle == IntPtr.Zero)").ok();
-    writeln!(out, "        {{").ok();
-    writeln!(
-        out,
-        "            if (optionsHandle != IntPtr.Zero) NativeMethods.ConversionOptionsFree(optionsHandle);"
-    )
-    .ok();
-    writeln!(out, "            throw GetLastError();").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out).ok();
+    writeln!(out, "        var visitorHandle = IntPtr.Zero;").ok();
     writeln!(out, "        try").ok();
     writeln!(out, "        {{").ok();
+    writeln!(out, "            if (options != null)").ok();
+    writeln!(out, "            {{").ok();
+    writeln!(
+        out,
+        "                var optionsJson = JsonSerializer.Serialize(options, JsonOptions);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                optionsHandle = NativeMethods.ConversionOptionsFromJson(optionsJson);"
+    )
+    .ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out).ok();
+    writeln!(
+        out,
+        "            visitorHandle = NativeMethods.VisitorCreate(bridge._vtable);"
+    )
+    .ok();
+    writeln!(out, "            if (visitorHandle == IntPtr.Zero)").ok();
+    writeln!(out, "            {{").ok();
+    writeln!(out, "                throw GetLastError();").ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out).ok();
     writeln!(
         out,
         "            var resultPtr = NativeMethods.ConvertWithVisitor(html, optionsHandle, visitorHandle);"
     )
     .ok();
-    writeln!(
-        out,
-        "            if (optionsHandle != IntPtr.Zero) NativeMethods.ConversionOptionsFree(optionsHandle);"
-    )
-    .ok();
     writeln!(out, "            if (resultPtr == IntPtr.Zero)").ok();
     writeln!(out, "            {{").ok();
-    writeln!(out, "                var err = GetLastError();").ok();
-    writeln!(out, "                if (err.Code != 0) throw err;").ok();
-    writeln!(out, "                return null;").ok();
+    writeln!(out, "                throw GetLastError();").ok();
     writeln!(out, "            }}").ok();
-    writeln!(out, "            var json = Marshal.PtrToStringAnsi(resultPtr);").ok();
+    writeln!(out, "            var json = Marshal.PtrToStringUTF8(resultPtr);").ok();
     writeln!(out, "            NativeMethods.FreeString(resultPtr);").ok();
     writeln!(
         out,
@@ -738,7 +729,16 @@ pub fn gen_convert_with_visitor_method(exception_name: &str, prefix: &str) -> St
     writeln!(out, "        }}").ok();
     writeln!(out, "        finally").ok();
     writeln!(out, "        {{").ok();
-    writeln!(out, "            NativeMethods.VisitorFree(visitorHandle);").ok();
+    writeln!(
+        out,
+        "            if (visitorHandle != IntPtr.Zero) NativeMethods.VisitorFree(visitorHandle);"
+    )
+    .ok();
+    writeln!(
+        out,
+        "            if (optionsHandle != IntPtr.Zero) NativeMethods.ConversionOptionsFree(optionsHandle);"
+    )
+    .ok();
     writeln!(out, "        }}").ok();
     writeln!(out, "    }}").ok();
     let _ = exception_name;
@@ -762,7 +762,7 @@ fn gen_node_context(namespace: &str) -> String {
     writeln!(out, "/// <summary>Context passed to every visitor callback.</summary>").ok();
     writeln!(out, "public record NodeContext(").ok();
     writeln!(out, "    /// <summary>Coarse-grained node type tag.</summary>").ok();
-    writeln!(out, "    int NodeType,").ok();
+    writeln!(out, "    NodeType NodeType,").ok();
     writeln!(out, "    /// <summary>HTML element tag name (e.g. \"div\").</summary>").ok();
     writeln!(out, "    string TagName,").ok();
     writeln!(out, "    /// <summary>DOM depth (0 = root).</summary>").ok();
@@ -829,353 +829,6 @@ fn gen_visit_result(namespace: &str) -> String {
     out
 }
 
-fn gen_ivisitor(namespace: &str) -> String {
-    let mut out = String::with_capacity(4096);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "#nullable enable").ok();
-    writeln!(out).ok();
-    writeln!(out, "using System;").ok();
-    writeln!(out).ok();
-    writeln!(out, "namespace {namespace};").ok();
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "/// <summary>Visitor interface for the HTML-to-Markdown conversion pipeline.</summary>"
-    )
-    .ok();
-    writeln!(out, "public interface IVisitor").ok();
-    writeln!(out, "{{").ok();
-    for spec in CALLBACKS {
-        let params = iface_param_str(spec);
-        writeln!(out, "    /// <summary>{}</summary>", spec.doc).ok();
-        writeln!(
-            out,
-            "    VisitResult {}({}) => new VisitResult.Continue();",
-            spec.cs_method, params
-        )
-        .ok();
-    }
-    writeln!(out, "}}").ok();
-    out
-}
-
-/// Generate `VisitorCallbacks.cs` which holds `GCHandle`s for all 40 delegates and
-/// writes them into a `Marshal.AllocHGlobal` block matching the C struct layout.
-fn gen_visitor_callbacks(namespace: &str) -> String {
-    let mut out = String::with_capacity(32_768);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "#nullable enable").ok();
-    writeln!(out).ok();
-    writeln!(out, "using System;").ok();
-    writeln!(out, "using System.Runtime.InteropServices;").ok();
-    writeln!(out).ok();
-    writeln!(out, "namespace {namespace};").ok();
-    writeln!(out).ok();
-    writeln!(out, "/// <summary>").ok();
-    writeln!(out, "/// Allocates P/Invoke delegates for a IVisitor and assembles").ok();
-    writeln!(out, "/// the C HTMHtmVisitorCallbacks struct in unmanaged memory.").ok();
-    writeln!(out, "/// </summary>").ok();
-    writeln!(out, "internal sealed class VisitorCallbacks : IDisposable").ok();
-    writeln!(out, "{{").ok();
-    writeln!(out, "    private readonly IVisitor _visitor;").ok();
-    writeln!(
-        out,
-        "    private readonly IntPtr _nativeStruct; // HTMHtmVisitorCallbacks"
-    )
-    .ok();
-    writeln!(out, "    private bool _disposed;").ok();
-    writeln!(out).ok();
-
-    // Declare delegate types and delegate fields
-    for spec in CALLBACKS {
-        let delegate_type = delegate_type_name(spec.cs_method);
-        let pinvoke_params = delegate_pinvoke_params(spec);
-        writeln!(out, "    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]").ok();
-        writeln!(
-            out,
-            "    private delegate int {}Delegate({});",
-            delegate_type, pinvoke_params
-        )
-        .ok();
-        writeln!(
-            out,
-            "    private readonly {}Delegate _del{};",
-            delegate_type, spec.cs_method
-        )
-        .ok();
-    }
-
-    writeln!(out).ok();
-    writeln!(out, "    internal IntPtr NativePtr => _nativeStruct;").ok();
-    writeln!(out).ok();
-
-    // Constructor
-    let num_slots = CALLBACKS.len() + 1; // user_data + callbacks
-    writeln!(out, "    internal VisitorCallbacks(IVisitor visitor)").ok();
-    writeln!(out, "    {{").ok();
-    writeln!(out, "        _visitor = visitor;").ok();
-    writeln!(out).ok();
-
-    // Create delegates
-    for spec in CALLBACKS {
-        let dt = delegate_type_name(spec.cs_method);
-        writeln!(
-            out,
-            "        _del{} = new {}Delegate(Handle{});",
-            spec.cs_method, dt, spec.cs_method
-        )
-        .ok();
-    }
-
-    // Allocate struct: user_data + 40 IntPtr slots = 41 * IntPtr.Size
-    writeln!(out).ok();
-    writeln!(
-        out,
-        "        // HTMHtmVisitorCallbacks = user_data + {n} callback function pointers",
-        n = CALLBACKS.len()
-    )
-    .ok();
-    writeln!(
-        out,
-        "        _nativeStruct = Marshal.AllocHGlobal(IntPtr.Size * {num_slots});"
-    )
-    .ok();
-    writeln!(
-        out,
-        "        // Slot 0: user_data = IntPtr.Zero (visitor captured via delegate closure)"
-    )
-    .ok();
-    writeln!(out, "        Marshal.WriteIntPtr(_nativeStruct, 0, IntPtr.Zero);").ok();
-
-    for (i, spec) in CALLBACKS.iter().enumerate() {
-        let offset = (i + 1) * 8; // assuming 8-byte pointers (64-bit)
-        writeln!(
-            out,
-            "        Marshal.WriteIntPtr(_nativeStruct, {offset}, Marshal.GetFunctionPointerForDelegate(_del{}));",
-            spec.cs_method
-        )
-        .ok();
-    }
-
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
-    // Handle methods
-    for spec in CALLBACKS {
-        gen_handle_method(&mut out, spec);
-    }
-
-    // DecodeNodeContext helper
-    writeln!(out, "    private static NodeContext DecodeNodeContext(IntPtr ctxPtr)").ok();
-    writeln!(out, "    {{").ok();
-    writeln!(
-        out,
-        "        // HTMHtmNodeContext: int32 node_type, char* tag_name, uintptr depth,"
-    )
-    .ok();
-    writeln!(
-        out,
-        "        //                    uintptr index_in_parent, char* parent_tag, int32 is_inline"
-    )
-    .ok();
-    writeln!(out, "        int nodeType = Marshal.ReadInt32(ctxPtr, 0);").ok();
-    writeln!(out, "        var tagNamePtr = Marshal.ReadIntPtr(ctxPtr, 8);").ok();
-    writeln!(
-        out,
-        "        string tagName = Marshal.PtrToStringAnsi(tagNamePtr) ?? string.Empty;"
-    )
-    .ok();
-    writeln!(out, "        ulong depth = (ulong)(long)Marshal.ReadInt64(ctxPtr, 16);").ok();
-    writeln!(
-        out,
-        "        ulong indexInParent = (ulong)(long)Marshal.ReadInt64(ctxPtr, 24);"
-    )
-    .ok();
-    writeln!(out, "        var parentTagPtr = Marshal.ReadIntPtr(ctxPtr, 32);").ok();
-    writeln!(
-        out,
-        "        string? parentTag = parentTagPtr == IntPtr.Zero ? null : Marshal.PtrToStringAnsi(parentTagPtr);"
-    )
-    .ok();
-    writeln!(out, "        int isInlineRaw = Marshal.ReadInt32(ctxPtr, 40);").ok();
-    writeln!(
-        out,
-        "        return new NodeContext(nodeType, tagName, depth, indexInParent, parentTag, isInlineRaw != 0);"
-    )
-    .ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
-    // DecodeCells helper
-    writeln!(
-        out,
-        "    private static string[] DecodeCells(IntPtr cellsPtr, long count)"
-    )
-    .ok();
-    writeln!(out, "    {{").ok();
-    writeln!(out, "        var result = new string[count];").ok();
-    writeln!(out, "        for (long i = 0; i < count; i++)").ok();
-    writeln!(out, "        {{").ok();
-    writeln!(
-        out,
-        "            var ptr = Marshal.ReadIntPtr(cellsPtr, (int)(i * IntPtr.Size));"
-    )
-    .ok();
-    writeln!(
-        out,
-        "            result[i] = Marshal.PtrToStringAnsi(ptr) ?? string.Empty;"
-    )
-    .ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "        return result;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
-    // EncodeVisitResult helper
-    writeln!(
-        out,
-        "    private static int EncodeVisitResult(VisitResult result, IntPtr outCustom, IntPtr outLen)"
-    )
-    .ok();
-    writeln!(out, "    {{").ok();
-    writeln!(out, "        return result switch").ok();
-    writeln!(out, "        {{").ok();
-    writeln!(out, "            VisitResult.Continue => 0,").ok();
-    writeln!(out, "            VisitResult.Skip => 1,").ok();
-    writeln!(out, "            VisitResult.PreserveHtml => 2,").ok();
-    writeln!(
-        out,
-        "            VisitResult.Custom c => EncodeString(c.Markdown, outCustom, outLen, 3),"
-    )
-    .ok();
-    writeln!(
-        out,
-        "            VisitResult.Error e => EncodeString(e.Message, outCustom, outLen, 4),"
-    )
-    .ok();
-    writeln!(out, "            _ => 0").ok();
-    writeln!(out, "        }};").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
-    writeln!(
-        out,
-        "    private static int EncodeString(string text, IntPtr outCustom, IntPtr outLen, int code)"
-    )
-    .ok();
-    writeln!(out, "    {{").ok();
-    writeln!(out, "        var bytes = System.Text.Encoding.UTF8.GetBytes(text);").ok();
-    writeln!(out, "        var buf = Marshal.AllocHGlobal(bytes.Length + 1);").ok();
-    writeln!(out, "        Marshal.Copy(bytes, 0, buf, bytes.Length);").ok();
-    writeln!(out, "        Marshal.WriteByte(buf, bytes.Length, 0);").ok();
-    writeln!(out, "        Marshal.WriteIntPtr(outCustom, buf);").ok();
-    writeln!(out, "        Marshal.WriteInt64(outLen, (long)bytes.Length);").ok();
-    writeln!(out, "        return code;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
-    // Dispose
-    writeln!(out, "    public void Dispose()").ok();
-    writeln!(out, "    {{").ok();
-    writeln!(out, "        if (_disposed) return;").ok();
-    writeln!(out, "        _disposed = true;").ok();
-    writeln!(out, "        Marshal.FreeHGlobal(_nativeStruct);").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    out
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn delegate_type_name(cs_method: &str) -> String {
-    cs_method.to_string()
-}
-
-fn iface_param_str(spec: &CallbackSpec) -> String {
-    let mut params = vec!["NodeContext context".to_string()];
-    for ep in spec.extra {
-        params.push(format!("{} {}", ep.cs_type, ep.cs_name));
-    }
-    if spec.has_is_header {
-        params.push("bool isHeader".to_string());
-    }
-    params.join(", ")
-}
-
-/// Build the P/Invoke delegate parameter list (all raw C types).
-fn delegate_pinvoke_params(spec: &CallbackSpec) -> String {
-    let mut params = vec!["IntPtr ctx".to_string(), "IntPtr userData".to_string()];
-    for ep in spec.extra {
-        for (idx, ptype) in ep.pinvoke_types.iter().enumerate() {
-            params.push(format!("{ptype} {}", raw_var_name(ep.cs_name, idx)));
-        }
-    }
-    if spec.has_is_header {
-        params.push("int isHeader".to_string());
-    }
-    params.push("IntPtr outCustom".to_string());
-    params.push("IntPtr outLen".to_string());
-    params.join(", ")
-}
-
-/// Generate one `Handle*` method inside `VisitorCallbacks`.
-fn gen_handle_method(out: &mut String, spec: &CallbackSpec) {
-    let params = delegate_pinvoke_params(spec);
-    writeln!(out, "    private int Handle{}({})", spec.cs_method, params).ok();
-    writeln!(out, "    {{").ok();
-    writeln!(out, "        try").ok();
-    writeln!(out, "        {{").ok();
-    writeln!(out, "            var context = DecodeNodeContext(ctx);").ok();
-
-    // Decode extra params
-    for ep in spec.extra {
-        let mut decode = ep.decode.to_string();
-        for (idx, _) in ep.pinvoke_types.iter().enumerate() {
-            let placeholder = format!("raw{}{}", capitalize(ep.cs_name), idx);
-            let var = raw_var_name(ep.cs_name, idx);
-            decode = decode.replace(&placeholder, &var);
-        }
-        writeln!(out, "            var {} = {};", ep.cs_name, decode).ok();
-    }
-    if spec.has_is_header {
-        writeln!(out, "            var goIsHeader = isHeader != 0;").ok();
-    }
-
-    let mut call_args = vec!["context".to_string()];
-    for ep in spec.extra {
-        call_args.push(ep.cs_name.to_string());
-    }
-    if spec.has_is_header {
-        call_args.push("goIsHeader".to_string());
-    }
-
-    writeln!(
-        out,
-        "            var result = _visitor.{}({});",
-        spec.cs_method,
-        call_args.join(", ")
-    )
-    .ok();
-    writeln!(out, "            return EncodeVisitResult(result, outCustom, outLen);").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "        catch").ok();
-    writeln!(out, "        {{").ok();
-    writeln!(out, "            return 0;").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-}
-
-fn raw_var_name(cs_name: &str, idx: usize) -> String {
-    format!("raw{}{idx}", capitalize(cs_name))
-}
-
-fn capitalize(s: &str) -> String {
-    let mut chars = s.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-    }
-}
+// gen_ivisitor and gen_visitor_callbacks were removed: IVisitor and VisitorCallbacks
+// are now handwritten in TraitBridges.cs (HtmlVisitorBridge pattern). Generating them
+// here produced dead code that conflicted with the handwritten implementations.

@@ -771,6 +771,7 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        cpu_bound_functions: Vec::new(),
     });
     let rendered = render_extra_deps(&config, Language::Python);
     // Python-level "2.0" should win over crate-level "1.0"
@@ -1018,6 +1019,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        cpu_bound_functions: Vec::new(),
     });
     config.trait_bridges = vec![TraitBridgeConfig {
         trait_name: "HtmlVisitor".to_string(),
@@ -1072,6 +1074,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_c
         rename_fields: Default::default(),
         run_wrapper: None,
         extra_lint_paths: Vec::new(),
+        cpu_bound_functions: Vec::new(),
     });
     config.trait_bridges = vec![TraitBridgeConfig {
         trait_name: "Parser".to_string(),

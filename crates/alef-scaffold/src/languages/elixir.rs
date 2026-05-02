@@ -3,7 +3,7 @@ use crate::{
     scaffold_meta,
 };
 use alef_core::backend::GeneratedFile;
-use alef_core::config::{Language, ResolvedCrateConfig};
+use alef_core::config::{BridgeBinding, Language, ResolvedCrateConfig};
 use alef_core::ir::ApiSurface;
 use alef_core::template_versions as tv;
 use heck::{ToPascalCase, ToSnakeCase};
@@ -101,6 +101,19 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let version = &api.version;
     let pkg_dir = config.package_dir(Language::Elixir);
 
+    // Jason is required whenever visitor bridges are active (options_field or function_param
+    // mode) because the visitor receive loop uses Jason.decode! / Jason.encode!.
+    let has_visitor_bridges = config.trait_bridges.iter().any(|b| {
+        !b.exclude_languages
+            .iter()
+            .any(|l| l == "elixir" || l == "rustler")
+    });
+    let jason_dep = if has_visitor_bridges {
+        format!("\n      {{:jason, \"{jason}\"}},", jason = tv::hex::JASON)
+    } else {
+        String::new()
+    };
+
     // Determine if the generated Elixir source files live outside the default `lib/`
     // subdirectory. If so, emit an `elixirc_paths` entry so Mix can find them.
     let elixirc_paths_line = if let Some(elixir_out) = config.explicit_output.elixir.as_ref() {
@@ -147,7 +160,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
   end
 
   defp deps do
-    [
+    [{jason_dep}
       {{:rustler, "{rustler_hex}", optional: true, runtime: false}},
       {{:rustler_precompiled, "{rustler_precompiled}"}},
       {{:credo, "{credo}", only: [:dev, :test], runtime: false}},
@@ -161,6 +174,7 @@ end
         nif_atom = format_args!("{app_name}_nif"),
         version = version,
         elixirc_paths = elixirc_paths_line,
+        jason_dep = jason_dep,
         description = meta.description,
         license = meta.license,
         repository = meta.repository,
@@ -227,13 +241,19 @@ end
         },
     ];
 
-    // Generate trait bridge GenServer modules
+    // Generate trait bridge GenServer modules.
+    // Options-field bridges use inline visitor maps passed alongside the call — they do
+    // not use a registered GenServer, so skip them here.
     for bridge_cfg in &config.trait_bridges {
         if bridge_cfg
             .exclude_languages
             .iter()
             .any(|l| l == "elixir" || l == "rustler")
         {
+            continue;
+        }
+        // Skip options-field bridges — visitor is passed inline, no GenServer needed.
+        if bridge_cfg.bind_via == BridgeBinding::OptionsField {
             continue;
         }
         let trait_name_snake = bridge_cfg.trait_name.to_snake_case();
@@ -278,7 +298,7 @@ end
       args = Jason.decode!(args_json)
 
       # Dispatch to the implementation module
-      result = apply(impl_module, String.to_atom(method), args)
+      result = apply(impl_module, String.to_existing_atom(method), args)
 
       # Send result back to Rust
       {native_mod}.complete_trait_call(reply_id, Jason.encode!(result))

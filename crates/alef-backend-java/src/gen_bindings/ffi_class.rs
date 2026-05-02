@@ -113,8 +113,8 @@ pub(crate) fn gen_main_class(
     if body.contains("CompletionException") {
         writeln!(out, "import java.util.concurrent.CompletionException;").ok();
     }
-    // Only import the short name `ObjectMapper` when it's used as a type reference (not just via
-    // `createObjectMapper()` which uses fully qualified names internally).
+    // Only import the short name `ObjectMapper` when it's used as a type reference.
+    // The factory method and MAPPER field use fully qualified names internally.
     // Check for " ObjectMapper" (space before) which indicates use as a type, not a method name suffix.
     if body.contains(" ObjectMapper") {
         writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;").ok();
@@ -379,14 +379,14 @@ pub(crate) fn gen_sync_function_method(
             if is_optional_return {
                 writeln!(
                     out,
-                    "            return Optional.of(createObjectMapper().readValue(json, {}.class));",
+                    "            return Optional.of(MAPPER.readValue(json, {}.class));",
                     return_type_name
                 )
                 .ok();
             } else {
                 writeln!(
                     out,
-                    "            return createObjectMapper().readValue(json, {}.class);",
+                    "            return MAPPER.readValue(json, {}.class);",
                     return_type_name
                 )
                 .ok();
@@ -642,7 +642,7 @@ mod tests {
         );
 
         assert!(out.contains("return Optional.empty();"));
-        assert!(out.contains("return Optional.of(createObjectMapper().readValue(json, EmbeddingPreset.class));"));
+        assert!(out.contains("return Optional.of(MAPPER.readValue(json, EmbeddingPreset.class));"));
     }
 
     #[test]

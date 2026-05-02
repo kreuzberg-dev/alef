@@ -160,6 +160,10 @@ impl Backend for CsharpBackend {
                     generated_header: true,
                 });
             }
+            // IVisitor.cs and VisitorCallbacks.cs were removed from gen_visitor_files() in favour
+            // of the HtmlVisitorBridge path in TraitBridges.cs.  Delete any stale copies left
+            // over from earlier generator runs.
+            delete_superseded_visitor_files(&base_path)?;
         } else {
             // When visitor_callbacks is disabled, delete stale files from prior runs
             // to prevent CS8632 warnings (nullable context not enabled).
@@ -357,10 +361,28 @@ fn gen_directory_build_props() -> String {
 <Project>\n  \
 <PropertyGroup>\n    \
 <Nullable>enable</Nullable>\n    \
-<LangVersion>latest</LangVersion>\n  \
+<LangVersion>latest</LangVersion>\n    \
+<TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n  \
 </PropertyGroup>\n\
 </Project>\n"
         .to_string()
+}
+
+/// Delete `IVisitor.cs` and `VisitorCallbacks.cs` when visitor_callbacks is enabled but the
+/// modern `HtmlVisitorBridge` / `TraitBridges.cs` path supersedes them.
+/// These files are no longer emitted by `gen_visitor_files()` but may exist on disk from older
+/// generator runs.
+fn delete_superseded_visitor_files(base_path: &std::path::Path) -> anyhow::Result<()> {
+    let superseded = ["IVisitor.cs", "VisitorCallbacks.cs"];
+    for filename in superseded {
+        let path = base_path.join(filename);
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|e| {
+                anyhow::anyhow!("Failed to delete superseded visitor file {}: {}", path.display(), e)
+            })?;
+        }
+    }
+    Ok(())
 }
 
 /// Delete stale visitor-related files when visitor_callbacks is disabled.

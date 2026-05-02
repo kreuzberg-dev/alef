@@ -41,7 +41,6 @@ pub(super) fn render_tsconfig() -> String {
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
-    "strictNullChecks": false,
     "esModuleInterop": true,
     "skipLibCheck": true
   },
