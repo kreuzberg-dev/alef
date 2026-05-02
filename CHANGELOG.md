@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(cli): fix alef-verify ↔ host-formatter circular drift in `generate` and `all` commands.
+  `format_generated` was called with only the bindings slice, so languages where only stubs
+  changed (cache-hit bindings) were never formatted before `finalize_hashes` ran. Host
+  formatters (ruff, mix format, php-cs-fixer, gofmt) would then reformat the unformatted
+  stubs, making the embedded `alef:hash:` line stale and causing `alef verify` to report
+  drift on every run. Fix: pass `bindings + stubs` combined to `format_generated` in both
+  `Commands::Generate` and `Commands::All`, and track stub-changed languages in
+  `changed_languages` in `Commands::All`.
+
 - fix(php): respect namespace config in php_autoload_namespace. After v0.14.0, the namespace
   emission logic regressed and ignored the `[crates.php] namespace` configuration, instead
   splitting the extension name on underscores. Now respects explicit namespace override.

@@ -622,7 +622,14 @@ fn main() -> Result<()> {
 
                 if any_written && !no_format && !changed_languages.is_empty() {
                     eprintln!("Formatting generated files...");
-                    pipeline::format_generated(&files, resolved_cfg, &base_dir, Some(&changed_languages));
+                    // Include stubs in the format pass so that languages where only
+                    // stubs changed (no bindings written) still trigger their
+                    // formatter (e.g. ruff on .pyi). Without this, `format_generated`
+                    // would iterate over `files` (bindings only) and skip the language
+                    // entirely, leaving stub content unformatted before hash finalisation.
+                    let mut files_to_format = files.clone();
+                    files_to_format.extend(stub_files.clone());
+                    pipeline::format_generated(&files_to_format, resolved_cfg, &base_dir, Some(&changed_languages));
                     let changed_list: Vec<alef_core::config::Language> = changed_languages.iter().copied().collect();
                     pipeline::fmt_post_generate(resolved_cfg, &changed_list);
                 }
@@ -1200,6 +1207,11 @@ fn main() -> Result<()> {
                 let stub_count = if !stubs_match || clean {
                     let count = pipeline::write_files(&stubs, &base_dir)?;
                     let _ = cache::write_generation_hashes(&stubs_cache_key, &stub_hashes);
+                    for (lang, _) in &stubs {
+                        // Track stub-changed languages so formatters run even when
+                        // no bindings changed for this language (e.g. ruff on .pyi).
+                        changed_languages.insert(*lang);
+                    }
                     count
                 } else {
                     eprintln!("  [stubs] up to date (skipping)");
@@ -1316,7 +1328,11 @@ fn main() -> Result<()> {
                 // Both are scoped to languages that actually regenerated this run.
                 if !no_format && !changed_languages.is_empty() {
                     eprintln!("Formatting generated files...");
-                    pipeline::format_generated(&bindings, resolved_cfg, &base_dir, Some(&changed_languages));
+                    // Include stubs in the format pass so that languages where only
+                    // stubs changed (no bindings written) still trigger their formatter.
+                    let mut files_to_format = bindings.clone();
+                    files_to_format.extend(stubs.clone());
+                    pipeline::format_generated(&files_to_format, resolved_cfg, &base_dir, Some(&changed_languages));
 
                     eprintln!("Running formatters...");
                     let changed_list: Vec<alef_core::config::Language> = changed_languages.iter().copied().collect();
