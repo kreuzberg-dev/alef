@@ -24,6 +24,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- feat(backend-pyo3): wire `bind_via = "options_field"` bridge support. When a
+  `[[trait_bridges]]` entry sets `bind_via = "options_field"`, the PyO3 backend now:
+  - Emits `visitor: Option<Py<PyAny>>` on the `ConversionOptions` pyclass (overriding
+    the IR-sanitized `String` type via a targeted post-process rewrite).
+  - Switches the `ConversionOptions` pyclass attribute from `frozen` to `unsendable`
+    because the struct embeds `Rc<RefCell<dyn HtmlVisitor>>` via `Py<PyAny>` and is
+    `!Send`; `unsendable` enforces single-thread GIL access.
+  - Generates a `convert` wrapper that extracts `options.visitor`, builds a
+    `PyHtmlVisitorBridge`, sets it on the core `ConversionOptions.visitor` field via
+    `std::rc::Rc::new(std::cell::RefCell::new(bridge)) as VisitorHandle`, then calls
+    core convert — no separate `convert_with_visitor` export.
+  - Updates `.pyi` stubs: the visitor field on `ConversionOptions` is typed as
+    `object | None` instead of `str | None`.
+  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+  the pyo3 `trait_bridge` module.
+
 - feat(backend-napi): wire `bind_via = "options_field"` bridge support — visitor field on
   `JsConversionOptions` is emitted as `Option<Object<'static>>`, the `convert` wrapper
   extracts it, builds the `JsHtmlVisitorBridge`, sets it on core options, and calls core;
