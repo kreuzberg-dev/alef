@@ -151,8 +151,12 @@ fn render_test_file(
     // Determine if any fixture actually uses the pkg import.
     // Fixtures without mock_response are emitted as t.Skip() stubs and don't reference the
     // package — omit the import when no fixture needs it to avoid the Go "imported and not
-    // used" compile error.
-    let needs_pkg = fixtures.iter().any(|f| f.mock_response.is_some());
+    // used" compile error. Visitor fixtures reference the package types (NodeContext,
+    // VisitResult, VisitResult* helpers) in struct method signatures emitted at file scope,
+    // so they also require the import even when the test body itself is a Skip stub.
+    let needs_pkg = fixtures
+        .iter()
+        .any(|f| f.mock_response.is_some() || f.visitor.is_some());
 
     // Determine if we need the "os" import (mock_url args, or HTTP fixtures
     // that read MOCK_SERVER_URL via os.Getenv).
