@@ -612,10 +612,8 @@ fn render_test_function(
     // Result-shape flags describe the Rust core's return type and apply to every
     // binding equally. Prefer call-level values; fall back to per-language
     // overrides for backwards compatibility with older alef.tomls.
-    let result_is_simple = call_config.result_is_simple
-        || rust_overrides.is_some_and(|o| o.result_is_simple);
-    let result_is_vec = call_config.result_is_vec
-        || rust_overrides.is_some_and(|o| o.result_is_vec);
+    let result_is_simple = call_config.result_is_simple || rust_overrides.is_some_and(|o| o.result_is_simple);
+    let result_is_vec = call_config.result_is_vec || rust_overrides.is_some_and(|o| o.result_is_vec);
     // When result_is_option is set, the function returns Option<T>. Field-path
     // assertions unwrap first via `.as_ref().expect("Option should be Some")`.
     let result_is_option = rust_overrides.is_some_and(|o| o.result_is_option);

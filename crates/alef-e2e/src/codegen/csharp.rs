@@ -511,8 +511,7 @@ fn render_test_method(
     // Per-call overrides: result shape, void returns, extra trailing args.
     // Pull `result_is_simple` from the per-call config first (call-level value
     // wins, then per-language override, then the top-level call's value).
-    let per_call_result_is_simple =
-        call_config.result_is_simple || cs_overrides.is_some_and(|o| o.result_is_simple);
+    let per_call_result_is_simple = call_config.result_is_simple || cs_overrides.is_some_and(|o| o.result_is_simple);
     let effective_result_is_simple = result_is_simple || per_call_result_is_simple;
     let returns_void = call_config.returns_void;
     let extra_args_slice: &[String] = cs_overrides.map_or(&[], |o| o.extra_args.as_slice());

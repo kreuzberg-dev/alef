@@ -402,6 +402,26 @@ fn render_test_file(
     out
 }
 
+/// Return `true` when a non-HTTP fixture can be exercised by calling the Go
+/// binding directly (i.e. the resolved call config exposes a Go-callable
+/// function via `[e2e.call.overrides.go]` `function` or the base call
+/// `function` field).
+fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eConfig) -> bool {
+    // HTTP fixtures are handled by render_http_test_function — not our concern here.
+    if fixture.is_http_test() {
+        return false;
+    }
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    // A Go override with an explicit function name is the primary signal.
+    let go_function = call_config.overrides.get("go").and_then(|o| o.function.as_deref());
+    let base_function = if call_config.function.is_empty() {
+        None
+    } else {
+        Some(call_config.function.as_str())
+    };
+    go_function.or(base_function).is_some()
+}
+
 fn render_test_function(
     out: &mut String,
     fixture: &Fixture,
@@ -438,12 +458,31 @@ fn render_test_function(
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let lang = "go";
     let overrides = call_config.overrides.get(lang);
-    let function_name = to_go_name(
+
+    // Select the function name: when the fixture includes a visitor and a
+    // `visitor_function` override is configured, use the visitor-accepting
+    // entry point (e.g. `ConvertWithVisitor`) instead of the plain function.
+    let base_function_name = if fixture.visitor.is_some() {
         overrides
-            .and_then(|o| o.function.as_ref())
-            .map(String::as_str)
-            .unwrap_or(&call_config.function),
-    );
+            .and_then(|o| o.visitor_function.as_deref())
+            .or_else(|| {
+                e2e_config
+                    .call
+                    .overrides
+                    .get(lang)
+                    .and_then(|o| o.visitor_function.as_deref())
+            })
+            .unwrap_or_else(|| {
+                overrides
+                    .and_then(|o| o.function.as_deref())
+                    .unwrap_or(&call_config.function)
+            })
+    } else {
+        overrides
+            .and_then(|o| o.function.as_deref())
+            .unwrap_or(&call_config.function)
+    };
+    let function_name = to_go_name(base_function_name);
     let result_var = &call_config.result_var;
     let args = &call_config.args;
 
@@ -480,10 +519,26 @@ fn render_test_function(
             .and_then(|o| o.options_type.as_deref())
     });
 
+    // Whether json_object options are passed as a pointer (*OptionsType).
+    let call_options_ptr = overrides.map(|o| o.options_ptr).unwrap_or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get("go")
+            .map(|o| o.options_ptr)
+            .unwrap_or(false)
+    });
+
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (mut setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, import_alias, call_options_type, &fixture.id);
+    let (mut setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        import_alias,
+        call_options_type,
+        &fixture.id,
+        call_options_ptr,
+    );
 
     // Build visitor if present — struct is at package level, just instantiate here.
     let mut visitor_arg = String::new();
@@ -877,12 +932,17 @@ fn render_http_test_function(out: &mut String, fixture: &Fixture, http: &HttpFix
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
 /// Returns `(setup_lines, args_string)`.
+///
+/// `options_ptr` — when `true`, `json_object` args with an `options_type` are
+/// passed as a Go pointer (`*OptionsType`): absent/empty → `nil`, present →
+/// `&varName` after JSON unmarshal.
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     import_alias: &str,
     options_type: Option<&str>,
     fixture_id: &str,
+    options_ptr: bool,
 ) -> (Vec<String>, String) {
     use heck::ToUpperCamelCase;
 
@@ -966,8 +1026,11 @@ fn build_args_and_setup(
                         parts.push("nil".to_string());
                     }
                     "json_object" => {
-                        // Optional config struct → zero-value struct.
-                        if let Some(opts_type) = options_type {
+                        if options_ptr {
+                            // Pointer options type (*OptionsType): absent → nil.
+                            parts.push("nil".to_string());
+                        } else if let Some(opts_type) = options_type {
+                            // Value options type: zero-value struct.
                             parts.push(format!("{import_alias}.{opts_type}{{}}"));
                         } else {
                             parts.push("nil".to_string());
@@ -986,7 +1049,10 @@ fn build_args_and_setup(
                     "float" | "number" => "0.0".to_string(),
                     "bool" | "boolean" => "false".to_string(),
                     "json_object" => {
-                        if let Some(opts_type) = options_type {
+                        if options_ptr {
+                            // Pointer options type (*OptionsType): absent → nil.
+                            "nil".to_string()
+                        } else if let Some(opts_type) = options_type {
                             format!("{import_alias}.{opts_type}{{}}")
                         } else {
                             "nil".to_string()
@@ -1004,7 +1070,10 @@ fn build_args_and_setup(
                         let is_array = v.is_array();
                         let is_empty_obj = !is_array && v.is_object() && v.as_object().is_some_and(|o| o.is_empty());
                         if is_empty_obj {
-                            if let Some(opts_type) = options_type {
+                            if options_ptr {
+                                // Pointer options type: empty object → nil.
+                                parts.push("nil".to_string());
+                            } else if let Some(opts_type) = options_type {
                                 parts.push(format!("{import_alias}.{opts_type}{{}}"));
                             } else {
                                 parts.push("nil".to_string());
@@ -1020,13 +1089,27 @@ fn build_args_and_setup(
                             parts.push(var_name.to_string());
                         } else if let Some(opts_type) = options_type {
                             // Object with known type — unmarshal into typed struct.
-                            let json_str = serde_json::to_string(v).unwrap_or_default();
+                            // When options_ptr is set, the Go struct uses snake_case JSON
+                            // field tags and lowercase/snake_case enum values.  Remap the
+                            // fixture's camelCase keys and PascalCase enum string values.
+                            let remapped_v = if options_ptr {
+                                convert_json_for_go(v.clone())
+                            } else {
+                                v.clone()
+                            };
+                            let json_str = serde_json::to_string(&remapped_v).unwrap_or_default();
                             let go_literal = go_string_literal(&json_str);
                             let var_name = &arg.name;
                             setup_lines.push(format!(
                                 "var {var_name} {import_alias}.{opts_type}\n\tif err := json.Unmarshal([]byte({go_literal}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
                             ));
-                            parts.push(var_name.to_string());
+                            // Pass as pointer when options_ptr is set.
+                            let arg_expr = if options_ptr {
+                                format!("&{var_name}")
+                            } else {
+                                var_name.to_string()
+                            };
+                            parts.push(arg_expr);
                         } else {
                             parts.push(json_to_go(v));
                         }
@@ -1947,6 +2030,70 @@ fn build_go_method_call(
 }
 
 /// Convert a `serde_json::Value` to a Go literal string.
+/// Recursively convert a JSON value for Go struct unmarshalling.
+///
+/// The Go binding's `ConversionOptions` struct uses:
+/// - `snake_case` JSON field tags (e.g. `"code_block_style"` not `"codeBlockStyle"`)
+/// - lowercase/snake_case string values for enums (e.g. `"indented"`, `"atx_closed"`)
+///
+/// Fixture JSON uses camelCase keys and PascalCase enum values (Python/TS conventions).
+/// This function remaps both so the generated Go tests can unmarshal correctly.
+fn convert_json_for_go(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let new_map: serde_json::Map<String, serde_json::Value> = map
+                .into_iter()
+                .map(|(k, v)| (camel_to_snake_case(&k), convert_json_for_go(v)))
+                .collect();
+            serde_json::Value::Object(new_map)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(arr.into_iter().map(convert_json_for_go).collect()),
+        serde_json::Value::String(s) => {
+            // Convert PascalCase enum values to snake_case.
+            // Only convert values that look like PascalCase (start with uppercase, no spaces).
+            serde_json::Value::String(pascal_to_snake_case(&s))
+        }
+        other => other,
+    }
+}
+
+/// Convert a camelCase or PascalCase string to snake_case.
+fn camel_to_snake_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut prev_upper = false;
+    for (i, c) in s.char_indices() {
+        if c.is_uppercase() {
+            if i > 0 && !prev_upper {
+                result.push('_');
+            }
+            result.push(c.to_lowercase().next().unwrap_or(c));
+            prev_upper = true;
+        } else {
+            if prev_upper && i > 1 {
+                // Handles sequences like "URLPath" → "url_path": insert _ before last uppercase
+                // when transitioning from a run of uppercase back to lowercase.
+                // This is tricky — use simple approach: detect Aa pattern.
+            }
+            result.push(c);
+            prev_upper = false;
+        }
+    }
+    result
+}
+
+/// Convert a PascalCase string to snake_case (for enum values).
+///
+/// Only converts if the string looks like PascalCase (starts uppercase, no spaces/underscores).
+/// Values that are already lowercase/snake_case are returned unchanged.
+fn pascal_to_snake_case(s: &str) -> String {
+    // Skip conversion for strings that already contain underscores, spaces, or start lowercase.
+    let first_char = s.chars().next();
+    if first_char.is_none() || !first_char.unwrap().is_uppercase() || s.contains('_') || s.contains(' ') {
+        return s.to_string();
+    }
+    camel_to_snake_case(s)
+}
+
 fn json_to_go(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(s) => go_string_literal(s),
@@ -1973,13 +2120,18 @@ fn visitor_struct_name(fixture_id: &str) -> String {
 }
 
 /// Emit a package-level Go struct declaration and all its visitor methods.
+///
+/// The struct embeds `BaseVisitor` to satisfy all interface methods not
+/// explicitly overridden by the fixture callbacks.
 fn emit_go_visitor_struct(
     out: &mut String,
     struct_name: &str,
     visitor_spec: &crate::fixture::VisitorSpec,
     import_alias: &str,
 ) {
-    let _ = writeln!(out, "type {struct_name} struct{{}}");
+    let _ = writeln!(out, "type {struct_name} struct{{");
+    let _ = writeln!(out, "\t{import_alias}.BaseVisitor");
+    let _ = writeln!(out, "}}");
     for (method_name, action) in &visitor_spec.callbacks {
         emit_go_visitor_method(out, struct_name, method_name, action, import_alias);
     }
@@ -1994,11 +2146,13 @@ fn emit_go_visitor_method(
     import_alias: &str,
 ) {
     let camel_method = method_to_camel(method_name);
+    // Parameter signatures must exactly match the htmltomarkdown.Visitor interface.
+    // Optional fields use pointer types (*string, *uint32, etc.) to indicate nil-ability.
     let params = match method_name {
-        "visit_link" => format!("_ {import_alias}.NodeContext, href, text, title string"),
-        "visit_image" => format!("_ {import_alias}.NodeContext, src, alt, title string"),
-        "visit_heading" => format!("_ {import_alias}.NodeContext, level int, text, id string"),
-        "visit_code_block" => format!("_ {import_alias}.NodeContext, lang, code string"),
+        "visit_link" => format!("_ {import_alias}.NodeContext, href string, text string, title *string"),
+        "visit_image" => format!("_ {import_alias}.NodeContext, src string, alt string, title *string"),
+        "visit_heading" => format!("_ {import_alias}.NodeContext, level uint32, text string, id *string"),
+        "visit_code_block" => format!("_ {import_alias}.NodeContext, lang *string, code string"),
         "visit_code_inline"
         | "visit_strong"
         | "visit_emphasis"
@@ -2014,17 +2168,19 @@ fn emit_go_visitor_method(
         | "visit_definition_description" => format!("_ {import_alias}.NodeContext, text string"),
         "visit_text" => format!("_ {import_alias}.NodeContext, text string"),
         "visit_list_item" => {
-            format!("_ {import_alias}.NodeContext, ordered bool, marker, text string")
+            format!("_ {import_alias}.NodeContext, ordered bool, marker string, text string")
         }
-        "visit_blockquote" => format!("_ {import_alias}.NodeContext, content string, depth int"),
+        "visit_blockquote" => format!("_ {import_alias}.NodeContext, content string, depth uint"),
         "visit_table_row" => format!("_ {import_alias}.NodeContext, cells []string, isHeader bool"),
-        "visit_custom_element" => format!("_ {import_alias}.NodeContext, tagName, html string"),
-        "visit_form" => format!("_ {import_alias}.NodeContext, actionUrl, method string"),
-        "visit_input" => format!("_ {import_alias}.NodeContext, inputType, name, value string"),
-        "visit_audio" | "visit_video" | "visit_iframe" => {
-            format!("_ {import_alias}.NodeContext, src string")
+        "visit_custom_element" => format!("_ {import_alias}.NodeContext, tagName string, html string"),
+        "visit_form" => format!("_ {import_alias}.NodeContext, action *string, method *string"),
+        "visit_input" => {
+            format!("_ {import_alias}.NodeContext, inputType string, name *string, value *string")
         }
-        "visit_details" => format!("_ {import_alias}.NodeContext, isOpen bool"),
+        "visit_audio" | "visit_video" | "visit_iframe" => {
+            format!("_ {import_alias}.NodeContext, src *string")
+        }
+        "visit_details" => format!("_ {import_alias}.NodeContext, open bool"),
         "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
             format!("_ {import_alias}.NodeContext, output string")
         }
@@ -2054,7 +2210,12 @@ fn emit_go_visitor_method(
         CallbackAction::CustomTemplate { template } => {
             // Convert {var} placeholders to %s format verbs and collect arg names.
             // E.g. `QUOTE: "{text}"` → fmt.Sprintf("QUOTE: \"%s\"", text)
-            let (fmt_str, fmt_args) = template_to_sprintf(template);
+            //
+            // For pointer-typed params (e.g. `src *string`), dereference with `*`
+            // — the test fixtures always supply a non-nil value for methods that
+            // fire a custom template, so this is safe in practice.
+            let ptr_params = go_visitor_ptr_params(method_name);
+            let (fmt_str, fmt_args) = template_to_sprintf(template, &ptr_params);
             let escaped_fmt = go_string_literal(&fmt_str);
             if fmt_args.is_empty() {
                 let _ = writeln!(out, "\treturn {import_alias}.VisitResultCustom({escaped_fmt})");
@@ -2070,10 +2231,33 @@ fn emit_go_visitor_method(
     let _ = writeln!(out, "}}");
 }
 
+/// Return the set of camelCase parameter names that are pointer types (`*string`) for a
+/// given visitor method name.  Used to dereference pointers in template `fmt.Sprintf` calls.
+fn go_visitor_ptr_params(method_name: &str) -> std::collections::HashSet<&'static str> {
+    match method_name {
+        "visit_link" => ["title"].into(),
+        "visit_image" => ["title"].into(),
+        "visit_heading" => ["id"].into(),
+        "visit_code_block" => ["lang"].into(),
+        "visit_form" => ["action", "method"].into(),
+        "visit_input" => ["name", "value"].into(),
+        "visit_audio" | "visit_video" | "visit_iframe" => ["src"].into(),
+        _ => std::collections::HashSet::new(),
+    }
+}
+
 /// Convert a `{var}` template string into a `fmt.Sprintf` format string and argument list.
 ///
 /// For example, `QUOTE: "{text}"` becomes `("QUOTE: \"%s\"", vec!["text"])`.
-fn template_to_sprintf(template: &str) -> (String, Vec<String>) {
+///
+/// Placeholder names in the template use snake_case (matching fixture field names); they
+/// are converted to Go camelCase parameter names using `go_param_name` so they match the
+/// generated visitor method signatures (e.g. `{input_type}` → `inputType`).
+///
+/// `ptr_params` — camelCase names of parameters that are `*string`; these are
+/// dereferenced with `*` when used as `fmt.Sprintf` arguments.  The fixtures that
+/// use `custom_template` on pointer-param methods always supply a non-nil value.
+fn template_to_sprintf(template: &str, ptr_params: &std::collections::HashSet<&str>) -> (String, Vec<String>) {
     let mut fmt_str = String::new();
     let mut args: Vec<String> = Vec::new();
     let mut chars = template.chars().peekable();
@@ -2088,7 +2272,15 @@ fn template_to_sprintf(template: &str) -> (String, Vec<String>) {
                 name.push(inner);
             }
             fmt_str.push_str("%s");
-            args.push(name);
+            // Convert snake_case placeholder to Go camelCase to match method param names.
+            let go_name = go_param_name(&name);
+            // Dereference pointer params so fmt.Sprintf receives a string value.
+            let arg_expr = if ptr_params.contains(go_name.as_str()) {
+                format!("*{go_name}")
+            } else {
+                go_name
+            };
+            args.push(arg_expr);
         } else {
             fmt_str.push(c);
         }
@@ -2149,14 +2341,8 @@ mod tests {
                 function: "clean_extracted_text".to_string(),
                 module: "github.com/example/mylib".to_string(),
                 result_var: "result".to_string(),
-                r#async: false,
-                path: None,
-                method: None,
-                args: vec![],
-                overrides: std::collections::HashMap::new(),
                 returns_result: true,
-                returns_void: false,
-                skip_languages: vec![],
+                ..CallConfig::default()
             },
             ..E2eConfig::default()
         };

@@ -778,9 +778,10 @@ fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfig) -> Strin
     out.push_str("from dataclasses import dataclass, field\n");
     // Emit `from enum import Enum` only when there are still (str, Enum) subclasses to define.
     // Unit enums are re-exported from the native module, so Enum is not needed for them.
-    let has_non_needed_str_enums = api.enums.iter().any(|e| {
-        !needed_enums.contains(&e.name) && !data_enum_names.contains(e.name.as_str())
-    });
+    let has_non_needed_str_enums = api
+        .enums
+        .iter()
+        .any(|e| !needed_enums.contains(&e.name) && !data_enum_names.contains(e.name.as_str()));
     if has_non_needed_str_enums {
         out.push_str("from enum import Enum\n");
     }
@@ -2245,7 +2246,7 @@ fn gen_init_py(
     // Unit enums (needed_enums) are now imported from the native module (see above) — they must
     // NOT appear in imports_from_options, otherwise __init__.py would import the str,Enum shadow
     // class from options.py instead of the authoritative native pyclass.
-    let mut opt_imports: Vec<String> = config_types.iter().cloned().collect();
+    let mut opt_imports: Vec<String> = config_types.to_vec();
     opt_imports.sort();
     imports_from_options.extend(opt_imports);
 

@@ -452,11 +452,7 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
             name: "Document".to_string(),
             rust_path: "test_lib::Document".to_string(),
             original_rust_path: String::new(),
-            fields: vec![make_field(
-                "kind",
-                TypeRef::Named("Kind".to_string()),
-                false,
-            )],
+            fields: vec![make_field("kind", TypeRef::Named("Kind".to_string()), false)],
             methods: vec![],
             is_opaque: false,
             is_clone: true,

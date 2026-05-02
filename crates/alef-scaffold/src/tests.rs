@@ -1553,7 +1553,7 @@ fn scaffold_emits_cargo_config_when_scaffold_cargo_is_set() {
     let all_files = scaffold(&api, &config, &[Language::Wasm]).unwrap();
     let cargo_file = all_files
         .iter()
-        .find(|f| f.path == PathBuf::from(".cargo/config.toml"))
+        .find(|f| f.path == std::path::Path::new(".cargo/config.toml"))
         .expect(".cargo/config.toml should be emitted when [scaffold.cargo] is set");
     assert!(
         cargo_file.generated_header,
@@ -1576,7 +1576,7 @@ fn scaffold_skips_cargo_config_in_legacy_mode_when_file_exists() {
     let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
     let cargo_files: Vec<_> = all_files
         .iter()
-        .filter(|f| f.path == PathBuf::from(".cargo/config.toml"))
+        .filter(|f| f.path == std::path::Path::new(".cargo/config.toml"))
         .collect();
     // Legacy branch is gated on Wasm + !exists. We're not requesting Wasm here,
     // so no .cargo/config.toml should appear regardless of filesystem state.
@@ -1604,7 +1604,7 @@ fn scaffold_emits_cargo_config_with_env_block_for_h2m_style_ruby_path() {
     let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
     let cargo_file = all_files
         .iter()
-        .find(|f| f.path == PathBuf::from(".cargo/config.toml"))
+        .find(|f| f.path == std::path::Path::new(".cargo/config.toml"))
         .expect(".cargo/config.toml should be emitted");
     assert!(cargo_file.content.contains("[env]\n"));
     assert!(
