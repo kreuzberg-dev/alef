@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(codegen): preserve sanitized `Cow<str>` fields in Rust binding DTO serde and binding-to-core conversions.
+  Python bindings previously dropped required string fields such as `ProcessConfig.language`, causing generated e2e
+  tests to fail with missing-field deserialization errors.
+
 ## [0.13.10] - 2026-05-02
 
 ### Added
