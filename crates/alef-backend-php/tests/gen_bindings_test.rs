@@ -2038,3 +2038,273 @@ fn test_stubs_non_void_methods_have_return_statements() {
         "stub bodies must throw \\RuntimeException to satisfy PHPStan level 9; content:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// options-field bridge tests
+// ---------------------------------------------------------------------------
+
+/// Helper: build a visitor trait def with all-default methods (visitor pattern).
+fn make_visitor_trait_def() -> TypeDef {
+    TypeDef {
+        name: "HtmlVisitor".to_string(),
+        rust_path: "my_lib::HtmlVisitor".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![make_method_php("visit_node", TypeRef::Unit, false, true)],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    }
+}
+
+/// Helper: ConversionOptions struct with a sanitized visitor field (simulating the IR
+/// representation of `Rc<RefCell<dyn HtmlVisitor>>` → sanitized `Option<String>`).
+fn make_conversion_options_type() -> TypeDef {
+    TypeDef {
+        name: "ConversionOptions".to_string(),
+        rust_path: "my_lib::ConversionOptions".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![
+            make_field("parser", TypeRef::String, true),
+            FieldDef {
+                name: "visitor".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                optional: true,
+                default: None,
+                doc: String::new(),
+                sanitized: true, // Rc<RefCell<dyn HtmlVisitor>> sanitized to Option<String>
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: CoreWrapper::None,
+                vec_inner_core_wrapper: CoreWrapper::None,
+                newtype_wrapper: None,
+            },
+        ],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true, // needed for serde round-trip in bridge body
+        super_traits: vec![],
+        doc: "HTML to Markdown conversion options".to_string(),
+        cfg: None,
+    }
+}
+
+/// Helper: convert function with options param (options_field bridge target).
+fn make_convert_function() -> FunctionDef {
+    FunctionDef {
+        name: "convert".to_string(),
+        rust_path: "my_lib::convert".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "html".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "options".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string()))),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+        ],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: Some("ConversionError".to_string()),
+        doc: "Convert HTML to Markdown".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    }
+}
+
+/// Helper: options-field bridge config for HtmlVisitor on ConversionOptions.visitor.
+fn make_options_field_bridge_cfg() -> alef_core::config::TraitBridgeConfig {
+    alef_core::config::TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        type_alias: Some("HtmlVisitor".to_string()),
+        param_name: Some("visitor".to_string()),
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        bind_via: alef_core::config::BridgeBinding::OptionsField,
+        options_type: Some("ConversionOptions".to_string()),
+        options_field: Some("visitor".to_string()),
+    }
+}
+
+/// Build a full ApiSurface for options-field bridge tests.
+fn make_h2m_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![make_conversion_options_type(), make_visitor_trait_def()],
+        functions: vec![make_convert_function()],
+        enums: vec![],
+        errors: vec![],
+    }
+}
+
+/// Build a config with the options-field bridge active.
+fn make_h2m_config() -> alef_core::config::AlefConfig {
+    let mut cfg = make_config();
+    cfg.trait_bridges = vec![make_options_field_bridge_cfg()];
+    cfg
+}
+
+#[test]
+fn test_options_field_bridge_convert_body_contains_bridge_wrap() {
+    // When bind_via = "options_field", the generated convert function body must:
+    // - NOT take a standalone visitor parameter in the same position as function_param mode
+    // - Include bridge wrapping code that builds PhpHtmlVisitorBridge from the extra param
+    // - Call core convert with the bridged options
+    let backend = PhpBackend;
+    let api = make_h2m_api();
+    let config = make_h2m_config();
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_rs.content;
+
+    // Must contain the bridge wrapper creation pattern
+    assert!(
+        content.contains("PhpHtmlVisitorBridge::new"),
+        "convert body must instantiate PhpHtmlVisitorBridge; content:\n{content}"
+    );
+
+    // Must contain Rc + RefCell wrapping to produce a VisitorHandle
+    assert!(
+        content.contains("std::rc::Rc::new(std::cell::RefCell::new"),
+        "convert body must wrap bridge in Rc<RefCell>; content:\n{content}"
+    );
+
+    // Must call the core convert function
+    assert!(
+        content.contains("my_lib::convert(") || content.contains("convert("),
+        "convert body must delegate to core; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_no_standalone_convert_with_visitor() {
+    // When bind_via = "options_field", there must be no standalone convertWithVisitor-style
+    // function — only the regular convert that extracts the visitor from options.
+    let backend = PhpBackend;
+    let api = make_h2m_api();
+    let config = make_h2m_config();
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_rs.content;
+
+    // The function_param bridge path would emit a separate function with _with_visitor
+    // or expose visitor as a standalone parameter.  options_field must NOT do this.
+    assert!(
+        !content.contains("convert_with_visitor"),
+        "options_field bridge must not emit convertWithVisitor; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_visitor_property_on_conversion_options_in_stubs() {
+    // The generated PHP type stub for ConversionOptions must show:
+    //   public ?HtmlVisitor $visitor;
+    // instead of the sanitized `?string $visitor`.
+    let backend = PhpBackend;
+    let api = make_h2m_api();
+    let config = make_h2m_config();
+
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    // Visitor property must use the PHP bridge class name, not 'string'
+    assert!(
+        content.contains("public ?HtmlVisitor $visitor"),
+        "ConversionOptions stub must show `public ?HtmlVisitor $visitor`; content:\n{content}"
+    );
+
+    // Must NOT show visitor as a string type
+    assert!(
+        !content.contains("public ?string $visitor") && !content.contains("public string $visitor"),
+        "ConversionOptions stub must not render visitor as string; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_convert_getter_override_in_stubs() {
+    // The getVisitor() getter in the ConversionOptions stub must return ?HtmlVisitor, not ?string.
+    let backend = PhpBackend;
+    let api = make_h2m_api();
+    let config = make_h2m_config();
+
+    let files = backend.generate_type_stubs(&api, &config).unwrap();
+    let stubs = files.first().unwrap();
+    let content = &stubs.content;
+
+    assert!(
+        content.contains("getVisitor(): ?HtmlVisitor"),
+        "ConversionOptions stub must have getVisitor(): ?HtmlVisitor getter; content:\n{content}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_public_api_passes_visitor_from_options() {
+    // The generated PHP facade must pass $options->visitor as the extra arg when calling
+    // the native extension method.
+    let backend = PhpBackend;
+    let api = make_h2m_api();
+    let config = make_h2m_config();
+
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let facade = files.first().unwrap();
+    let content = &facade.content;
+
+    // The call to the native extension must include $options->visitor as the last argument.
+    assert!(
+        content.contains("$options->visitor") || content.contains("->visitor"),
+        "PHP facade must pass $options->visitor to the native extension; content:\n{content}"
+    );
+}

@@ -123,6 +123,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `options.Visitor != null`, creates the bridge, calls the setter, then calls the
     standard two-arg `convert(html, options)` FFI function.
   - Does NOT emit a separate `ConvertWithVisitor` overload in this mode.
+- feat(backend-php): support `bind_via = "options_field"` in `[[trait_bridges]]`.
+  When a visitor bridge is configured in options-field mode the PHP/ext-php-rs backend now:
+  - Renders the bridge field as `?HtmlVisitor` on the `ConversionOptions` type stub
+    (overriding the IR-sanitized `?string` type).
+  - Generates a `convert` wrapper (via `gen_bridge_field_function`) that takes all original
+    params plus a hidden `{field}_obj: Option<&mut ZendObject>` extra param, builds
+    `PhpHtmlVisitorBridge::new`, wraps it in `Rc<RefCell<...>> as VisitorHandle`, attaches it
+    to the core options struct, and calls core convert.
+  - The PHP facade passes `$options->visitor` as the extra hidden arg when delegating to the
+    native extension class.
+  - Does NOT emit a standalone `convertWithVisitor` function.
+  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+  the PHP `trait_bridge` module.
 - feat(backend-magnus): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a visitor bridge is configured in options-field mode the Ruby/Magnus backend now:
   - Renders the bridge field as `Option<magnus::Value>` on the binding options struct

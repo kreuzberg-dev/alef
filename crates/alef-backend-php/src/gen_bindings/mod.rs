@@ -258,11 +258,21 @@ impl Backend for PhpBackend {
             let mut method_items: Vec<String> = Vec::new();
             for func in included_functions {
                 let bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+                let bridge_field =
+                    crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     method_items.push(crate::trait_bridge::gen_bridge_function(
                         func,
                         param_idx,
                         bridge_cfg,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                    ));
+                } else if let Some(ref field_match) = bridge_field {
+                    method_items.push(crate::trait_bridge::gen_bridge_field_function(
+                        func,
+                        field_match,
                         &mapper,
                         &opaque_types,
                         &core_import,
@@ -490,6 +500,20 @@ impl Backend for PhpBackend {
             .filter_map(|b| b.param_name.as_deref())
             .collect();
 
+        // Build a lookup from function name → BridgeFieldMatch for options-field bridges.
+        // These functions need an extra PHP arg ($options->field) forwarded to the native ext.
+        let bridge_field_funcs_pub: std::collections::HashMap<
+            &str,
+            crate::trait_bridge::BridgeFieldMatch<'_>,
+        > = api
+            .functions
+            .iter()
+            .filter_map(|func| {
+                crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges)
+                    .map(|m| (func.name.as_str(), m))
+            })
+            .collect();
+
         // Generate wrapper methods for functions
         for func in &api.functions {
             let method_name = func.name.to_lower_camel_case();
@@ -559,16 +583,23 @@ impl Backend for PhpBackend {
                 func.name.to_lower_camel_case()
             };
             let is_void = matches!(&func.return_type, TypeRef::Unit);
+            // Build the call argument list. For options-field bridge functions, append the
+            // bridge field value from the options object (e.g., `$options->visitor`) so the
+            // native extension receives it as the extra hidden `{field}_obj` parameter.
+            let mut call_arg_parts: Vec<String> = sorted_visible_params
+                .iter()
+                .map(|p| format!("${}", p.name))
+                .collect();
+            if let Some(bfm) = bridge_field_funcs_pub.get(func.name.as_str()) {
+                let opts_param_name = &func.params[bfm.param_index].name;
+                call_arg_parts.push(format!("${}->{}", opts_param_name, bfm.field_name));
+            }
             let call_expr = format!(
                 "\\{}\\{}Api::{}({})",
                 namespace,
                 class_name,
                 ext_method_name,
-                sorted_visible_params
-                    .iter()
-                    .map(|p| format!("${}", p.name))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                call_arg_parts.join(", ")
             );
             if is_void {
                 content.push_str(&format!(
@@ -609,6 +640,37 @@ impl Backend for PhpBackend {
 
         // Determine namespace — delegates to config so [php].namespace overrides are respected.
         let namespace = config.php_autoload_namespace();
+
+        // Build (type_name, field_name) → PHP bridge class name overrides for options-field bridges.
+        let mut bridge_field_overrides: std::collections::HashMap<(String, String), String> =
+            std::collections::HashMap::new();
+        for bridge_cfg in &config.trait_bridges {
+            if bridge_cfg.bind_via != alef_core::config::BridgeBinding::OptionsField {
+                continue;
+            }
+            if let Some(options_type) = bridge_cfg.options_type.as_deref() {
+                let field_name = bridge_cfg
+                    .resolved_options_field()
+                    .unwrap_or(bridge_cfg.trait_name.as_str())
+                    .to_string();
+                let bridge_class = bridge_cfg
+                    .type_alias
+                    .as_deref()
+                    .unwrap_or(bridge_cfg.trait_name.as_str())
+                    .to_string();
+                bridge_field_overrides.insert((options_type.to_string(), field_name), bridge_class);
+            }
+        }
+
+        // Build set of bridge-field function names for stub generation.
+        let bridge_field_funcs_stubs: std::collections::HashMap<&str, crate::trait_bridge::BridgeFieldMatch<'_>> = api
+            .functions
+            .iter()
+            .filter_map(|func| {
+                crate::trait_bridge::find_bridge_field(func, &api.types, &config.trait_bridges)
+                    .map(|m| (func.name.as_str(), m))
+            })
+            .collect();
 
         // PSR-12 requires a blank line after the opening `<?php` tag.
         // php-cs-fixer enforces this and would insert it post-write,
@@ -673,6 +735,12 @@ impl Backend for PhpBackend {
 
             // Public property declarations (ext-php-rs exposes struct fields as properties)
             for field in &typ.fields {
+                // Check if this field is overridden by an options-field bridge config.
+                let override_key = (typ.name.clone(), field.name.clone());
+                if let Some(bridge_class) = bridge_field_overrides.get(&override_key) {
+                    content.push_str(&format!("    public ?{} ${};\n", bridge_class, field.name));
+                    continue;
+                }
                 let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
                 let prop_type = if field.optional {
                     let inner = php_type(&field.ty);
@@ -719,6 +787,10 @@ impl Backend for PhpBackend {
             let params: Vec<String> = sorted_fields
                 .iter()
                 .map(|f| {
+                    let override_key = (typ.name.clone(), f.name.clone());
+                    if let Some(bridge_class) = bridge_field_overrides.get(&override_key) {
+                        return format!("        ?{} ${} = null", bridge_class, f.name);
+                    }
                     let ptype = php_type(&f.ty);
                     let nullable = if f.optional && !ptype.starts_with('?') {
                         format!("?{ptype}")
@@ -735,6 +807,16 @@ impl Backend for PhpBackend {
 
             // Getter methods for each field
             for field in &typ.fields {
+                let getter_name = field.name.to_lower_camel_case();
+                let override_key = (typ.name.clone(), field.name.clone());
+                if let Some(bridge_class) = bridge_field_overrides.get(&override_key) {
+                    content.push_str(&format!(
+                        "    public function get{}(): ?{} {{ throw new \\RuntimeException('Not implemented.'); }}\n",
+                        getter_name.to_pascal_case(),
+                        bridge_class
+                    ));
+                    continue;
+                }
                 let is_array = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
                 let return_type = if field.optional {
                     let inner = php_type(&field.ty);
@@ -746,7 +828,6 @@ impl Backend for PhpBackend {
                 } else {
                     php_type(&field.ty)
                 };
-                let getter_name = field.name.to_lower_camel_case();
                 // Emit PHPDoc for array return types so PHPStan knows the element type.
                 if is_array {
                     let phpdoc = php_phpdoc_type(&field.ty);
