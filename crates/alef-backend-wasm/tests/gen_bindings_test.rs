@@ -2194,3 +2194,159 @@ fn test_options_field_bridge_new_constructor_excludes_visitor() {
         "must generate visitor getter for bridge field"
     );
 }
+
+#[test]
+fn test_options_field_bridge_constructor_uses_default_for_bridge_fields() {
+    // When bridge fields are excluded from the constructor params, the generated struct
+    // literal must use `..Default::default()` so the compiler can fill in those fields.
+    let backend = WasmBackend;
+    let api = make_h2m_api();
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg(
+        "HtmlVisitor",
+        "VisitorHandle",
+        "ConversionOptions",
+        "visitor",
+    )];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The constructor body must contain ..Default::default() to fill in the bridge field.
+    let new_fn_start = content.find("fn new(").unwrap_or(0);
+    let new_fn_end = content[new_fn_start..]
+        .find('}')
+        .map(|i| new_fn_start + i + 1)
+        .unwrap_or(content.len());
+    let new_fn = &content[new_fn_start..new_fn_end];
+
+    assert!(
+        new_fn.contains("..Default::default()"),
+        "constructor must include ..Default::default() to fill bridge fields;\nnew fn:\n{new_fn}"
+    );
+}
+
+#[test]
+fn test_options_field_bridge_core_to_binding_emits_none_for_handle_field() {
+    // The From<CoreConversionOptions> for WasmConversionOptions impl must emit `visitor: None`
+    // for the bridge field — there is no way to convert a Rust VisitorHandle back to JsValue.
+    let backend = WasmBackend;
+    let api = make_h2m_api();
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg(
+        "HtmlVisitor",
+        "VisitorHandle",
+        "ConversionOptions",
+        "visitor",
+    )];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // Find the core→binding From impl
+    let from_core_start = content.find("impl From<my_lib::ConversionOptions>").unwrap_or(0);
+    let from_core_end = content[from_core_start..]
+        .find("\nimpl ")
+        .map(|i| from_core_start + i)
+        .unwrap_or(content.len());
+    let from_core_block = &content[from_core_start..from_core_end];
+
+    assert!(
+        from_core_block.contains("visitor: None"),
+        "core→binding From impl must emit visitor: None for bridge field (JsValue cannot be constructed from Rust handle);\nfrom block:\n{from_core_block}"
+    );
+    // Must NOT emit a format! debug fallback which produces String not JsValue.
+    assert!(
+        !from_core_block.contains("format!"),
+        "core→binding From impl must not use format! for visitor bridge field;\nfrom block:\n{from_core_block}"
+    );
+}
+
+/// Build an API surface that includes an opaque Builder type with a `visitor` method
+/// taking `Option<VisitorHandle>`. This mirrors `ConversionOptionsBuilder.visitor()`.
+fn make_h2m_api_with_builder() -> ApiSurface {
+    let mut api = make_h2m_api();
+    let visitor_method = MethodDef {
+        name: "visitor".to_string(),
+        params: vec![ParamDef {
+            name: "visitor".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
+            optional: true,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::Named("ConversionOptionsBuilder".to_string()),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: "Set visitor".to_string(),
+        receiver: Some(ReceiverKind::Ref),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let builder_type = TypeDef {
+        name: "ConversionOptionsBuilder".to_string(),
+        rust_path: "my_lib::ConversionOptionsBuilder".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![visitor_method],
+        is_opaque: true,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "Builder".to_string(),
+        cfg: None,
+    };
+    api.types.push(builder_type);
+    api
+}
+
+#[test]
+fn test_options_field_bridge_suppresses_opaque_builder_visitor_method() {
+    // When bind_via = "options_field" and the bridge type_alias is "VisitorHandle",
+    // opaque builder methods whose params include VisitorHandle must be suppressed.
+    // The JS caller uses set_visitor() on WasmConversionOptions instead.
+    let backend = WasmBackend;
+    let api = make_h2m_api_with_builder();
+    let mut config = make_config();
+    config.trait_bridges = vec![make_options_field_bridge_cfg(
+        "HtmlVisitor",
+        "VisitorHandle",
+        "ConversionOptions",
+        "visitor",
+    )];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The WasmConversionOptionsBuilder must NOT expose a visitor() method,
+    // since it would try to call self.inner.visitor(Option<&Arc<VisitorHandle>>)
+    // which doesn't match the core signature Option<VisitorHandle>.
+    let builder_impl_start = content.find("impl WasmConversionOptionsBuilder").unwrap_or(0);
+    let builder_impl_end = content[builder_impl_start..]
+        .find("\nimpl ")
+        .map(|i| builder_impl_start + i)
+        .unwrap_or(content.len());
+    let builder_impl = &content[builder_impl_start..builder_impl_end];
+
+    // The builder impl block must not contain the visitor method.
+    assert!(
+        !builder_impl.contains("fn visitor("),
+        "options_field bridge must suppress builder methods whose params are bridge type aliases;\nbuilder impl:\n{builder_impl}"
+    );
+}

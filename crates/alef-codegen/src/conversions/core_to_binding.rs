@@ -438,6 +438,13 @@ pub fn field_conversion_from_core_cfg(
                     return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
                 }
             }
+            // Named or Optional(Named) sanitized → the binding field is Option<JsValue> (bridge
+            // field). No automatic conversion from a Rust handle to JsValue exists; emit None.
+            let is_handle_type = matches!(ty, TypeRef::Named(_))
+                || matches!(ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)));
+            if is_handle_type {
+                return format!("{name}: None");
+            }
         }
         return field_conversion_from_core(name, ty, optional, sanitized, opaque_types);
     }

@@ -319,7 +319,9 @@ pub fn convertible_types(surface: &ApiSurface) -> AHashSet<String> {
             if let Some(typ) = surface.types.iter().find(|t| t.name == *type_name) {
                 let ok = typ.fields.iter().all(|f| {
                     if f.sanitized {
-                        sanitized_field_has_default(&f.ty, &default_type_names)
+                        // Optional sanitized fields are always valid: the binding stores
+                        // Option<T> which defaults to None regardless of T.
+                        f.optional || sanitized_field_has_default(&f.ty, &default_type_names)
                     } else if field_has_path_mismatch(f, &enum_paths, &type_paths) {
                         false
                     } else {

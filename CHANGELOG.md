@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-wasm): resolve four compile errors when `bind_via = "options_field"` is
+  used in `[[trait_bridges]]` with an options type that has a handle field:
+  - `gen_new_method` now appends `..Default::default()` to the struct literal when
+    bridge fields are excluded from constructor params, fixing missing-field errors.
+  - `gen_opaque_struct_methods` now skips methods whose params contain a
+    `type_alias` of an `options_field` bridge (e.g. the builder's `visitor()` method),
+    preventing uncompilable Arc-vs-Rc type mismatches in the generated call args.
+  - `field_conversion_from_core_cfg` (alef-codegen) now emits `None` for sanitized
+    `Named` / `Optional(Named)` fields in WASM mode (`map_uses_jsvalue = true`)
+    instead of the Debug-format fallback that produced `Option<String>` rather than
+    `Option<JsValue>`.
+  - `bridge_fields_map` is extended to cover `{options_type}Update` types so that
+    binding→core `From` impls for Update types default the bridge field via
+    `Default::default()` instead of calling `val.visitor.map(Into::into)`, which
+    fails because `WasmVisitorHandle` has no `Into<VisitorHandle>` impl.
+  Also fixes `convertible_types` (alef-codegen) to allow optional sanitized fields
+  whose type is `Named(T)` with `optional = true`: the binding stores `Option<T>`
+  which is always `Default`, so these types correctly remain in the convertible set.
+
 - fix(backend-ffi): suppress duplicate `{prefix}_convert` symbols in options-field
   bridge mode. When `bind_via = "options_field"` is set, the free-function loop now
   skips ALL `convert` variants (not just sanitized ones), and `gen_convert_no_visitor`
