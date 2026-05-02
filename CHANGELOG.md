@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/r): `visitor` is now passed inside `options = list(visitor = visitor)` rather than as a
   top-level parameter to `convert()`.
 
+- fix(backend-napi): use generated `From` conversions for named reference parameters instead of
+  JSON round-tripping when let-binding delegation is possible.
+
 - fix(backend-pyo3): generate `__str__` and `__repr__` for Rust-backed enum wrappers so returned
   enum values are inspectable from Python.
 
