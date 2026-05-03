@@ -350,6 +350,46 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         out
     }
 
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
+        let camel = to_camel_case(unregister_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "#[wasm_bindgen(js_name = \"{camel}\")]").ok();
+        writeln!(
+            out,
+            "pub fn {unregister_fn}(name: String) -> Result<(), wasm_bindgen::JsValue> {{"
+        )
+        .ok();
+        writeln!(
+            out,
+            "    {host_path}(&name).map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))"
+        )
+        .ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
+        let camel = to_camel_case(clear_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "#[wasm_bindgen(js_name = \"{camel}\")]").ok();
+        writeln!(out, "pub fn {clear_fn}() -> Result<(), wasm_bindgen::JsValue> {{").ok();
+        writeln!(
+            out,
+            "    {host_path}().map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))"
+        )
+        .ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
         let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
             return String::new();
@@ -362,7 +402,12 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
 
         let mut out = String::with_capacity(1024);
 
-        writeln!(out, "#[wasm_bindgen]").ok();
+        // Emit `js_name` so the function shows up camelCase in JS, matching
+        // alef's standard JS convention for top-level free functions (see
+        // `gen_bindings/functions.rs:977-1002`). Without this attribute the
+        // export was emitted snake_case, so `index.ts` couldn't re-export it.
+        let camel = to_camel_case(register_fn);
+        writeln!(out, "#[wasm_bindgen(js_name = \"{camel}\")]").ok();
         writeln!(
             out,
             "pub fn {register_fn}(backend: wasm_bindgen::JsValue) -> Result<(), wasm_bindgen::JsValue> {{"

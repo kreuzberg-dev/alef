@@ -388,6 +388,32 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         out
     }
 
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "#[extendr]").ok();
+        writeln!(out, "pub fn {unregister_fn}(name: String) -> Result<(), String> {{").ok();
+        writeln!(out, "    {host_path}(&name).map_err(|e| format!(\"{{}}\", e))").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "#[extendr]").ok();
+        writeln!(out, "pub fn {clear_fn}() -> Result<(), String> {{").ok();
+        writeln!(out, "    {host_path}().map_err(|e| format!(\"{{}}\", e))").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
         let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
             return String::new();

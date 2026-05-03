@@ -206,6 +206,11 @@ pub(super) fn gen_dts(
 
 /// Format a rustdoc string as JSDoc comment lines with the given `indent` prefix.
 ///
+/// Translates rustdoc Markdown sections (`# Arguments`, `# Returns`,
+/// `# Errors`, `# Example`) into JSDoc tags (`@param`, `@returns`,
+/// `@throws`, `@example`) via [`alef_codegen::doc_emission::render_jsdoc_sections`].
+/// Replaces ` ```rust ` fences with ` ```typescript `.
+///
 /// Returns an empty `Vec` when `doc` is empty. For a single-line doc, emits
 /// `["/** Description */"]`. For multi-line docs, emits the block form:
 /// `["/**", " * line1", " * line2", " */"]`, each prefixed by `indent`.
@@ -214,14 +219,21 @@ pub(super) fn format_jsdoc(doc: &str, indent: &str) -> Vec<String> {
     if doc.is_empty() {
         return vec![];
     }
-    let lines: Vec<&str> = doc.lines().collect();
+    let sections = alef_codegen::doc_emission::parse_rustdoc_sections(doc);
+    let rendered = alef_codegen::doc_emission::render_jsdoc_sections(&sections);
+    let body = if rendered.trim().is_empty() {
+        doc.to_string()
+    } else {
+        rendered
+    };
+    let lines: Vec<&str> = body.lines().collect();
     if lines.len() == 1 {
         vec![format!("{indent}/** {} */", lines[0].trim())]
     } else {
         let mut out = Vec::with_capacity(lines.len() + 2);
         out.push(format!("{indent}/**"));
         for line in &lines {
-            let trimmed = line.trim();
+            let trimmed = line.trim_end();
             if trimmed.is_empty() {
                 out.push(format!("{indent} *"));
             } else {

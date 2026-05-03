@@ -413,6 +413,36 @@ pub fn gen_bridge_clear_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGe
     if body.is_empty() { None } else { Some(body) }
 }
 
+/// Resolve the FQN of a host-crate plugin function (e.g.
+/// `kreuzberg::plugins::ocr::unregister_ocr_backend`) given the bridge's
+/// `registry_getter` path. The convention used by host crates is:
+///
+/// - `registry_getter = "kreuzberg::plugins::registry::get_ocr_backend_registry"`
+/// - top-level fn      = `kreuzberg::plugins::ocr::unregister_ocr_backend`
+///
+/// We rewrite `::registry::get_*_registry` to `::<sub>::<fn_name>` where
+/// `<sub>` is the trait submodule name (extracted from `_*_registry`).
+/// When the heuristic fails (no `registry_getter`, unexpected shape), we
+/// fall back to `{core_import}::plugins::{fn_name}` so the user can rely on
+/// a re-export.
+///
+/// Shared by every backend that opts in to `unregister_*`/`clear_*` codegen
+/// (pyo3, napi, magnus, php, rustler, gleam, extendr, dart, swift, kotlin,
+/// wasm). Replaces the duplicated `<lang>_host_function_path` helpers that
+/// each backend used to define.
+pub fn host_function_path(spec: &TraitBridgeSpec, fn_name: &str) -> String {
+    if let Some(getter) = spec.bridge_config.registry_getter.as_deref() {
+        let last = getter.rsplit("::").next().unwrap_or("");
+        if let Some(sub) = last.strip_prefix("get_").and_then(|s| s.strip_suffix("_registry")) {
+            let prefix_end = getter.len() - last.len();
+            let prefix = &getter[..prefix_end];
+            let prefix = prefix.trim_end_matches("registry::");
+            return format!("{prefix}{sub}::{fn_name}");
+        }
+    }
+    format!("{}::plugins::{}", spec.core_import, fn_name)
+}
+
 /// Result of trait bridge generation: imports (to be added via `builder.add_import`)
 /// and the code body (to be added via `builder.add_item`).
 pub struct BridgeOutput {

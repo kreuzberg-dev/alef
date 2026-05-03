@@ -294,6 +294,44 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         out
     }
 
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "#[php_function]").ok();
+        writeln!(
+            out,
+            "pub fn {unregister_fn}(name: String) -> ext_php_rs::prelude::PhpResult<()> {{"
+        )
+        .ok();
+        writeln!(
+            out,
+            "    {host_path}(&name).map_err(|e| ext_php_rs::exception::PhpException::default(format!(\"{{}}\", e)))"
+        )
+        .ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "#[php_function]").ok();
+        writeln!(out, "pub fn {clear_fn}() -> ext_php_rs::prelude::PhpResult<()> {{").ok();
+        writeln!(
+            out,
+            "    {host_path}().map_err(|e| ext_php_rs::exception::PhpException::default(format!(\"{{}}\", e)))"
+        )
+        .ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
         let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
             return String::new();

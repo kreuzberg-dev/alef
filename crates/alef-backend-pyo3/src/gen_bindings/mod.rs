@@ -706,10 +706,17 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
         // ConversionOptions (not Optional). Wrap in Some() when passing to core.
         // Look for patterns like: html_to_markdown_rs::convert(&html, options_core)
         // and replace with: html_to_markdown_rs::convert(&html, Some(options_core))
-        // Iterate through all functions and look for calls to core with has_default params.
+        //
+        // CRITICAL: only wrap when the SOURCE param is `Option<T>` — i.e. `param.optional == true`.
+        // When the source is non-Option `T`, the core function expects `T` directly and wrapping
+        // in `Some()` produces a type error. (Discovered via kreuzberg `embed_texts` taking
+        // `config: EmbeddingConfig` rather than `Option<EmbeddingConfig>`.)
         for func in &api.functions {
             // Check if any parameter is a has_default type
             for param in &func.params {
+                if !param.optional {
+                    continue;
+                }
                 if let alef_core::ir::TypeRef::Named(name) = &param.ty {
                     // Check if this is a has_default type
                     if let Some(_typ) = api.types.iter().find(|t| &t.name == name && t.has_default) {

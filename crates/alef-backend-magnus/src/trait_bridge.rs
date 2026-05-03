@@ -592,6 +592,48 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         out
     }
 
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(
+            out,
+            "pub fn {unregister_fn}(name: String) -> Result<(), magnus::Error> {{"
+        )
+        .ok();
+        writeln!(out, "    {host_path}(&name).map_err(|e| {{").ok();
+        writeln!(out, "        let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+        writeln!(
+            out,
+            "        magnus::Error::new(ruby.exception_runtime_error(), format!(\"{{}}\", e))"
+        )
+        .ok();
+        writeln!(out, "    }})").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
+        let mut out = String::with_capacity(512);
+        writeln!(out, "pub fn {clear_fn}() -> Result<(), magnus::Error> {{").ok();
+        writeln!(out, "    {host_path}().map_err(|e| {{").ok();
+        writeln!(out, "        let ruby = unsafe {{ magnus::Ruby::get_unchecked() }};").ok();
+        writeln!(
+            out,
+            "        magnus::Error::new(ruby.exception_runtime_error(), format!(\"{{}}\", e))"
+        )
+        .ok();
+        writeln!(out, "    }})").ok();
+        writeln!(out, "}}").ok();
+        out
+    }
+
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
         let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
             return String::new();
