@@ -192,18 +192,6 @@ fn gen_enum_stub(enum_def: &EnumDef) -> String {
     format!("  class {}\n  end", enum_def.name)
 }
 
-/// Convert PascalCase to snake_case for symbol names.
-fn pascal_to_snake(name: &str) -> String {
-    let mut result = String::with_capacity(name.len() + 4);
-    for (i, ch) in name.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_lowercase().next().unwrap_or(ch));
-    }
-    result
-}
-
 /// Generate a function stub (module method) using RBS declaration syntax.
 fn gen_function_stub(func: &FunctionDef) -> String {
     let params: Vec<String> = func

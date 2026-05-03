@@ -98,10 +98,7 @@ impl Backend for Pyo3Backend {
                 }
             }
         }
-        let mapper = Pyo3Mapper {
-            trait_type_names,
-            bridge_type_names: AHashSet::new(),
-        };
+        let mapper = Pyo3Mapper { trait_type_names };
         let core_import = config.core_import_name();
 
         // Detect serde availability from the output crate's Cargo.toml
