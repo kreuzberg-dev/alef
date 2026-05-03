@@ -653,11 +653,22 @@ fn json_to_r(value: &serde_json::Value, lowercase_enum_values: bool) -> String {
 /// Build an R visitor list and add setup line.
 fn build_r_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) {
     use std::fmt::Write as FmtWrite;
+    // Collect each callback as a separate string, then join with ",\n" to avoid
+    // trailing commas — R's list() does not accept a trailing comma.
+    let methods: Vec<String> = visitor_spec
+        .callbacks
+        .iter()
+        .map(|(method_name, action)| {
+            let mut buf = String::new();
+            emit_r_visitor_method(&mut buf, method_name, action);
+            // strip the trailing ",\n" added by emit_r_visitor_method
+            buf.trim_end_matches(['\n', ',']).to_string()
+        })
+        .collect();
     let mut visitor_obj = String::new();
     let _ = writeln!(visitor_obj, "list(");
-    for (method_name, action) in &visitor_spec.callbacks {
-        emit_r_visitor_method(&mut visitor_obj, method_name, action);
-    }
+    let _ = write!(visitor_obj, "{}", methods.join(",\n"));
+    let _ = writeln!(visitor_obj);
     let _ = writeln!(visitor_obj, "  )");
 
     setup_lines.push(format!("visitor <- {visitor_obj}"));

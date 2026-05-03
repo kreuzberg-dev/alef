@@ -465,12 +465,20 @@ impl Backend for ExtendrBackend {
                 // R-native override: ConversionOptions and ConversionResult are extendr-
                 // incompatible types (they contain Vec<T> fields). Use the hand-written
                 // custom modules (options.rs / types.rs) for correct R↔Rust conversion.
-                // Pass None for the visitor param — visitor support is not exposed in the R binding.
+                // Extract the visitor field from the options list (if present) and pass
+                // it to html_to_markdown_rs::convert via RHtmlVisitorBridge.
                 builder.add_item(
                     "#[extendr]\npub fn convert(html: String, options: Robj) -> Result<Robj> {\n    \
+                     use std::cell::RefCell;\n    \
+                     use std::rc::Rc;\n    \
+                     let visitor_robj: Option<Robj> = options.clone().as_list().and_then(|list| {\n        \
+                     list.iter().find(|(k, _)| *k == \"visitor\").map(|(_, v)| v)\n    \
+                     }).filter(|v| !v.is_null() && !v.is_na());\n    \
+                     let visitor_handle: Option<html_to_markdown_rs::VisitorParam> = visitor_robj\n        \
+                     .map(|v| Rc::new(RefCell::new(RHtmlVisitorBridge::new(v))) as html_to_markdown_rs::VisitorParam);\n    \
                      let opts = crate::options::decode_options(options)\n        \
                      .map_err(|e| extendr_api::Error::Other(e))?;\n    \
-                     html_to_markdown_rs::convert(&html, Some(opts), None)\n        \
+                     html_to_markdown_rs::convert(&html, Some(opts), visitor_handle)\n        \
                      .map(crate::types::conversion_result_to_robj)\n        \
                      .map_err(|e| extendr_api::Error::Other(e.to_string()))\n}",
                 );
