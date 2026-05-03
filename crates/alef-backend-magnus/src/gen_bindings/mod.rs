@@ -277,7 +277,8 @@ impl Backend for MagnusBackend {
             let is_strict = alef_codegen::conversions::can_generate_conversion(typ, &binding_to_core);
             let is_relaxed = alef_codegen::conversions::can_generate_conversion(typ, &core_to_binding);
             if is_strict && input_types.contains(&typ.name) {
-                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core(typ, &core_import));
+                // Use custom From impl generator that filters thread-unsafe fields (e.g., VisitorHandle)
+                builder.add_item(&classes::gen_from_binding_to_core_filtered(typ, &core_import));
             }
             if is_relaxed {
                 builder.add_item(&alef_codegen::conversions::gen_from_core_to_binding(

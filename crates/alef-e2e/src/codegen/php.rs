@@ -683,17 +683,26 @@ fn render_test_method(
         build_args_and_setup(&fixture.input, args, class_name, enum_fields, &fixture.id, options_via);
 
     // Build visitor if present and add to setup
-    let mut visitor_arg = String::new();
+    let mut needs_options = false;
     if let Some(visitor_spec) = &fixture.visitor {
-        visitor_arg = build_php_visitor(&mut setup_lines, visitor_spec);
+        build_php_visitor(&mut setup_lines, visitor_spec);
+        needs_options = true;
     }
 
-    let final_args = if visitor_arg.is_empty() {
-        args_str
-    } else if args_str.is_empty() {
-        visitor_arg
+    let final_args = if needs_options {
+        // Use ConversionOptionsBuilder to construct options with the visitor set.
+        // Builder pattern allows us to set only the visitor field without providing
+        // all the other required ConversionOptions constructor parameters.
+        setup_lines.push("$options = \\HtmlToMarkdown\\ConversionOptions::builder()".to_string());
+        setup_lines.push("    ->visitor($visitor)".to_string());
+        setup_lines.push("    ->build();".to_string());
+        if args_str.is_empty() {
+            "$options".to_string()
+        } else {
+            format!("{args_str}, $options")
+        }
     } else {
-        format!("{args_str}, {visitor_arg}")
+        args_str
     };
 
     let call_expr = if php_client_factory.is_some() {
@@ -1391,14 +1400,13 @@ fn json_to_php(value: &serde_json::Value) -> String {
 // Visitor generation
 // ---------------------------------------------------------------------------
 
-/// Build a PHP visitor object and add setup lines. Returns the visitor expression.
-fn build_php_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) -> String {
+/// Build a PHP visitor object and add setup lines. The visitor is assigned to $visitor variable.
+fn build_php_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixture::VisitorSpec) {
     setup_lines.push("$visitor = new class {".to_string());
     for (method_name, action) in &visitor_spec.callbacks {
         emit_php_visitor_method(setup_lines, method_name, action);
     }
     setup_lines.push("};".to_string());
-    "$visitor".to_string()
 }
 
 /// Emit a PHP visitor method for a callback action.

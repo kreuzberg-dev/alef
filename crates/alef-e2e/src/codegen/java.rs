@@ -368,8 +368,8 @@ fn render_test_file(
     if has_visitor_fixtures && !import_path.is_empty() {
         let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
         if !binding_pkg.is_empty() {
-            let _ = writeln!(out, "import {binding_pkg}.TestVisitor;");
-            let _ = writeln!(out, "import {binding_pkg}.VisitContext;");
+            let _ = writeln!(out, "import {binding_pkg}.Visitor;");
+            let _ = writeln!(out, "import {binding_pkg}.NodeContext;");
             let _ = writeln!(out, "import {binding_pkg}.VisitResult;");
         }
     }
@@ -785,8 +785,15 @@ fn render_test_method(
 
     // Build visitor if present and add to setup
     let mut visitor_arg = String::new();
+    let mut effective_function_name_for_call = function_name.to_string();
     if let Some(visitor_spec) = &fixture.visitor {
         visitor_arg = build_java_visitor(&mut setup_lines, visitor_spec, class_name);
+        // Use visitor_function if present
+        if let Some(call_override) = call_overrides {
+            if let Some(visitor_fn) = &call_override.visitor_function {
+                effective_function_name_for_call = visitor_fn.clone();
+            }
+        }
     }
 
     for line in &setup_lines {
@@ -802,7 +809,7 @@ fn render_test_method(
     if expects_error {
         let _ = writeln!(
             out,
-            "        assertThrows(Exception.class, () -> {class_name}.{function_name}({final_args}));"
+            "        assertThrows(Exception.class, () -> {class_name}.{effective_function_name_for_call}({final_args}));"
         );
         let _ = writeln!(out, "    }}");
         return;
@@ -810,7 +817,7 @@ fn render_test_method(
 
     let _ = writeln!(
         out,
-        "        var {result_var} = {class_name}.{function_name}({final_args});"
+        "        var {result_var} = {class_name}.{effective_function_name_for_call}({final_args});"
     );
 
     // Emit a `source` variable for run_query assertions that need the raw bytes.
@@ -1587,7 +1594,7 @@ fn build_java_visitor(
     visitor_spec: &crate::fixture::VisitorSpec,
     class_name: &str,
 ) -> String {
-    setup_lines.push("class _TestVisitor implements TestVisitor {".to_string());
+    setup_lines.push("class _TestVisitor implements Visitor {".to_string());
     for (method_name, action) in &visitor_spec.callbacks {
         emit_java_visitor_method(setup_lines, method_name, action, class_name);
     }
@@ -1605,10 +1612,10 @@ fn emit_java_visitor_method(
 ) {
     let camel_method = method_to_camel(method_name);
     let params = match method_name {
-        "visit_link" => "VisitContext ctx, String href, String text, String title",
-        "visit_image" => "VisitContext ctx, String src, String alt, String title",
-        "visit_heading" => "VisitContext ctx, int level, String text, String id",
-        "visit_code_block" => "VisitContext ctx, String lang, String code",
+        "visit_link" => "NodeContext ctx, String href, String text, String title",
+        "visit_image" => "NodeContext ctx, String src, String alt, String title",
+        "visit_heading" => "NodeContext ctx, int level, String text, String id",
+        "visit_code_block" => "NodeContext ctx, String lang, String code",
         "visit_code_inline"
         | "visit_strong"
         | "visit_emphasis"
@@ -1621,22 +1628,22 @@ fn emit_java_visitor_method(
         | "visit_summary"
         | "visit_figcaption"
         | "visit_definition_term"
-        | "visit_definition_description" => "VisitContext ctx, String text",
-        "visit_text" => "VisitContext ctx, String text",
-        "visit_list_item" => "VisitContext ctx, boolean ordered, String marker, String text",
-        "visit_blockquote" => "VisitContext ctx, String content, long depth",
-        "visit_table_row" => "VisitContext ctx, java.util.List<String> cells, boolean isHeader",
-        "visit_custom_element" => "VisitContext ctx, String tagName, String html",
-        "visit_form" => "VisitContext ctx, String actionUrl, String method",
-        "visit_input" => "VisitContext ctx, String inputType, String name, String value",
-        "visit_audio" | "visit_video" | "visit_iframe" => "VisitContext ctx, String src",
-        "visit_details" => "VisitContext ctx, boolean isOpen",
+        | "visit_definition_description" => "NodeContext ctx, String text",
+        "visit_text" => "NodeContext ctx, String text",
+        "visit_list_item" => "NodeContext ctx, boolean ordered, String marker, String text",
+        "visit_blockquote" => "NodeContext ctx, String content, long depth",
+        "visit_table_row" => "NodeContext ctx, java.util.List<String> cells, boolean isHeader",
+        "visit_custom_element" => "NodeContext ctx, String tagName, String html",
+        "visit_form" => "NodeContext ctx, String actionUrl, String method",
+        "visit_input" => "NodeContext ctx, String inputType, String name, String value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "NodeContext ctx, String src",
+        "visit_details" => "NodeContext ctx, boolean isOpen",
         "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
-            "VisitContext ctx, String output"
+            "NodeContext ctx, String output"
         }
-        "visit_list_start" => "VisitContext ctx, boolean ordered",
-        "visit_list_end" => "VisitContext ctx, boolean ordered, String output",
-        _ => "VisitContext ctx",
+        "visit_list_start" => "NodeContext ctx, boolean ordered",
+        "visit_list_end" => "NodeContext ctx, boolean ordered, String output",
+        _ => "NodeContext ctx",
     };
 
     setup_lines.push(format!("    @Override public VisitResult {camel_method}({params}) {{"));

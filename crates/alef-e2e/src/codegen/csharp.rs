@@ -593,10 +593,9 @@ fn render_test_method(
         return;
     }
 
-    // Non-HTTP fixtures with no mock_response: the C# binding wraps a C FFI
-    // layer and does not expose a HandleRequest callable. Emit a documented
-    // skip so the project stays compilable.
-    if fixture.mock_response.is_none() {
+    // Non-HTTP fixtures with no mock_response: skip only if the C# binding
+    // does not have a callable for this function via [e2e.call.overrides.csharp].
+    if fixture.mock_response.is_none() && !fixture_has_csharp_callable(fixture, e2e_config) {
         let _ = writeln!(
             out,
             "    [Fact(Skip = \"non-HTTP fixture: C# binding does not expose a callable for the configured `[e2e.call]` function\")]"
@@ -1521,4 +1520,21 @@ fn build_csharp_method_call(
             format!("{result_var}.{pascal}()")
         }
     }
+}
+
+fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> bool {
+    // HTTP fixtures are handled separately — not our concern here.
+    if fixture.is_http_test() {
+        return false;
+    }
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let overrides = call_config.overrides.get("csharp");
+    // C# binding requires a class name to be defined (from override or default).
+    // The function can come from either the override or the base [e2e.call] function.
+    let has_class = overrides.and_then(|o| o.class.as_deref()).is_some();
+    let has_function = overrides
+        .and_then(|o| o.function.as_deref())
+        .is_some()
+        || !call_config.function.is_empty();
+    has_class && has_function
 }

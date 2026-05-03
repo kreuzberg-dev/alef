@@ -758,6 +758,37 @@ mod tests {
         }
     }
 
+/// Generate a custom From impl for binding → core conversion that filters thread-unsafe fields.
+/// This is used instead of alef_codegen's gen_from_binding_to_core to exclude fields like
+/// VisitorHandle that cannot be Send + Sync.
+pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
+    let mut out = String::new();
+    writeln!(&mut out, "#[allow(clippy::needless_update)]").ok();
+    writeln!(&mut out, "impl From<{}> for {}::{} {{", typ.name, core_import, typ.name).ok();
+    writeln!(&mut out, "    fn from(val: {}) -> Self {{", typ.name).ok();
+    writeln!(&mut out, "        Self {{").ok();
+
+    for field in &typ.fields {
+        // Skip thread-unsafe fields
+        if is_thread_unsafe_field(field) {
+            continue;
+        }
+        writeln!(&mut out, "            {}: val.{}.into(),", field.name, field.name).ok();
+    }
+
+    // If there are thread-unsafe fields, add ..Default::default() to fill the remaining fields
+    let has_unsafe_fields = typ.fields.iter().any(is_thread_unsafe_field);
+    if has_unsafe_fields {
+        writeln!(&mut out, "            ..Default::default()").ok();
+    }
+
+    writeln!(&mut out, "        }}").ok();
+    writeln!(&mut out, "    }}").ok();
+    writeln!(&mut out, "}}").ok();
+
+    out
+}
+
     #[test]
     fn pascal_to_snake_converts_camel_case() {
         assert_eq!(pascal_to_snake("FooBar"), "foo_bar");

@@ -592,7 +592,7 @@ fn render_test_case(
     // function when the binding does not expose it. Emit a documented `@tag :skip`
     // test so the suite stays compilable. HTTP fixtures dispatch via render_http_test_case
     // and never reach here.
-    if fixture.mock_response.is_none() {
+    if fixture.mock_response.is_none() && !fixture_has_elixir_callable(fixture, e2e_config) {
         let _ = writeln!(out, "  describe \"{test_name}\" do");
         let _ = writeln!(out, "    @tag :skip");
         let _ = writeln!(out, "    test \"{test_label}\" do");
@@ -1462,4 +1462,23 @@ fn emit_elixir_visitor_method(out: &mut String, method_name: &str, action: &Call
         }
     }
     let _ = writeln!(out, "      end,");
+}
+
+fn fixture_has_elixir_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> bool {
+    // HTTP fixtures are handled separately — not our concern here.
+    if fixture.is_http_test() {
+        return false;
+    }
+    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    // Elixir bindings expose functions via module-level callables.
+    // Like Python and Node, Elixir can call the base function directly without requiring
+    // a language-specific override. The function can come from either the override or
+    // the default [e2e.call] configuration.
+    let function_from_override = call_config
+        .overrides
+        .get("elixir")
+        .and_then(|o| o.function.as_deref());
+
+    // If there's an override function, use it. Otherwise, Elixir can use the base function.
+    function_from_override.is_some() || !call_config.function.is_empty()
 }
