@@ -17,7 +17,7 @@ pub(super) fn render_package_json(
     let _ = has_http_fixtures; // TODO: add HTTP test deps when http fixtures are present
     format!(
         r#"{{
-  "name": "{pkg_name}-e2e-typescript",
+  "name": "{pkg_name}-e2e",
   "version": "0.1.0",
   "private": true,
   "type": "module",

@@ -57,10 +57,11 @@ impl super::E2eCodegen for PythonE2eCodegen {
         });
 
         let python_pkg = e2e_config.resolve_package("python");
+        let default_pkg_name = e2e_config.call.module.replace('_', "-");
         let pkg_name = python_pkg
             .as_ref()
             .and_then(|p| p.name.as_deref())
-            .unwrap_or("kreuzcrawl");
+            .unwrap_or(default_pkg_name.as_str());
         let pkg_path = python_pkg
             .as_ref()
             .and_then(|p| p.path.as_deref())

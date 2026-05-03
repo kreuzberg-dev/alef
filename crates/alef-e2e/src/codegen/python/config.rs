@@ -37,7 +37,7 @@ build-backend = "setuptools.build_meta"
 requires = [ "setuptools>=68", "wheel" ]
 
 [project]
-name = "{pkg_name}-e2e-tests"
+name = "{pkg_name}-e2e"
 version = "0.0.0"
 description = "End-to-end tests"
 requires-python = ">=3.10"
@@ -253,6 +253,6 @@ mod tests {
     fn render_pyproject_contains_project_section() {
         let out = render_pyproject("my-pkg", "../../packages/python", ">=0.1.0", DependencyMode::Local);
         assert!(out.contains("[project]"), "got: {out}");
-        assert!(out.contains("my-pkg-e2e-tests"), "got: {out}");
+        assert!(out.contains("my-pkg-e2e"), "got: {out}");
     }
 }
