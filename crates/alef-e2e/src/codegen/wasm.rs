@@ -61,7 +61,14 @@ impl E2eCodegen for WasmCodegen {
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| module_path.clone());
+            .unwrap_or_else(|| {
+                // Default: derive from WASM crate name (config.name + "-wasm")
+                // wasm-pack transforms the crate name to the package name by replacing
+                // dashes with the crate separator in Cargo (e.g., kreuzberg-wasm -> kreuzberg_wasm).
+                // However, the published npm package might use the module name, which is typically
+                // the crate name without "-wasm". Fall back to the module path.
+                module_path.clone()
+            });
         let pkg_version = wasm_pkg
             .as_ref()
             .and_then(|p| p.version.as_ref())
@@ -207,7 +214,7 @@ impl E2eCodegen for WasmCodegen {
             );
 
             // Inject WASM initialization code for Node.js environments.
-            content = inject_wasm_init(&content, &pkg_name);
+            content = inject_wasm_init(&content, &pkg_name, config.name.as_str());
 
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -378,11 +385,22 @@ fn render_tsconfig() -> String {
 /// Injects initSync using fs.readFileSync to load the WASM binary at the module
 /// level. This is necessary for Node.js test environments because the fetch-based
 /// initialization doesn't work.
-fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
-    // Derive the wasm binary filename: strip @scope/ prefix, replace dashes with
-    // underscores, append _bg.wasm.  E.g. "@kreuzberg/liter-llm-wasm" → "liter_llm_wasm_bg.wasm".
-    let bare_name = pkg_name.rsplit('/').next().unwrap_or(pkg_name);
-    let wasm_filename = format!("{}_bg.wasm", bare_name.replace('-', "_"));
+///
+/// # Arguments
+/// * `content` — the generated TypeScript test file content
+/// * `pkg_name` — the npm package name (e.g., "kreuzberg" or "@org/kreuzberg")
+/// * `crate_name` — the Rust crate name (e.g., "kreuzberg" or "kreuzberg-wasm")
+fn inject_wasm_init(content: &str, pkg_name: &str, crate_name: &str) -> String {
+    // Derive the wasm binary filename from the WASM crate name: append "-wasm" if
+    // not already present, then replace dashes with underscores, append _bg.wasm.
+    // E.g. "kreuzberg" → "kreuzberg-wasm" → "kreuzberg_wasm_bg.wasm"
+    //      "kreuzberg-wasm" → "kreuzberg-wasm" → "kreuzberg_wasm_bg.wasm"
+    let wasm_crate = if crate_name.ends_with("-wasm") {
+        crate_name.to_string()
+    } else {
+        format!("{}-wasm", crate_name)
+    };
+    let wasm_filename = format!("{}_bg.wasm", wasm_crate.replace('-', "_"));
     // The TypeScript renderer generates single-quoted imports; match both styles for robustness.
     let from_marker_sq = format!("}} from '{pkg_name}';");
     let from_marker_dq = format!("}} from \"{pkg_name}\";");

@@ -1389,7 +1389,7 @@ fn build_args_and_setup(
                                     format!("[]{go_t}")
                                 }
                             } else {
-                                element_type_to_go_slice(arg.element_type.as_deref())
+                                element_type_to_go_slice(arg.element_type.as_deref(), import_alias)
                             };
                             let json_str = serde_json::to_string(v).unwrap_or_default();
                             let go_literal = go_string_literal(&json_str);
@@ -1662,7 +1662,21 @@ fn render_assertion(
 
     // When field_expr is `len(X)` and X is an optional (pointer) field, rewrite to `len(*X)`
     // and we'll wrap with a nil guard in the assertion handlers.
-    let field_expr = if is_optional && field_expr.starts_with("len(") && field_expr.ends_with(')') {
+    // However, slices are already nil-able and should not be dereferenced.
+    let field_is_array_for_len = assertion
+        .field
+        .as_ref()
+        .map(|f| {
+            let resolved = field_resolver.resolve(f);
+            let check_path = resolved
+                .strip_suffix(".length")
+                .or_else(|| resolved.strip_suffix(".count"))
+                .or_else(|| resolved.strip_suffix(".size"))
+                .unwrap_or(resolved);
+            field_resolver.is_array(check_path)
+        })
+        .unwrap_or(false);
+    let field_expr = if is_optional && field_expr.starts_with("len(") && field_expr.ends_with(')') && !field_is_array_for_len {
         let inner = &field_expr[4..field_expr.len() - 1];
         format!("len(*{inner})")
     } else {
@@ -2427,18 +2441,18 @@ fn pascal_to_snake_case(s: &str) -> String {
 /// Map an `ArgMapping.element_type` to a Go slice type. Used for `json_object` args
 /// whose fixture value is a JSON array. The element type is wrapped in `[]…` so an
 /// element of `String` becomes `[]string` and `Vec<String>` becomes `[][]string`.
-fn element_type_to_go_slice(element_type: Option<&str>) -> String {
+fn element_type_to_go_slice(element_type: Option<&str>, import_alias: &str) -> String {
     let elem = element_type.unwrap_or("String").trim();
-    let go_elem = rust_type_to_go(elem);
+    let go_elem = rust_type_to_go(elem, import_alias);
     format!("[]{go_elem}")
 }
 
 /// Map a small subset of Rust scalar / `Vec<T>` types to their Go equivalents.
-/// Defaults to `string` for unknown types, matching the historical codegen behavior.
-fn rust_type_to_go(rust: &str) -> String {
+/// For unknown types, qualify with the import alias (e.g., "kreuzberg.BatchBytesItem").
+fn rust_type_to_go(rust: &str, import_alias: &str) -> String {
     let trimmed = rust.trim();
     if let Some(inner) = trimmed.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
-        return format!("[]{}", rust_type_to_go(inner));
+        return format!("[]{}", rust_type_to_go(inner, import_alias));
     }
     match trimmed {
         "String" | "&str" | "str" => "string".to_string(),
@@ -2453,7 +2467,7 @@ fn rust_type_to_go(rust: &str) -> String {
         "u16" => "uint16".to_string(),
         "u32" => "uint32".to_string(),
         "u64" | "usize" => "uint64".to_string(),
-        _ => "string".to_string(),
+        _ => format!("{import_alias}.{trimmed}"),
     }
 }
 

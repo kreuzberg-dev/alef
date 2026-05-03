@@ -186,7 +186,7 @@ pub(super) fn gen_function(
     //     can pass `&{name}_core` to the core function.
     let mut deser_lines = Vec::new();
     if serde_recoverable {
-        deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import));
+        deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import, mapper));
     } else {
         for (idx, p) in func.params.iter().enumerate() {
             let promoted = alef_codegen::shared::is_promoted_optional(&func.params, idx);
@@ -356,6 +356,7 @@ fn magnus_serde_let_bindings(
     params: &[alef_core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    mapper: &MagnusMapper,
 ) -> Vec<String> {
     let err = "magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string())";
     let mut out = Vec::new();
@@ -391,6 +392,22 @@ fn magnus_serde_let_bindings(
                 } else {
                     out.push(format!(
                         "let {n}_core: Vec<_> = {n}.into_iter().map(|s| serde_json::from_str::<_>(&s).map_err(|e| {err})).collect::<Result<Vec<_>, _>>()?;",
+                        n = p.name,
+                    ));
+                }
+            }
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+                // Generic Vec<T> where T is a struct type (e.g., Vec<BatchFileItem>):
+                // Convert from magnus::Value via JSON serde.
+                let inner_ty = mapper.map_type(inner);
+                if p.optional {
+                    out.push(format!(
+                        "let {n}_core: Option<{inner_ty}> = {n}.map(|v| {{ let s: String = v.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err}) }}).transpose()?;",
+                        n = p.name,
+                    ));
+                } else {
+                    out.push(format!(
+                        "let {n}_core: {inner_ty} = {{ let s: String = {n}.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err})? }};",
                         n = p.name,
                     ));
                 }
@@ -432,7 +449,7 @@ pub(super) fn gen_async_function(
 
     let mut deser_lines = Vec::new();
     if serde_recoverable {
-        deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import));
+        deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import, mapper));
     } else {
         for (idx, p) in func.params.iter().enumerate() {
             let promoted = alef_codegen::shared::is_promoted_optional(&func.params, idx);

@@ -385,7 +385,7 @@ fn render_test_file(
     let _ = writeln!(out);
     let _ = writeln!(out, "declare(strict_types=1);");
     let _ = writeln!(out);
-    let _ = writeln!(out, "namespace Kreuzberg\\E2e;");
+    let _ = writeln!(out, "namespace {namespace}\\E2e;");
     let _ = writeln!(out);
 
     // Determine if any handle arg has a non-null config (needs CrawlConfig import).
