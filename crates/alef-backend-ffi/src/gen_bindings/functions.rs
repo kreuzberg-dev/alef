@@ -856,7 +856,7 @@ fn type_ref_to_rust_type(ty: &TypeRef) -> String {
             alef_core::ir::PrimitiveType::Usize => "usize".to_string(),
             alef_core::ir::PrimitiveType::Isize => "isize".to_string(),
         },
-        TypeRef::Named(name) => name.clone(),
+        TypeRef::Named(name) => format!("kreuzberg::{name}"),
         TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_rust_type(inner)),
         TypeRef::Map(key, val) => format!(
             "std::collections::HashMap<{}, {}>",

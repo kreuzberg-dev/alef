@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.8] - 2026-05-03
+
+### Fixed
+
+- fix(backend-ffi): `type_ref_to_rust_type` now prefixes named types with `kreuzberg::` so
+  `Vec<BatchFileItem>` turbofish annotations in FFI bodies are emitted as
+  `Vec<kreuzberg::BatchFileItem>`. The v0.14.6 fix added turbofish annotations without the
+  crate prefix, causing "cannot find type X in this scope" E0425 errors in the FFI crate for
+  all `Vec<T>`-parameter functions whose element type is a core library struct.
+
 ## [0.14.7] - 2026-05-03
 
 ### Fixed

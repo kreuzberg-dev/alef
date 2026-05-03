@@ -1625,10 +1625,10 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
         return false;
     }
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    let overrides = call_config.overrides.get("csharp");
-    // C# binding requires a class name to be defined (from override or default).
-    // The function can come from either the override or the base [e2e.call] function.
-    let has_class = overrides.and_then(|o| o.class.as_deref()).is_some();
-    let has_function = overrides.and_then(|o| o.function.as_deref()).is_some() || !call_config.function.is_empty();
-    has_class && has_function
+    // C# binding provides a default class name (e.g., KreuzcrawlLib) if not overridden,
+    // so any function name makes a callable available. Like Python and Elixir, we just
+    // need a function name — the class will be computed if not specified in the override.
+    let has_function = call_config.overrides.get("csharp").and_then(|o| o.function.as_deref()).is_some()
+        || !call_config.function.is_empty();
+    has_function
 }

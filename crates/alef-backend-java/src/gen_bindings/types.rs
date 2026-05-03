@@ -107,7 +107,7 @@ pub(crate) fn gen_record_type(
     if typ.has_default {
         writeln!(
             record_block,
-            "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(builder = {}Builder.class)",
+            "@JsonDeserialize(builder = {}Builder.class)",
             typ.name
         )
         .ok();
@@ -184,7 +184,7 @@ pub(crate) fn gen_record_type(
     let needs_json_property = fields_joined.contains("@JsonProperty(");
     // @JsonInclude may appear in field annotations OR as a class-level annotation in record_block.
     let needs_json_include = fields_joined.contains("@JsonInclude(") || record_block.contains("@JsonInclude(");
-    let needs_json_deserialize = record_block.contains("@com.fasterxml.jackson.databind.annotation.JsonDeserialize(");
+    let needs_json_deserialize = record_block.contains("@JsonDeserialize(");
     let needs_nullable = fields_joined.contains("@Nullable");
     // Optional is needed if fields have Optional<T> in declaration
     let needs_optional = fields_joined.contains("Optional<");
@@ -552,11 +552,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     emit_javadoc(&mut body, &typ.doc, "");
     // Annotation tells Jackson to use this builder when deserializing the record.
     // Builder defaults (e.g., enabled=true) are applied during deserialization.
-    writeln!(
-        body,
-        "@com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder(withPrefix = \"with\")"
-    )
-    .ok();
+    writeln!(body, "@JsonPOJOBuilder(withPrefix = \"with\")").ok();
     writeln!(body, "public class {}Builder {{", typ.name).ok();
     writeln!(body).ok();
 
@@ -726,7 +722,7 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
         writeln!(out, "import java.util.Optional;").ok();
     }
     // Builder classes with @JsonPOJOBuilder annotation need Jackson imports
-    if body.contains("@com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder") {
+    if body.contains("@JsonPOJOBuilder") {
         writeln!(out, "import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;").ok();
     }
 
