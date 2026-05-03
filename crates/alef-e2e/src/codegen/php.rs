@@ -936,7 +936,8 @@ fn build_args_and_setup(
                                         // ext-php-rs uses constructor-based initialization, not property setters.
                                         if let Some(prep_obj) = vv.as_object() {
                                             // Get default values from the Rust PreprocessingOptions
-                                            let default_prep = html_to_markdown_rs::options::PreprocessingOptions::default();
+                                            let default_prep =
+                                                html_to_markdown_rs::options::PreprocessingOptions::default();
 
                                             // Extract values from fixture, using defaults for missing fields
                                             let enabled = prep_obj

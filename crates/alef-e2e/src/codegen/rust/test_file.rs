@@ -192,7 +192,7 @@ pub fn render_test_function(
     e2e_config: &E2eConfig,
     dep_name: &str,
     field_resolver: &FieldResolver,
-    _client_factory: Option<&str>,
+    client_factory: Option<&str>,
 ) {
     // Http fixtures get their own integration test code path.
     if fixture.http.is_some() {
@@ -384,6 +384,24 @@ pub fn render_test_function(
 
     let await_suffix = if is_async { ".await" } else { "" };
 
+    // When client_factory is configured, emit a `create_client` call and dispatch
+    // methods on the returned client object instead of calling free functions.
+    // The mock server URL (when present) is passed as `base_url`; otherwise `None`.
+    let call_expr = if let Some(factory) = client_factory {
+        let base_url_arg = if has_mock {
+            "Some(mock_server.url.clone())"
+        } else {
+            "None"
+        };
+        let _ = writeln!(
+            out,
+            "    let client = {module}::{factory}(\"test-key\".to_string(), {base_url_arg}, None, None, None).unwrap();"
+        );
+        format!("client.{function_name}({args_str})")
+    } else {
+        format!("{function_name}({args_str})")
+    };
+
     let result_is_tree = call_config.result_var == "tree";
     // When the call config or rust override sets result_is_simple, the function
     // returns a plain type (String, Vec<T>, etc.) — field-access assertions use
@@ -397,7 +415,7 @@ pub fn render_test_function(
     let result_is_option = call_config.result_is_option || rust_overrides.is_some_and(|o| o.result_is_option);
 
     if has_error_assertion {
-        let _ = writeln!(out, "    let {result_var} = {function_name}({args_str}){await_suffix};");
+        let _ = writeln!(out, "    let {result_var} = {call_expr}{await_suffix};");
         // Render error assertions.
         for assertion in &fixture.assertions {
             render_assertion(
@@ -477,9 +495,15 @@ pub fn render_test_function(
 
     // Per-rust override of the call-level `returns_result`. When set, takes
     // precedence over `CallConfig.returns_result` for the Rust generator only.
+    // When client_factory is set, methods on the client always return Result<T>,
+    // so we must unwrap regardless of the call-level default.
     let returns_result = rust_overrides
         .and_then(|o| o.returns_result)
-        .unwrap_or(call_config.returns_result);
+        .unwrap_or(if client_factory.is_some() {
+            true
+        } else {
+            call_config.returns_result
+        });
 
     let unwrap_suffix = if returns_result {
         ".expect(\"should succeed\")"
@@ -488,20 +512,14 @@ pub fn render_test_function(
     };
     if only_emptiness_checks || !returns_result {
         // Option-returning or non-Result-returning: bind raw value, no unwrap.
-        let _ = writeln!(
-            out,
-            "    let {result_binding} = {function_name}({args_str}){await_suffix};"
-        );
+        let _ = writeln!(out, "    let {result_binding} = {call_expr}{await_suffix};");
     } else if has_not_error || !fixture.assertions.is_empty() {
         let _ = writeln!(
             out,
-            "    let {result_binding} = {function_name}({args_str}){await_suffix}{unwrap_suffix};"
+            "    let {result_binding} = {call_expr}{await_suffix}{unwrap_suffix};"
         );
     } else {
-        let _ = writeln!(
-            out,
-            "    let {result_binding} = {function_name}({args_str}){await_suffix};"
-        );
+        let _ = writeln!(out, "    let {result_binding} = {call_expr}{await_suffix};");
     }
 
     // Emit Option field unwrap bindings for any fields accessed in assertions.
