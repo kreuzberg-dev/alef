@@ -12,9 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(backend-pyo3): PyO3 convert wrapper now reads visitor from options.visitor
   when the separate `visitor=` kwarg is None. This allows Python callers to pass
   the visitor via ConversionOptions without requiring a separate keyword argument.
-- fix(e2e/wasm): inject `beforeAll(async () => { await initWasm(); })` hook
-  into generated vitest test files to ensure WASM module is initialized before
-  tests execute. Prevents "WebAssembly bundle is still initializing" errors.
+- fix(e2e/wasm): replace static package imports with dynamic imports + top-level
+  await to defer WASM module loading until after vite plugins have processed it.
+  Fixes "failed to initialize WebAssembly bundle" errors in vitest e2e tests.
 - fix(e2e/php): when `result_is_simple = true`, generated assertions now access the
   `content` property of the ConversionResult object instead of passing the object
   directly to assertion methods. Fixes TypeError when trimming or comparing results.
