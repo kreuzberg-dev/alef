@@ -1170,28 +1170,20 @@ pub fn gen_options_field_bridge_function(
     // This ensures the bridge wrapper survives the conversion.
     let options_convert = if is_param_optional {
         format!(
-            "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|mut o| {{\n    \
-             o.visitor = None;\n    \
-             o.into()\n    \
-             }});\n    \
-             if let Some(ref visitor) = visitor_handle {{\n    \
-             if let Some(ref mut opts) = {options_name}_core {{\n        \
-             opts.visitor = Some(visitor.clone());\n    \
-             }}\n    \
-             }}"
+            "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|o| {{\n    \
+             let mut result: {core_import}::ConversionOptions = o.into();\n    \
+             result.visitor = visitor_handle.clone();\n    \
+             result\n    \
+             }});"
         )
     } else {
         format!(
             "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {{\n    \
              let mut o = {options_name}.clone();\n    \
-             o.visitor = None;\n    \
-             Some(o.into())\n    \
-             }};\n    \
-             if let Some(ref visitor) = visitor_handle {{\n    \
-             if let Some(ref mut opts) = {options_name}_core {{\n        \
-             opts.visitor = Some(visitor.clone());\n    \
-             }}\n    \
-             }}"
+             let mut result: {core_import}::ConversionOptions = o.into();\n    \
+             result.visitor = visitor_handle.clone();\n    \
+             Some(result)\n    \
+             }};"
         )
     };
 
