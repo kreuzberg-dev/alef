@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(e2e-php): emit `ConversionOptions::from_json()` instead of direct property assignment,
+  since ext-php-rs doesn't support writable #[php(prop)] fields; fixes "No setter available for
+  this property" errors in 7 e2e tests with preprocessing/metadata options
+
 - fix(backend-go): initialize string-alias enum zero values as `EnumType("")` instead of `EnumType{}` (composite literal syntax only applies to structs/slices/maps, not string aliases)
 
 - fix(backend-go): option setter functions for slice and map fields now assign `v` directly instead of `&v`, matching the `[]T` field types introduced in v0.14.5
