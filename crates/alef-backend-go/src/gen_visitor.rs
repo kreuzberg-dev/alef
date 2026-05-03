@@ -1055,19 +1055,27 @@ pub fn gen_visitor_file(
         "func encodeVisitResult(r VisitResult, outResult **C.char) C.int32_t {{"
     )
     .ok();
-    writeln!(out, "\tif (r.Code == 3 || r.Code == 4) && r.Custom != nil {{").ok();
-    writeln!(out, "\t\ttype payload struct {{").ok();
-    writeln!(out, "\t\t\tCode   int32   `json:\"code\"`").ok();
-    writeln!(out, "\t\t\tCustom *string `json:\"custom\"`").ok();
-    writeln!(out, "\t\t}}").ok();
     writeln!(
         out,
-        "\t\tb, err := json.Marshal(payload{{Code: r.Code, Custom: r.Custom}})"
+        "\t// Always encode the full VisitResult as JSON in outResult, so the Rust trait bridge"
     )
     .ok();
-    writeln!(out, "\t\tif err == nil {{").ok();
-    writeln!(out, "\t\t\t*outResult = C.CString(string(b))").ok();
-    writeln!(out, "\t\t}}").ok();
+    writeln!(
+        out,
+        "\t// can deserialize it and properly handle all result types (not just Custom/Error)."
+    )
+    .ok();
+    writeln!(out, "\ttype payload struct {{").ok();
+    writeln!(out, "\t\tCode   int32   `json:\"code\"`").ok();
+    writeln!(out, "\t\tCustom *string `json:\"custom\"`").ok();
+    writeln!(out, "\t}}").ok();
+    writeln!(
+        out,
+        "\tb, err := json.Marshal(payload{{Code: r.Code, Custom: r.Custom}})"
+    )
+    .ok();
+    writeln!(out, "\tif err == nil {{").ok();
+    writeln!(out, "\t\t*outResult = C.CString(string(b))").ok();
     writeln!(out, "\t}}").ok();
     writeln!(out, "\treturn C.int32_t(r.Code)").ok();
     writeln!(out, "}}").ok();

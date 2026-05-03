@@ -141,7 +141,10 @@ pub fn render_test_file(
     let file_needs_visitor = fixtures.iter().any(|f| f.visitor.is_some());
     if file_needs_visitor {
         let visitor_trait = resolve_visitor_trait(&module);
-        let _ = writeln!(out, "use {module}::visitor::{{{visitor_trait}, NodeContext, VisitResult}};");
+        let _ = writeln!(
+            out,
+            "use {module}::visitor::{{{visitor_trait}, NodeContext, VisitResult}};"
+        );
     }
 
     // When the rust override specifies an `options_type` (e.g. `ConversionOptions`),
@@ -255,8 +258,7 @@ pub fn render_test_function(
     // html-to-markdown core `convert` API accepts visitor only through
     // `ConversionOptions.visitor`), the options binding must be `mut` so we can
     // assign the visitor field before the call.
-    let visitor_via_options = fixture.visitor.is_some()
-        && rust_overrides.is_none_or(|o| o.visitor_function.is_none());
+    let visitor_via_options = fixture.visitor.is_some() && rust_overrides.is_none_or(|o| o.visitor_function.is_none());
 
     // Emit input variable bindings from args config.
     let mut arg_exprs: Vec<String> = Vec::new();

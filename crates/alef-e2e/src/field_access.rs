@@ -457,8 +457,11 @@ fn render_java_with_optionals(segments: &[PathSegment], result_var: &str, option
                 out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
                 // Unwrap intermediate Optional fields so downstream accessors work.
+                // Only add .orElseThrow() if this is an intermediate field (not the leaf)
+                // AND it's marked as optional.
                 if !is_leaf && optional_fields.contains(&path_so_far) {
-                    out.push_str(".orElseThrow()");
+                    // Wrap the current accessor in Optional.ofNullable and unwrap
+                    out = format!("java.util.Optional.ofNullable({}).orElseThrow()", out);
                 }
             }
             PathSegment::ArrayField(f) => {

@@ -744,7 +744,11 @@ fn filter_unsafe_field_assignments(full_code: &str, typ: &TypeDef) -> String {
             };
 
             // Skip if this is a thread-unsafe field
-            if typ.fields.iter().any(|f| f.name == field_name && is_thread_unsafe_field(f)) {
+            if typ
+                .fields
+                .iter()
+                .any(|f| f.name == field_name && is_thread_unsafe_field(f))
+            {
                 continue;
             }
         }
@@ -781,8 +785,7 @@ pub(super) fn gen_from_core_to_binding_filtered(
     opaque_types: &AHashSet<String>,
 ) -> String {
     // First get the full generated code from alef_codegen
-    let full_code =
-        alef_codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
+    let full_code = alef_codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
 
     // If there are no thread-unsafe fields, just return the full code
     if !typ.fields.iter().any(is_thread_unsafe_field) {

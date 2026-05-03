@@ -705,11 +705,28 @@ fn render_test_case(
         resolved_handle_atom_list_fields_ref,
     );
 
-    // Build visitor if present — must happen before emitting setup_lines so the
-    // visitor setup line is included in the loop below.
+    // Build visitor if present — inject it into the options map.
+    // The Elixir facade expects options as the second arg, with visitor as a map key.
     let final_args = if let Some(visitor_spec) = &fixture.visitor {
         let visitor_var = build_elixir_visitor(&mut setup_lines, visitor_spec);
-        format!("{args_str}, {visitor_var}")
+        // If options were built, we need to inject visitor into them.
+        // Options will be a var name (e.g., "options") if options_type+options_via were set.
+        // Otherwise, if it's a literal, we need to wrap it in a map.
+        if resolved_options_type.is_some() && resolved_options_default_fn.is_some() {
+            // Options is a var (e.g., "options") — inject visitor into it
+            setup_lines.push(format!("{args_str} = Map.put({args_str}, :visitor, {visitor_var})"));
+            args_str
+        } else {
+            // Options is a literal string or nil — create a map with visitor
+            if args_str.is_empty() || args_str == "nil" {
+                // No options provided — create a map with just the visitor
+                format!("%{{visitor: {visitor_var}}}")
+            } else {
+                // Options is a JSON string literal — we can't inject into it at runtime
+                // This shouldn't happen in practice for visitor fixtures, but handle it gracefully
+                format!("%{{visitor: {visitor_var}}}")
+            }
+        }
     } else {
         args_str
     };
@@ -1474,10 +1491,7 @@ fn fixture_has_elixir_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     // Like Python and Node, Elixir can call the base function directly without requiring
     // a language-specific override. The function can come from either the override or
     // the default [e2e.call] configuration.
-    let function_from_override = call_config
-        .overrides
-        .get("elixir")
-        .and_then(|o| o.function.as_deref());
+    let function_from_override = call_config.overrides.get("elixir").and_then(|o| o.function.as_deref());
 
     // If there's an override function, use it. Otherwise, Elixir can use the base function.
     function_from_override.is_some() || !call_config.function.is_empty()

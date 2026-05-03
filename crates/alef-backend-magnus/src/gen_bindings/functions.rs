@@ -90,7 +90,7 @@ fn gen_scan_args_prologue(
     // Build the scan_args! call
     let req_type_str = req_types.join(", ");
     let opt_type_str = opt_types.join(", ");
-    let type_params = match (req_types.is_empty(), opt_types.is_empty()) {
+    let _type_params = match (req_types.is_empty(), opt_types.is_empty()) {
         (true, true) => "()".to_string(),
         (false, true) => format!("({req_type_str},)"),
         (true, false) => format!("((), ({opt_type_str},))"),
@@ -101,9 +101,15 @@ fn gen_scan_args_prologue(
     // The req_type_str and opt_type_str already have proper formatting
     let scan_args_line = match (req_types.is_empty(), opt_types.is_empty()) {
         (true, true) => "let args = magnus::scan_args::scan_args::<(), (), (), (), (), ()>(args)?;".to_string(),
-        (false, true) => format!("let args = magnus::scan_args::scan_args::<({req_type_str},), (), (), (), (), ()>(args)?;"),
-        (true, false) => format!("let args = magnus::scan_args::scan_args::<(), ({opt_type_str},), (), (), (), ()>(args)?;"),
-        (false, false) => format!("let args = magnus::scan_args::scan_args::<({req_type_str},), ({opt_type_str},), (), (), (), ()>(args)?;"),
+        (false, true) => {
+            format!("let args = magnus::scan_args::scan_args::<({req_type_str},), (), (), (), (), ()>(args)?;")
+        }
+        (true, false) => {
+            format!("let args = magnus::scan_args::scan_args::<(), ({opt_type_str},), (), (), (), ()>(args)?;")
+        }
+        (false, false) => format!(
+            "let args = magnus::scan_args::scan_args::<({req_type_str},), ({opt_type_str},), (), (), (), ()>(args)?;"
+        ),
     };
 
     let mut lines = vec![scan_args_line];

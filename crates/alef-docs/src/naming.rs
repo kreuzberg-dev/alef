@@ -116,9 +116,13 @@ pub(crate) fn func_name(name: &str, lang: Language, ffi_prefix: &str) -> String 
 /// Convert a Rust field name to the idiomatic name for the target language.
 pub(crate) fn field_name(name: &str, lang: Language) -> String {
     match lang {
-        Language::Python | Language::Ruby | Language::Elixir | Language::R | Language::Ffi | Language::Rust | Language::C => {
-            name.to_snake_case()
-        }
+        Language::Python
+        | Language::Ruby
+        | Language::Elixir
+        | Language::R
+        | Language::Ffi
+        | Language::Rust
+        | Language::C => name.to_snake_case(),
         // Go and C# exported fields/properties are PascalCase
         Language::Go | Language::Csharp => name.to_pascal_case(),
         Language::Node | Language::Wasm | Language::Java | Language::Php => to_camel_case(name),

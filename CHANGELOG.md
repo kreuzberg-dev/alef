@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-napi): when `bind_via = "options_field"` is configured for a trait bridge,
+  extract the visitor from the options struct before conversion, create the bridge, and
+  manually inject it into the converted core options. This ensures visitor callbacks
+  are preserved across the NAPI FFI boundary instead of being dropped during the
+  JsConversionOptions -> ConversionOptions Into conversion.
 - fix(backend-pyo3): emit a `_coerce_enum(enum_cls, value)` helper in the generated
   api.py wrapper and use it in `_to_rust_*` converters instead of attempting
   `_rust.<Enum>(value)`. PyO3 unit-enum pyclasses do not expose a string-accepting

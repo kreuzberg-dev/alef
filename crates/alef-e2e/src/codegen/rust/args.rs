@@ -369,7 +369,10 @@ pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &cr
         .collect::<Vec<_>>()
         .join(", ");
 
-    let _ = writeln!(out, "        fn {method_name}(&mut self, {params_str}) -> VisitResult {{");
+    let _ = writeln!(
+        out,
+        "        fn {method_name}(&mut self, {params_str}) -> VisitResult {{"
+    );
 
     match action {
         crate::fixture::CallbackAction::Skip => {

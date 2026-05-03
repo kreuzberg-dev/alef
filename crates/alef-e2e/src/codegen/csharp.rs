@@ -1393,11 +1393,63 @@ fn build_csharp_visitor(
 
     // Build the class declaration string (indented for nesting inside the test class).
     let mut decl = String::new();
-    let _ = writeln!(decl, "    private sealed class {class_name} : IVisitor");
+    let _ = writeln!(decl, "    private sealed class {class_name} : IHtmlVisitor");
     let _ = writeln!(decl, "    {{");
-    for (method_name, action) in &visitor_spec.callbacks {
-        emit_csharp_visitor_method(&mut decl, method_name, action);
+
+    // List of all visitor methods that must be implemented by IHtmlVisitor.
+    let all_methods = [
+        "visit_element_start",
+        "visit_element_end",
+        "visit_text",
+        "visit_link",
+        "visit_image",
+        "visit_heading",
+        "visit_code_block",
+        "visit_code_inline",
+        "visit_list_item",
+        "visit_list_start",
+        "visit_list_end",
+        "visit_table_start",
+        "visit_table_row",
+        "visit_table_end",
+        "visit_blockquote",
+        "visit_strong",
+        "visit_emphasis",
+        "visit_strikethrough",
+        "visit_underline",
+        "visit_subscript",
+        "visit_superscript",
+        "visit_mark",
+        "visit_line_break",
+        "visit_horizontal_rule",
+        "visit_custom_element",
+        "visit_definition_list_start",
+        "visit_definition_term",
+        "visit_definition_description",
+        "visit_definition_list_end",
+        "visit_form",
+        "visit_input",
+        "visit_button",
+        "visit_audio",
+        "visit_video",
+        "visit_iframe",
+        "visit_details",
+        "visit_summary",
+        "visit_figure_start",
+        "visit_figcaption",
+        "visit_figure_end",
+    ];
+
+    // Emit all methods: use fixture action if specified, otherwise default to Continue.
+    for method_name in &all_methods {
+        if let Some(action) = visitor_spec.callbacks.get(*method_name) {
+            emit_csharp_visitor_method(&mut decl, method_name, action);
+        } else {
+            // Default: Continue for methods not in the fixture
+            emit_csharp_visitor_method(&mut decl, method_name, &CallbackAction::Continue);
+        }
     }
+
     let _ = writeln!(decl, "    }}");
     class_decls.push(decl);
 
@@ -1408,10 +1460,10 @@ fn build_csharp_visitor(
 fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &CallbackAction) {
     let camel_method = method_to_camel(method_name);
     let params = match method_name {
-        "visit_link" => "VisitContext ctx, string href, string text, string title",
-        "visit_image" => "VisitContext ctx, string src, string alt, string title",
-        "visit_heading" => "VisitContext ctx, int level, string text, string id",
-        "visit_code_block" => "VisitContext ctx, string lang, string code",
+        "visit_link" => "NodeContext ctx, string href, string text, string title",
+        "visit_image" => "NodeContext ctx, string src, string alt, string title",
+        "visit_heading" => "NodeContext ctx, uint level, string text, string id",
+        "visit_code_block" => "NodeContext ctx, string lang, string code",
         "visit_code_inline"
         | "visit_strong"
         | "visit_emphasis"
@@ -1424,22 +1476,28 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
         | "visit_summary"
         | "visit_figcaption"
         | "visit_definition_term"
-        | "visit_definition_description" => "VisitContext ctx, string text",
-        "visit_text" => "VisitContext ctx, string text",
-        "visit_list_item" => "VisitContext ctx, bool ordered, string marker, string text",
-        "visit_blockquote" => "VisitContext ctx, string content, int depth",
-        "visit_table_row" => "VisitContext ctx, IReadOnlyList<string> cells, bool isHeader",
-        "visit_custom_element" => "VisitContext ctx, string tagName, string html",
-        "visit_form" => "VisitContext ctx, string actionUrl, string method",
-        "visit_input" => "VisitContext ctx, string inputType, string name, string value",
-        "visit_audio" | "visit_video" | "visit_iframe" => "VisitContext ctx, string src",
-        "visit_details" => "VisitContext ctx, bool isOpen",
+        | "visit_definition_description" => "NodeContext ctx, string text",
+        "visit_text" => "NodeContext ctx, string text",
+        "visit_list_item" => "NodeContext ctx, bool ordered, string marker, string text",
+        "visit_blockquote" => "NodeContext ctx, string content, ulong depth",
+        "visit_table_row" => "NodeContext ctx, IReadOnlyList<string> cells, bool isHeader",
+        "visit_custom_element" => "NodeContext ctx, string tagName, string html",
+        "visit_form" => "NodeContext ctx, string actionUrl, string method",
+        "visit_input" => "NodeContext ctx, string inputType, string name, string value",
+        "visit_audio" | "visit_video" | "visit_iframe" => "NodeContext ctx, string src",
+        "visit_details" => "NodeContext ctx, bool isOpen",
         "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
-            "VisitContext ctx, string output"
+            "NodeContext ctx, string output"
         }
-        "visit_list_start" => "VisitContext ctx, bool ordered",
-        "visit_list_end" => "VisitContext ctx, bool ordered, string output",
-        _ => "VisitContext ctx",
+        "visit_list_start" => "NodeContext ctx, bool ordered",
+        "visit_list_end" => "NodeContext ctx, bool ordered, string output",
+        "visit_element_start"
+        | "visit_table_start"
+        | "visit_definition_list_start"
+        | "visit_figure_start"
+        | "visit_line_break"
+        | "visit_horizontal_rule" => "NodeContext ctx",
+        _ => "NodeContext ctx",
     };
 
     let _ = writeln!(decl, "        public VisitResult {camel_method}({params})");
@@ -1532,9 +1590,6 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     // C# binding requires a class name to be defined (from override or default).
     // The function can come from either the override or the base [e2e.call] function.
     let has_class = overrides.and_then(|o| o.class.as_deref()).is_some();
-    let has_function = overrides
-        .and_then(|o| o.function.as_deref())
-        .is_some()
-        || !call_config.function.is_empty();
+    let has_function = overrides.and_then(|o| o.function.as_deref()).is_some() || !call_config.function.is_empty();
     has_class && has_function
 }
