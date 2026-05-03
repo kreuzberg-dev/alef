@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(backend-pyo3): import native unit enums referenced only through data-enum aliases in generated
+  `options.py`, keeping runtime aliases such as `ToolChoice = ToolChoiceMode | str | SpecificToolChoice`
+  import-safe and ruff-clean.
+- fix(e2e/go): derive generated Go e2e imports and local `replace` paths from `[go]` package
+  configuration when no explicit `[e2e.packages.go]` entry is present, import `testify/assert`
+  for every assertion kind that emits `assert.*`, and only emit direct Go calls when an explicit
+  Go callable override exists.
+
 ## [0.14.3] - 2026-05-03
 
 ### Added

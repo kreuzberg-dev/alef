@@ -150,18 +150,21 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
         .collect();
     native_type_imports.sort();
 
-    // Unit enums (needed_enums) that are in native_type_imports must be imported at runtime
-    // (not just under TYPE_CHECKING) so the monkey-patching code below can add SCREAMING_SNAKE_CASE
-    // aliases to them. Split native_type_imports into runtime and TYPE_CHECKING-only groups.
-    let mut runtime_native_imports: Vec<String> = native_type_imports
+    // Unit enums (needed_enums) must be imported at runtime (not just under TYPE_CHECKING)
+    // so aliases and monkey-patching code can reference them. Some needed enums are only
+    // reached transitively through data-enum variants and therefore are not present in
+    // native_type_imports, so derive runtime imports directly from needed_enums.
+    let mut runtime_native_imports: Vec<String> = needed_enums
         .iter()
-        .filter(|n| needed_enums.contains(*n) && !data_enum_names.contains(n.as_str()))
+        .filter(|n| !data_enum_names.contains(n.as_str()))
         .cloned()
         .collect();
     runtime_native_imports.sort();
+    runtime_native_imports.dedup();
+    let runtime_native_import_names: AHashSet<&str> = runtime_native_imports.iter().map(String::as_str).collect();
     let mut type_checking_only_imports: Vec<String> = native_type_imports
         .iter()
-        .filter(|n| !needed_enums.contains(*n))
+        .filter(|n| !runtime_native_import_names.contains(n.as_str()) && !data_enum_names.contains(n.as_str()))
         .cloned()
         .collect();
     type_checking_only_imports.sort();
