@@ -209,6 +209,7 @@ fn gen_single_trait_bridge(
     writeln!(out, "    private readonly GCHandle _implHandle;").ok();
     writeln!(out, "    internal IntPtr _vtable;").ok();
     writeln!(out, "    private bool _disposed;").ok();
+    writeln!(out, "    private readonly object[] _delegates;").ok();
     writeln!(out).ok();
 
     // Declare delegate types for each vtable slot
@@ -291,6 +292,7 @@ fn gen_single_trait_bridge(
     writeln!(out, "        _implHandle = GCHandle.Alloc(impl, GCHandleType.Normal);").ok();
     writeln!(out, "        _vtable = IntPtr.Zero;").ok();
     writeln!(out, "        _disposed = false;").ok();
+    writeln!(out, "        _delegates = new object[{}];", num_vtable_fields).ok();
     writeln!(out, "        BuildVtable();").ok();
     writeln!(out, "    }}").ok();
     writeln!(out).ok();
@@ -317,6 +319,7 @@ fn gen_single_trait_bridge(
     if has_super_trait {
         writeln!(out, "        // Slot {}: name_fn", offset).ok();
         writeln!(out, "        var nameFn = new NameFn(NameFnCallback);",).ok();
+        writeln!(out, "        _delegates[{}] = nameFn;", offset).ok();
         writeln!(
             out,
             "        Marshal.WriteIntPtr(_vtable, {}, Marshal.GetFunctionPointerForDelegate(nameFn));",
@@ -328,6 +331,7 @@ fn gen_single_trait_bridge(
 
         writeln!(out, "        // Slot {}: version_fn", offset).ok();
         writeln!(out, "        var versionFn = new VersionFn(VersionFnCallback);",).ok();
+        writeln!(out, "        _delegates[{}] = versionFn;", offset).ok();
         writeln!(
             out,
             "        Marshal.WriteIntPtr(_vtable, {}, Marshal.GetFunctionPointerForDelegate(versionFn));",
@@ -339,6 +343,7 @@ fn gen_single_trait_bridge(
 
         writeln!(out, "        // Slot {}: initialize_fn", offset).ok();
         writeln!(out, "        var initFn = new InitializeFn(InitializeFnCallback);",).ok();
+        writeln!(out, "        _delegates[{}] = initFn;", offset).ok();
         writeln!(
             out,
             "        Marshal.WriteIntPtr(_vtable, {}, Marshal.GetFunctionPointerForDelegate(initFn));",
@@ -350,6 +355,7 @@ fn gen_single_trait_bridge(
 
         writeln!(out, "        // Slot {}: shutdown_fn", offset).ok();
         writeln!(out, "        var shutdownFn = new ShutdownFn(ShutdownFnCallback);",).ok();
+        writeln!(out, "        _delegates[{}] = shutdownFn;", offset).ok();
         writeln!(
             out,
             "        Marshal.WriteIntPtr(_vtable, {}, Marshal.GetFunctionPointerForDelegate(shutdownFn));",
@@ -372,6 +378,7 @@ fn gen_single_trait_bridge(
             method_pascal
         )
         .ok();
+        writeln!(out, "        _delegates[{}] = {};", offset, method.name.to_lower_camel_case()).ok();
         writeln!(
             out,
             "        Marshal.WriteIntPtr(_vtable, {}, Marshal.GetFunctionPointerForDelegate({}Fn));",
@@ -386,6 +393,7 @@ fn gen_single_trait_bridge(
     // free_user_data slot
     writeln!(out, "        // Slot {}: free_user_data", offset).ok();
     writeln!(out, "        var freeFn = new FreeUserDataFn(FreeUserDataCallback);",).ok();
+    writeln!(out, "        _delegates[{}] = freeFn;", offset).ok();
     writeln!(
         out,
         "        Marshal.WriteIntPtr(_vtable, {}, Marshal.GetFunctionPointerForDelegate(freeFn));",

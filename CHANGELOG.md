@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(csharp-backend): store delegate objects in field array to prevent GC collection. The trait bridge generated code was creating 41+ `UnmanagedFunctionPointer` delegates as local variables in `BuildVtable()`, then immediately discarding them. The GC could collect these delegates, leaving dangling function pointers in the vtable and causing `AccessViolationException` on native callbacks. Now delegates are stored in `private readonly object[] _delegates` initialized in the constructor and kept alive for the bridge's lifetime.
+
 - fix(codegen): use `pnpm dlx` instead of `npx` for node/wasm formatters in both the binding pipeline and e2e formatter defaults. Avoids npm install noise and respects the pnpm package manager used in html-to-markdown and similar consumer projects.
 
 - fix(e2e-wasm): match single-quoted imports in `inject_wasm_init`. The TypeScript renderer generates `from 'pkg'` (single quotes), but the injection pattern was matching `from "pkg"` (double quotes), causing the `initSync` block to never be emitted. Now detects both quote styles and injects accordingly.

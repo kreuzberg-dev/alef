@@ -185,9 +185,17 @@ impl FieldResolver {
         let segments = self.inject_array_indexing(segments);
         let local_var = resolved.replace(['.', '['], "_").replace(']', "");
         let accessor = render_accessor(&segments, "rust", result_var);
-        // Map access (.get("key").map(|s| s.as_str())) already returns Option<&str>,
+        // Non-numeric MapAccess (.get("key").map(|s| s.as_str())) already returns Option<&str>,
         // so skip .as_deref() to avoid borrowing from a temporary.
-        let has_map_access = segments.iter().any(|s| matches!(s, PathSegment::MapAccess { .. }));
+        // Numeric MapAccess (e.g. choices[0]) is array indexing and does NOT return Option,
+        // so it does NOT qualify as a map access for this purpose.
+        let has_map_access = segments.iter().any(|s| {
+            if let PathSegment::MapAccess { key, .. } = s {
+                !key.chars().all(|c| c.is_ascii_digit())
+            } else {
+                false
+            }
+        });
         // Array fields (Option<Vec<T>>) dereference to Option<&[T]>, so unwrap_or needs &[].
         let is_array = self.is_array(resolved);
         let binding = if has_map_access {
@@ -195,7 +203,14 @@ impl FieldResolver {
         } else if is_array {
             format!("let {local_var} = {accessor}.as_deref().unwrap_or(&[]);")
         } else {
-            format!("let {local_var} = {accessor}.as_deref().unwrap_or(\"\");")
+            // Use `.as_ref().map(|v| v.to_string()).as_deref().unwrap_or("")` so that:
+            // - `.as_ref()` avoids moving out of a Vec index (required when accessing
+            //   fields like `result.choices[0].finish_reason`).
+            // - `.map(|v| v.to_string())` converts enum types (e.g. `FinishReason`)
+            //   that implement `Display` to a `String`, so `.as_deref()` yields `&str`.
+            // - For `Option<String>`, `.as_ref()` gives `Option<&String>` and
+            //   `.map(|v| v.to_string())` clones — acceptable overhead for test code.
+            format!("let {local_var} = {accessor}.as_ref().map(|v| v.to_string()).as_deref().unwrap_or(\"\");")
         };
         Some((binding, local_var))
     }
@@ -247,7 +262,7 @@ fn render_accessor(segments: &[PathSegment], language: &str, result_var: &str) -
 // Per-language renderers
 // ---------------------------------------------------------------------------
 
-/// Rust: `result.foo.bar.baz` or `result.foo.bar.get("key").map(|s| s.as_str())`
+/// Rust: `result.foo.bar.baz` or `result.foo.bar[0]` or `result.foo.bar.get("key").map(|s| s.as_str())`
 fn render_rust(segments: &[PathSegment], result_var: &str) -> String {
     let mut out = result_var.to_string();
     for seg in segments {
@@ -264,7 +279,12 @@ fn render_rust(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_snake_case());
-                out.push_str(&format!(".get(\"{key}\").map(|s| s.as_str())"));
+                // Numeric keys are array indices (`choices[0]`), not hash-map keys.
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!(".get(\"{key}\").map(|s| s.as_str())"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".len()");
@@ -526,7 +546,12 @@ fn render_rust_with_optionals(segments: &[PathSegment], result_var: &str, option
                 path_so_far.push_str(field);
                 out.push('.');
                 out.push_str(&field.to_snake_case());
-                out.push_str(&format!(".get(\"{key}\").map(|s| s.as_str())"));
+                // Numeric keys are array indices (`choices[0]`), not hash-map keys.
+                if key.chars().all(|c| c.is_ascii_digit()) {
+                    out.push_str(&format!("[{key}]"));
+                } else {
+                    out.push_str(&format!(".get(\"{key}\").map(|s| s.as_str())"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".len()");

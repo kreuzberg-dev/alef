@@ -31,9 +31,15 @@ pub(super) fn render_equals_assertion(
                 is_opt && !is_arr && !is_unwrapped
             });
             let field_expr = if is_opt_str_not_unwrapped {
-                format!("{field_access}.as_deref().unwrap_or(\"\").trim()")
+                // Use `.map(|v| v.to_string())` instead of `.as_deref()` so that optional
+                // enum types (e.g. `Option<FinishReason>`) that implement `Display` also work.
+                // For `Option<String>` this produces identical semantics at runtime.
+                format!("{field_access}.map(|v| v.to_string()).as_deref().unwrap_or(\"\").trim()")
             } else {
-                format!("{field_access}.trim()")
+                // Use `.to_string().as_str()` so that non-String types that implement
+                // `Display` (e.g. `BatchStatus` enum) are converted to `&str` before
+                // `.trim()` is called. For `String` this is a no-op clone then deref.
+                format!("{field_access}.to_string().as_str().trim()")
             };
             let _ = writeln!(
                 out,
