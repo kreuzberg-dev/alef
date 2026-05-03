@@ -162,7 +162,6 @@ impl Backend for NapiBackend {
 /// Object is not Clone. This wrapper uses Arc<Object<'static>> internally for cheap cloning.
 /// The .inner field is public for compatibility with generated code that needs to access
 /// the underlying Object for trait dispatch.
-#[derive(Debug)]
 pub struct JsVisitorRef {
     pub inner: std::sync::Arc<napi::bindgen_prelude::Object<'static>>,
 }

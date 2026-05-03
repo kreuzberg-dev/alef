@@ -202,7 +202,9 @@ pub(super) fn render_count_min_assertion(
             let base = field_access.strip_suffix(".len()").unwrap_or(field_access);
             if opt_arr_field {
                 // Option<Vec<T>>: must be Some AND inner len >= n.
-                if n <= 1 {
+                if n == 0 {
+                    // count_min: 0 is always true — no assertion needed
+                } else if n == 1 {
                     let _ = writeln!(
                         out,
                         "    assert!({base}.as_ref().is_some_and(|v| !v.is_empty()), \"expected >= {n}\");"
@@ -213,7 +215,9 @@ pub(super) fn render_count_min_assertion(
                         "    assert!({base}.as_ref().is_some_and(|v| v.len() >= {n}), \"expected at least {n} elements\");"
                     );
                 }
-            } else if n <= 1 {
+            } else if n == 0 {
+                // count_min: 0 is always true — no assertion needed
+            } else if n == 1 {
                 let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected >= {n}\");");
             } else {
                 let _ = writeln!(

@@ -1386,7 +1386,13 @@ fn build_args_and_setup(
                                 if go_t.starts_with('[') {
                                     go_t.to_string()
                                 } else {
-                                    format!("[]{go_t}")
+                                    // Qualify unqualified types (e.g., "BatchBytesItem" → "kreuzberg.BatchBytesItem")
+                                    let qualified = if go_t.contains('.') {
+                                        go_t.to_string()
+                                    } else {
+                                        format!("{import_alias}.{go_t}")
+                                    };
+                                    format!("[]{qualified}")
                                 }
                             } else {
                                 element_type_to_go_slice(arg.element_type.as_deref(), import_alias)
@@ -1676,12 +1682,13 @@ fn render_assertion(
             field_resolver.is_array(check_path)
         })
         .unwrap_or(false);
-    let field_expr = if is_optional && field_expr.starts_with("len(") && field_expr.ends_with(')') && !field_is_array_for_len {
-        let inner = &field_expr[4..field_expr.len() - 1];
-        format!("len(*{inner})")
-    } else {
-        field_expr
-    };
+    let field_expr =
+        if is_optional && field_expr.starts_with("len(") && field_expr.ends_with(')') && !field_is_array_for_len {
+            let inner = &field_expr[4..field_expr.len() - 1];
+            format!("len(*{inner})")
+        } else {
+            field_expr
+        };
     // Build the nil-guard expression for the inner pointer (without len wrapper).
     let nil_guard_expr = if is_optional && field_expr.starts_with("len(*") {
         Some(field_expr[5..field_expr.len() - 1].to_string())

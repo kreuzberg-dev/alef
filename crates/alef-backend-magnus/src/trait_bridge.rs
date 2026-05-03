@@ -12,6 +12,39 @@ use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 use std::fmt::Write;
 
+/// Find a bridge config that uses options_field binding and a parameter of the options_type.
+/// This complements find_bridge_param which only handles FunctionParam bindings.
+pub fn find_options_field_binding<'a>(
+    func: &alef_core::ir::FunctionDef,
+    bridges: &'a [TraitBridgeConfig],
+) -> Option<(usize, &'a TraitBridgeConfig)> {
+    for bridge in bridges {
+        if bridge.bind_via != alef_core::config::BridgeBinding::OptionsField {
+            continue;
+        }
+        if let Some(options_type) = &bridge.options_type {
+            for (idx, param) in func.params.iter().enumerate() {
+                // Check if param type is Named(options_type) or Optional(Named(options_type))
+                let matches = match &param.ty {
+                    alef_core::ir::TypeRef::Named(n) => n == options_type,
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            n == options_type
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                };
+                if matches {
+                    return Some((idx, bridge));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
     trait_type: &TypeDef,
@@ -1134,6 +1167,173 @@ pub fn gen_bridge_function(
         }
     } else {
         format!("{bridge_wrap}\n    {serde_bindings}{core_call}")
+    };
+
+    let func_name = &func.name;
+    let mut out = String::with_capacity(1024);
+    if func.error_type.is_some() {
+        writeln!(out, "#[allow(clippy::missing_errors_doc)]").ok();
+    }
+    writeln!(out, "#[allow(unused_variables)]").ok();
+    writeln!(out, "pub fn {func_name}({params_str}) -> {ret} {{").ok();
+    writeln!(out, "    {body}").ok();
+    writeln!(out, "}}").ok();
+
+    out
+}
+
+/// Generate an options_field visitor bridge function for Magnus.
+///
+/// This function accepts the visitor as an optional argument that gets wired
+/// into the options structure's visitor field.
+pub fn gen_options_field_bridge_function(
+    func: &alef_core::ir::FunctionDef,
+    options_param_idx: usize,
+    bridge_cfg: &TraitBridgeConfig,
+    mapper: &dyn alef_codegen::type_mapper::TypeMapper,
+    opaque_types: &ahash::AHashSet<String>,
+    core_import: &str,
+) -> String {
+    use alef_core::ir::TypeRef;
+
+    let struct_name = format!("Rb{}Bridge", bridge_cfg.trait_name);
+    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let options_param = &func.params[options_param_idx];
+    let options_name = &options_param.name;
+
+    // Check if the options parameter is already Optional
+    let is_param_optional = matches!(&options_param.ty, TypeRef::Optional(_));
+
+    // Build parameter list: insert visitor as second positional arg if options is first
+    // Otherwise handle the order as-is (though typically options comes first)
+    let mut sig_parts = Vec::new();
+    for (idx, p) in func.params.iter().enumerate() {
+        if idx == options_param_idx {
+            // Options param stays as-is
+            let ty = mapper.map_type(&p.ty);
+            sig_parts.push(format!("{}: {}", p.name, ty));
+        } else {
+            let ty = mapper.map_type(&p.ty);
+            sig_parts.push(format!("{}: {}", p.name, ty));
+        }
+    }
+
+    let params_str = sig_parts.join(", ");
+    let return_type = mapper.map_type(&func.return_type);
+    let has_error = func.error_type.is_some();
+    let ret = mapper.wrap_return(&return_type, has_error);
+
+    let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
+
+    // Generate visitor extraction and bridge creation
+    let visitor_extract = if is_param_optional {
+        format!(
+            "let visitor_handle = {options_name}.as_ref().and_then(|o| o.visitor.clone()).map(|v| {{\n    \
+             let bridge = {struct_name}::new(v);\n    \
+             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
+             }});"
+        )
+    } else {
+        format!(
+            "let visitor_handle = {options_name}.visitor.clone().map(|v| {{\n    \
+             let bridge = {struct_name}::new(v);\n    \
+             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
+             }});"
+        )
+    };
+
+    // Generate options conversion with visitor preservation
+    let options_convert = if is_param_optional {
+        format!(
+            "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|mut o| {{\n    \
+             o.visitor = None;\n    \
+             let mut result: {core_import}::ConversionOptions = o.into();\n    \
+             result.visitor = visitor_handle.clone();\n    \
+             result\n    \
+             }});"
+        )
+    } else {
+        format!(
+            "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {{\n    \
+             let mut o = {options_name}.clone();\n    \
+             o.visitor = None;\n    \
+             let mut result: {core_import}::ConversionOptions = o.into();\n    \
+             result.visitor = visitor_handle.clone();\n    \
+             Some(result)\n    \
+             }};"
+        )
+    };
+
+    // Build call args, replacing options param with the _core version
+    let call_args: String = func
+        .params
+        .iter()
+        .enumerate()
+        .map(|(idx, p)| {
+            if idx == options_param_idx {
+                format!("{options_name}_core")
+            } else {
+                match &p.ty {
+                    TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
+                        if p.optional {
+                            format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                        } else {
+                            format!("&{}.inner", p.name)
+                        }
+                    }
+                    TypeRef::Named(_) => format!("{}.into()", p.name),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            if opaque_types.contains(n.as_str()) {
+                                format!("{}.as_ref().map(|v| &v.inner)", p.name)
+                            } else {
+                                format!("{}.map(Into::into)", p.name)
+                            }
+                        } else {
+                            p.name.clone()
+                        }
+                    }
+                    TypeRef::String | TypeRef::Char => {
+                        if p.is_ref {
+                            format!("&{}", p.name)
+                        } else {
+                            p.name.clone()
+                        }
+                    }
+                    _ => p.name.clone(),
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+    let core_call = format!("{core_fn_path}({call_args})");
+
+    let return_wrap = match &func.return_type {
+        TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
+            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+        }
+        TypeRef::Named(_) => "val.into()".to_string(),
+        TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
+        _ => "val".to_string(),
+    };
+
+    let body = if func.error_type.is_some() {
+        if return_wrap == "val" {
+            format!("{visitor_extract}\n    {options_convert}\n    {core_call}{err_conv}")
+        } else {
+            format!("{visitor_extract}\n    {options_convert}\n    {core_call}.map(|val| {return_wrap}){err_conv}")
+        }
+    } else {
+        format!("{visitor_extract}\n    {options_convert}\n    {core_call}")
     };
 
     let func_name = &func.name;
