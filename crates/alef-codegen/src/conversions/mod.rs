@@ -76,6 +76,14 @@ pub struct ConversionConfig<'a> {
     /// When present, `val.<binding_name>` is used for binding-side access and the original
     /// `field_name` is used for core-side access (struct literal and assignment targets).
     pub binding_field_renames: Option<&'a std::collections::HashMap<String, String>>,
+    /// When true, U8/U16/U32 (and their signed counterparts I8/I16) need `as i32` casts.
+    /// extendr maps all small integers to R's native integer type (i32), so binding→core
+    /// conversions must cast back to the original unsigned/narrow types.
+    pub cast_uints_to_i32: bool,
+    /// When true, U64/Usize/Isize are mapped to f64 (R's native double type) rather than i64.
+    /// extendr uses f64 for large integers because R has no native 64-bit integer type.
+    /// Binding→core: `as usize`/`as u64` casts; core→binding: `as f64` casts.
+    pub cast_large_ints_to_f64: bool,
 }
 
 impl<'a> ConversionConfig<'a> {

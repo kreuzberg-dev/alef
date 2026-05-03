@@ -17,7 +17,10 @@ impl ExtendrBackend {
             struct_attrs: &[],
             field_attrs: &[],
             struct_derives: &["Clone"],
-            method_block_attr: None,
+            // #[extendr] on impl blocks registers the struct as an R class, which enables
+            // the ToVectorValue trait bound required for returning struct types from #[extendr]
+            // free functions and for extendr_module! `impl Type;` declarations.
+            method_block_attr: Some("extendr"),
             constructor_attr: "",
             static_attr: None,
             function_attr: "#[extendr]",
@@ -95,6 +98,10 @@ impl Backend for ExtendrBackend {
         builder.add_inner_attribute("allow(dead_code, unused_imports, unused_variables)");
         builder.add_inner_attribute("allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, clippy::map_identity, clippy::just_underscores_and_digits, clippy::unused_unit, clippy::unnecessary_cast, clippy::unwrap_or_default, clippy::derivable_impls, clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)");
         builder.add_import("extendr_api::prelude::*");
+        // HashMap is needed for fields of type HashMap<K, V> (extendr prelude does not re-export it)
+        builder.add_import("std::collections::HashMap");
+        // Use extendr's Result<T> type alias (Result<T, Error>) in generated #[extendr] functions
+        builder.add_import("extendr_api::Result");
 
         // Import traits needed for trait method dispatch
         for trait_path in generators::collect_trait_imports(api) {
