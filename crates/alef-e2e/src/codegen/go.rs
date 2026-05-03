@@ -6,6 +6,7 @@ use crate::field_access::FieldResolver;
 use crate::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, ValidationErrorExpectation};
 use alef_codegen::naming::{go_param_name, to_go_name};
 use alef_core::backend::GeneratedFile;
+use alef_core::config::Language;
 use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use anyhow::Result;
@@ -34,9 +35,11 @@ impl E2eCodegen for GoCodegen {
         // Resolve call config with overrides (for module path and import alias).
         let call = &e2e_config.call;
         let overrides = call.overrides.get(lang);
+        let configured_go_module_path = config.go.as_ref().and_then(|go| go.module.as_ref()).cloned();
         let module_path = overrides
             .and_then(|o| o.module.as_ref())
             .cloned()
+            .or_else(|| configured_go_module_path.clone())
             .unwrap_or_else(|| call.module.clone());
         let import_alias = overrides
             .and_then(|o| o.alias.as_ref())
@@ -49,8 +52,13 @@ impl E2eCodegen for GoCodegen {
             .as_ref()
             .and_then(|p| p.module.as_ref())
             .cloned()
+            .or_else(|| configured_go_module_path.clone())
             .unwrap_or_else(|| module_path.clone());
-        let replace_path = go_pkg.as_ref().and_then(|p| p.path.as_ref()).cloned();
+        let replace_path = go_pkg
+            .as_ref()
+            .and_then(|p| p.path.as_ref())
+            .cloned()
+            .or_else(|| Some(format!("../../{}", config.package_dir(Language::Go))));
         let go_version = go_pkg
             .as_ref()
             .and_then(|p| p.version.as_ref())
@@ -312,8 +320,7 @@ fn render_test_file(
         })
     });
 
-    // Determine if we need the testify assert import (used for count_min, count_max,
-    // is_true, is_false, and method_result assertions).
+    // Determine if we need the testify assert import.
     let needs_assert = fixtures.iter().any(|f| {
         f.assertions.iter().any(|a| {
             let field_valid = a
@@ -321,10 +328,24 @@ fn render_test_file(
                 .as_ref()
                 .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
                 .unwrap_or(true);
+            let synthetic_field_needs_assert = match a.field.as_deref() {
+                Some("chunks_have_content" | "chunks_have_embeddings") => {
+                    matches!(a.assertion_type.as_str(), "is_true" | "is_false")
+                }
+                Some("embeddings") => {
+                    matches!(
+                        a.assertion_type.as_str(),
+                        "count_equals" | "count_min" | "not_empty" | "is_empty"
+                    )
+                }
+                _ => false,
+            };
             let type_needs_assert = matches!(
                 a.assertion_type.as_str(),
-                "count_min"
+                "count_equals"
+                    | "count_min"
                     | "count_max"
+                    | "greater_than"
                     | "is_true"
                     | "is_false"
                     | "method_result"
@@ -332,7 +353,7 @@ fn render_test_file(
                     | "max_length"
                     | "matches_regex"
             );
-            type_needs_assert && field_valid
+            synthetic_field_needs_assert || type_needs_assert && field_valid
         })
     });
 
@@ -426,22 +447,21 @@ fn render_test_file(
 
 /// Return `true` when a non-HTTP fixture can be exercised by calling the Go
 /// binding directly (i.e. the resolved call config exposes a Go-callable
-/// function via `[e2e.call.overrides.go]` `function` or the base call
-/// `function` field).
+/// function via `[e2e.call.overrides.go]` `function`).
 fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eConfig) -> bool {
     // HTTP fixtures are handled by render_http_test_function — not our concern here.
     if fixture.is_http_test() {
         return false;
     }
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
-    // A Go override with an explicit function name is the primary signal.
-    let go_function = call_config.overrides.get("go").and_then(|o| o.function.as_deref());
-    let base_function = if call_config.function.is_empty() {
-        None
-    } else {
-        Some(call_config.function.as_str())
-    };
-    go_function.or(base_function).is_some()
+    // The base fixture function is often a Rust/Python/Node module-level symbol.
+    // Go bindings commonly expose methods on a client handle instead, so only a
+    // Go-specific override is safe to treat as directly callable.
+    call_config
+        .overrides
+        .get("go")
+        .and_then(|o| o.function.as_deref())
+        .is_some()
 }
 
 fn render_test_function(
