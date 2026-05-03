@@ -715,34 +715,25 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
                 continue;
             }
             if let Some(field_name) = bridge.resolved_options_field() {
-                // Look for the visitor_handle initialization and add or_else fallback
-                // Pattern: visitor_handle: Option<...> = visitor.map(...)
+                // Replace the closing pattern of the visitor.map block with a chained .or_else()
+                // that pulls from options.visitor when the kwarg is None.
+                // Pattern: visitor.map(...) ending with:
+                //   std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle
+                // });
                 //
-                // We need to find the complete visitor.map(...) block and append an or_else
-                // that checks options.visitor.  This is complex due to variable scoping,
-                // so we use a more targeted approach:
-                // Replace: let visitor_handle: Option<...> = visitor.map(|v| {
-                // with a fallback that chains .or_else to pull from options.visitor
-                let search_pattern = "let visitor_handle: Option<html_to_markdown_rs::visitor::VisitorHandle> = visitor.map";
-                if content.contains(search_pattern) {
-                    // Find the position and apply the fix
-                    if let Some(pos) = content.find(search_pattern) {
-                        // Find the end of the visitor.map(...) block by looking for the semicolon
-                        if let Some(end_pos) = content[pos..].find(";") {
-                            let insertion_point = pos + end_pos;
-                            let before = &content[..insertion_point];
-                            let after = &content[insertion_point..];
+                // We need to insert .or_else(|| { ... }) before the });
+                let closing_pattern = "        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n    });";
+                if let Some(pos) = content.find(closing_pattern) {
+                    let before = &content[..pos];
+                    let after = &content[pos + closing_pattern.len()..];
 
-                            // Build the fallback logic that uses options.visitor when visitor kwarg is None
-                            // Double braces for string literals, field_name is the visitor field (e.g., "visitor")
-                            let fallback = format!(
-                                ".or_else(|| {{\n        options.as_ref().and_then(|o| o.{}.as_ref()).map(|v| {{\n            let py_obj: pyo3::Py<pyo3::PyAny> = Python::attach(|py| (*v.inner).clone_ref(py));\n            let bridge = PyHtmlVisitorBridge::new(py_obj);\n            std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n        }}}}\n    }})",
-                                field_name
-                            );
+                    // Build the fallback that tries options.visitor when visitor kwarg is None
+                    let fallback = format!(
+                        "        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n    }}).or_else(|| {{\n        options.as_ref().and_then(|o| o.{}.as_ref()).map(|v| {{\n            let py_obj: pyo3::Py<pyo3::PyAny> = Python::attach(|py| (*v.inner).clone_ref(py));\n            let bridge = PyHtmlVisitorBridge::new(py_obj);\n            std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n        }}}}\n    }});",
+                        field_name
+                    );
 
-                            content = format!("{}{}{}", before, fallback, after);
-                        }
-                    }
+                    content = format!("{}{}{}", before, fallback, after);
                 }
             }
         }
