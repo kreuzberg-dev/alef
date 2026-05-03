@@ -139,7 +139,7 @@ impl E2eCodegen for PhpCodegen {
         // Generate run_tests.php that loads the extension and invokes phpunit.
         files.push(GeneratedFile {
             path: output_base.join("run_tests.php"),
-            content: render_run_tests_php(),
+            content: render_run_tests_php(&extension_name),
             generated_header: true,
         });
 
@@ -313,8 +313,10 @@ if (file_exists($pkgAutoloader)) {{
     )
 }
 
-fn render_run_tests_php() -> String {
+fn render_run_tests_php(extension_name: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
+    let ext_lib_name = format!("lib{extension_name}_php");
+    let ext_class_name = format!("{}_php", extension_name);
     format!(
         r#"#!/usr/bin/env php
 <?php
@@ -326,11 +328,11 @@ $extSuffix = match (PHP_OS_FAMILY) {{
     'Darwin' => '.dylib',
     default => '.so',
 }};
-$extPath = __DIR__ . '/../../target/release/libhtml_to_markdown_php' . $extSuffix;
+$extPath = __DIR__ . '/../../target/release/{ext_lib_name}' . $extSuffix;
 
 // If extension is not already loaded and the extension file exists, we need to
 // restart PHP with the extension enabled via command-line.
-if (!extension_loaded('html_to_markdown_php') && file_exists($extPath)) {{
+if (!extension_loaded('{ext_class_name}') && file_exists($extPath)) {{
     // Reconstruct the command with the extension flag.
     $php = PHP_BINARY;
     $extFlag = "-d";
@@ -879,16 +881,13 @@ fn build_args_and_setup(
                 setup_lines.push(format!("${} = {class_name}::{constructor_name}(null);", arg.name,));
             } else {
                 let name = &arg.name;
-                // Build a CrawlConfig object and set its fields via property assignment.
-                // The PHP binding accepts `?CrawlConfig $config` — there is no JSON string
-                // variant. Object and array config values are expressed as PHP array literals.
-                setup_lines.push(format!("${name}_config = CrawlConfig::default();"));
-                if let Some(obj) = config_value.as_object() {
-                    for (key, val) in obj {
-                        let php_val = json_to_php(val);
-                        setup_lines.push(format!("${name}_config->{key} = {php_val};"));
-                    }
-                }
+                // Use CrawlConfig::from_json() instead of direct property assignment.
+                // ext-php-rs doesn't support writable #[php(prop)] fields for complex types,
+                // so serialize the config to JSON and use from_json() to construct it.
+                setup_lines.push(format!(
+                    "${name}_config = CrawlConfig::from_json(json_encode({}));",
+                    json_to_php(config_value)
+                ));
                 setup_lines.push(format!(
                     "${} = {class_name}::{constructor_name}(${name}_config);",
                     arg.name,
