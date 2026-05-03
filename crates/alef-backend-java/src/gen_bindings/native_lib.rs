@@ -37,14 +37,8 @@ pub(crate) fn gen_native_lib(
     writeln!(body, "    private static Path cachedExtractDir;").ok();
     writeln!(body).ok();
     writeln!(body, "    static {{").ok();
-    writeln!(body, "        try {{").ok();
-    writeln!(body, "            loadNativeLibrary();").ok();
-    writeln!(body, "            LIB = SymbolLookup.loaderLookup();").ok();
-    writeln!(body, "        }} catch (Throwable e) {{").ok();
-    writeln!(body, "            System.err.println(\"[NativeLib] Failed during static initialization: \" + e.getMessage());").ok();
-    writeln!(body, "            e.printStackTrace(System.err);").ok();
-    writeln!(body, "            throw new ExceptionInInitializerError(e);").ok();
-    writeln!(body, "        }}").ok();
+    writeln!(body, "        loadNativeLibrary();").ok();
+    writeln!(body, "        LIB = SymbolLookup.loaderLookup();").ok();
     writeln!(body, "    }}").ok();
     writeln!(body).ok();
     writeln!(body, "    private static void loadNativeLibrary() {{").ok();
