@@ -474,8 +474,8 @@ impl Backend for ExtendrBackend {
                      let visitor_robj: Option<Robj> = options.clone().as_list().and_then(|list| {\n        \
                      list.iter().find(|(k, _)| *k == \"visitor\").map(|(_, v)| v)\n    \
                      }).filter(|v| !v.is_null() && !v.is_na());\n    \
-                     let visitor_handle: Option<html_to_markdown_rs::VisitorParam> = visitor_robj\n        \
-                     .map(|v| Rc::new(RefCell::new(RHtmlVisitorBridge::new(v))) as html_to_markdown_rs::VisitorParam);\n    \
+                     let visitor_handle: Option<html_to_markdown_rs::visitor::VisitorHandle> = visitor_robj\n        \
+                     .map(|v| Rc::new(RefCell::new(RHtmlVisitorBridge::new(v))) as html_to_markdown_rs::visitor::VisitorHandle);\n    \
                      let opts = crate::options::decode_options(options)\n        \
                      .map_err(|e| extendr_api::Error::Other(e))?;\n    \
                      html_to_markdown_rs::convert(&html, Some(opts), visitor_handle)\n        \

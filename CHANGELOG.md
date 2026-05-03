@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.9] - 2026-05-03
+
+### Fixed
+
 - fix(backend-pyo3): `_coerce_enum` helper now returns `_E` (not `_E | None`) by separating
   the `isinstance` early-return from the `None` case (which now raises `ValueError`). This
   eliminates the `[return-value]` mypy error and removes now-unused `# type: ignore` comments
@@ -33,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(backend-java): use short annotation names (`@JsonDeserialize`, `@JsonPOJOBuilder`) instead of
   fully-qualified names in generated record and builder classes so that the accompanying import
   statements are actually used and checkstyle's UnusedImports rule passes.
+
+- fix(codegen): `gen_lossy_binding_to_core_fields` and `gen_lossy_binding_to_core_fields_mut` now
+  accept `cast_uints_to_i32` and `cast_large_ints_to_f64` flags. All callers updated (magnus,
+  integration tests). Extendr backend passes `true` for both to correctly cast R's i32/f64 types
+  back to core Rust int types in generated method bodies.
+
+- fix(e2e-php): do not append `_async` suffix to function name when a language-specific override
+  explicitly provides the function name. Previously, async PHP functions with overridden names
+  were incorrectly suffixed with `_async`.
 
 ## [0.14.8] - 2026-05-03
 
