@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(e2e-wasm): remove `initWasm()` call from generated test files. The bundler target auto-initializes when imported, so explicit initialization is unnecessary and causes `TypeError: initWasm is not a function`.
 
-- fix(backend-java): add `PlatformSymbolLookup` wrapper to handle platform-specific C symbol name mangling (underscore prefix on macOS/BSD). The Panama FFM `SymbolLookup.loaderLookup()` returns symbol names as-is, but macOS/BSD prepend underscores to C symbols, causing lookup failures. The wrapper transparently adds the underscore when needed.
+- fix(backend-java): use `LINKER.defaultLookup()` for Panama FFM symbol resolution. The `SymbolLookup.loaderLookup()` API returns symbols from Java's class loader, not the native linker; `LINKER.defaultLookup()` correctly returns symbols from all loaded native libraries.
 
 ## [0.14.9] - 2026-05-03
 
