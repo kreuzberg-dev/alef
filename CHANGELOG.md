@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.6] - 2026-05-03
+
+### Fixed
+
+- fix(backend-ffi): `Vec<T>` parameters now always emit a concrete turbofish type annotation
+  (`serde_json::from_str::<Vec<String>>(...)`) in generated FFI functions. Previously the
+  annotation was only emitted when `is_ref || is_mut`; without it, calls to Rust core functions
+  with generic bounds (e.g. `fn f<T: AsRef<str>>(v: Vec<T>)`) failed to compile with E0283
+  "type annotations needed".
+
 ## [0.14.5] - 2026-05-03
 
 ### Fixed

@@ -1266,18 +1266,15 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "        }}").ok();
                 writeln!(out, "    }};").ok();
                 // Add 'mut' if the parameter needs to be mutably borrowed.
-                // Add explicit type annotation to avoid inference issues when the result is
-                // only used through a reference (e.g. &mut vec -> Rust might infer [T] instead of Vec<T>).
+                // Always emit a concrete type annotation for Vec/Map params to avoid inference
+                // failures when the core function is generic (e.g. `fn f<T: AsRef<str>>(v: Vec<T>)`).
+                // Without the annotation rustc cannot resolve the turbofish-free from_str call.
                 let mut_keyword = if param.is_mut { "mut " } else { "" };
-                let type_hint = if param.is_ref || param.is_mut {
-                    match &param.ty {
-                        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                            format!("::<{}>", type_ref_to_rust_type(&param.ty))
-                        }
-                        _ => String::new(),
+                let type_hint = match &param.ty {
+                    TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty))
                     }
-                } else {
-                    String::new()
+                    _ => String::new(),
                 };
                 writeln!(
                     out,

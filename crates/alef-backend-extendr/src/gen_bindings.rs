@@ -241,6 +241,12 @@ impl Backend for ExtendrBackend {
                 let impl_block = generators::gen_impl_block(&impl_typ, self, &cfg, &adapter_bodies, &opaque_types);
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
+                } else {
+                    // extendr requires #[extendr] impl Type {} for every type listed in
+                    // extendr_module! — without it, the macro cannot generate ToVectorValue and
+                    // TryFrom<&Robj> for the type. Emit an empty annotated impl block when there
+                    // are no methods (e.g. pure data structs like DocumentMetadata, NodeContext).
+                    builder.add_item(&format!("#[extendr]\nimpl {} {{}}", impl_typ.name));
                 }
                 // Generate config constructor if type has Default.
                 // Use the filtered struct so arc-incompatible fields (e.g. visitor) are excluded.
