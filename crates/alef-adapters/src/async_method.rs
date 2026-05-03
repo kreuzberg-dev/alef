@@ -77,8 +77,15 @@ fn call_args_cloned(adapter: &AdapterConfig) -> Vec<String> {
         .params
         .iter()
         .map(|p| {
-            if p.optional {
-                format!("{}.as_ref().map(|v| v.clone().into())", p.name)
+            if p.ty == "String" || p.ty == "&str" {
+                if p.optional {
+                    format!("{}.as_deref()", p.name)
+                } else {
+                    format!("{}.as_str()", p.name)
+                }
+            } else if p.optional {
+                // PHP optional params are Option<&T> — drop the extra .as_ref()
+                format!("{}.map(|v| v.clone().into())", p.name)
             } else {
                 format!("{}.clone().into()", p.name)
             }
@@ -103,10 +110,7 @@ fn core_let_bindings(adapter: &AdapterConfig, core_import: &str) -> Vec<String> 
                     name = p.name,
                 )
             } else {
-                format!(
-                    "let core_{name}: {ty_path} = {name}.into();",
-                    name = p.name,
-                )
+                format!("let core_{name}: {ty_path} = {name}.into();", name = p.name,)
             }
         })
         .collect()

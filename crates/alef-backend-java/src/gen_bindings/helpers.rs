@@ -108,6 +108,34 @@ pub(crate) fn is_bridge_param_java(
     type_name.is_some_and(|n| bridge_type_aliases.contains(n))
 }
 
+/// Generate a named infrastructure exception class that extends `{main_class}Exception`.
+///
+/// Used for the two fixed FFI infrastructure error codes that are always dispatched
+/// from `checkLastError()`:
+/// - code 1 → `InvalidInputException` (null pointer / invalid UTF-8 in input args)
+/// - code 2 → `ConversionErrorException` (JSON serialisation/deserialisation failure)
+pub(crate) fn gen_infrastructure_exception_class(
+    package: &str,
+    main_class: &str,
+    class_name: &str,
+    code: i32,
+    doc: &str,
+) -> String {
+    let base = format!("{}Exception", main_class);
+    let mut out = String::with_capacity(512);
+    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    writeln!(out, "package {};", package).ok();
+    writeln!(out).ok();
+    writeln!(out, "/** {} */", doc).ok();
+    writeln!(out, "public class {} extends {} {{", class_name, base).ok();
+    writeln!(out, "    /** Creates a new {}. */", class_name).ok();
+    writeln!(out, "    public {}(final String message) {{", class_name).ok();
+    writeln!(out, "        super({}, message);", code).ok();
+    writeln!(out, "    }}").ok();
+    writeln!(out, "}}").ok();
+    out
+}
+
 pub(crate) fn gen_exception_class(package: &str, class_name: &str) -> String {
     let mut out = String::with_capacity(512);
 

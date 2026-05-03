@@ -16,7 +16,7 @@ mod types;
 
 use facade::gen_facade_class;
 use ffi_class::gen_main_class;
-use helpers::gen_exception_class;
+use helpers::{gen_exception_class, gen_infrastructure_exception_class};
 use native_lib::gen_native_lib;
 use types::{gen_builder_class, gen_enum_class, gen_opaque_handle_class, gen_record_type};
 
@@ -144,6 +144,31 @@ impl Backend for JavaBackend {
             content: gen_exception_class(&package, &main_class),
             generated_header: true,
         });
+
+        // 3b. Infrastructure exception classes for FFI error codes 1 and 2.
+        // These are always emitted because checkLastError() hardcodes:
+        //   case 1 -> throw new InvalidInputException(msg);
+        //   case 2 -> throw new ConversionErrorException(msg);
+        // Code 1 = null pointer / invalid UTF-8 in an input arg (invalid input).
+        // Code 2 = JSON serialisation/deserialisation failure (type conversion).
+        for (class_name, code, doc) in [
+            (
+                "InvalidInputException",
+                1i32,
+                "Exception thrown when input validation fails.",
+            ),
+            (
+                "ConversionErrorException",
+                2i32,
+                "Exception thrown when type conversion fails.",
+            ),
+        ] {
+            files.push(GeneratedFile {
+                path: base_path.join(format!("{}.java", class_name)),
+                content: gen_infrastructure_exception_class(&package, &main_class, class_name, code, doc),
+                generated_header: true,
+            });
+        }
 
         // Collect complex enums (enums with data variants and no serde tag) — use Object for these fields.
         // Tagged unions (serde_tag is set) are now generated as proper sealed interfaces
