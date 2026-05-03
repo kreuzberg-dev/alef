@@ -784,10 +784,18 @@ fn gen_visitor_method_async(
     )
     .unwrap();
 
+    // Convert method name from visit_* to handle_* for Elixir convention.
+    // E.g., "visit_audio" -> "handle_audio"
+    let handle_name = if name.starts_with("visit_") {
+        format!("handle_{}", &name[6..])
+    } else {
+        name.clone()
+    };
+
     // Send callback and wait for reply.
     writeln!(
         out,
-        "        let result = visitor_send_and_wait(self, \"{name}\", args_json);"
+        "        let result = visitor_send_and_wait(self, \"{handle_name}\", args_json);"
     )
     .unwrap();
 

@@ -69,7 +69,8 @@ impl Backend for NapiBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let prefix = config.node_type_prefix();
-        let mapper = NapiMapper::new(prefix.clone());
+        let trait_type_names: AHashSet<String> = api.types.iter().filter(|t| t.is_trait).map(|t| t.name.clone()).collect();
+        let mapper = NapiMapper::with_traits(prefix.clone(), trait_type_names);
         let core_import = config.core_import_name();
 
         // Detect serde availability from the output crate's Cargo.toml

@@ -369,21 +369,20 @@ fn gen_single_trait_bridge(
     // Trait method slots
     for method in &trait_def.methods {
         let method_pascal = to_csharp_name(&method.name);
+        let method_camel = method.name.to_lower_camel_case();
         writeln!(out, "        // Slot {}: {}_fn", offset, method.name).ok();
         writeln!(
             out,
             "        var {}Fn = new {}Fn({}FnCallback);",
-            method.name.to_lower_camel_case(),
-            method_pascal,
-            method_pascal
+            method_camel, method_pascal, method_pascal
         )
         .ok();
-        writeln!(out, "        _delegates[{}] = {};", offset, method.name.to_lower_camel_case()).ok();
+        writeln!(out, "        _delegates[{}] = {}Fn;", offset, method_camel).ok();
         writeln!(
             out,
             "        Marshal.WriteIntPtr(_vtable, {}, Marshal.GetFunctionPointerForDelegate({}Fn));",
             offset * ptr_size,
-            method.name.to_lower_camel_case()
+            method_camel
         )
         .ok();
         writeln!(out).ok();

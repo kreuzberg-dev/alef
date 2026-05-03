@@ -548,7 +548,13 @@ fn render_rust_with_optionals(segments: &[PathSegment], result_var: &str, option
                 out.push_str(&field.to_snake_case());
                 // Numeric keys are array indices (`choices[0]`), not hash-map keys.
                 if key.chars().all(|c| c.is_ascii_digit()) {
-                    out.push_str(&format!("[{key}]"));
+                    // When the array field itself is Optional (e.g. `segments` is
+                    // `Option<Vec<T>>`), we must unwrap it before indexing.
+                    if optional_fields.contains(&path_so_far) {
+                        out.push_str(&format!(".as_ref().unwrap()[{key}]"));
+                    } else {
+                        out.push_str(&format!("[{key}]"));
+                    }
                 } else {
                     out.push_str(&format!(".get(\"{key}\").map(|s| s.as_str())"));
                 }

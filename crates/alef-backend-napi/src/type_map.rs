@@ -1,3 +1,4 @@
+use ahash::AHashSet;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::PrimitiveType;
 use std::borrow::Cow;
@@ -5,13 +6,26 @@ use std::borrow::Cow;
 /// TypeMapper for NAPI bindings.
 /// JS numbers are 53-bit safe, so U64/Usize/Isize map to i64.
 /// Named types get a configurable prefix (defaults to "Js").
+/// Trait types are mapped to JsVisitorRef (a Clone-able wrapper around Object<'static>).
 pub struct NapiMapper {
     pub prefix: String,
+    /// Names of types in the IR that are trait definitions (TypeDef::is_trait == true).
+    pub trait_type_names: AHashSet<String>,
 }
 
 impl NapiMapper {
     pub fn new(prefix: String) -> Self {
-        Self { prefix }
+        Self {
+            prefix,
+            trait_type_names: AHashSet::new(),
+        }
+    }
+
+    pub fn with_traits(prefix: String, trait_type_names: AHashSet<String>) -> Self {
+        Self {
+            prefix,
+            trait_type_names,
+        }
     }
 }
 
@@ -35,7 +49,14 @@ impl TypeMapper for NapiMapper {
     }
 
     fn named<'a>(&self, name: &'a str) -> Cow<'a, str> {
-        Cow::Owned(format!("{}{name}", self.prefix))
+        if self.trait_type_names.contains(name) {
+            // Trait types cannot be used as bare Object<'static> fields because
+            // Object doesn't implement Clone. Use JsVisitorRef wrapper: a newtype that
+            // wraps napi::Object and implements Clone via Arc.
+            Cow::Borrowed("JsVisitorRef")
+        } else {
+            Cow::Owned(format!("{}{name}", self.prefix))
+        }
     }
 
     /// NAPI uses i64 for Duration (JS numbers are 53-bit safe).
