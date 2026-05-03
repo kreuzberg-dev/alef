@@ -5,9 +5,17 @@ use alef_codegen::generators;
 use alef_codegen::shared::function_params;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::{Language, ResolvedCrateConfig};
-use alef_core::ir::{ApiSurface, FunctionDef, TypeRef};
+use alef_core::ir::{ApiSurface, FieldDef, FunctionDef, TypeRef};
 
 use crate::type_map::MagnusMapper;
+
+/// Check if a field contains a type that cannot be safely passed across thread boundaries.
+/// Magnus's #[magnus::wrap] requires Send + Sync bounds. Fields containing types like
+/// VisitorHandle (Rc<RefCell<dyn HtmlVisitor>>) are !Send + !Sync and must be excluded.
+fn is_thread_unsafe_field(field: &FieldDef) -> bool {
+    matches!(&field.ty, TypeRef::Named(name) if name == "VisitorHandle")
+        || matches!(field.ty, TypeRef::Optional(ref inner) if matches!(inner.as_ref(), TypeRef::Named(name) if name == "VisitorHandle"))
+}
 
 /// Returns true when the function has optional params (or promoted required params that follow
 /// optional ones), meaning Magnus needs variadic arity (-1) with scan_args.
@@ -89,25 +97,44 @@ fn gen_scan_args_prologue(
         (false, false) => format!("(({req_type_str},), ({opt_type_str},))"),
     };
 
-    let mut lines = vec![format!(
-        "let args = magnus::scan_args::scan_args::<{type_params}>(args)?;"
-    )];
+    // scan_args requires all 6 generic parameters: Req, Opt, Splat, Trail, Kw, Block
+    // The req_type_str and opt_type_str already have proper formatting
+    let scan_args_line = match (req_types.is_empty(), opt_types.is_empty()) {
+        (true, true) => "let args = magnus::scan_args::scan_args::<(), (), (), (), (), ()>(args)?;".to_string(),
+        (false, true) => format!("let args = magnus::scan_args::scan_args::<({req_type_str},), (), (), (), (), ()>(args)?;"),
+        (true, false) => format!("let args = magnus::scan_args::scan_args::<(), ({opt_type_str},), (), (), (), ()>(args)?;"),
+        (false, false) => format!("let args = magnus::scan_args::scan_args::<({req_type_str},), ({opt_type_str},), (), (), (), ()>(args)?;"),
+    };
+
+    let mut lines = vec![scan_args_line];
 
     // Destructure required
     if !req_names.is_empty() {
-        let pat = format!(
-            "({})",
-            req_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
-        );
+        // If there's only one param, destructure the tuple directly (e.g., (html,) = ...)
+        // If there are multiple, use the tuple pattern as-is
+        let pat = if req_names.len() == 1 {
+            format!("({},)", req_names[0])
+        } else {
+            format!(
+                "({})",
+                req_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
+            )
+        };
         lines.push(format!("let {pat} = args.required;"));
     }
 
     // Destructure optional
     if !opt_names.is_empty() {
-        let pat = format!(
-            "({})",
-            opt_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
-        );
+        // If there's only one param, destructure the tuple directly (e.g., (options,) = ...)
+        // If there are multiple, use the tuple pattern as-is
+        let pat = if opt_names.len() == 1 {
+            format!("({},)", opt_names[0])
+        } else {
+            format!(
+                "({})",
+                opt_names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
+            )
+        };
         lines.push(format!("let {pat} = args.optional;"));
     }
 
@@ -575,6 +602,10 @@ pub(super) fn gen_module_init(
 
         if !typ.is_opaque {
             for field in &typ.fields {
+                // Skip thread-unsafe fields (e.g., VisitorHandle) that cannot be used in Magnus methods
+                if is_thread_unsafe_field(field) {
+                    continue;
+                }
                 lines.push(format!(
                     r#"    class.define_method("{name}", method!({typ_name}::{name}, 0))?;"#,
                     name = field.name,
@@ -585,6 +616,13 @@ pub(super) fn gen_module_init(
 
         for method in &typ.methods {
             if !method.is_static {
+                // Skip apply_update methods: they mutate self without returning a value,
+                // which is incompatible with Magnus's method! macro which requires RubyMethod traits.
+                // Callers can use from_update instead.
+                if method.name == "apply_update" {
+                    continue;
+                }
+
                 let method_name = if method.is_async {
                     format!("{}_async", method.name)
                 } else {

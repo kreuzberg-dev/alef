@@ -281,7 +281,8 @@ impl Backend for MagnusBackend {
                 builder.add_item(&classes::gen_from_binding_to_core_filtered(typ, &core_import));
             }
             if is_relaxed {
-                builder.add_item(&alef_codegen::conversions::gen_from_core_to_binding(
+                // Use custom From impl generator that filters thread-unsafe fields (e.g., VisitorHandle)
+                builder.add_item(&classes::gen_from_core_to_binding_filtered(
                     typ,
                     &core_import,
                     &opaque_types,

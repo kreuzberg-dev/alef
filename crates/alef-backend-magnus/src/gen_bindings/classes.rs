@@ -713,20 +713,9 @@ fn field_type_for_serde(field: &FieldDef) -> String {
     }
 }
 
-/// Generate a custom From impl for binding → core conversion that filters thread-unsafe fields.
-/// This is used instead of alef_codegen's gen_from_binding_to_core to exclude fields like
-/// VisitorHandle that cannot be Send + Sync. We post-process the generated code to remove
-/// unsafe field assignments.
-pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
-    // First get the full generated code from alef_codegen
-    let full_code = alef_codegen::conversions::gen_from_binding_to_core(typ, core_import);
-
-    // If there are no thread-unsafe fields, just return the full code
-    if !typ.fields.iter().any(is_thread_unsafe_field) {
-        return full_code;
-    }
-
-    // Filter the generated code to remove assignments for unsafe fields
+/// Helper to filter generated code by removing field assignments for unsafe fields.
+/// Removes lines where the field_name (before ':') matches an unsafe field.
+fn filter_unsafe_field_assignments(full_code: &str, typ: &TypeDef) -> String {
     let mut filtered_lines = Vec::new();
     let mut in_struct_body = false;
 
@@ -734,7 +723,7 @@ pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str
         let trimmed = line.trim();
 
         // Track if we're inside the struct initialization
-        if trimmed.contains("Self {") {
+        if trimmed.contains("Self {") || trimmed.contains("} {") {
             in_struct_body = true;
             filtered_lines.push(line.to_string());
             continue;
@@ -764,6 +753,43 @@ pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str
     }
 
     filtered_lines.join("\n")
+}
+
+/// Generate a custom From impl for binding → core conversion that filters thread-unsafe fields.
+/// This is used instead of alef_codegen's gen_from_binding_to_core to exclude fields like
+/// VisitorHandle that cannot be Send + Sync. We post-process the generated code to remove
+/// unsafe field assignments.
+pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
+    // First get the full generated code from alef_codegen
+    let full_code = alef_codegen::conversions::gen_from_binding_to_core(typ, core_import);
+
+    // If there are no thread-unsafe fields, just return the full code
+    if !typ.fields.iter().any(is_thread_unsafe_field) {
+        return full_code;
+    }
+
+    filter_unsafe_field_assignments(&full_code, typ)
+}
+
+/// Generate a custom From impl for core → binding conversion that filters thread-unsafe fields.
+/// This is used instead of alef_codegen's gen_from_core_to_binding to exclude fields like
+/// VisitorHandle that cannot be Send + Sync. We post-process the generated code to remove
+/// unsafe field assignments.
+pub(super) fn gen_from_core_to_binding_filtered(
+    typ: &TypeDef,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+) -> String {
+    // First get the full generated code from alef_codegen
+    let full_code =
+        alef_codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
+
+    // If there are no thread-unsafe fields, just return the full code
+    if !typ.fields.iter().any(is_thread_unsafe_field) {
+        return full_code;
+    }
+
+    filter_unsafe_field_assignments(&full_code, typ)
 }
 
 #[cfg(test)]
