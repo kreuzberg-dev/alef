@@ -163,6 +163,8 @@ pub(crate) fn gen_php_struct(
             option_duration_on_defaults: cfg.option_duration_on_defaults,
             opaque_type_names: cfg.opaque_type_names,
             skip_impl_constructor: cfg.skip_impl_constructor,
+            cast_uints_to_i32: cfg.cast_uints_to_i32,
+            cast_large_ints_to_f64: cfg.cast_large_ints_to_f64,
         };
         generators::gen_struct_with_per_field_attrs(typ, mapper, &modified_cfg, field_attrs_fn)
     } else {

@@ -55,6 +55,8 @@ fn default_cfg<'a>() -> RustBindingConfig<'a> {
         option_duration_on_defaults: false,
         opaque_type_names: &[],
         skip_impl_constructor: false,
+        cast_uints_to_i32: false,
+        cast_large_ints_to_f64: false,
     }
 }
 
@@ -1403,7 +1405,7 @@ fn test_gen_lossy_binding_to_core_fields_sanitized() {
     let mut typ = simple_type_def();
     typ.fields[0].sanitized = true;
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(result.contains("let core_self"));
     assert!(result.contains("name: Default::default(),"));
@@ -1414,7 +1416,7 @@ fn test_gen_lossy_binding_to_core_fields_sanitized() {
 fn test_gen_lossy_binding_to_core_fields_non_sanitized() {
     let typ = simple_type_def();
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(result.contains("let core_self"));
     assert!(result.contains("my_crate::MyConfig {"));
@@ -1442,7 +1444,7 @@ fn test_gen_lossy_binding_to_core_fields_map_named_applies_per_value_into() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("patterns: self.patterns.clone().into_iter().map(|(k, v)| (k.into(), v.into())).collect()"),
@@ -1472,7 +1474,7 @@ fn test_gen_lossy_binding_to_core_fields_optional_map_named_applies_per_value_in
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains(
@@ -1501,7 +1503,7 @@ fn test_gen_lossy_binding_to_core_fields_with_duration() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(result.contains("timeout: std::time::Duration::from_millis(self.timeout),"));
 }
@@ -1525,7 +1527,7 @@ fn test_gen_lossy_binding_to_core_fields_with_duration_optional_flag() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("request_timeout: self.request_timeout.map(std::time::Duration::from_millis),"),
@@ -1552,7 +1554,7 @@ fn test_gen_lossy_binding_to_core_fields_with_optional_duration_type() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("request_timeout: self.request_timeout.map(|v| std::time::Duration::from_millis(v as u64)),"),
@@ -5959,7 +5961,7 @@ fn test_gen_unimplemented_body_path_return() {
 fn test_gen_lossy_binding_to_core_fields_string_field() {
     let typ = simple_type_def();
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("name: self.name.clone(),"),
@@ -5976,7 +5978,7 @@ fn test_gen_lossy_binding_to_core_fields_cow_string_field() {
     let mut typ = simple_type_def();
     typ.fields[0].core_wrapper = CoreWrapper::Cow;
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("name: self.name.clone().into(),"),
@@ -6003,7 +6005,7 @@ fn test_gen_lossy_binding_to_core_fields_named_field() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("inner: self.inner.clone().into(),"),
@@ -6030,7 +6032,7 @@ fn test_gen_lossy_binding_to_core_fields_path_field() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("file_path: self.file_path.clone().into(),"),
@@ -6057,7 +6059,7 @@ fn test_gen_lossy_binding_to_core_fields_path_optional() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("output_path: self.output_path.clone().map(Into::into),"),
@@ -6084,7 +6086,7 @@ fn test_gen_lossy_binding_to_core_fields_json_field() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("serde_json::from_str(&self.metadata).unwrap_or_default()"),
@@ -6111,7 +6113,7 @@ fn test_gen_lossy_binding_to_core_fields_json_optional() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("self.extra.as_ref().and_then(|s| serde_json::from_str(s).ok())"),
@@ -6138,7 +6140,7 @@ fn test_gen_lossy_binding_to_core_fields_vec_named() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("items: self.items.clone().into_iter().map(Into::into).collect(),"),
@@ -6165,7 +6167,7 @@ fn test_gen_lossy_binding_to_core_fields_vec_named_optional() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("entries: self.entries.clone().map(|v| v.into_iter().map(Into::into).collect()),"),
@@ -6178,7 +6180,7 @@ fn test_gen_lossy_binding_to_core_fields_mut_declares_mutable() {
     let typ = simple_type_def();
 
     let result =
-        binding_helpers::gen_lossy_binding_to_core_fields_mut(&typ, "my_crate", false, &ahash::AHashSet::new());
+        binding_helpers::gen_lossy_binding_to_core_fields_mut(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("let mut core_self"),
@@ -6191,7 +6193,7 @@ fn test_gen_lossy_binding_to_core_fields_has_stripped_cfg_fields() {
     let mut typ = simple_type_def();
     typ.has_stripped_cfg_fields = true;
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("..Default::default()"),
@@ -6222,7 +6224,7 @@ fn test_gen_lossy_binding_to_core_fields_char_field() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("separator: self.separator.chars().next().unwrap_or('*'),"),
@@ -6249,7 +6251,7 @@ fn test_gen_lossy_binding_to_core_fields_char_optional() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", false, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("delimiter: self.delimiter.as_ref().and_then(|s| s.chars().next()),"),
@@ -6279,7 +6281,7 @@ fn test_gen_lossy_binding_to_core_fields_duration_option_on_defaults() {
         newtype_wrapper: None,
     });
 
-    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", true, &ahash::AHashSet::new());
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(&typ, "my_crate", true, &ahash::AHashSet::new(), false, false);
 
     assert!(
         result.contains("self.timeout.map(std::time::Duration::from_millis).unwrap_or_default()"),

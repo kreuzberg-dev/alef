@@ -51,6 +51,8 @@ impl PhpBackend {
             option_duration_on_defaults: true,
             opaque_type_names: &[],
             skip_impl_constructor: false,
+            cast_uints_to_i32: false,
+            cast_large_ints_to_f64: false,
         }
     }
 }

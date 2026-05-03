@@ -720,12 +720,15 @@ fn render_test_method(
     // Resolve per-fixture call config: supports named calls via fixture.call field.
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let call_overrides = call_config.overrides.get(lang);
+    let has_override = call_overrides.is_some_and(|o| o.function.is_some());
     let mut function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
-    // PHP ext-php-rs async methods have an _async suffix.
-    if call_config.r#async {
+    // PHP ext-php-rs async methods have an _async suffix, but only if the function
+    // name was not explicitly overridden. When a language-specific override provides
+    // a function name, use it as-is without modification.
+    if !has_override && call_config.r#async {
         function_name = format!("{function_name}_async");
     }
     let result_var = &call_config.result_var;
@@ -834,7 +837,7 @@ fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     class_name: &str,
-    enum_fields: &HashMap<String, String>,
+    _enum_fields: &HashMap<String, String>,
     fixture_id: &str,
     options_via: &str,
 ) -> (Vec<String>, String) {
@@ -936,13 +939,16 @@ fn build_args_and_setup(
                                         // ext-php-rs uses constructor-based initialization, not property setters.
                                         if let Some(prep_obj) = vv.as_object() {
                                             // Extract values from fixture JSON, using sensible defaults
-                                            let enabled = prep_obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-                                            let preset = prep_obj
-                                                .get("preset")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("Minimal");
-                                            let remove_navigation = prep_obj.get("remove_navigation").and_then(|v| v.as_bool()).unwrap_or(true);
-                                            let remove_forms = prep_obj.get("remove_forms").and_then(|v| v.as_bool()).unwrap_or(true);
+                                            let enabled =
+                                                prep_obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                                            let preset =
+                                                prep_obj.get("preset").and_then(|v| v.as_str()).unwrap_or("Minimal");
+                                            let remove_navigation = prep_obj
+                                                .get("remove_navigation")
+                                                .and_then(|v| v.as_bool())
+                                                .unwrap_or(true);
+                                            let remove_forms =
+                                                prep_obj.get("remove_forms").and_then(|v| v.as_bool()).unwrap_or(true);
 
                                             setup_lines.push(format!(
                                                 "$preprocessing = new \\HtmlToMarkdown\\PreprocessingOptions({}, {}, {}, {});",

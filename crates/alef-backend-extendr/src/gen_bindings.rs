@@ -40,6 +40,11 @@ impl ExtendrBackend {
             // constructor is suppressed to avoid type conversion errors: extendr cannot convert
             // custom enum or struct parameters from Robj in the classic constructor signature.
             skip_impl_constructor: true,
+            // R maps small ints (u8, u16, u32, i8, i16) to i32 and large ints (u64, usize,
+            // isize) to f64. Cast these back to the core types in gen_lossy_binding_to_core_fields
+            // so that method bodies that construct core structs compile correctly.
+            cast_uints_to_i32: true,
+            cast_large_ints_to_f64: true,
         }
     }
 }
