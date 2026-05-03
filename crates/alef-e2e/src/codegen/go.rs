@@ -190,6 +190,8 @@ fn render_test_file(
     e2e_config: &crate::config::E2eConfig,
 ) -> String {
     let mut out = String::new();
+    let emits_executable_test =
+        |fixture: &Fixture| fixture.is_http_test() || fixture_has_go_callable(fixture, e2e_config);
 
     // Go convention: generated file marker must appear before the package declaration.
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -212,6 +214,9 @@ fn render_test_file(
     let needs_os = fixtures.iter().any(|f| {
         if f.is_http_test() {
             return true;
+        }
+        if !emits_executable_test(f) {
+            return false;
         }
         let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
         call_args.iter().any(|a| a.arg_type == "mock_url")
@@ -238,6 +243,9 @@ fn render_test_file(
             if body_needs_json || partial_needs_json || ve_needs_json {
                 return true;
             }
+        }
+        if !emits_executable_test(f) {
+            return false;
         }
 
         let call = e2e_config.resolve_call(f.call.as_deref());
@@ -275,6 +283,9 @@ fn render_test_file(
 
     // Determine if we need "encoding/base64" (bytes-type args decoded at runtime).
     let needs_base64 = fixtures.iter().any(|f| {
+        if !emits_executable_test(f) {
+            return false;
+        }
         let call_args = &e2e_config.resolve_call(f.call.as_deref()).args;
         call_args.iter().any(|a| {
             if a.arg_type != "bytes" {
@@ -297,21 +308,25 @@ fn render_test_file(
                     false
                 }
             })
-        }) || f.assertions.iter().any(|a| {
-            matches!(
-                a.assertion_type.as_str(),
-                "contains" | "contains_all" | "contains_any" | "not_contains"
-            ) && a
-                .field
-                .as_ref()
-                .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
-                .unwrap_or(true)
-        })
+        }) || (emits_executable_test(f)
+            && f.assertions.iter().any(|a| {
+                matches!(
+                    a.assertion_type.as_str(),
+                    "contains" | "contains_all" | "contains_any" | "not_contains"
+                ) && a
+                    .field
+                    .as_ref()
+                    .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
+                    .unwrap_or(true)
+            }))
     });
 
     // Determine if we need the "strings" import.
     // Only count assertions whose fields are actually valid for the result type.
     let needs_strings = fixtures.iter().any(|f| {
+        if !emits_executable_test(f) {
+            return false;
+        }
         f.assertions.iter().any(|a| {
             let type_needs_strings = if a.assertion_type == "equals" {
                 // equals with string values needs strings.TrimSpace
@@ -333,6 +348,9 @@ fn render_test_file(
 
     // Determine if we need the testify assert import.
     let needs_assert = fixtures.iter().any(|f| {
+        if !emits_executable_test(f) {
+            return false;
+        }
         f.assertions.iter().any(|a| {
             let field_valid = a
                 .field

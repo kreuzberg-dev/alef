@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handles so the backend compiles cleanly.
 - fix(e2e/wasm): declare Rollup in generated WASM Vitest harnesses so Vite plugins
   can load in isolated installs.
+- fix(e2e/go): compute imports from executable Go fixtures only so skip-only files
+  compile without unused imports.
 
 ## [0.14.3] - 2026-05-03
 
