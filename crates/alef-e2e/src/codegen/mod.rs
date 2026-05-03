@@ -114,7 +114,12 @@ pub fn generators_for(languages: &[String]) -> Vec<Box<dyn E2eCodegen>> {
 ///
 /// Field paths in call config are "input.path", "input.config", etc.
 /// Since we already receive `fixture.input`, strip the leading "input." prefix.
+/// When `field_path` is exactly `"input"`, the whole input object is returned.
 pub(crate) fn resolve_field<'a>(input: &'a serde_json::Value, field_path: &str) -> &'a serde_json::Value {
+    // "input" with no subpath means "the entire input object".
+    if field_path == "input" {
+        return input;
+    }
     let path = field_path.strip_prefix("input.").unwrap_or(field_path);
     let mut current = input;
     for part in path.split('.') {

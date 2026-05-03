@@ -400,10 +400,35 @@ fn render_test_file(
     // Determine if any fixture is an HTTP test (needs GuzzleHttp).
     let has_http_tests = fixtures.iter().any(|f| f.is_http_test());
 
+    // Collect options_type class names that need `use` imports (one import per unique name).
+    let mut options_type_imports: Vec<String> = fixtures
+        .iter()
+        .flat_map(|f| {
+            let call = e2e_config.resolve_call(f.call.as_deref());
+            let php_override = call.overrides.get(lang);
+            let opt_type = php_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
+                e2e_config
+                    .call
+                    .overrides
+                    .get(lang)
+                    .and_then(|o| o.options_type.as_deref())
+            });
+            opt_type.map(|t| t.to_string()).into_iter()
+        })
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    options_type_imports.sort();
+
     let _ = writeln!(out, "use PHPUnit\\Framework\\TestCase;");
     let _ = writeln!(out, "use {namespace}\\{class_name};");
     if needs_crawl_config_import {
         let _ = writeln!(out, "use {namespace}\\CrawlConfig;");
+    }
+    for type_name in &options_type_imports {
+        if type_name != class_name {
+            let _ = writeln!(out, "use {namespace}\\{type_name};");
+        }
     }
     if has_http_tests {
         let _ = writeln!(out, "use GuzzleHttp\\Client;");
@@ -740,8 +765,24 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (mut setup_lines, args_str) =
-        build_args_and_setup(&fixture.input, args, class_name, enum_fields, &fixture.id, options_via);
+    // Resolve options_type for this call's PHP override, with fallback to the top-level call override.
+    let call_options_type = call_overrides.and_then(|o| o.options_type.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.options_type.as_deref())
+    });
+
+    let (mut setup_lines, args_str) = build_args_and_setup(
+        &fixture.input,
+        args,
+        class_name,
+        enum_fields,
+        &fixture.id,
+        options_via,
+        call_options_type,
+    );
 
     // Build visitor if present and add to setup
     let mut options_already_created = !args_str.is_empty() && args_str == "$options";
@@ -837,6 +878,10 @@ fn render_test_method(
 /// - `"array"` (default): PHP array literal `["key" => value, ...]`
 /// - `"json"`: JSON string via `json_encode([...])` — use when the Rust method accepts `Option<String>`
 ///
+/// `options_type` is the PHP class name (e.g. `"ProcessConfig"`) used when constructing options
+/// via `ClassName::from_json(json_encode([...]))`. Required when `options_via` is not `"json"` and
+/// the binding accepts a typed config object.
+///
 /// Returns `(setup_lines, args_string)`.
 fn build_args_and_setup(
     input: &serde_json::Value,
@@ -845,6 +890,7 @@ fn build_args_and_setup(
     _enum_fields: &HashMap<String, String>,
     fixture_id: &str,
     options_via: &str,
+    options_type: Option<&str>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         // No args configuration: pass the whole input only if it's non-empty.
@@ -928,19 +974,27 @@ fn build_args_and_setup(
                             continue;
                         }
                         _ => {
-                            // PHP: construct ConversionOptions using the builder pattern.
-                            // ext-php-rs doesn't support writable #[php(prop)] fields, and
-                            // from_json() may not be available in all extension versions.
+                            if let Some(type_name) = options_type {
+                                // Use TypeName::from_json(json_encode([...])) to construct the
+                                // typed config object. ext-php-rs structs expose a from_json()
+                                // static method that accepts a JSON string.
+                                let arg_var = format!("${}", arg.name);
+                                setup_lines.push(format!(
+                                    "{arg_var} = {type_name}::from_json(json_encode({}));",
+                                    json_to_php(v)
+                                ));
+                                parts.push(arg_var);
+                                continue;
+                            }
+                            // Fallback: builder pattern when no options_type is configured.
+                            // This path is kept for backwards compatibility with projects
+                            // that use a builder-style API without from_json().
                             if let Some(obj) = v.as_object() {
-                                setup_lines
-                                    .push("$builder = \\HtmlToMarkdown\\ConversionOptions::builder();".to_string());
+                                setup_lines.push("$builder = $this->createDefaultOptionsBuilder();".to_string());
                                 for (k, vv) in obj {
                                     let snake_key = k.to_snake_case();
                                     if snake_key == "preprocessing" {
-                                        // Handle preprocessing as a nested object using its constructor.
-                                        // ext-php-rs uses constructor-based initialization, not property setters.
                                         if let Some(prep_obj) = vv.as_object() {
-                                            // Extract values from fixture JSON, using sensible defaults
                                             let enabled =
                                                 prep_obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
                                             let preset =
@@ -951,9 +1005,8 @@ fn build_args_and_setup(
                                                 .unwrap_or(true);
                                             let remove_forms =
                                                 prep_obj.get("remove_forms").and_then(|v| v.as_bool()).unwrap_or(true);
-
                                             setup_lines.push(format!(
-                                                "$preprocessing = new \\HtmlToMarkdown\\PreprocessingOptions({}, {}, {}, {});",
+                                                "$preprocessing = $this->createPreprocessingOptions({}, {}, {}, {});",
                                                 if enabled { "true" } else { "false" },
                                                 json_to_php(&serde_json::Value::String(preset.to_string())),
                                                 if remove_navigation { "true" } else { "false" },
@@ -963,10 +1016,6 @@ fn build_args_and_setup(
                                                 "$builder = $builder->preprocessing($preprocessing);".to_string(),
                                             );
                                         }
-                                    } else {
-                                        // Skip setting via builder for now; builder only has
-                                        // specific setter methods (preprocessing, visitor, etc.)
-                                        // For other fields, they must be set during construction.
                                     }
                                 }
                                 setup_lines.push("$options = $builder->build();".to_string());

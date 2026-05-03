@@ -182,9 +182,14 @@ pub fn render_assertion(
             let _ = writeln!(out, "    assert!({result_var}.is_err(), \"expected call to fail\");");
             if let Some(serde_json::Value::String(msg)) = &assertion.value {
                 let escaped = escape_rust(msg);
+                // Use `.err().unwrap()` instead of `.unwrap_err()` to avoid the
+                // `Ok: Debug` requirement — `BoxStream` (for streaming calls) does
+                // not implement `Debug`, which would cause a compile error.
+                // Compare against `error_type()` (e.g. "Authentication", "BadRequest")
+                // rather than `to_string()` which uses lowercase display format.
                 let _ = writeln!(
                     out,
-                    "    assert!({result_var}.as_ref().unwrap_err().to_string().contains(\"{escaped}\"), \"error message mismatch\");"
+                    "    assert!({result_var}.as_ref().err().unwrap().error_type().contains(\"{escaped}\"), \"error message mismatch\");"
                 );
             }
         }

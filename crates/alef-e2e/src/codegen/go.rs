@@ -616,8 +616,11 @@ fn render_test_function(
     let returns_void = call_config.returns_void;
 
     // result_is_simple: result is a scalar (*string, *bool, etc.) not a struct.
-    // Check Go override first, then Rust override as fallback.
+    // Priority: Go override > call-level (canonical source) > Rust override (legacy compat).
     let result_is_simple = overrides.map(|o| o.result_is_simple).unwrap_or_else(|| {
+        if call_config.result_is_simple {
+            return true;
+        }
         call_config
             .overrides
             .get("rust")

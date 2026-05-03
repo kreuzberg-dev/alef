@@ -739,6 +739,17 @@ fn build_args_and_setup(
     fixture_id: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
+        // No args config: pass the whole input only when it's non-empty.
+        // Functions with no parameters have empty input and must be called
+        // with no arguments — not with `{}` or `nil`.
+        let is_empty_input = match input {
+            serde_json::Value::Null => true,
+            serde_json::Value::Object(m) => m.is_empty(),
+            _ => false,
+        };
+        if is_empty_input {
+            return (Vec::new(), String::new());
+        }
         return (Vec::new(), json_to_ruby(input));
     }
 

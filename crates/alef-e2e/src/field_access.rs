@@ -60,6 +60,13 @@ impl FieldResolver {
         if self.optional_fields.contains(field) {
             return true;
         }
+        // Normalize all numeric array indices to [0] so `data[1].url` matches
+        // `data[0].url` in `optional_fields`. Uses a simple regex-free approach:
+        // replace `[<digits>]` with `[0]`.
+        let index_normalized = normalize_numeric_indices(field);
+        if index_normalized != field && self.optional_fields.contains(index_normalized.as_str()) {
+            return true;
+        }
         // Also check with/without bracket notation: `json_ld.name` ↔ `json_ld[].name`
         // Strip `[]` from each segment and retry.
         let normalized = field.replace("[].", ".");
@@ -203,17 +210,55 @@ impl FieldResolver {
         } else if is_array {
             format!("let {local_var} = {accessor}.as_deref().unwrap_or(&[]);")
         } else {
-            // Use `.as_ref().map(|v| v.to_string()).as_deref().unwrap_or("")` so that:
+            // Use `.as_ref().map(|v| v.to_string()).unwrap_or_default()` so that:
             // - `.as_ref()` avoids moving out of a Vec index (required when accessing
             //   fields like `result.choices[0].finish_reason`).
             // - `.map(|v| v.to_string())` converts enum types (e.g. `FinishReason`)
-            //   that implement `Display` to a `String`, so `.as_deref()` yields `&str`.
-            // - For `Option<String>`, `.as_ref()` gives `Option<&String>` and
-            //   `.map(|v| v.to_string())` clones — acceptable overhead for test code.
-            format!("let {local_var} = {accessor}.as_ref().map(|v| v.to_string()).as_deref().unwrap_or(\"\");")
+            //   that implement `Display` to an owned `String`.
+            // - `.unwrap_or_default()` gives `String::new()` when `None`, avoiding the
+            //   temporary lifetime issue that `.as_deref().unwrap_or("")` would cause.
+            // - The binding is `String`, not `&str`, which is fine for test assertions.
+            format!("let {local_var} = {accessor}.as_ref().map(|v| v.to_string()).unwrap_or_default();")
         };
         Some((binding, local_var))
     }
+}
+
+/// Normalize all numeric array indices in a field path to `[0]`.
+///
+/// E.g. `"data[2].url"` → `"data[0].url"` so that `is_optional` lookups
+/// using `data[0].url` as the canonical key also match `data[1].url`, `data[2].url`, etc.
+fn normalize_numeric_indices(path: &str) -> String {
+    let mut result = String::with_capacity(path.len());
+    let mut chars = path.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '[' {
+            // Collect characters until the matching `]`.
+            let mut key = String::new();
+            let mut closed = false;
+            for inner in chars.by_ref() {
+                if inner == ']' {
+                    closed = true;
+                    break;
+                }
+                key.push(inner);
+            }
+            if closed && !key.is_empty() && key.chars().all(|k| k.is_ascii_digit()) {
+                // Replace numeric index with [0].
+                result.push_str("[0]");
+            } else {
+                // Non-numeric key or unclosed bracket — emit as-is.
+                result.push('[');
+                result.push_str(&key);
+                if closed {
+                    result.push(']');
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 /// Parse a dotted field path into segments, handling map access `foo[key]`
@@ -550,11 +595,17 @@ fn render_rust_with_optionals(segments: &[PathSegment], result_var: &str, option
                 if key.chars().all(|c| c.is_ascii_digit()) {
                     // When the array field itself is Optional (e.g. `segments` is
                     // `Option<Vec<T>>`), we must unwrap it before indexing.
-                    if optional_fields.contains(&path_so_far) {
+                    // Check both bare name (`segments`) and normalized form (`segments[0]`).
+                    let is_opt = optional_fields.contains(&path_so_far);
+                    if is_opt {
                         out.push_str(&format!(".as_ref().unwrap()[{key}]"));
                     } else {
                         out.push_str(&format!("[{key}]"));
                     }
+                    // Update path_so_far to include [0] so subsequent Field lookups
+                    // (e.g. ".message" after "choices[0]") build the correct path
+                    // for optional_fields lookups (keyed as "choices[0].message.tool_calls").
+                    path_so_far.push_str("[0]");
                 } else {
                     out.push_str(&format!(".get(\"{key}\").map(|s| s.as_str())"));
                 }

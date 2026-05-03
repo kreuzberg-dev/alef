@@ -25,11 +25,6 @@ pub(super) fn gen_api_py(
     use alef_core::ir::TypeRef;
     use heck::ToSnakeCase;
 
-    // When output_style is TypedDict, types with is_return_type=true are emitted as
-    // TypedDict classes (plain dicts at runtime). Converters for those types must use
-    // `value.get("field")` dict access instead of `value.field` attribute access.
-    let output_style = dto.python_output_style();
-
     // Collect bridge param names so they can be typed as `object | None` instead of
     // `str | None`. The IR sanitizes trait handle types to String, but callers pass
     // arbitrary Python objects implementing the visitor protocol.
@@ -282,11 +277,11 @@ pub(super) fn gen_api_py(
         let typ = default_types[type_name];
         let snake = type_name.to_snake_case();
 
-        // When the output style is TypedDict, any value passed to a `_to_rust_*` converter
-        // may arrive as a plain dict (either because it IS a TypedDict itself, or because
-        // it was nested inside one and extracted with `.get()`). Use `value.get("field")`
-        // for all field accesses in TypedDict mode to avoid AttributeError on plain dicts.
-        let is_typeddict = output_style == PythonDtoStyle::TypedDict;
+        // `_to_rust_*` converters handle INPUT types (has_default config structs). These are
+        // typed according to the INPUT style (`dto.python`), NOT the output style. Use
+        // `value.get("field")` dict access only when the input style is TypedDict; otherwise
+        // use `value.field` attribute access (safe for dataclasses/pydantic).
+        let is_typeddict = dto.python == PythonDtoStyle::TypedDict;
 
         // Helper: emit `value.field` or `value.get("field")` depending on the type kind.
         let field_access = |name: &str| -> String {
