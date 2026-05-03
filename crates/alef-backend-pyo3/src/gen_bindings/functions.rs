@@ -268,6 +268,13 @@ pub(super) fn gen_api_py(
     }
     out.push_str("\n\n");
 
+    // Emit a helper that coerces strings or PyO3 enum aliases into the
+    // canonical enum class instance. PyO3 enums do not expose a `__new__`
+    // that accepts strings, so the wrapper must do the lookup itself.
+    out.push_str(
+        "def _coerce_enum(enum_cls: object, value: object) -> object:\n    \"\"\"Coerce a string/alias value into the matching pyclass enum instance.\"\"\"\n    if value is None or isinstance(value, enum_cls):  # type: ignore[arg-type]\n        return value\n    s = str(value).replace(\"-\", \"_\").replace(\" \", \"_\")\n    candidates = (\n        s,\n        s.upper(),\n        s.lower(),\n        \"\".join(part.capitalize() for part in s.split(\"_\")),\n    )\n    for candidate in candidates:\n        attr = getattr(enum_cls, candidate, None)\n        if isinstance(attr, enum_cls):  # type: ignore[arg-type]\n            return attr\n    raise ValueError(f\"unknown {getattr(enum_cls, '__name__', enum_cls)!s} value: {value!r}\")\n\n\n",
+    );
+
     // Generate converter functions for each needed has_default type
     for type_name in &needed_converters {
         let typ = default_types[type_name];
@@ -374,18 +381,19 @@ pub(super) fn gen_api_py(
                             ));
                         }
                     } else {
-                        // Simple int enum: the input value is a Python dataclass with string/enum
-                        // values. Convert strings to _rust.EnumType instances via the constructor.
+                        // Simple unit enum: callers pass a string/alias or a _rust.<Enum>
+                        // instance. PyO3 enums do not provide a string `__init__`, so use the
+                        // shared `_coerce_enum` helper to look up the canonical variant.
                         let accessor = field_access(&field.name);
                         if matches!(&field.ty, TypeRef::Optional(_)) || field.optional {
                             out.push_str(&format!(
-                                "        {name}=(_rust.{enum_name}({accessor}) if {accessor} is not None else None),\n",
+                                "        {name}=_coerce_enum(_rust.{enum_name}, {accessor}),\n",
                                 name = field.name,
                                 enum_name = nested_name,
                             ));
                         } else {
                             out.push_str(&format!(
-                                "        {name}=_rust.{enum_name}({accessor}),\n",
+                                "        {name}=_coerce_enum(_rust.{enum_name}, {accessor}),\n",
                                 name = field.name,
                                 enum_name = nested_name,
                             ));
@@ -407,10 +415,10 @@ pub(super) fn gen_api_py(
                                 name = field.name,
                             ));
                         } else {
-                            // Simple int enum list: the input value is a Python dataclass with
-                            // string/enum values. Convert each element to _rust.EnumType instances.
+                            // Simple unit enum list: each element is a string/alias or a
+                            // _rust.<Enum> instance — coerce via the shared helper.
                             out.push_str(&format!(
-                                "        {name}=[_rust.{enum_name}(v) for v in {accessor}],\n",
+                                "        {name}=[_coerce_enum(_rust.{enum_name}, v) for v in {accessor}],\n",
                                 name = field.name,
                             ));
                         }
