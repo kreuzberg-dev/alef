@@ -1195,14 +1195,10 @@ fn render_assertion(
                 if field_resolver.is_optional(resolved) && !field_resolver.has_map_access(f) {
                     // For Java records, fields declared as Optional<X> have accessors that
                     // directly return Optional<X>, so we don't need to wrap them.
-                    // Check the resolved field name (after alias mapping) to see if it's a direct field.
-                    // When the resolved field has no nesting (no ".", no "["), the accessor returns Optional.
-                    let is_direct_optional = !resolved.contains('.') && !resolved.contains('[');
-                    let optional_expr = if is_direct_optional {
-                        accessor.clone()
-                    } else {
-                        format!("java.util.Optional.ofNullable({accessor})")
-                    };
+                    // The accessor for an optional field is a method call that returns Optional,
+                    // so it already ends with `()`. Don't wrap it again in Optional.ofNullable().
+                    // Example: result.title() or result.metadata().get().title()
+                    let optional_expr = accessor.clone();
                     match assertion.assertion_type.as_str() {
                         // For not_empty / is_empty on Optional fields, return the raw Optional
                         // so the assertion arms can call isPresent()/isEmpty().
