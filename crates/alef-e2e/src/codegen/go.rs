@@ -222,64 +222,79 @@ fn render_test_file(
         call_args.iter().any(|a| a.arg_type == "mock_url")
     });
 
+    let needs_json_stringify = fixtures.iter().any(|f| {
+        emits_executable_test(f)
+            && f.assertions.iter().any(|a| {
+                matches!(
+                    a.assertion_type.as_str(),
+                    "contains" | "contains_all" | "contains_any" | "not_contains"
+                ) && a
+                    .field
+                    .as_ref()
+                    .map(|f| field_resolver.is_array(field_resolver.resolve(f)))
+                    .unwrap_or(false)
+            })
+    });
+
     // Determine if we need "encoding/json" (handle args with non-null config,
     // json_object args that will be unmarshalled into a typed struct, or HTTP
     // body/partial/validation-error assertions that use json.Unmarshal).
-    let needs_json = fixtures.iter().any(|f| {
-        // HTTP body assertions use json.Unmarshal for Object/Array bodies;
-        // partial body and validation-error assertions always use json.Unmarshal.
-        if let Some(http) = &f.http {
-            let body_needs_json = http
-                .expected_response
-                .body
-                .as_ref()
-                .is_some_and(|b| matches!(b, serde_json::Value::Object(_) | serde_json::Value::Array(_)));
-            let partial_needs_json = http.expected_response.body_partial.is_some();
-            let ve_needs_json = http
-                .expected_response
-                .validation_errors
-                .as_ref()
-                .is_some_and(|v| !v.is_empty());
-            if body_needs_json || partial_needs_json || ve_needs_json {
-                return true;
+    let needs_json = needs_json_stringify
+        || fixtures.iter().any(|f| {
+            // HTTP body assertions use json.Unmarshal for Object/Array bodies;
+            // partial body and validation-error assertions always use json.Unmarshal.
+            if let Some(http) = &f.http {
+                let body_needs_json = http
+                    .expected_response
+                    .body
+                    .as_ref()
+                    .is_some_and(|b| matches!(b, serde_json::Value::Object(_) | serde_json::Value::Array(_)));
+                let partial_needs_json = http.expected_response.body_partial.is_some();
+                let ve_needs_json = http
+                    .expected_response
+                    .validation_errors
+                    .as_ref()
+                    .is_some_and(|v| !v.is_empty());
+                if body_needs_json || partial_needs_json || ve_needs_json {
+                    return true;
+                }
             }
-        }
-        if !emits_executable_test(f) {
-            return false;
-        }
-
-        let call = e2e_config.resolve_call(f.call.as_deref());
-        let call_args = &call.args;
-        // handle args with non-null config value
-        let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
-            call_args.iter().filter(|a| a.arg_type == "handle").any(|a| {
-                let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-                let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
-                !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
-            })
-        };
-        // json_object args with options_type or array values (will use JSON unmarshal)
-        let go_override = call.overrides.get("go");
-        let opts_type = go_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
-            e2e_config
-                .call
-                .overrides
-                .get("go")
-                .and_then(|o| o.options_type.as_deref())
-        });
-        let has_json_obj = call_args.iter().any(|a| {
-            if a.arg_type != "json_object" {
+            if !emits_executable_test(f) {
                 return false;
             }
-            let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
-            let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
-            if v.is_array() {
-                return true;
-            } // array → []string unmarshal
-            opts_type.is_some() && v.is_object() && !v.as_object().is_some_and(|o| o.is_empty())
+
+            let call = e2e_config.resolve_call(f.call.as_deref());
+            let call_args = &call.args;
+            // handle args with non-null config value
+            let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
+                call_args.iter().filter(|a| a.arg_type == "handle").any(|a| {
+                    let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
+                    let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
+                    !(v.is_null() || v.is_object() && v.as_object().is_some_and(|o| o.is_empty()))
+                })
+            };
+            // json_object args with options_type or array values (will use JSON unmarshal)
+            let go_override = call.overrides.get("go");
+            let opts_type = go_override.and_then(|o| o.options_type.as_deref()).or_else(|| {
+                e2e_config
+                    .call
+                    .overrides
+                    .get("go")
+                    .and_then(|o| o.options_type.as_deref())
+            });
+            let has_json_obj = call_args.iter().any(|a| {
+                if a.arg_type != "json_object" {
+                    return false;
+                }
+                let field = a.field.strip_prefix("input.").unwrap_or(&a.field);
+                let v = f.input.get(field).unwrap_or(&serde_json::Value::Null);
+                if v.is_array() {
+                    return true;
+                } // array → []string unmarshal
+                opts_type.is_some() && v.is_object() && !v.as_object().is_some_and(|o| o.is_empty())
+            });
+            has_handle || has_json_obj
         });
-        has_handle || has_json_obj
-    });
 
     // Determine if we need "encoding/base64" (bytes-type args decoded at runtime).
     let needs_base64 = fixtures.iter().any(|f| {
@@ -447,6 +462,17 @@ fn render_test_file(
     }
     let _ = writeln!(out, ")");
     let _ = writeln!(out);
+
+    if needs_json_stringify {
+        let _ = writeln!(out, "func jsonString(value any) string {{");
+        let _ = writeln!(out, "\tencoded, err := json.Marshal(value)");
+        let _ = writeln!(out, "\tif err != nil {{");
+        let _ = writeln!(out, "\t\treturn fmt.Sprint(value)");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\treturn string(encoded)");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+    }
 
     // Emit package-level visitor structs (must be outside any function in Go).
     for fixture in fixtures.iter() {
@@ -1647,11 +1673,11 @@ fn render_assertion(
                 let is_opt =
                     is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 let field_for_contains = if is_opt && field_is_array {
-                    format!("fmt.Sprint(*{field_expr})")
+                    format!("jsonString(*{field_expr})")
                 } else if is_opt {
                     format!("fmt.Sprint(*{field_expr})")
                 } else if field_is_array {
-                    format!("fmt.Sprint({field_expr})")
+                    format!("jsonString({field_expr})")
                 } else {
                     format!("fmt.Sprint({field_expr})")
                 };
@@ -1684,11 +1710,11 @@ fn render_assertion(
                 for val in values {
                     let go_val = json_to_go(val);
                     let field_for_contains = if is_opt && field_is_array {
-                        format!("fmt.Sprint(*{field_expr})")
+                        format!("jsonString(*{field_expr})")
                     } else if is_opt {
                         format!("fmt.Sprint(*{field_expr})")
                     } else if field_is_array {
-                        format!("fmt.Sprint({field_expr})")
+                        format!("jsonString({field_expr})")
                     } else {
                         format!("fmt.Sprint({field_expr})")
                     };
@@ -1715,11 +1741,11 @@ fn render_assertion(
                 let is_opt =
                     is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 let field_for_contains = if is_opt && field_is_array {
-                    format!("fmt.Sprint(*{field_expr})")
+                    format!("jsonString(*{field_expr})")
                 } else if is_opt {
                     format!("fmt.Sprint(*{field_expr})")
                 } else if field_is_array {
-                    format!("fmt.Sprint({field_expr})")
+                    format!("jsonString({field_expr})")
                 } else {
                     format!("fmt.Sprint({field_expr})")
                 };
@@ -1775,11 +1801,11 @@ fn render_assertion(
                 let is_opt =
                     is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 let field_for_contains = if is_opt && field_is_array {
-                    format!("fmt.Sprint(*{field_expr})")
+                    format!("jsonString(*{field_expr})")
                 } else if is_opt {
                     format!("fmt.Sprint(*{field_expr})")
                 } else if field_is_array {
-                    format!("fmt.Sprint({field_expr})")
+                    format!("jsonString({field_expr})")
                 } else {
                     format!("fmt.Sprint({field_expr})")
                 };

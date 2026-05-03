@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compile without unused imports.
 - fix(backend-go): decode Rust data-enum JSON into Go discriminated structs with
   a printable variant name instead of silently returning nil conversion results.
+- fix(e2e/go): stringify structured array fields as JSON for containment assertions
+  so pointer fields compare by value instead of address.
 
 ## [0.14.3] - 2026-05-03
 
