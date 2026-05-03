@@ -653,6 +653,7 @@ fn render_test_method(
 
     // Build visitor if present: instantiate in method body, declare class at file scope.
     let mut visitor_arg = String::new();
+    let has_visitor = fixture.visitor.is_some();
     if let Some(visitor_spec) = &fixture.visitor {
         visitor_arg = build_csharp_visitor(&mut setup_lines, visitor_class_decls, &fixture.id, visitor_spec);
     }
@@ -671,6 +672,13 @@ fn render_test_method(
         format!("{args_with_visitor}, {}", extra_args_slice.join(", "))
     };
 
+    // When a visitor is present, use the WithVisitor variant (e.g., ConvertWithVisitor instead of Convert)
+    let effective_function_name = if has_visitor {
+        format!("{}WithVisitor", function_name)
+    } else {
+        function_name.to_string()
+    };
+
     let return_type = if is_async { "async Task" } else { "void" };
     let await_kw = if is_async { "await " } else { "" };
 
@@ -687,12 +695,12 @@ fn render_test_method(
         if is_async {
             let _ = writeln!(
                 out,
-                "        await Assert.ThrowsAsync<{exception_class}>(() => {class_name}.{function_name}({final_args}));"
+                "        await Assert.ThrowsAsync<{exception_class}>(() => {class_name}.{effective_function_name}({final_args}));"
             );
         } else {
             let _ = writeln!(
                 out,
-                "        Assert.Throws<{exception_class}>(() => {class_name}.{function_name}({final_args}));"
+                "        Assert.Throws<{exception_class}>(() => {class_name}.{effective_function_name}({final_args}));"
             );
         }
         let _ = writeln!(out, "    }}");
@@ -702,11 +710,11 @@ fn render_test_method(
     let result_is_vec = call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec);
 
     if returns_void {
-        let _ = writeln!(out, "        {await_kw}{class_name}.{function_name}({final_args});");
+        let _ = writeln!(out, "        {await_kw}{class_name}.{effective_function_name}({final_args});");
     } else {
         let _ = writeln!(
             out,
-            "        var {result_var} = {await_kw}{class_name}.{function_name}({final_args});"
+            "        var {result_var} = {await_kw}{class_name}.{effective_function_name}({final_args});"
         );
         for assertion in &fixture.assertions {
             render_assertion(

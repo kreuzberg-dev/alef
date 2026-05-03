@@ -339,6 +339,7 @@ mod tests {
                     optional: false,
                     owned: false,
                     element_type: None,
+                    go_type: None,
                 },
                 ArgMapping {
                     name: "mime_type".to_string(),
@@ -347,6 +348,7 @@ mod tests {
                     optional: false,
                     owned: false,
                     element_type: None,
+                    go_type: None,
                 },
             ],
             ..Default::default()

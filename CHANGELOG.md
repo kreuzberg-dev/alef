@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/wasm): inject `beforeAll(async () => { await initWasm(); })` hook
   into generated vitest test files to ensure WASM module is initialized before
   tests execute. Prevents "WebAssembly bundle is still initializing" errors.
+- fix(e2e/php): when `result_is_simple = true`, generated assertions now access the
+  `content` property of the ConversionResult object instead of passing the object
+  directly to assertion methods. Fixes TypeError when trimming or comparing results.
 
 ## [0.14.4] - 2026-05-03
 

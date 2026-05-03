@@ -8,12 +8,86 @@ use crate::type_resolver;
 use super::defaults::extract_default_values;
 use super::helpers::{build_rust_path, extract_cfg_condition, extract_doc_comments, unwrap_optional};
 
+/// Returns true when every type parameter in `generics` is bounded only by traits that
+/// allow monomorphization to `String` (e.g. `AsRef<str>`, `Into<String>`, `ToString`,
+/// `Send`, `Sync`, lifetime bounds). Functions that satisfy this condition are extracted
+/// with all type params replaced by `String` so they can be exposed through the FFI surface
+/// without actually being generic.
+fn can_monomorphize_to_string(generics: &syn::Generics) -> bool {
+    if generics.params.is_empty() {
+        return true;
+    }
+    generics.params.iter().all(|param| match param {
+        syn::GenericParam::Type(tp) => tp.bounds.iter().all(|bound| match bound {
+            syn::TypeParamBound::Trait(tb) => {
+                let last = tb.path.segments.last().map(|s| s.ident.to_string());
+                matches!(
+                    last.as_deref(),
+                    Some(
+                        "AsRef"
+                            | "Into"
+                            | "From"
+                            | "ToString"
+                            | "Display"
+                            | "Debug"
+                            | "Send"
+                            | "Sync"
+                            | "Unpin"
+                    )
+                )
+            }
+            syn::TypeParamBound::Lifetime(_) => true,
+            _ => true,
+        }),
+        syn::GenericParam::Lifetime(_) => true,
+        syn::GenericParam::Const(_) => false,
+    })
+}
+
+/// Replace any `TypeRef::Named(name)` where `name` is in `type_param_names` with `TypeRef::String`.
+/// Recurses into `Optional`, `Vec`, and `Map` wrappers.
+fn monomorphize_type_ref(ty: &mut TypeRef, type_param_names: &std::collections::HashSet<String>) {
+    match ty {
+        TypeRef::Named(n) if type_param_names.contains(n.as_str()) => {
+            *ty = TypeRef::String;
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
+            monomorphize_type_ref(inner, type_param_names);
+        }
+        TypeRef::Map(k, v) => {
+            monomorphize_type_ref(k, type_param_names);
+            monomorphize_type_ref(v, type_param_names);
+        }
+        _ => {}
+    }
+}
+
 /// Extract a public free function into a `FunctionDef`.
-/// Returns `None` for generic functions — they can't be directly exposed to FFI.
+///
+/// Generic functions are skipped unless all their type parameters can be monomorphized to
+/// `String` (bounded only by `AsRef<str>`, `Into<String>`, `Send`, `Sync`, etc.).
+/// Such functions are extracted with type parameter names replaced by `String` in parameter
+/// and return types so they can be exposed through the FFI surface.
 pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path: &str) -> Option<FunctionDef> {
-    if !item.sig.generics.params.is_empty() {
+    if !item.sig.generics.params.is_empty() && !can_monomorphize_to_string(&item.sig.generics) {
         return None;
     }
+
+    // Collect type parameter names so we can monomorphize them to `String` after extraction.
+    let type_param_names: std::collections::HashSet<String> = item
+        .sig
+        .generics
+        .params
+        .iter()
+        .filter_map(|p| {
+            if let syn::GenericParam::Type(tp) = p {
+                Some(tp.ident.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
     let cfg = extract_cfg_condition(&item.attrs);
     let name = item.sig.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
@@ -35,9 +109,17 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
         }
     }
 
-    let params = extract_params(&item.sig.inputs);
+    let mut params = extract_params(&item.sig.inputs);
     let rust_path = build_rust_path(crate_name, module_path, &name);
     let sanitized = params.iter().any(|p| p.sanitized);
+
+    // Monomorphize: replace generic type param names (e.g. `T`) with `String`.
+    if !type_param_names.is_empty() {
+        for param in &mut params {
+            monomorphize_type_ref(&mut param.ty, &type_param_names);
+        }
+        monomorphize_type_ref(&mut return_type, &type_param_names);
+    }
 
     Some(FunctionDef {
         rust_path,
