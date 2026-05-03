@@ -397,7 +397,6 @@ fn render_test_file(
                 "count_equals"
                     | "count_min"
                     | "count_max"
-                    | "greater_than"
                     | "is_true"
                     | "is_false"
                     | "method_result"
@@ -1678,7 +1677,13 @@ fn render_assertion(
 
     // For optional non-string fields that weren't dereferenced into locals,
     // we need to dereference the pointer in comparisons.
-    let deref_field_expr = if is_optional && !field_expr.starts_with("len(") {
+    // However, slices are already nil-able and should not be dereferenced.
+    let field_is_slice = assertion
+        .field
+        .as_ref()
+        .map(|f| field_resolver.is_array(field_resolver.resolve(f)))
+        .unwrap_or(false);
+    let deref_field_expr = if is_optional && !field_expr.starts_with("len(") && !field_is_slice {
         format!("*{field_expr}")
     } else {
         field_expr.clone()

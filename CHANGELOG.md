@@ -7,13 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.11] - 2026-05-03
+
 ### Fixed
 
+- fix(e2e-python): fix `_to_rust_*()` converter field access when `python_output = "typed-dict"`. Previously the converter used `value.get("field")` dict-style access even for dataclass input types, causing `AttributeError` when called with `ProcessConfig` instances. Converters now use `value.field` attribute access (matching the input style) rather than the output style.
+
+- fix(e2e-go): propagate `call_config.result_is_simple` to Go e2e generator. The generator was only checking per-language overrides, so call-level `result_is_simple = true` was ignored, causing `*string` returns to be treated as `error` and printing pointer addresses as failure messages.
+
+- fix(e2e-php): add `options_type` support for PHP. When a call override sets `options_type = "ClassName"`, PHP e2e tests now generate `ClassName::from_json(json_encode([...]))` to construct typed config objects. Removes hardcoded `\HtmlToMarkdown\ConversionOptions::builder()` placeholder.
+
+- fix(e2e-elixir): fix 0-arity functions (e.g. `language_count`, `available_languages`) called with `%{}` or `nil` when `args = []` and fixture input is empty. Now correctly emits no-arg calls.
+
+- fix(e2e-ruby): same empty-args fix for Ruby — 0-arity functions no longer receive `nil` or `{}` from empty fixtures.
+
 - fix(csharp-backend): store delegate objects in field array to prevent GC collection. The trait bridge generated code was creating 41+ `UnmanagedFunctionPointer` delegates as local variables in `BuildVtable()`, then immediately discarding them. The GC could collect these delegates, leaving dangling function pointers in the vtable and causing `AccessViolationException` on native callbacks. Now delegates are stored in `private readonly object[] _delegates` initialized in the constructor and kept alive for the bridge's lifetime.
-
-- fix(codegen): use `pnpm dlx` instead of `npx` for node/wasm formatters in both the binding pipeline and e2e formatter defaults. Avoids npm install noise and respects the pnpm package manager used in html-to-markdown and similar consumer projects.
-
-- fix(e2e-wasm): match single-quoted imports in `inject_wasm_init`. The TypeScript renderer generates `from 'pkg'` (single quotes), but the injection pattern was matching `from "pkg"` (double quotes), causing the `initSync` block to never be emitted. Now detects both quote styles and injects accordingly.
 
 ## [0.14.10] - 2026-05-03
 
