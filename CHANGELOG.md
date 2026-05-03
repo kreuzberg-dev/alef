@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-pyo3): emit a `_coerce_enum(enum_cls, value)` helper in the generated
+  api.py wrapper and use it in `_to_rust_*` converters instead of attempting
+  `_rust.<Enum>(value)`. PyO3 unit-enum pyclasses do not expose a string-accepting
+  `__new__`, so the previous codegen raised `TypeError: cannot create '<Enum>'
+  instances` when callers passed string aliases like `'atx'`. The helper coerces
+  strings, snake_case, UPPER_CASE, and CamelCase to the canonical class attribute.
 - fix(backend-java): stop emitting illegal `Optional<String>` accessor methods that
   shadow the canonical record component accessor. Java records auto-generate the
   accessor with the field's declared type and disallow overrides with a different
