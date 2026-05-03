@@ -58,9 +58,22 @@ pub(super) fn gen_opaque_struct_methods(
     if typ.name == "VisitorHandle" && typ.methods.is_empty() {
         let mut constructor = String::with_capacity(256);
         writeln!(constructor, "#[wasm_bindgen(constructor)]").ok();
-        writeln!(constructor, "pub fn new(visitor: wasm_bindgen::JsValue) -> {} {{", js_name).ok();
-        writeln!(constructor, "    let bridge = __alef_wasm_bridge_htmlvisitor::WasmHtmlVisitorBridge::new(visitor);").ok();
-        writeln!(constructor, "    let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge));").ok();
+        writeln!(
+            constructor,
+            "pub fn new(visitor: wasm_bindgen::JsValue) -> {} {{",
+            js_name
+        )
+        .ok();
+        writeln!(
+            constructor,
+            "    let bridge = __alef_wasm_bridge_htmlvisitor::WasmHtmlVisitorBridge::new(visitor);"
+        )
+        .ok();
+        writeln!(
+            constructor,
+            "    let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge));"
+        )
+        .ok();
         writeln!(constructor, "    Self {{").ok();
         writeln!(constructor, "        inner: std::sync::Arc::new(handle),").ok();
         writeln!(constructor, "    }}").ok();
