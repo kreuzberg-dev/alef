@@ -54,7 +54,12 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
                 },
                 FormatterCommand {
                     command: "pnpm".to_owned(),
-                    args: vec!["dlx".to_owned(), "oxlint".to_owned(), "--fix".to_owned(), ".".to_owned()],
+                    args: vec![
+                        "dlx".to_owned(),
+                        "oxlint".to_owned(),
+                        "--fix".to_owned(),
+                        ".".to_owned(),
+                    ],
                 },
             ],
             work_dir: ".".to_owned(),
