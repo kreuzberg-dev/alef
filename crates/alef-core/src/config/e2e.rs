@@ -309,6 +309,13 @@ pub struct ArgMapping {
     /// (e.g. `"f32"`, `"String"`) so the codegen emits `Vec<element_type>` annotation.
     #[serde(default)]
     pub element_type: Option<String>,
+    /// Override the Go slice element type for `json_object` array args.
+    ///
+    /// When set, the Go e2e codegen uses this as the element type instead of the default
+    /// derived from `element_type`. Use Go-idiomatic type names including the import alias
+    /// prefix where needed, e.g. `"kreuzberg.BatchBytesItem"` or `"string"`.
+    #[serde(default)]
+    pub go_type: Option<String>,
 }
 
 fn default_arg_type() -> String {

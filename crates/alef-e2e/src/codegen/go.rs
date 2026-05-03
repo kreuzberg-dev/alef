@@ -1325,10 +1325,22 @@ fn build_args_and_setup(
                                 parts.push("nil".to_string());
                             }
                         } else if is_array {
-                            // Array type — unmarshal into a Go slice. Default to []string,
-                            // but honor `element_type` to emit nested slice types
-                            // (e.g. `Vec<String>` → `[][]string`).
-                            let go_slice_type = element_type_to_go_slice(arg.element_type.as_deref());
+                            // Array type — unmarshal into a Go slice. Honor `go_type` for a
+                            // fully explicit Go type (e.g. `"kreuzberg.BatchBytesItem"`), fall
+                            // back to deriving the slice type from `element_type`, defaulting
+                            // to `[]string` for unknown types.
+                            let go_slice_type = if let Some(go_t) = arg.go_type.as_deref() {
+                                // go_type is the slice element type — wrap it in [].
+                                // If it already starts with '[' the user specified the full
+                                // slice type; use it verbatim.
+                                if go_t.starts_with('[') {
+                                    go_t.to_string()
+                                } else {
+                                    format!("[]{go_t}")
+                                }
+                            } else {
+                                element_type_to_go_slice(arg.element_type.as_deref())
+                            };
                             let json_str = serde_json::to_string(v).unwrap_or_default();
                             let go_literal = go_string_literal(&json_str);
                             let var_name = &arg.name;

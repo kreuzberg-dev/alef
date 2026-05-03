@@ -405,10 +405,15 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
             if !emitted_pyclass_names.insert(typ.name.as_str()) {
                 continue;
             }
-            // Types in opaque_names_set transitively contain Rc<...>-based handles (e.g.
-            // visitor handles) which are not Send + Sync.  PyO3 frozen classes require
-            // Send + Sync, so we must use `unsendable` for those types instead.
-            let type_cfg = if opaque_names_set.contains(typ.name.as_str()) {
+            // Only truly opaque types (those with raw FFI pointer handles or non-Send
+            // internals such as Rc) must use `unsendable`. Plain data structs that merely
+            // reference opaque types in their fields ARE Send + Sync and must use `frozen`
+            // so that async Python code can move them between threads without a
+            // "<TypeName> is unsendable" panic.
+            //
+            // We intentionally do NOT use the wider `opaque_names_set` here because that
+            // transitive closure includes plain data structs that are themselves Send.
+            let type_cfg = if opaque_types.contains(typ.name.as_str()) {
                 &cfg_unsendable
             } else {
                 &cfg
@@ -729,7 +734,7 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
 
                     // Build the fallback that tries options.visitor when visitor kwarg is None
                     let fallback = format!(
-                        "        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n    }}).or_else(|| {{\n        options.as_ref().and_then(|o| o.{}.as_ref()).map(|v| {{\n            let py_obj: pyo3::Py<pyo3::PyAny> = Python::attach(|py| (*v.inner).clone_ref(py));\n            let bridge = PyHtmlVisitorBridge::new(py_obj);\n            std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n        }}}}\n    }});",
+                        "        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n    }}).or_else(|| {{\n        options.as_ref().and_then(|o| o.{}.as_ref()).map(|v| {{\n            let py_obj: pyo3::Py<pyo3::PyAny> = Python::attach(|py| (*v.inner).clone_ref(py));\n            let bridge = PyHtmlVisitorBridge::new(py_obj);\n            std::rc::Rc::new(std::cell::RefCell::new(bridge)) as html_to_markdown_rs::visitor::VisitorHandle\n        }})\n    }});",
                         field_name
                     );
 

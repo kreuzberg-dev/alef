@@ -1144,21 +1144,17 @@ fn render_assertion(
         }
     }
 
-    let field_expr = if result_is_simple {
-        format!("${result_var}")
-    } else {
-        match &assertion.field {
-            Some(f) if !f.is_empty() => field_resolver.accessor(f, "php", &format!("${result_var}")),
-            _ => format!("${result_var}"),
+    let field_expr = match &assertion.field {
+        Some(f) if !f.is_empty() => field_resolver.accessor(f, "php", &format!("${result_var}")),
+        _ if result_is_simple => {
+            // When result_is_simple, default to accessing the 'content' field
+            field_resolver.accessor("content", "php", &format!("${result_var}"))
         }
+        _ => format!("${result_var}"),
     };
 
     // For string equality, trim trailing whitespace to handle trailing newlines.
-    let trimmed_field_expr = if result_is_simple {
-        format!("trim(${result_var})")
-    } else {
-        field_expr.clone()
-    };
+    let trimmed_field_expr = format!("trim({})", field_expr);
 
     match assertion.assertion_type.as_str() {
         "equals" => {

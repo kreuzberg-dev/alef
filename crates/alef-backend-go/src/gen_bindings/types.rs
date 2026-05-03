@@ -696,14 +696,15 @@ fn go_return_expr_inner(
         TypeRef::Optional(inner) => go_return_expr_inner(inner, var_name, ffi_prefix, opaque_names),
         TypeRef::Vec(inner) => {
             // Vec types are returned as JSON strings from FFI. Deserialize inline.
+            // Return []T (not *[]T) — slices are already reference types in Go.
             let go_elem = go_type(inner);
             format!(
-                "func() *[]{go_elem} {{\n\
+                "func() []{go_elem} {{\n\
                  \tif {var_name} == nil {{ return nil }}\n\
                  \tdefer C.{ffi_prefix}_free_string({var_name})\n\
                  \tvar result []{go_elem}\n\
                  \tif err := json.Unmarshal([]byte(C.GoString({var_name})), &result); err != nil {{ return nil }}\n\
-                 \treturn &result\n\
+                 \treturn result\n\
                  }}()",
                 go_elem = go_elem,
                 var_name = var_name,

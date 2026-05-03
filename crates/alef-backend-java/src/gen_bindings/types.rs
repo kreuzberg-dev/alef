@@ -101,6 +101,12 @@ pub(crate) fn gen_record_type(
     if typ.has_serde {
         writeln!(record_block, "@JsonInclude(JsonInclude.Include.NON_ABSENT)").ok();
     }
+    // When a builder is available, configure Jackson to use it during deserialization.
+    // This ensures that fields with serde defaults (e.g., `enabled = true`) use the
+    // builder's defaults instead of Java primitive defaults (false for bool).
+    if typ.has_default {
+        writeln!(record_block, "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(builder = {}Builder.class)", typ.name).ok();
+    }
     if single_line_len > RECORD_LINE_WRAP_THRESHOLD && field_entries.len() > 1 {
         writeln!(record_block, "public record {}(", typ.name).ok();
         for (i, entry) in field_entries.iter().enumerate() {
@@ -173,6 +179,7 @@ pub(crate) fn gen_record_type(
     let needs_json_property = fields_joined.contains("@JsonProperty(");
     // @JsonInclude may appear in field annotations OR as a class-level annotation in record_block.
     let needs_json_include = fields_joined.contains("@JsonInclude(") || record_block.contains("@JsonInclude(");
+    let needs_json_deserialize = record_block.contains("@com.fasterxml.jackson.databind.annotation.JsonDeserialize(");
     let needs_nullable = fields_joined.contains("@Nullable");
     // Optional is needed if fields have Optional<T> in declaration
     let needs_optional = fields_joined.contains("Optional<");
@@ -535,6 +542,9 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
     let mut body = String::with_capacity(2048);
 
     emit_javadoc(&mut body, &typ.doc, "");
+    // Annotation tells Jackson to use this builder when deserializing the record.
+    // Builder defaults (e.g., enabled=true) are applied during deserialization.
+    writeln!(body, "@com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder(withPrefix = \"with\")").ok();
     writeln!(body, "public class {}Builder {{", typ.name).ok();
     writeln!(body).ok();
 
