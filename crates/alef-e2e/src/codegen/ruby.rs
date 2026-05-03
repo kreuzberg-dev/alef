@@ -691,9 +691,10 @@ fn render_example(
 
     // Emit client creation before setup lines when using client_factory.
     if let Some(factory) = client_factory {
+        let fixture_id = &fixture.id;
         let _ = writeln!(
             out,
-            "    client = {call_receiver}.{factory}('test-key', ENV.fetch('MOCK_SERVER_URL'))"
+            "    client = {call_receiver}.{factory}('test-key', ENV.fetch('MOCK_SERVER_URL') + '/fixtures/{fixture_id}')"
         );
     }
 

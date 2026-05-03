@@ -709,9 +709,10 @@ fn render_test_method(
     // Emit client creation when client_factory is configured.
     if let Some(factory) = client_factory {
         let factory_name = factory.to_upper_camel_case();
+        let fixture_id = &fixture.id;
         let _ = writeln!(
             out,
-            "        var baseUrl = System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty;"
+            "        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";"
         );
         let _ = writeln!(
             out,

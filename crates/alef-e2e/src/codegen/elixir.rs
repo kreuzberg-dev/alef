@@ -767,9 +767,10 @@ fn render_test_case(
 
     // Emit client creation when client_factory is configured.
     if let Some(factory) = client_factory {
+        let fixture_id = &fixture.id;
         let _ = writeln!(
             out,
-            "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", System.get_env(\"MOCK_SERVER_URL\"))"
+            "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", System.get_env(\"MOCK_SERVER_URL\") <> \"/fixtures/{fixture_id}\")"
         );
     }
 
