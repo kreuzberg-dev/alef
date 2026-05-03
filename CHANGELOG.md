@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-napi): NAPI options_field_bridge now preserves visitor handle across
+  options conversion. The From<JsConversionOptions> impl was unconditionally setting
+  visitor to Default::default() due to opaque field handling. Fixed by extracting
+  the visitor before conversion and re-assigning it after the Into call.
 - fix(backend-pyo3): PyO3 convert wrapper now reads visitor from options.visitor
   when the separate `visitor=` kwarg is None. This allows Python callers to pass
   the visitor via ConversionOptions without requiring a separate keyword argument.
