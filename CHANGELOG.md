@@ -7,13 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-05-03
+
+### Added
+
+- feat(codegen/doc-emission): shared `parse_rustdoc_sections`,
+  `parse_arguments_bullets`, and `replace_fence_lang` helpers in
+  `alef-codegen::doc_emission`. Rustdoc Markdown H1 headings (`# Arguments`,
+  `# Returns`, `# Errors`, `# Panics`, `# Safety`, `# Example`/`# Examples`)
+  are parsed into a typed `RustdocSections` struct that every host renderer
+  consumes. ` ```rust ` fences inside `# Example` bodies are rewritten to
+  host-native language tags (`typescript`, `php`, `csharp`, …); pound signs
+  inside non-Rust fences (e.g. shell `# install …`) are preserved.
+- feat(codegen/doc-emission): per-host section renderers
+  `render_jsdoc_sections`, `render_javadoc_sections`,
+  `render_csharp_xml_sections`, `render_phpdoc_sections`, and
+  `render_doxygen_sections`. JSDoc emits `@param` / `@returns` / `@throws` /
+  `@example` with ` ```typescript ` fences. JavaDoc emits `@param` / `@return`
+  / `@throws KreuzbergRsException`. C# XML doc emits `<param>` / `<returns>`
+  / `<exception cref="…">` / `<example><code language="csharp">`. PHPDoc emits
+  `@param` / `@return` / `@throws` / ` ```php ` example fences. Doxygen emits
+  `\param` / `\return` / `\code` / `\endcode`.
+- feat(codegen/trait-bridge): shared `host_function_path` helper in
+  `alef-codegen::generators::trait_bridge` replaces the duplicated per-backend
+  `<lang>_host_function_path` inline helpers. pyo3, napi, magnus, ext-php-rs,
+  rustler, extendr, and wasm now consume the same resolution logic.
+- feat(backend-magnus/unregister-clear): emit `pub fn unregister_<name>(name:
+  String) -> Result<(), magnus::Error>` and `pub fn clear_<plural>() ->
+  Result<(), magnus::Error>` when `bridge_config.unregister_fn` / `clear_fn`
+  are set. Errors are wrapped through `Ruby::exception_runtime_error`.
+- feat(backend-php/unregister-clear): emit `#[php_function] pub fn
+  unregister_<name>(name: String) -> ext_php_rs::prelude::PhpResult<()>` and
+  the matching `clear_<plural>()` function. Errors are mapped through
+  `PhpException::default(format!("{}", e))`.
+- feat(backend-rustler/unregister-clear): emit `#[rustler::nif] pub fn
+  unregister_<name>(env: rustler::Env<'_>, name: String) -> rustler::Atom`
+  and `clear_<plural>()` returning `:ok` / `:error` atoms.
+- feat(backend-wasm/unregister-clear): emit `#[wasm_bindgen] pub fn
+  unregister_<name>(name: String) -> Result<(), JsValue>` and matching
+  `clear_<plural>()` wrappers; surfaced via `gen_bindings/mod.rs` so the
+  generated bridge re-exports them in `index.ts`.
+- feat(backend-extendr/unregister-clear): emit `#[extendr] pub fn
+  unregister_<name>(name: String)` / `clear_<plural>()` for R bindings.
+- feat(backend-pyo3/host_function_path): pyo3 register/unregister/clear
+  bridges now share the centralised host-function path resolver, eliminating
+  the duplicated inline helper and matching the resolution rules used by all
+  other backends.
+- feat(backend-napi/host_function_path): napi register/unregister/clear
+  bridges now share the centralised resolver.
+
 ### Fixed
 
-- fix(backend-napi): preserve Rust `Default` values when converting omitted fields on
-  defaultable JavaScript config objects instead of falling back to per-field zero values.
-- fix(backends): remove dead PyO3 and Magnus backend code paths so workspace builds are warning-clean.
-- fix(e2e): make TypeScript assertions handle `null` empty results and string containment
-  checks against arrays of structured objects.
+- fix(backend-napi): preserve Rust `Default` values when converting omitted
+  fields on defaultable JavaScript config objects instead of falling back to
+  per-field zero values.
+- fix(backends): remove dead PyO3 and Magnus backend code paths so workspace
+  builds are warning-clean.
+- fix(e2e): make TypeScript assertions handle `null` empty results and string
+  containment checks against arrays of structured objects.
+- fix(backend-napi/errors): JSDoc rendering for `KreuzbergError` variants now
+  goes through the shared per-host renderer instead of leaking raw rustdoc
+  Markdown headings into emitted error class JSDoc blocks.
 
 ## [0.14.2] - 2026-05-02
 

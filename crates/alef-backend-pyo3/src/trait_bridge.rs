@@ -6,42 +6,12 @@
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
 use alef_codegen::generators::trait_bridge::{
     BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
-    visitor_param_type,
+    host_function_path, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
 use std::fmt::Write;
-
-/// Resolve the FQN of a host-crate plugin function (e.g.
-/// `kreuzberg::plugins::ocr::unregister_ocr_backend`) given the bridge's
-/// `registry_getter` path. The convention used by host crates is:
-///
-/// - `registry_getter = "kreuzberg::plugins::registry::get_ocr_backend_registry"`
-/// - top-level fn      = `kreuzberg::plugins::ocr::unregister_ocr_backend`
-///
-/// We rewrite `::registry::get_*_registry` to `::<sub>::<fn_name>` where
-/// `<sub>` is the trait name in snake case (extracted from `_*_registry`).
-/// When the heuristic fails (no `registry_getter`, unexpected shape), we
-/// fall back to `{core_import}::plugins::{fn_name}` so the user can rely on
-/// a re-export.
-fn host_function_path(spec: &alef_codegen::generators::trait_bridge::TraitBridgeSpec, fn_name: &str) -> String {
-    if let Some(getter) = spec.bridge_config.registry_getter.as_deref() {
-        // Extract the trait submodule from `get_<sub>_registry`.
-        let last = getter.rsplit("::").next().unwrap_or("");
-        if let Some(sub) = last.strip_prefix("get_").and_then(|s| s.strip_suffix("_registry")) {
-            // Trim the trailing `_registry` from the getter path to find the
-            // module prefix (everything except the final segment), then
-            // append the trait submodule and function name.
-            let prefix_end = getter.len() - last.len();
-            let prefix = &getter[..prefix_end];
-            // `prefix` ends with `::registry::`, drop the `registry::` part.
-            let prefix = prefix.trim_end_matches("registry::");
-            return format!("{prefix}{sub}::{fn_name}");
-        }
-    }
-    format!("{}::plugins::{}", spec.core_import, fn_name)
-}
 
 /// Compute the Python-visible symbol name for a generated `#[pyfunction]`.
 ///

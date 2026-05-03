@@ -5,7 +5,7 @@
 
 use alef_codegen::generators::trait_bridge::{
     BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
-    to_camel_case, visitor_param_type,
+    host_function_path, to_camel_case, visitor_param_type,
 };
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
@@ -17,22 +17,6 @@ use std::fmt::Write;
 ///
 /// Returns `None` when no bridge applies.
 pub use alef_codegen::generators::trait_bridge::find_bridge_param;
-
-/// Resolve the FQN of a host-crate plugin function from the bridge's
-/// `registry_getter` path. See `host_function_path` in the pyo3 backend
-/// for the rewriting convention.
-fn napi_host_function_path(spec: &TraitBridgeSpec, fn_name: &str) -> String {
-    if let Some(getter) = spec.bridge_config.registry_getter.as_deref() {
-        let last = getter.rsplit("::").next().unwrap_or("");
-        if let Some(sub) = last.strip_prefix("get_").and_then(|s| s.strip_suffix("_registry")) {
-            let prefix_end = getter.len() - last.len();
-            let prefix = &getter[..prefix_end];
-            let prefix = prefix.trim_end_matches("registry::");
-            return format!("{prefix}{sub}::{fn_name}");
-        }
-    }
-    format!("{}::plugins::{}", spec.core_import, fn_name)
-}
 
 /// NAPI-specific trait bridge generator.
 /// Implements code generation for bridging JavaScript objects to Rust traits.
@@ -351,7 +335,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
             return String::new();
         };
-        let host_path = napi_host_function_path(spec, unregister_fn);
+        let host_path = host_function_path(spec, unregister_fn);
         let camel = to_camel_case(unregister_fn);
         let mut out = String::with_capacity(512);
         writeln!(out, "#[napi(js_name = \"{camel}\")]").ok();
@@ -368,7 +352,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
         let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
             return String::new();
         };
-        let host_path = napi_host_function_path(spec, clear_fn);
+        let host_path = host_function_path(spec, clear_fn);
         let camel = to_camel_case(clear_fn);
         let mut out = String::with_capacity(512);
         writeln!(out, "#[napi(js_name = \"{camel}\")]").ok();

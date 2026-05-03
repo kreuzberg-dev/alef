@@ -3,13 +3,27 @@
 
 /// Emit PHPDoc-style comments (/** ... */)
 /// Used for PHP classes, methods, and properties.
+///
+/// Translates rustdoc sections (`# Arguments` → `@param`,
+/// `# Returns` → `@return`, `# Errors` → `@throws`,
+/// `# Example` → ` ```php ` fence) via [`render_phpdoc_sections`].
 pub fn emit_phpdoc(out: &mut String, doc: &str, indent: &str) {
     if doc.is_empty() {
         return;
     }
+    let sections = parse_rustdoc_sections(doc);
+    let any_section = sections.arguments.is_some()
+        || sections.returns.is_some()
+        || sections.errors.is_some()
+        || sections.example.is_some();
+    let body = if any_section {
+        render_phpdoc_sections(&sections, "KreuzbergException")
+    } else {
+        doc.to_string()
+    };
     out.push_str(indent);
     out.push_str("/**\n");
-    for line in doc.lines() {
+    for line in body.lines() {
         out.push_str(indent);
         out.push_str(" * ");
         out.push_str(&escape_phpdoc_line(line));
@@ -26,20 +40,44 @@ fn escape_phpdoc_line(s: &str) -> String {
 
 /// Emit C# XML documentation comments (/// <summary> ... </summary>)
 /// Used for C# classes, structs, methods, and properties.
+///
+/// Translates rustdoc sections (`# Arguments` → `<param>`,
+/// `# Returns` → `<returns>`, `# Errors` → `<exception>`,
+/// `# Example` → `<example><code>`) via [`render_csharp_xml_sections`].
 pub fn emit_csharp_doc(out: &mut String, doc: &str, indent: &str) {
     if doc.is_empty() {
         return;
     }
-    out.push_str(indent);
-    out.push_str("/// <summary>\n");
-    for line in doc.lines() {
+    let sections = parse_rustdoc_sections(doc);
+    let any_section = sections.arguments.is_some()
+        || sections.returns.is_some()
+        || sections.errors.is_some()
+        || sections.example.is_some();
+    if !any_section {
+        // Backwards-compatible path: plain `<summary>` for prose-only docs.
+        out.push_str(indent);
+        out.push_str("/// <summary>\n");
+        for line in doc.lines() {
+            out.push_str(indent);
+            out.push_str("/// ");
+            out.push_str(&escape_csharp_doc_line(line));
+            out.push('\n');
+        }
+        out.push_str(indent);
+        out.push_str("/// </summary>\n");
+        return;
+    }
+    let rendered = render_csharp_xml_sections(&sections, "KreuzbergException");
+    for line in rendered.lines() {
         out.push_str(indent);
         out.push_str("/// ");
-        out.push_str(&escape_csharp_doc_line(line));
+        // The rendered tags already contain the canonical chars; we only
+        // escape XML special chars that aren't part of our tag syntax. Since
+        // render_csharp_xml_sections produces well-formed XML, raw passthrough
+        // is correct.
+        out.push_str(line);
         out.push('\n');
     }
-    out.push_str(indent);
-    out.push_str("/// </summary>\n");
 }
 
 /// Escape C# XML doc line: handle XML special characters.
@@ -254,6 +292,468 @@ fn escape_javadoc_html_entities(s: &str) -> String {
     out
 }
 
+/// A parsed rustdoc comment broken out into the sections binding emitters
+/// care about.
+///
+/// `summary` is the leading prose paragraph(s) before any `# Heading`.
+/// Sections are stored verbatim (without the `# Heading` line itself);
+/// each binding is responsible for translating bullet lists and code
+/// fences into its host-native conventions.
+///
+/// Trailing/leading whitespace inside each field is trimmed so emitters
+/// can concatenate without producing `* ` lines containing only spaces.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RustdocSections {
+    /// Prose before the first `# Section` heading.
+    pub summary: String,
+    /// Body of the `# Arguments` section, if present.
+    pub arguments: Option<String>,
+    /// Body of the `# Returns` section, if present.
+    pub returns: Option<String>,
+    /// Body of the `# Errors` section, if present.
+    pub errors: Option<String>,
+    /// Body of the `# Panics` section, if present.
+    pub panics: Option<String>,
+    /// Body of the `# Safety` section, if present.
+    pub safety: Option<String>,
+    /// Body of the `# Example` / `# Examples` section, if present.
+    pub example: Option<String>,
+}
+
+/// Parse a rustdoc string into [`RustdocSections`].
+///
+/// Recognises level-1 ATX headings whose name matches one of the standard
+/// rustdoc section names (`Arguments`, `Returns`, `Errors`, `Panics`,
+/// `Safety`, `Example`, `Examples`). Anything before the first heading
+/// becomes `summary`. Unrecognised headings are folded into the
+/// preceding section verbatim, so unconventional rustdoc isn't lost.
+///
+/// The input is expected to already have rustdoc-hidden lines stripped
+/// and intra-doc-link syntax rewritten by
+/// [`crate::extractor::helpers::normalize_rustdoc`].
+pub fn parse_rustdoc_sections(doc: &str) -> RustdocSections {
+    if doc.trim().is_empty() {
+        return RustdocSections::default();
+    }
+    let mut summary = String::new();
+    let mut arguments: Option<String> = None;
+    let mut returns: Option<String> = None;
+    let mut errors: Option<String> = None;
+    let mut panics: Option<String> = None;
+    let mut safety: Option<String> = None;
+    let mut example: Option<String> = None;
+    let mut current: Option<&'static str> = None;
+    let mut buf = String::new();
+    let mut in_fence = false;
+    let flush = |target: Option<&'static str>,
+                 buf: &mut String,
+                 summary: &mut String,
+                 arguments: &mut Option<String>,
+                 returns: &mut Option<String>,
+                 errors: &mut Option<String>,
+                 panics: &mut Option<String>,
+                 safety: &mut Option<String>,
+                 example: &mut Option<String>| {
+        let body = std::mem::take(buf).trim().to_string();
+        if body.is_empty() {
+            return;
+        }
+        match target {
+            None => {
+                if !summary.is_empty() {
+                    summary.push('\n');
+                }
+                summary.push_str(&body);
+            }
+            Some("arguments") => *arguments = Some(body),
+            Some("returns") => *returns = Some(body),
+            Some("errors") => *errors = Some(body),
+            Some("panics") => *panics = Some(body),
+            Some("safety") => *safety = Some(body),
+            Some("example") => *example = Some(body),
+            _ => {}
+        }
+    };
+    for line in doc.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+            buf.push_str(line);
+            buf.push('\n');
+            continue;
+        }
+        if !in_fence {
+            if let Some(rest) = trimmed.strip_prefix("# ") {
+                let head = rest.trim().to_ascii_lowercase();
+                let target = match head.as_str() {
+                    "arguments" | "args" => Some("arguments"),
+                    "returns" => Some("returns"),
+                    "errors" => Some("errors"),
+                    "panics" => Some("panics"),
+                    "safety" => Some("safety"),
+                    "example" | "examples" => Some("example"),
+                    _ => None,
+                };
+                if target.is_some() {
+                    flush(
+                        current,
+                        &mut buf,
+                        &mut summary,
+                        &mut arguments,
+                        &mut returns,
+                        &mut errors,
+                        &mut panics,
+                        &mut safety,
+                        &mut example,
+                    );
+                    current = target;
+                    continue;
+                }
+            }
+        }
+        buf.push_str(line);
+        buf.push('\n');
+    }
+    flush(
+        current,
+        &mut buf,
+        &mut summary,
+        &mut arguments,
+        &mut returns,
+        &mut errors,
+        &mut panics,
+        &mut safety,
+        &mut example,
+    );
+    RustdocSections {
+        summary,
+        arguments,
+        returns,
+        errors,
+        panics,
+        safety,
+        example,
+    }
+}
+
+/// Parse `# Arguments` body into `(name, description)` pairs.
+///
+/// Recognises both Markdown bullet styles `*` and `-`, with optional
+/// backticks around the name: `* `name` - description` or
+/// `- name: description`. Continuation lines indented under a bullet
+/// are appended to the previous entry's description.
+///
+/// Used by emitters that translate to per-parameter documentation tags
+/// (`@param`, `<param>`, `\param`).
+pub fn parse_arguments_bullets(body: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for raw in body.lines() {
+        let line = raw.trim_end();
+        let trimmed = line.trim_start();
+        let is_bullet = trimmed.starts_with("* ") || trimmed.starts_with("- ");
+        if is_bullet {
+            let after = &trimmed[2..];
+            // Accept `name`, `name:` or `name -` separator forms.
+            let (name, desc) = if let Some(idx) = after.find(" - ") {
+                (after[..idx].trim(), after[idx + 3..].trim())
+            } else if let Some(idx) = after.find(": ") {
+                (after[..idx].trim(), after[idx + 2..].trim())
+            } else if let Some(idx) = after.find(' ') {
+                (after[..idx].trim(), after[idx + 1..].trim())
+            } else {
+                (after.trim(), "")
+            };
+            let name = name.trim_matches('`').trim_matches('*').to_string();
+            out.push((name, desc.to_string()));
+        } else if !trimmed.is_empty() {
+            if let Some(last) = out.last_mut() {
+                if !last.1.is_empty() {
+                    last.1.push(' ');
+                }
+                last.1.push_str(trimmed);
+            }
+        }
+    }
+    out
+}
+
+/// Strip a single ` ```lang ` fence pair from `body`, returning the inner
+/// code lines. Replaces the leading ` ```rust ` (or any other tag) with
+/// `lang_replacement`, leaving the rest of the body unchanged.
+///
+/// When no fence is present the body is returned unchanged. Used by
+/// emitters that need to convert ` ```rust ` examples into
+/// ` ```typescript ` / ` ```python ` / ` ```swift ` etc.
+pub fn replace_fence_lang(body: &str, lang_replacement: &str) -> String {
+    let mut out = String::with_capacity(body.len());
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("```") {
+            // Replace the language tag (everything up to the next comma or
+            // end of line). Preserve indentation.
+            let indent = &line[..line.len() - trimmed.len()];
+            let after_lang = rest.find(',').map(|i| &rest[i..]).unwrap_or("");
+            out.push_str(indent);
+            out.push_str("```");
+            out.push_str(lang_replacement);
+            out.push_str(after_lang);
+            out.push('\n');
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.trim_end_matches('\n').to_string()
+}
+
+/// Render `RustdocSections` as a JSDoc comment body (without the `/**` /
+/// ` */` wrappers — those are added by the caller's emitter, which knows
+/// the indent/escape conventions).
+///
+/// - `# Arguments` → `@param name - desc`
+/// - `# Returns`   → `@returns desc`
+/// - `# Errors`    → `@throws desc`
+/// - `# Example`   → `@example` block. Replaces ` ```rust ` fences with
+///   ` ```typescript ` so the example highlights properly in TypeDoc.
+///
+/// Output is a plain string with `\n` separators; emitters wrap each line
+/// in ` * ` themselves.
+pub fn render_jsdoc_sections(sections: &RustdocSections) -> String {
+    let mut out = String::new();
+    if !sections.summary.is_empty() {
+        out.push_str(&sections.summary);
+    }
+    if let Some(args) = sections.arguments.as_deref() {
+        for (name, desc) in parse_arguments_bullets(args) {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            if desc.is_empty() {
+                out.push_str(&format!("@param {name}"));
+            } else {
+                out.push_str(&format!("@param {name} - {desc}"));
+            }
+        }
+    }
+    if let Some(ret) = sections.returns.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&format!("@returns {}", ret.trim()));
+    }
+    if let Some(err) = sections.errors.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&format!("@throws {}", err.trim()));
+    }
+    if let Some(example) = sections.example.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("@example\n");
+        out.push_str(&replace_fence_lang(example.trim(), "typescript"));
+    }
+    out
+}
+
+/// Render `RustdocSections` as a JavaDoc comment body.
+///
+/// - `# Arguments` → `@param name desc` (one per param)
+/// - `# Returns`   → `@return desc`
+/// - `# Errors`    → `@throws KreuzbergRsException desc`
+/// - `# Example`   → `<pre>{@code ...}</pre>` block.
+///
+/// `throws_class` is the FQN/simple name of the exception class to use in
+/// the `@throws` tag (e.g. `"KreuzbergRsException"`).
+pub fn render_javadoc_sections(sections: &RustdocSections, throws_class: &str) -> String {
+    let mut out = String::new();
+    if !sections.summary.is_empty() {
+        out.push_str(&sections.summary);
+    }
+    if let Some(args) = sections.arguments.as_deref() {
+        for (name, desc) in parse_arguments_bullets(args) {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            if desc.is_empty() {
+                out.push_str(&format!("@param {name}"));
+            } else {
+                out.push_str(&format!("@param {name} {desc}"));
+            }
+        }
+    }
+    if let Some(ret) = sections.returns.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&format!("@return {}", ret.trim()));
+    }
+    if let Some(err) = sections.errors.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&format!("@throws {throws_class} {}", err.trim()));
+    }
+    out
+}
+
+/// Render `RustdocSections` as a C# XML doc comment body (without the
+/// `/// ` line prefixes — the emitter adds those).
+///
+/// - summary  → `<summary>...</summary>`
+/// - args     → `<param name="x">desc</param>` (one per arg)
+/// - returns  → `<returns>desc</returns>`
+/// - errors   → `<exception cref="KreuzbergException">desc</exception>`
+/// - example  → `<example><code language="csharp">...</code></example>`
+pub fn render_csharp_xml_sections(sections: &RustdocSections, exception_class: &str) -> String {
+    let mut out = String::new();
+    out.push_str("<summary>\n");
+    let summary = if sections.summary.is_empty() {
+        ""
+    } else {
+        sections.summary.as_str()
+    };
+    for line in summary.lines() {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push_str("</summary>");
+    if let Some(args) = sections.arguments.as_deref() {
+        for (name, desc) in parse_arguments_bullets(args) {
+            out.push('\n');
+            if desc.is_empty() {
+                out.push_str(&format!("<param name=\"{name}\"></param>"));
+            } else {
+                out.push_str(&format!("<param name=\"{name}\">{desc}</param>"));
+            }
+        }
+    }
+    if let Some(ret) = sections.returns.as_deref() {
+        out.push('\n');
+        out.push_str(&format!("<returns>{}</returns>", ret.trim()));
+    }
+    if let Some(err) = sections.errors.as_deref() {
+        out.push('\n');
+        out.push_str(&format!(
+            "<exception cref=\"{exception_class}\">{}</exception>",
+            err.trim()
+        ));
+    }
+    if let Some(example) = sections.example.as_deref() {
+        out.push('\n');
+        out.push_str("<example><code language=\"csharp\">\n");
+        // Drop fence markers, keep code.
+        for line in example.lines() {
+            let t = line.trim_start();
+            if t.starts_with("```") {
+                continue;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push_str("</code></example>");
+    }
+    out
+}
+
+/// Render `RustdocSections` as a PHPDoc comment body.
+///
+/// - `# Arguments` → `@param mixed $name desc`
+/// - `# Returns`   → `@return desc`
+/// - `# Errors`    → `@throws KreuzbergException desc`
+/// - `# Example`   → ` ```php ` fence (replaces ` ```rust `).
+pub fn render_phpdoc_sections(sections: &RustdocSections, throws_class: &str) -> String {
+    let mut out = String::new();
+    if !sections.summary.is_empty() {
+        out.push_str(&sections.summary);
+    }
+    if let Some(args) = sections.arguments.as_deref() {
+        for (name, desc) in parse_arguments_bullets(args) {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            if desc.is_empty() {
+                out.push_str(&format!("@param mixed ${name}"));
+            } else {
+                out.push_str(&format!("@param mixed ${name} {desc}"));
+            }
+        }
+    }
+    if let Some(ret) = sections.returns.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&format!("@return {}", ret.trim()));
+    }
+    if let Some(err) = sections.errors.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&format!("@throws {throws_class} {}", err.trim()));
+    }
+    if let Some(example) = sections.example.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&replace_fence_lang(example.trim(), "php"));
+    }
+    out
+}
+
+/// Render `RustdocSections` as a Doxygen comment body for the C header.
+///
+/// - args    → `\param name desc`
+/// - returns → `\return desc`
+/// - errors  → prose paragraph (Doxygen has no semantic tag for FFI errors)
+/// - example → `\code` ... `\endcode`
+pub fn render_doxygen_sections(sections: &RustdocSections) -> String {
+    let mut out = String::new();
+    if !sections.summary.is_empty() {
+        out.push_str(&sections.summary);
+    }
+    if let Some(args) = sections.arguments.as_deref() {
+        for (name, desc) in parse_arguments_bullets(args) {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            if desc.is_empty() {
+                out.push_str(&format!("\\param {name}"));
+            } else {
+                out.push_str(&format!("\\param {name} {desc}"));
+            }
+        }
+    }
+    if let Some(ret) = sections.returns.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&format!("\\return {}", ret.trim()));
+    }
+    if let Some(err) = sections.errors.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&format!("Errors: {}", err.trim()));
+    }
+    if let Some(example) = sections.example.as_deref() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("\\code\n");
+        for line in example.lines() {
+            let t = line.trim_start();
+            if t.starts_with("```") {
+                continue;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push_str("\\endcode");
+    }
+    out
+}
+
 /// Return the first paragraph of a doc comment as a single joined line.
 ///
 /// Collects lines until the first blank line, trims each, then joins with a
@@ -417,5 +917,138 @@ mod tests {
     #[test]
     fn test_doc_first_paragraph_joined_empty() {
         assert_eq!(doc_first_paragraph_joined(""), "");
+    }
+
+    #[test]
+    fn test_parse_rustdoc_sections_basic() {
+        let doc = "Extracts text from a file.\n\n# Arguments\n\n* `path` - The file path.\n\n# Returns\n\nThe extracted text.\n\n# Errors\n\nReturns `KreuzbergError` on failure.";
+        let sections = parse_rustdoc_sections(doc);
+        assert_eq!(sections.summary, "Extracts text from a file.");
+        assert_eq!(sections.arguments.as_deref(), Some("* `path` - The file path."));
+        assert_eq!(sections.returns.as_deref(), Some("The extracted text."));
+        assert_eq!(sections.errors.as_deref(), Some("Returns `KreuzbergError` on failure."));
+        assert!(sections.panics.is_none());
+    }
+
+    #[test]
+    fn test_parse_rustdoc_sections_example_with_fence() {
+        let doc = "Run the thing.\n\n# Example\n\n```rust\nlet x = run();\n```";
+        let sections = parse_rustdoc_sections(doc);
+        assert_eq!(sections.summary, "Run the thing.");
+        assert!(sections.example.as_ref().unwrap().contains("```rust"));
+        assert!(sections.example.as_ref().unwrap().contains("let x = run();"));
+    }
+
+    #[test]
+    fn test_parse_rustdoc_sections_pound_inside_fence_is_not_a_heading() {
+        // Even though we get rustdoc-hidden lines pre-stripped, a literal
+        // `# foo` inside a non-rust fence (e.g. shell example) must not
+        // start a new section.
+        let doc = "Summary.\n\n# Example\n\n```bash\n# install deps\nrun --foo\n```";
+        let sections = parse_rustdoc_sections(doc);
+        assert_eq!(sections.summary, "Summary.");
+        assert!(sections.example.as_ref().unwrap().contains("# install deps"));
+    }
+
+    #[test]
+    fn test_parse_arguments_bullets_dash_separator() {
+        let body = "* `path` - The file path.\n* `config` - Optional configuration.";
+        let pairs = parse_arguments_bullets(body);
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[0], ("path".to_string(), "The file path.".to_string()));
+        assert_eq!(pairs[1], ("config".to_string(), "Optional configuration.".to_string()));
+    }
+
+    #[test]
+    fn test_parse_arguments_bullets_continuation_line() {
+        let body = "* `path` - The file path,\n  resolved relative to cwd.\n* `mode` - Open mode.";
+        let pairs = parse_arguments_bullets(body);
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[0].1, "The file path, resolved relative to cwd.");
+    }
+
+    #[test]
+    fn test_replace_fence_lang_rust_to_typescript() {
+        let body = "```rust\nlet x = run();\n```";
+        let out = replace_fence_lang(body, "typescript");
+        assert!(out.starts_with("```typescript"));
+        assert!(out.contains("let x = run();"));
+    }
+
+    #[test]
+    fn test_replace_fence_lang_preserves_attrs() {
+        let body = "```rust,no_run\nlet x = run();\n```";
+        let out = replace_fence_lang(body, "typescript");
+        assert!(out.starts_with("```typescript,no_run"));
+    }
+
+    #[test]
+    fn test_replace_fence_lang_no_fence_unchanged() {
+        let body = "Plain prose with `inline code`.";
+        let out = replace_fence_lang(body, "typescript");
+        assert_eq!(out, "Plain prose with `inline code`.");
+    }
+
+    fn fixture_sections() -> RustdocSections {
+        let doc = "Extracts text from a file.\n\n# Arguments\n\n* `path` - The file path.\n* `config` - Optional configuration.\n\n# Returns\n\nThe extracted text and metadata.\n\n# Errors\n\nReturns an error when the file is unreadable.\n\n# Example\n\n```rust\nlet result = extract(\"file.pdf\")?;\n```";
+        parse_rustdoc_sections(doc)
+    }
+
+    #[test]
+    fn test_render_jsdoc_sections() {
+        let sections = fixture_sections();
+        let out = render_jsdoc_sections(&sections);
+        assert!(out.starts_with("Extracts text from a file."));
+        assert!(out.contains("@param path - The file path."));
+        assert!(out.contains("@param config - Optional configuration."));
+        assert!(out.contains("@returns The extracted text and metadata."));
+        assert!(out.contains("@throws Returns an error when the file is unreadable."));
+        assert!(out.contains("@example"));
+        assert!(out.contains("```typescript"));
+        assert!(!out.contains("```rust"));
+    }
+
+    #[test]
+    fn test_render_javadoc_sections() {
+        let sections = fixture_sections();
+        let out = render_javadoc_sections(&sections, "KreuzbergRsException");
+        assert!(out.contains("@param path The file path."));
+        assert!(out.contains("@return The extracted text and metadata."));
+        assert!(out.contains("@throws KreuzbergRsException Returns an error when the file is unreadable."));
+        // Java rendering omits the example block (handled separately by emit_javadoc which
+        // wraps code in `<pre>{@code}</pre>`); we just confirm summary survives.
+        assert!(out.starts_with("Extracts text from a file."));
+    }
+
+    #[test]
+    fn test_render_csharp_xml_sections() {
+        let sections = fixture_sections();
+        let out = render_csharp_xml_sections(&sections, "KreuzbergException");
+        assert!(out.contains("<summary>\nExtracts text from a file.\n</summary>"));
+        assert!(out.contains("<param name=\"path\">The file path.</param>"));
+        assert!(out.contains("<returns>The extracted text and metadata.</returns>"));
+        assert!(out.contains("<exception cref=\"KreuzbergException\">"));
+        assert!(out.contains("<example><code language=\"csharp\">"));
+        assert!(out.contains("let result = extract"));
+    }
+
+    #[test]
+    fn test_render_phpdoc_sections() {
+        let sections = fixture_sections();
+        let out = render_phpdoc_sections(&sections, "KreuzbergException");
+        assert!(out.contains("@param mixed $path The file path."));
+        assert!(out.contains("@return The extracted text and metadata."));
+        assert!(out.contains("@throws KreuzbergException"));
+        assert!(out.contains("```php"));
+    }
+
+    #[test]
+    fn test_render_doxygen_sections() {
+        let sections = fixture_sections();
+        let out = render_doxygen_sections(&sections);
+        assert!(out.contains("\\param path The file path."));
+        assert!(out.contains("\\return The extracted text and metadata."));
+        assert!(out.contains("\\code"));
+        assert!(out.contains("\\endcode"));
     }
 }

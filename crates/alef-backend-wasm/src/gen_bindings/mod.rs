@@ -531,6 +531,28 @@ impl Backend for WasmBackend {
             }
         }
 
+        // Collect trait-bridge register/unregister/clear functions. They are
+        // emitted as `#[wasm_bindgen(js_name = "registerOcrBackend")]` etc. in
+        // the trait-bridge code path and are NOT part of `api.functions`, so
+        // they need to be added to `index.ts` re-exports explicitly.
+        for bridge in &config.trait_bridges {
+            if let Some(register_fn) = bridge.register_fn.as_deref()
+                && !exclude_functions.contains(&register_fn.to_string())
+            {
+                exports.push(to_node_name(register_fn));
+            }
+            if let Some(unregister_fn) = bridge.unregister_fn.as_deref()
+                && !exclude_functions.contains(&unregister_fn.to_string())
+            {
+                exports.push(to_node_name(unregister_fn));
+            }
+            if let Some(clear_fn) = bridge.clear_fn.as_deref()
+                && !exclude_functions.contains(&clear_fn.to_string())
+            {
+                exports.push(to_node_name(clear_fn));
+            }
+        }
+
         // Collect all error types (exported from WASM module), skipping excluded
         for error in &api.errors {
             if exclude_types.contains(&error.name) {

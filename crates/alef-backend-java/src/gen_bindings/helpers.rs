@@ -155,53 +155,27 @@ pub(crate) fn gen_exception_class(package: &str, class_name: &str) -> String {
 // High-level facade class (public API)
 // ---------------------------------------------------------------------------
 
-/// Transform Rust intra-doc links [`Type`] → bare text and remove Rust-specific sections.
-/// Strips markdown code fences and Rust-specific headers like # Arguments, # Errors, # Example.
+/// Transform Rust intra-doc rustdoc into JavaDoc-compatible prose with
+/// JavaDoc tags (`@param`, `@return`, `@throws`).
+///
+/// Uses the shared section parser from `alef_codegen::doc_emission` so the
+/// behaviour is identical across all bindings that translate rustdoc into
+/// host-native tag conventions.
+///
+/// `# Example` blocks are dropped here — they are handled separately by
+/// `emit_javadoc`, which would need to wrap code in `<pre>{@code ...}</pre>`.
+/// The current Java emitter does not yet emit examples; doing so safely
+/// requires a JavaDoc-specific HTML escape that's not done here.
 fn transform_rustdoc_for_java(doc: &str) -> String {
-    let mut result = String::new();
-    let mut in_code_block = false;
-    let mut skip_line = false;
-
-    for line in doc.lines() {
-        let trimmed = line.trim();
-
-        // Skip Rust-specific headers and code blocks.
-        if trimmed.starts_with('#')
-            && (trimmed.starts_with("# Arguments")
-                || trimmed.starts_with("# Errors")
-                || trimmed.starts_with("# Example")
-                || trimmed.starts_with("# Returns"))
-        {
-            skip_line = true;
-            continue;
-        }
-
-        if trimmed.starts_with("```") {
-            in_code_block = !in_code_block;
-            continue;
-        }
-
-        if in_code_block {
-            continue;
-        }
-
-        if skip_line && trimmed.is_empty() {
-            skip_line = false;
-        }
-        if skip_line {
-            continue;
-        }
-
-        // Transform intra-doc links [`Type`] → Type.
-        let transformed = line.replace("[`", "").replace("`]", "");
-
-        if !result.is_empty() {
-            result.push('\n');
-        }
-        result.push_str(&transformed);
+    let sections = alef_codegen::doc_emission::parse_rustdoc_sections(doc);
+    let rendered = alef_codegen::doc_emission::render_javadoc_sections(&sections, "KreuzbergRsException");
+    if rendered.trim().is_empty() {
+        // Fallback: when no recognised sections present, emit the raw doc with
+        // intra-doc-link cleanup — preserves backward compatibility for prose
+        // that has no Markdown headings.
+        return doc.replace("[`", "").replace("`]", "").trim().to_string();
     }
-
-    result.trim().to_string()
+    rendered.replace("[`", "").replace("`]", "")
 }
 
 pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
