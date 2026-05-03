@@ -510,14 +510,17 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         // NOTE: gen_visitor_bindings does NOT emit {prefix}_convert (only
         // {prefix}_convert_with_visitor), so there is no symbol collision with the
         // OptionsField convert generated above.
+        // The visitor must be embedded in options (not passed as a 3rd arg) because the
+        // OptionsField `convert` only accepts 2 arguments — pass `true` accordingly.
         if visitor_callbacks_enabled {
-            builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import));
+            builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, true));
         }
     } else if visitor_callbacks_enabled {
         // Legacy FunctionParam path: emit the real {prefix}_convert (no-visitor) and then
         // the visitor bindings with {prefix}_convert_with_visitor.
+        // The legacy convert accepts a third visitor argument — pass `false`.
         builder.add_item(&crate::gen_visitor::gen_convert_no_visitor(prefix, &core_import));
-        builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import));
+        builder.add_item(&crate::gen_visitor::gen_visitor_bindings(prefix, &core_import, false));
     }
 
     // Plugin bridge support — vtable + user_data pattern for each [[trait_bridges]] entry.
@@ -1331,6 +1334,17 @@ options_type = "ConversionOptions"
         assert_eq!(
             convert_count, 1,
             "htm_convert must appear exactly once (no duplicate from visitor path)"
+        );
+
+        // htm_convert_with_visitor must embed the visitor in options, not pass it as a
+        // 3rd argument to convert — because the OptionsField `convert` only takes 2 args.
+        assert!(
+            lib.content.contains("opts.visitor = visitor_handle"),
+            "convert_with_visitor must embed visitor in options for OptionsField path"
+        );
+        assert!(
+            !lib.content.contains("convert(&html_str, options_rs, visitor_handle"),
+            "convert_with_visitor must NOT pass visitor as 3rd arg in OptionsField path"
         );
     }
 }

@@ -462,12 +462,39 @@ fn gen_visitor_ref_methods(core_import: &str) -> String {
 ///
 /// - `prefix`: the FFI function prefix (e.g. `"htm"`).
 /// - `core_import`: the Rust `use` path for the core crate (e.g. `"html_to_markdown_rs"`).
-pub fn gen_visitor_bindings(prefix: &str, core_import: &str) -> String {
+/// - `embed_visitor_in_options`: when `true`, the generated `{prefix}_convert_with_visitor`
+///   embeds the visitor in `options.visitor` before calling the 2-argument `convert(html,
+///   options)`.  Set this to `true` when the library uses the OptionsField bridge pattern
+///   (visitor lives in `ConversionOptions`).  Set to `false` for the legacy FunctionParam
+///   pattern where `convert` accepts a third visitor argument directly.
+pub fn gen_visitor_bindings(prefix: &str, core_import: &str, embed_visitor_in_options: bool) -> String {
     let pascal_prefix = prefix.to_pascal_case();
 
     let struct_fields = gen_struct_fields(&pascal_prefix);
     let impl_methods = gen_impl_methods(&pascal_prefix, core_import);
     let visitor_ref_methods = gen_visitor_ref_methods(core_import);
+
+    // Generate the convert call inside htm_convert_with_visitor.
+    //
+    // OptionsField path (embed_visitor_in_options = true):
+    //   The core `convert` only takes (html, options).  The visitor must be embedded into the
+    //   options before the call.  We mutate (or create) options_rs, set its visitor field, then
+    //   call convert with 2 args.
+    //
+    // Legacy FunctionParam path (embed_visitor_in_options = false):
+    //   The core `convert` takes (html, options, visitor) as three separate arguments.
+    let convert_call = if embed_visitor_in_options {
+        format!(
+            r#"    let mut options_with_visitor: Option<{core_import}::ConversionOptions> = options_rs;
+    if visitor_handle.is_some() {{
+        let opts = options_with_visitor.get_or_insert_with({core_import}::ConversionOptions::default);
+        opts.visitor = visitor_handle;
+    }}
+    match {core_import}::convert(&html_str, options_with_visitor) {{"#
+        )
+    } else {
+        format!("    match {core_import}::convert(&html_str, options_rs, visitor_handle) {{")
+    };
 
     format!(
         r#"// ---------------------------------------------------------------------------
@@ -774,7 +801,7 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
         Some(std::rc::Rc::new(std::cell::RefCell::new(VisitorRef(visitor))))
     }};
 
-    match {core_import}::convert(&html_str, options_rs, visitor_handle) {{
+CONVERT_CALL_PLACEHOLDER
         Ok(result) => {{
             let markdown = result.content.unwrap_or_default();
             match std::ffi::CString::new(markdown) {{
@@ -802,6 +829,7 @@ pub unsafe extern "C" fn {prefix}_convert_with_visitor(
         impl_methods = impl_methods,
         visitor_ref_methods = visitor_ref_methods,
     )
+    .replace("CONVERT_CALL_PLACEHOLDER", &convert_call)
 }
 
 /// Generate `{prefix}_convert` — the real no-visitor implementation of the core `convert`
