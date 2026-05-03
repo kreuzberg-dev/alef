@@ -256,12 +256,14 @@ fn render_package_json(
   }},
   "devDependencies": {{
     "{pkg_name}": "{dep_value}",
+    "rollup": "{rollup}",
     "vite-plugin-top-level-await": "{vite_plugin_top_level_await}",
     "vite-plugin-wasm": "{vite_plugin_wasm}",
     "vitest": "{vitest}"
   }}
 }}
 "#,
+        rollup = tv::npm::ROLLUP,
         vite_plugin_top_level_await = tv::npm::VITE_PLUGIN_TOP_LEVEL_AWAIT,
         vite_plugin_wasm = tv::npm::VITE_PLUGIN_WASM,
         vitest = tv::npm::VITEST,

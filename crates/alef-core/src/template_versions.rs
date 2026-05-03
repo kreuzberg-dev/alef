@@ -20,6 +20,9 @@ pub mod npm {
     // renovate: datasource=npm depName=vitest
     pub const VITEST: &str = "^4.1.5";
 
+    // renovate: datasource=npm depName=rollup
+    pub const ROLLUP: &str = "^4.53.3";
+
     // renovate: datasource=npm depName=vite-plugin-top-level-await
     pub const VITE_PLUGIN_TOP_LEVEL_AWAIT: &str = "^1.4.0";
 

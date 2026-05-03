@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wrappers, including handles that only appear in generated wrapper classes.
 - fix(backend-magnus): borrow field types when detecting thread-unsafe visitor
   handles so the backend compiles cleanly.
+- fix(e2e/wasm): declare Rollup in generated WASM Vitest harnesses so Vite plugins
+  can load in isolated installs.
 
 ## [0.14.3] - 2026-05-03
 
