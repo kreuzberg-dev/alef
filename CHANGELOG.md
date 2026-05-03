@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project path.
 - fix(e2e/csharp): read namespace from `[crates.csharp].namespace` in alef.toml when
   generating test imports, fixing mismatch with generated package namespace.
+- fix(e2e/go): render string containment assertions through `fmt.Sprint` so structured
+  slices such as `[]StructureItem` compile.
+- fix(backend-csharp): emit free P/Invoke declarations for all true opaque handle
+  wrappers, including handles that only appear in generated wrapper classes.
 
 ## [0.14.3] - 2026-05-03
 

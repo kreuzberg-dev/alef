@@ -84,6 +84,23 @@ pub(super) fn gen_native_methods(
         .map(|t| t.name.clone())
         .collect();
 
+    // Opaque handle classes own native pointers via SafeHandle, so every true
+    // opaque type needs a matching free declaration even if no public wrapper
+    // function currently accepts or returns that handle.
+    let mut sorted_true_opaque_types: Vec<&String> = true_opaque_types.iter().collect();
+    sorted_true_opaque_types.sort();
+    for type_name in sorted_true_opaque_types {
+        let snake = type_name.to_snake_case();
+        let free_entry = format!("{prefix}_{snake}_free");
+        let free_cs = format!("{}Free", type_name.to_pascal_case());
+        if emitted.insert(free_entry.clone()) {
+            out.push_str(&format!(
+                "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{free_entry}\")]\n"
+            ));
+            out.push_str(&format!("    internal static extern void {free_cs}(IntPtr ptr);\n\n"));
+        }
+    }
+
     // Emit from_json + free helpers for opaque types used as parameters.
     // Truly opaque handles (is_opaque = true) have no from_json — only free.
     let mut sorted_param_types: Vec<&String> = opaque_param_types.iter().collect();
