@@ -2,7 +2,10 @@ use alef_core::ir::{CoreWrapper, PrimitiveType, TypeDef, TypeRef};
 use std::fmt::Write;
 
 use super::ConversionConfig;
-use super::helpers::{core_prim_str, core_type_path_remapped, is_newtype, is_tuple_type_name, needs_i64_cast};
+use super::helpers::{
+    core_prim_str, core_type_path_remapped, is_newtype, is_tuple_type_name, needs_f64_cast, needs_i32_cast,
+    needs_i64_cast,
+};
 
 /// Generate `impl From<BindingType> for core::Type` (binding -> core).
 /// Sanitized fields use `Default::default()` unless the sanitizer only removed a
@@ -644,6 +647,8 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         return format!("{name}: serde_wasm_bindgen::from_value(val.{name}.clone()).unwrap_or_default()");
     }
     if !config.cast_large_ints_to_i64
+        && !config.cast_large_ints_to_f64
+        && !config.cast_uints_to_i32
         && !config.cast_f32_to_f64
         && !config.json_to_string
         && !config.vec_named_to_string
@@ -731,6 +736,76 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                 && matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(PrimitiveType::F32))) =>
         {
             format!("{name}: val.{name}.map(|v| v.into_iter().map(|x| x as f32).collect())")
+        }
+        // i32→u8/u16/u32/i8/i16 casts (extendr — R maps small ints to i32)
+        TypeRef::Primitive(p) if config.cast_uints_to_i32 && needs_i32_cast(p) => {
+            let core_ty = core_prim_str(p);
+            if optional {
+                format!("{name}: val.{name}.map(|v| v as {core_ty})")
+            } else {
+                format!("{name}: val.{name} as {core_ty}")
+            }
+        }
+        // Optional(i32-needs-cast) with cast_uints_to_i32
+        TypeRef::Optional(inner) if config.cast_uints_to_i32 && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
+        {
+            if let TypeRef::Primitive(p) = inner.as_ref() {
+                let core_ty = core_prim_str(p);
+                format!("{name}: val.{name}.map(|v| v as {core_ty})")
+            } else {
+                field_conversion_to_core(name, ty, optional)
+            }
+        }
+        // Vec<u8/u16/u32/i8/i16> needs element-wise i32→core casting
+        TypeRef::Vec(inner)
+            if config.cast_uints_to_i32
+                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
+        {
+            if let TypeRef::Primitive(p) = inner.as_ref() {
+                let core_ty = core_prim_str(p);
+                if optional {
+                    format!("{name}: val.{name}.map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+                } else {
+                    format!("{name}: val.{name}.into_iter().map(|v| v as {core_ty}).collect()")
+                }
+            } else {
+                field_conversion_to_core(name, ty, optional)
+            }
+        }
+        // f64→u64/usize/isize casts (extendr — R maps large ints to f64)
+        TypeRef::Primitive(p) if config.cast_large_ints_to_f64 && needs_f64_cast(p) => {
+            let core_ty = core_prim_str(p);
+            if optional {
+                format!("{name}: val.{name}.map(|v| v as {core_ty})")
+            } else {
+                format!("{name}: val.{name} as {core_ty}")
+            }
+        }
+        // Optional(f64-needs-cast) with cast_large_ints_to_f64
+        TypeRef::Optional(inner) if config.cast_large_ints_to_f64 && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p)) =>
+        {
+            if let TypeRef::Primitive(p) = inner.as_ref() {
+                let core_ty = core_prim_str(p);
+                format!("{name}: val.{name}.map(|v| v as {core_ty})")
+            } else {
+                field_conversion_to_core(name, ty, optional)
+            }
+        }
+        // Vec<u64/usize/isize> needs element-wise f64→core casting
+        TypeRef::Vec(inner)
+            if config.cast_large_ints_to_f64
+                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p)) =>
+        {
+            if let TypeRef::Primitive(p) = inner.as_ref() {
+                let core_ty = core_prim_str(p);
+                if optional {
+                    format!("{name}: val.{name}.map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+                } else {
+                    format!("{name}: val.{name}.into_iter().map(|v| v as {core_ty}).collect()")
+                }
+            } else {
+                field_conversion_to_core(name, ty, optional)
+            }
         }
         // Fall through to default for everything else
         _ => field_conversion_to_core(name, ty, optional),

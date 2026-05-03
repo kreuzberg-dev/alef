@@ -1525,7 +1525,8 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
             let _ = writeln!(decl, "            return new VisitResult.Custom(\"{escaped}\");");
         }
         CallbackAction::CustomTemplate { template } => {
-            let escaped = escape_csharp(template);
+            let camel = snake_case_template_to_camel(template);
+            let escaped = escape_csharp(&camel);
             let _ = writeln!(decl, "            return new VisitResult.Custom($\"{escaped}\");");
         }
     }
@@ -1536,6 +1537,33 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
 fn method_to_camel(snake: &str) -> String {
     use heck::ToUpperCamelCase;
     snake.to_upper_camel_case()
+}
+
+/// Rewrite `{snake_case}` placeholders in a custom template to `{camelCase}` so
+/// they match C# parameter names (which alef emits in camelCase).
+fn snake_case_template_to_camel(template: &str) -> String {
+    use heck::ToLowerCamelCase;
+    let mut out = String::with_capacity(template.len());
+    let mut chars = template.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '{' {
+            let mut name = String::new();
+            while let Some(&nc) = chars.peek() {
+                if nc == '}' {
+                    chars.next();
+                    break;
+                }
+                name.push(nc);
+                chars.next();
+            }
+            out.push('{');
+            out.push_str(&name.to_lower_camel_case());
+            out.push('}');
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Build a C# call expression for a `method_result` assertion on a tree-sitter Tree.

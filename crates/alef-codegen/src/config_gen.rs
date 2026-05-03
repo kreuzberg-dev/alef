@@ -916,7 +916,16 @@ pub fn gen_rustler_kwargs_constructor(typ: &TypeDef, _type_mapper: &dyn Fn(&Type
 /// type's own `Default::default()` for the whole struct as the base) inside the body.
 /// The R-side wrapper generated in `generate_public_api` already supplies named
 /// arguments with `NULL` defaults, so callers see ergonomic kwargs at the R level.
-pub fn gen_extendr_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
+///
+/// `enum_names` is the set of type names that are enums in this API surface.  For
+/// fields whose type resolves to a Named enum, the parameter is widened to
+/// `Option<String>` (extendr has no `TryFrom<&Robj>` for binding enums) and the body
+/// deserialises the string back to the enum via `serde_json::from_str`.
+pub fn gen_extendr_kwargs_constructor(
+    typ: &TypeDef,
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    enum_names: &ahash::AHashSet<String>,
+) -> String {
     use std::fmt::Write;
     let mut out = String::with_capacity(512);
 
@@ -925,10 +934,19 @@ pub fn gen_extendr_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeR
 
     // Add all fields as Option<T> parameters — extendr passes NULL → None which lets
     // each field fall through to the struct's Default value when omitted.
+    // Fields whose inner type is a binding enum use Option<String> because extendr has
+    // no TryFrom<&Robj> impl for enum types; the string is parsed back in the body.
+    let is_named_enum = |ty: &TypeRef| -> bool {
+        matches!(ty, TypeRef::Named(n) if enum_names.contains(n.as_str()))
+    };
     for (i, field) in typ.fields.iter().enumerate() {
-        let field_type = type_mapper(&field.ty);
+        let param_type = if is_named_enum(&field.ty) {
+            "String".to_string()
+        } else {
+            type_mapper(&field.ty)
+        };
         let comma = if i < typ.fields.len() - 1 { "," } else { "" };
-        writeln!(out, "    {}: Option<{}>{}", field.name, field_type, comma).ok();
+        writeln!(out, "    {}: Option<{}>{}", field.name, param_type, comma).ok();
     }
 
     writeln!(out, ") -> {} {{", typ.name).ok();
@@ -938,12 +956,39 @@ pub fn gen_extendr_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeR
     // `"utf-8"`).  Then overlay any caller-provided values.
     writeln!(out, "    let mut __out = <{}>::default();", typ.name).ok();
     for field in &typ.fields {
-        writeln!(
-            out,
-            "    if let Some(v) = {name} {{ __out.{name} = v; }}",
-            name = field.name
-        )
-        .ok();
+        if is_named_enum(&field.ty) {
+            // Enum field via String: parse with serde_json, fall back to Default on error.
+            if field.optional {
+                writeln!(
+                    out,
+                    "    if let Some(v) = {name} {{ __out.{name} = serde_json::from_str(&format!(\"\\\"{{v}}\\\"\")).ok(); }}",
+                    name = field.name
+                )
+                .ok();
+            } else {
+                writeln!(
+                    out,
+                    "    if let Some(v) = {name} {{ if let Ok(parsed) = serde_json::from_str(&format!(\"\\\"{{v}}\\\"\")) {{ __out.{name} = parsed; }} }}",
+                    name = field.name
+                )
+                .ok();
+            }
+        } else if field.optional {
+            // Optional field: the struct field is Option<T>, so wrap v back in Some.
+            writeln!(
+                out,
+                "    if let Some(v) = {name} {{ __out.{name} = Some(v); }}",
+                name = field.name
+            )
+            .ok();
+        } else {
+            writeln!(
+                out,
+                "    if let Some(v) = {name} {{ __out.{name} = v; }}",
+                name = field.name
+            )
+            .ok();
+        }
     }
     writeln!(out, "    __out").ok();
     writeln!(out, "}}").ok();
@@ -2117,7 +2162,8 @@ mod tests {
     #[test]
     fn test_gen_extendr_kwargs_constructor_basic() {
         let typ = make_test_type();
-        let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper);
+        let empty_enums = ahash::AHashSet::new();
+        let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper, &empty_enums);
 
         assert!(output.contains("#[extendr]"), "should have extendr attribute");
         assert!(
@@ -2162,7 +2208,8 @@ mod tests {
         // extendr 0.9 only supports defaults via the `#[extendr(default = "...")]`
         // attribute.  Verify that no field is emitted with a Rust-syntax default.
         let typ = make_test_type();
-        let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper);
+        let empty_enums = ahash::AHashSet::new();
+        let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper, &empty_enums);
         assert!(
             !output.contains("= TRUE") && !output.contains("= FALSE") && !output.contains("= \"default\""),
             "constructor must not use Rust-syntax param defaults: {output}"

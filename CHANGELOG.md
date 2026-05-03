@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(backend-extendr): add `cast_uints_to_i32` and `cast_large_ints_to_f64` flags to
+  `ConversionConfig` so the R binding maps u8/u16/u32/i8/i16 → `i32` and u64/usize/isize → `f64`
+  in both binding→core and core→binding From impls. Without these casts, primitive type
+  mismatches caused ~100 E0308 errors in the generated R binding.
+- fix(backend-extendr): generate `#[extendr]` on impl blocks (previously `method_block_attr: None`)
+  so generated structs register as R classes and satisfy the `ToVectorValue` trait bound.
+- fix(backend-extendr): import `std::collections::HashMap` and `extendr_api::Result` in the
+  generated binding so HashMap fields compile and `Result<T>` is unambiguously the extendr alias.
+- fix(codegen/extendr-kwargs): optional struct fields (where `field.optional=true`) in the
+  kwargs constructor now assign `Some(v)` instead of `v` so `Option<T>` fields are set correctly.
+- fix(codegen/extendr-kwargs): enum fields in kwargs constructors now accept `Option<String>` and
+  parse via serde_json instead of `Option<EnumType>`, which extendr cannot convert from Robj.
+- fix(backend-extendr): skip opaque types that use `Rc` internally (identified by having a cfg
+  gate) from struct generation and from field inclusion in non-opaque structs. `VisitorHandle` is
+  `Rc<RefCell<dyn HtmlVisitor>>` and cannot be wrapped in `Arc` — its binding struct would
+  violate `Send + Sync` bounds. Affected fields (e.g. `visitor` on `ConversionOptions`) are
+  excluded from struct generation and conversion impls.
+- fix(trait_bridge/extendr): use `List::from_pairs(attrs_pairs).into()` instead of the invalid
+  `collect::<List>()` pattern for building named R lists from attribute key-value pairs.
+
 - fix(backend-napi): NAPI options_field_bridge now preserves visitor handle across
   options conversion. The From<JsConversionOptions> impl was unconditionally setting
   visitor to Default::default() due to opaque field handling. Fixed by extracting
