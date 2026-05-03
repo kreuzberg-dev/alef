@@ -285,7 +285,9 @@ fn render_test_file(
         })
     });
 
-    // Determine if we need the "fmt" import (CustomTemplate visitor actions with placeholders).
+    // Determine if we need the "fmt" import (CustomTemplate visitor actions
+    // with placeholders, or string assertions rendered through fmt.Sprint so
+    // structured slices can be searched without assuming []string).
     let needs_fmt = fixtures.iter().any(|f| {
         f.visitor.as_ref().is_some_and(|v| {
             v.callbacks.values().any(|action| {
@@ -295,6 +297,15 @@ fn render_test_file(
                     false
                 }
             })
+        }) || f.assertions.iter().any(|a| {
+            matches!(
+                a.assertion_type.as_str(),
+                "contains" | "contains_all" | "contains_any" | "not_contains"
+            ) && a
+                .field
+                .as_ref()
+                .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
+                .unwrap_or(true)
         })
     });
 
@@ -1618,13 +1629,13 @@ fn render_assertion(
                 let is_opt =
                     is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 let field_for_contains = if is_opt && field_is_array {
-                    format!("strings.Join(*{field_expr}, \" \")")
+                    format!("fmt.Sprint(*{field_expr})")
                 } else if is_opt {
-                    format!("string(*{field_expr})")
+                    format!("fmt.Sprint(*{field_expr})")
                 } else if field_is_array {
-                    format!("strings.Join({field_expr}, \" \")")
+                    format!("fmt.Sprint({field_expr})")
                 } else {
-                    format!("string({field_expr})")
+                    format!("fmt.Sprint({field_expr})")
                 };
                 if is_opt {
                     let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -1655,13 +1666,13 @@ fn render_assertion(
                 for val in values {
                     let go_val = json_to_go(val);
                     let field_for_contains = if is_opt && field_is_array {
-                        format!("strings.Join(*{field_expr}, \" \")")
+                        format!("fmt.Sprint(*{field_expr})")
                     } else if is_opt {
-                        format!("string(*{field_expr})")
+                        format!("fmt.Sprint(*{field_expr})")
                     } else if field_is_array {
-                        format!("strings.Join({field_expr}, \" \")")
+                        format!("fmt.Sprint({field_expr})")
                     } else {
-                        format!("string({field_expr})")
+                        format!("fmt.Sprint({field_expr})")
                     };
                     if is_opt {
                         let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
@@ -1686,13 +1697,13 @@ fn render_assertion(
                 let is_opt =
                     is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 let field_for_contains = if is_opt && field_is_array {
-                    format!("strings.Join(*{field_expr}, \" \")")
+                    format!("fmt.Sprint(*{field_expr})")
                 } else if is_opt {
-                    format!("string(*{field_expr})")
+                    format!("fmt.Sprint(*{field_expr})")
                 } else if field_is_array {
-                    format!("strings.Join({field_expr}, \" \")")
+                    format!("fmt.Sprint({field_expr})")
                 } else {
-                    format!("string({field_expr})")
+                    format!("fmt.Sprint({field_expr})")
                 };
                 let _ = writeln!(out_ref, "\tif strings.Contains({field_for_contains}, {go_val}) {{");
                 let _ = writeln!(
@@ -1746,13 +1757,13 @@ fn render_assertion(
                 let is_opt =
                     is_optional && !optional_locals.contains_key(assertion.field.as_ref().unwrap_or(&String::new()));
                 let field_for_contains = if is_opt && field_is_array {
-                    format!("strings.Join(*{field_expr}, \" \")")
+                    format!("fmt.Sprint(*{field_expr})")
                 } else if is_opt {
-                    format!("*{field_expr}")
+                    format!("fmt.Sprint(*{field_expr})")
                 } else if field_is_array {
-                    format!("strings.Join({field_expr}, \" \")")
+                    format!("fmt.Sprint({field_expr})")
                 } else {
-                    field_expr.clone()
+                    format!("fmt.Sprint({field_expr})")
                 };
                 let _ = writeln!(out_ref, "\t{{");
                 let _ = writeln!(out_ref, "\t\tfound := false");
