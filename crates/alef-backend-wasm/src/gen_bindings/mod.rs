@@ -473,13 +473,28 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Fix From<WasmConversionOptions> to pass through visitor field instead of Default::default()
-        // Replace "visitor: Default::default()," with a proper conversion that extracts from Arc
-        // in the From impl for WasmConversionOptions and WasmConversionOptionsUpdate
-        let visitor_default = "visitor: Default::default(),";
-        // Extract from Arc<Rc<RefCell<_>>> to Rc<RefCell<_>>
-        let visitor_passthrough = "visitor: val.visitor.map(|v| (*v.inner).clone()),";
-        content = content.replace(visitor_default, visitor_passthrough);
+        // Fix From<Wasm*> to Rust conversions to pass through visitor field instead of Default::default()
+        // Only apply to WasmConversionOptions and WasmConversionOptionsUpdate (Wasm -> Core direction)
+
+        // Pattern: impl From<WasmConversionOptions> for ...ConversionOptions
+        // Marker: uses `strong_em_symbol.chars()` (only in forward direction)
+        let pattern_conv_options = "impl From<WasmConversionOptions> for html_to_markdown_rs::options::ConversionOptions {";
+        if content.contains(pattern_conv_options) {
+            // Replace in the scope of this impl: from exclude_selectors to ..Default::default()
+            let old = "            exclude_selectors: val.exclude_selectors,\n            visitor: Default::default(),\n            ..Default::default()\n        }\n    }\n}\n\n#[allow(clippy::needless_update)]\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]\nimpl From<html_to_markdown_rs::options::ConversionOptions> for WasmConversionOptions {";
+            let new = "            exclude_selectors: val.exclude_selectors,\n            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default()\n        }\n    }\n}\n\n#[allow(clippy::needless_update)]\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]\nimpl From<html_to_markdown_rs::options::ConversionOptions> for WasmConversionOptions {";
+            content = content.replace(old, new);
+        }
+
+        // Pattern: impl From<WasmConversionOptionsUpdate> for ...ConversionOptionsUpdate
+        // Marker: uses `.and_then(|s| s.chars())` (only in forward direction)
+        let pattern_update = "impl From<WasmConversionOptionsUpdate> for html_to_markdown_rs::options::ConversionOptionsUpdate {";
+        if content.contains(pattern_update) {
+            // Replace in the scope of this impl
+            let old = "            exclude_selectors: val.exclude_selectors,\n            visitor: Default::default(),\n            ..Default::default()\n        }\n    }\n}\n\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]\nimpl From<html_to_markdown_rs::options::ConversionOptionsUpdate> for WasmConversionOptionsUpdate {";
+            let new = "            exclude_selectors: val.exclude_selectors,\n            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default()\n        }\n    }\n}\n\n#[allow(clippy::redundant_closure, clippy::useless_conversion)]\nimpl From<html_to_markdown_rs::options::ConversionOptionsUpdate> for WasmConversionOptionsUpdate {";
+            content = content.replace(old, new);
+        }
 
         let output_dir = resolve_output_dir(config.output_paths.get("wasm"), &config.name, "crates/{name}-wasm/src/");
 

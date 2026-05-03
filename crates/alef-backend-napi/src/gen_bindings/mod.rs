@@ -229,7 +229,7 @@ impl Backend for NapiBackend {
                     &core_import,
                 ));
             } else {
-                builder.add_item(&functions::gen_function(func, &mapper, &cfg, &opaque_types, &prefix));
+                builder.add_item(&functions::gen_function(func, &mapper, &cfg, &opaque_types, &prefix, &config.trait_bridges, &core_import));
             }
         }
 
