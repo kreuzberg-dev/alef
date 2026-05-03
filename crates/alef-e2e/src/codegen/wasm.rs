@@ -185,13 +185,13 @@ impl E2eCodegen for WasmCodegen {
         // to the typescript codegen (`render_test_file`), which already handles
         // both HTTP and function-call fixtures correctly. Passing `lang = "wasm"`
         // routes per-fixture override resolution and skip checks through the wasm
-        // language key. Then we inject WASM initialization before the describe block.
+        // language key. The bundler target auto-initializes, so no explicit init needed.
         for (group, active) in groups.iter().zip(active_per_group.iter()) {
             if active.is_empty() {
                 continue;
             }
             let filename = format!("{}.test.ts", sanitize_filename(&group.category));
-            let mut content = super::typescript::render_test_file(
+            let content = super::typescript::render_test_file(
                 lang,
                 &group.category,
                 active,
@@ -204,8 +204,6 @@ impl E2eCodegen for WasmCodegen {
                 client_factory,
                 e2e_config,
             );
-            // Inject WASM initialization: add initWasm import and beforeAll setup
-            content = inject_wasm_init(&content, &pkg_name);
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
                 content,
@@ -368,77 +366,4 @@ fn render_tsconfig() -> String {
 }
 "#
     .to_string()
-}
-
-/// Inject WASM initialization into a test file.
-/// Replaces the static package import with a dynamic import and uses top-level await
-/// to ensure WASM module is initialized before the describe blocks register.
-fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
-    let pkg_import_pattern = format!("from '{pkg_name}';");
-    if !content.contains(&pkg_import_pattern) {
-        return content.to_string();
-    }
-
-    let lines: Vec<&str> = content.lines().collect();
-    let mut result = String::new();
-
-    // Find the describe block and the import line
-    let mut describe_idx = None;
-    let mut import_line_content = String::new();
-    for (i, line) in lines.iter().enumerate() {
-        if line.contains("describe(") {
-            describe_idx = Some(i);
-            break;
-        }
-        if line.contains(&pkg_import_pattern) {
-            import_line_content = line.to_string();
-        }
-    }
-
-    if describe_idx.is_none() {
-        return content.to_string();
-    }
-
-    let describe_idx = describe_idx.unwrap();
-
-    // Output all lines before the describe block, excluding the package import.
-    for line in lines[..describe_idx].iter() {
-        if !line.contains(&pkg_import_pattern) {
-            result.push_str(line);
-            result.push('\n');
-        }
-    }
-
-    // Extract the named imports from the original import statement.
-    // Parse "import { scrape, createEngine } from 'pkg';" to get ["scrape", "createEngine"]
-    let import_line = &import_line_content;
-    let start_brace = if let Some(idx) = import_line.find('{') {
-        idx + 1
-    } else {
-        0
-    };
-    let end_brace = if let Some(idx) = import_line.find('}') {
-        idx
-    } else {
-        import_line.len()
-    };
-    let imports_str = &import_line[start_brace..end_brace];
-
-    // Add the dynamic import + init using top-level await.
-    // wasm-bindgen exports named functions (scrape, createEngine, etc) and a default
-    // export __wbg_init for async module initialization. The vitest config includes
-    // vite-plugin-wasm which handles automatic WASM initialization, but we explicitly
-    // initialize here to ensure it completes before tests run.
-    result.push('\n');
-    result.push_str(&format!(
-        "const {{ {imports_str} }} = await import('{pkg_name}');\nawait import('{pkg_name}').then(m => m.default());\n\n"
-    ));
-
-    // Output the describe block and all remaining lines
-    for line in lines[describe_idx..].iter() {
-        result.push_str(line);
-        result.push('\n');
-    }
-
-    result
 }
