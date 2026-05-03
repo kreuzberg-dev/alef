@@ -379,6 +379,16 @@ pub fn field_conversion_from_core(
                 format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.to_string(), v)).collect()")
             }
         }
+        // Map<String, String>: core may have Box<str> keys/values, binding has String keys/values.
+        // Emit .map() with .into() conversions, which are no-ops when both sides are String.
+        // This handles cases like HashMap<Box<str>, Box<str>> (core) → HashMap<String, String> (binding).
+        TypeRef::Map(k, v) if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::String) => {
+            if optional {
+                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k.into(), v.into())).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v.into())).collect()")
+            }
+        }
         // Map<K, Named>: each value needs .into() to convert core→binding
         TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
             if optional {
