@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(backend-java): use short annotation names (`@JsonDeserialize`, `@JsonPOJOBuilder`) instead of
+  fully-qualified names in generated record and builder classes so that the accompanying import
+  statements are actually used and checkstyle's UnusedImports rule passes.
+
 ## [0.14.8] - 2026-05-03
 
 ### Fixed
