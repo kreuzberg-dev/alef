@@ -37,7 +37,7 @@ impl ResolvedCrateConfig {
             Language::Zig => self.zig.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Dart => self.dart.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Swift => self.swift.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
-            Language::Rust => None,
+            Language::Rust | Language::C => None,
         };
         if let Some(renamed) = explicit {
             if renamed != field_name {
@@ -81,7 +81,7 @@ impl ResolvedCrateConfig {
             Language::Zig => self.zig.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Dart => self.dart.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Swift => self.swift.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
-            Language::Rust => None,
+            Language::Rust | Language::C => None,
         };
 
         if let Some(val) = override_val {
@@ -102,7 +102,8 @@ impl ResolvedCrateConfig {
             | Language::Gleam
             | Language::Zig
             | Language::Swift
-            | Language::Dart => "snake_case".to_string(),
+            | Language::Dart
+            | Language::C => "snake_case".to_string(),
         }
     }
 

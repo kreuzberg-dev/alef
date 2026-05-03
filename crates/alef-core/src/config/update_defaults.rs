@@ -150,6 +150,12 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             update: None,
             upgrade: None,
         },
+        Language::C => UpdateConfig {
+            precondition: None,
+            before: None,
+            update: None,
+            upgrade: None,
+        },
         Language::Kotlin => UpdateConfig {
             precondition: Some(require_tool("gradle")),
             before: None,

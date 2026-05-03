@@ -110,6 +110,11 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             before: None,
             clean: Some(StringOrVec::Single("rm -rf zig-out zig-cache .zig-cache".to_string())),
         },
+        Language::C => CleanConfig {
+            precondition: None,
+            before: None,
+            clean: Some(StringOrVec::Single("cd e2e/c && make clean".to_string())),
+        },
     }
 }
 

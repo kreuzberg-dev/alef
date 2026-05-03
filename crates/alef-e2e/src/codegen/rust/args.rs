@@ -252,20 +252,38 @@ pub fn resolve_visitor_trait(module: &str) -> String {
 /// Emit a Rust visitor method for a callback action.
 ///
 /// The parameter type list mirrors the `HtmlVisitor` trait in
-/// `kreuzberg-dev/html-to-markdown`. Param names are bound to `_` because the
-/// generated visitor body never references them — the body always returns a
-/// fixed `VisitResult` variant — so we'd otherwise hit `unused_variables`
-/// warnings that fail prek's `cargo clippy -D warnings` hook.
+/// `kreuzberg-dev/html-to-markdown`. For non-template actions params are bound
+/// to `_name` patterns so the generated body needn't introduce unused bindings
+/// (clippy `-D warnings` would otherwise fire). For `CustomTemplate` actions
+/// the template string may reference named variables via `{name}` interpolation,
+/// so those params are exposed with their real names and any `Option<T>` ones
+/// that appear in the template are unwrapped with `.unwrap_or_default()`.
 pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &crate::fixture::CallbackAction) {
     use std::fmt::Write as FmtWrite;
-    // Each entry: parameters typed exactly as `HtmlVisitor` expects them,
-    // bound to `_` patterns so the generated body needn't introduce unused
-    // bindings. Receiver is `&mut self` to match the trait.
-    let params = match method_name {
-        "visit_link" => "_: &NodeContext, _: &str, _: &str, _: &str",
-        "visit_image" => "_: &NodeContext, _: &str, _: &str, _: &str",
-        "visit_heading" => "_: &NodeContext, _: u8, _: &str, _: Option<&str>",
-        "visit_code_block" => "_: &NodeContext, _: Option<&str>, _: &str",
+
+    // Each method entry: list of (name, type_str) pairs, excluding `&mut self`.
+    // Types match the `HtmlVisitor` trait exactly.
+    // `_ctx` is always first; subsequent params vary by method.
+    let raw_params: &[(&str, &str)] = match method_name {
+        "visit_link" => &[
+            ("ctx", "&NodeContext"),
+            ("href", "&str"),
+            ("text", "&str"),
+            ("title", "Option<&str>"),
+        ],
+        "visit_image" => &[
+            ("ctx", "&NodeContext"),
+            ("src", "&str"),
+            ("alt", "&str"),
+            ("title", "Option<&str>"),
+        ],
+        "visit_heading" => &[
+            ("ctx", "&NodeContext"),
+            ("level", "u32"),
+            ("text", "&str"),
+            ("id", "Option<&str>"),
+        ],
+        "visit_code_block" => &[("ctx", "&NodeContext"), ("lang", "Option<&str>"), ("code", "&str")],
         "visit_code_inline"
         | "visit_strong"
         | "visit_emphasis"
@@ -278,25 +296,81 @@ pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &cr
         | "visit_summary"
         | "visit_figcaption"
         | "visit_definition_term"
-        | "visit_definition_description" => "_: &NodeContext, _: &str",
-        "visit_text" => "_: &NodeContext, _: &str",
-        "visit_list_item" => "_: &NodeContext, _: bool, _: &str, _: &str",
-        "visit_blockquote" => "_: &NodeContext, _: &str, _: u32",
-        "visit_table_row" => "_: &NodeContext, _: &[String], _: bool",
-        "visit_custom_element" => "_: &NodeContext, _: &str, _: &str",
-        "visit_form" => "_: &NodeContext, _: &str, _: &str",
-        "visit_input" => "_: &NodeContext, _: &str, _: &str, _: &str",
-        "visit_audio" | "visit_video" | "visit_iframe" => "_: &NodeContext, _: &str",
-        "visit_details" => "_: &NodeContext, _: bool",
+        | "visit_definition_description" => &[("ctx", "&NodeContext"), ("text", "&str")],
+        "visit_text" => &[("ctx", "&NodeContext"), ("text", "&str")],
+        "visit_list_item" => &[
+            ("ctx", "&NodeContext"),
+            ("ordered", "bool"),
+            ("marker", "&str"),
+            ("text", "&str"),
+        ],
+        "visit_blockquote" => &[("ctx", "&NodeContext"), ("content", "&str"), ("depth", "usize")],
+        "visit_table_row" => &[("ctx", "&NodeContext"), ("cells", "&[String]"), ("is_header", "bool")],
+        "visit_custom_element" => &[("ctx", "&NodeContext"), ("tag_name", "&str"), ("html", "&str")],
+        "visit_form" => &[
+            ("ctx", "&NodeContext"),
+            ("action", "Option<&str>"),
+            ("method", "Option<&str>"),
+        ],
+        "visit_input" => &[
+            ("ctx", "&NodeContext"),
+            ("input_type", "&str"),
+            ("name", "Option<&str>"),
+            ("value", "Option<&str>"),
+        ],
+        "visit_audio" | "visit_video" | "visit_iframe" => &[("ctx", "&NodeContext"), ("src", "Option<&str>")],
+        "visit_details" => &[("ctx", "&NodeContext"), ("open", "bool")],
         "visit_element_end" | "visit_table_end" | "visit_definition_list_end" | "visit_figure_end" => {
-            "_: &NodeContext, _: &str"
+            &[("ctx", "&NodeContext"), ("output", "&str")]
         }
-        "visit_list_start" => "_: &NodeContext, _: bool",
-        "visit_list_end" => "_: &NodeContext, _: bool, _: &str",
-        _ => "_: &NodeContext",
+        "visit_list_start" => &[("ctx", "&NodeContext"), ("ordered", "bool")],
+        "visit_list_end" => &[("ctx", "&NodeContext"), ("ordered", "bool"), ("output", "&str")],
+        _ => &[("ctx", "&NodeContext")],
     };
 
-    let _ = writeln!(out, "        fn {method_name}(&mut self, {params}) -> VisitResult {{");
+    let is_template = matches!(action, crate::fixture::CallbackAction::CustomTemplate { .. });
+
+    // Determine which names the template references (only relevant for CustomTemplate).
+    let template_vars: std::collections::HashSet<String> =
+        if let crate::fixture::CallbackAction::CustomTemplate { template } = action {
+            // Extract `{name}` patterns from the template string.
+            let mut vars = std::collections::HashSet::new();
+            let mut chars = template.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '{' {
+                    let mut var = String::new();
+                    for inner in chars.by_ref() {
+                        if inner == '}' {
+                            break;
+                        }
+                        var.push(inner);
+                    }
+                    if !var.is_empty() {
+                        vars.insert(var);
+                    }
+                }
+            }
+            vars
+        } else {
+            std::collections::HashSet::new()
+        };
+
+    // Build the param list: use `_name` unless this is a template action AND the
+    // name appears in the template (in which case it must be addressable by name).
+    let params_str: String = raw_params
+        .iter()
+        .map(|(name, ty)| {
+            if is_template && template_vars.contains(*name) {
+                format!("{name}: {ty}")
+            } else {
+                format!("_{name}: {ty}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let _ = writeln!(out, "        fn {method_name}(&mut self, {params_str}) -> VisitResult {{");
+
     match action {
         crate::fixture::CallbackAction::Skip => {
             let _ = writeln!(out, "            VisitResult::Skip");
@@ -312,6 +386,13 @@ pub fn emit_rust_visitor_method(out: &mut String, method_name: &str, action: &cr
             let _ = writeln!(out, "            VisitResult::Custom(\"{escaped}\".to_string())");
         }
         crate::fixture::CallbackAction::CustomTemplate { template } => {
+            // For any template-referenced param that is `Option<T>`, emit a shadow
+            // `let name = name.unwrap_or_default();` so the format! string can use it.
+            for (name, ty) in raw_params {
+                if template_vars.contains(*name) && ty.starts_with("Option<") {
+                    let _ = writeln!(out, "            let {name} = {name}.unwrap_or_default();");
+                }
+            }
             let escaped = crate::escape::escape_rust(template);
             let _ = writeln!(out, "            VisitResult::Custom(format!(\"{escaped}\"))");
         }

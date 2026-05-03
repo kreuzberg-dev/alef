@@ -285,6 +285,7 @@ fn lang_dir_name(lang: Language) -> &'static str {
         Language::Dart => "dart",
         Language::Gleam => "gleam",
         Language::Zig => "zig",
+        Language::C => "c",
     }
 }
 
@@ -308,6 +309,7 @@ fn lang_code(lang: Language) -> &'static str {
         Language::Dart => "dart",
         Language::Gleam => "gleam",
         Language::Zig => "zig",
+        Language::C => "c",
     }
 }
 
@@ -682,7 +684,7 @@ fn generate_readme_hardcoded(
                 "gleam",
             )
         }
-        Language::Zig => {
+        Language::C | Language::Zig => {
             let module = config.zig_module_name();
             (
                 "Zig",

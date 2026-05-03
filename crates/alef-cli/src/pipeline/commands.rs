@@ -576,8 +576,9 @@ fn output_path_for(lang: Language, config: &ResolvedCrateConfig) -> Option<&Path
         Language::Wasm => config.explicit_output.wasm.as_deref(),
         Language::Elixir => config.explicit_output.elixir.as_deref(),
         Language::R => config.explicit_output.r.as_deref(),
-        // Rust is the core language — no separate output path
-        Language::Rust => None,
+        // Rust is the core language — no separate output path.
+        // C is an e2e test consumer of the FFI layer — no generated binding output path.
+        Language::Rust | Language::C => None,
         Language::Kotlin | Language::Swift | Language::Dart | Language::Gleam | Language::Zig => None,
     }
 }

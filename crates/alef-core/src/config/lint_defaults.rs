@@ -280,6 +280,13 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
                 typecheck: None,
             }
         }
+        Language::C => LintConfig {
+            precondition: None,
+            before: None,
+            format: None,
+            check: None,
+            typecheck: None,
+        },
     }
 }
 

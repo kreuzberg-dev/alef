@@ -10,7 +10,7 @@ pub(crate) fn render_function_signature(func: &FunctionDef, lang: Language, ffi_
         Language::Go => render_go_fn_sig(func, ffi_prefix),
         Language::Java => render_java_fn_sig(func, ffi_prefix),
         Language::Ruby => render_ruby_fn_sig(func),
-        Language::Ffi => render_c_fn_sig(func, ffi_prefix),
+        Language::Ffi | Language::C => render_c_fn_sig(func, ffi_prefix),
         Language::Php => render_php_fn_sig(func, ffi_prefix),
         Language::Elixir => render_elixir_fn_sig(func),
         Language::R => render_r_fn_sig(func),
@@ -418,7 +418,7 @@ pub(crate) fn render_method_signature(
             let params: Vec<String> = method.params.iter().map(|p| p.name.to_snake_case()).collect();
             format!("{}({})", name, params.join(", "))
         }
-        Language::Ffi => {
+        Language::Ffi | Language::C => {
             let params: Vec<String> = method
                 .params
                 .iter()

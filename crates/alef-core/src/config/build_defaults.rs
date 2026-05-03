@@ -192,6 +192,12 @@ pub(crate) fn default_build_config(
                 ctx.run_wrapper,
             ))),
         },
+        Language::C => BuildCommandConfig {
+            precondition: None,
+            before: None,
+            build: None,
+            build_release: None,
+        },
     }
 }
 

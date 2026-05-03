@@ -119,6 +119,12 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             install: None,
             timeout_seconds: 600,
         },
+        Language::C => SetupConfig {
+            precondition: None,
+            before: None,
+            install: None,
+            timeout_seconds: 600,
+        },
         Language::Kotlin => SetupConfig {
             precondition: Some(require_tool("gradle")),
             before: None,

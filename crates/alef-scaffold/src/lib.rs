@@ -420,7 +420,7 @@ fn scaffold_language(
             files.extend(scaffold_r_cargo(api, config)?);
             Ok(files)
         }
-        Language::Rust => Ok(vec![]), // Rust doesn't need scaffolded binding crates
+        Language::Rust | Language::C => Ok(vec![]), // Rust/C don't need scaffolded binding crates
         Language::Kotlin => scaffold_kotlin(api, config),
         Language::Gleam => scaffold_gleam(api, config),
         Language::Zig => scaffold_zig(api, config),

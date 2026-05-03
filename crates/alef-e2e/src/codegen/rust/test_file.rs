@@ -137,10 +137,31 @@ pub fn render_test_file(
     // Import the visitor trait, result enum, and node context when any fixture
     // in this file declares a `visitor` block. Without these, the inline
     // `impl HtmlVisitor for _TestVisitor` block fails to resolve.
+    // Visitor types live in the `visitor` sub-module of the crate, not the crate root.
     let file_needs_visitor = fixtures.iter().any(|f| f.visitor.is_some());
     if file_needs_visitor {
         let visitor_trait = resolve_visitor_trait(&module);
-        let _ = writeln!(out, "use {module}::{{{visitor_trait}, NodeContext, VisitResult}};");
+        let _ = writeln!(out, "use {module}::visitor::{{{visitor_trait}, NodeContext, VisitResult}};");
+    }
+
+    // When the rust override specifies an `options_type` (e.g. `ConversionOptions`),
+    // type annotations are emitted on json_object bindings so that `Default::default()`
+    // and `serde_json::from_value(…)` can be resolved without a trailing positional arg.
+    // Import the named type so it is in scope in every test function in this file.
+    if file_has_call_based {
+        let rust_options_type = e2e_config
+            .call
+            .overrides
+            .get("rust")
+            .and_then(|o| o.options_type.as_deref());
+        if let Some(opts_type) = rust_options_type {
+            // Only emit if the call has a json_object arg (the type annotation is only
+            // added to json_object bindings).
+            let has_json_object_arg = e2e_config.call.args.iter().any(|a| a.arg_type == "json_object");
+            if has_json_object_arg {
+                let _ = writeln!(out, "use {module}::{opts_type};");
+            }
+        }
     }
 
     let _ = writeln!(out);
@@ -225,13 +246,26 @@ pub fn render_test_function(
     let rust_overrides = call_config.overrides.get("rust");
     let wrap_options_in_some = rust_overrides.is_some_and(|o| o.wrap_options_in_some);
     let extra_args: Vec<String> = rust_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+    // options_type from the rust override (e.g. "ConversionOptions") — used to annotate
+    // `Default::default()` and `serde_json::from_value(…)` bindings so Rust can infer
+    // the concrete type without a trailing positional argument to guide inference.
+    let options_type: Option<String> = rust_overrides.and_then(|o| o.options_type.clone());
+
+    // When the fixture declares a visitor that is passed via an options-field (the
+    // html-to-markdown core `convert` API accepts visitor only through
+    // `ConversionOptions.visitor`), the options binding must be `mut` so we can
+    // assign the visitor field before the call.
+    let visitor_via_options = fixture.visitor.is_some()
+        && rust_overrides.is_none_or(|o| o.visitor_function.is_none());
 
     // Emit input variable bindings from args config.
     let mut arg_exprs: Vec<String> = Vec::new();
+    // Track the name of the json_object options arg so we can inject the visitor later.
+    let mut options_arg_name: Option<String> = None;
     for arg in &call_config.args {
         let value = crate::codegen::resolve_field(&fixture.input, &arg.field);
         let var_name = &arg.name;
-        let (bindings, expr) = render_rust_arg(
+        let (mut bindings, expr) = render_rust_arg(
             var_name,
             value,
             &arg.arg_type,
@@ -246,6 +280,42 @@ pub fn render_test_function(
             arg.owned,
             arg.element_type.as_deref(),
         );
+        // Add explicit type annotation to json_object bindings so Rust can resolve
+        // `Default::default()` and `serde_json::from_value(…)` without a trailing
+        // positional argument to guide inference.
+        if arg.arg_type == "json_object" {
+            if let Some(ref opts_type) = options_type {
+                bindings = bindings
+                    .into_iter()
+                    .map(|b| {
+                        // `let {name} = …` → `let {name}: {opts_type} = …`
+                        let prefix = format!("let {var_name} = ");
+                        if b.starts_with(&prefix) {
+                            format!("let {var_name}: {opts_type} = {}", &b[prefix.len()..])
+                        } else {
+                            b
+                        }
+                    })
+                    .collect();
+            }
+        }
+        // When the visitor will be injected via the options field, the options binding
+        // must be declared `mut` so we can assign `options.visitor = Some(visitor)`.
+        if visitor_via_options && arg.arg_type == "json_object" {
+            options_arg_name = Some(var_name.clone());
+            bindings = bindings
+                .into_iter()
+                .map(|b| {
+                    // `let {name}` → `let mut {name}`
+                    let prefix = format!("let {var_name}");
+                    if b.starts_with(&prefix) {
+                        format!("let mut {}", &b[4..])
+                    } else {
+                        b
+                    }
+                })
+                .collect();
+        }
         for binding in &bindings {
             let _ = writeln!(out, "    {binding}");
         }
@@ -253,7 +323,16 @@ pub fn render_test_function(
         // wrap the json_object expression in `Some(...).clone()` so it matches
         // the parameter shape. Other arg types pass through unchanged.
         let final_expr = if wrap_options_in_some && arg.arg_type == "json_object" {
-            if let Some(rest) = expr.strip_prefix('&') {
+            if visitor_via_options {
+                // Visitor will be injected into options before the call; pass by move
+                // (no .clone() needed).
+                let name = if let Some(rest) = expr.strip_prefix('&') {
+                    rest.to_string()
+                } else {
+                    expr.clone()
+                };
+                format!("Some({name})")
+            } else if let Some(rest) = expr.strip_prefix('&') {
                 format!("Some({rest}.clone())")
             } else {
                 format!("Some({expr})")
@@ -266,6 +345,8 @@ pub fn render_test_function(
 
     // Emit visitor if present in fixture.
     if let Some(visitor_spec) = &fixture.visitor {
+        // HtmlVisitor requires `std::fmt::Debug`; derive it on the inline struct.
+        let _ = writeln!(out, "    #[derive(Debug)]");
         let _ = writeln!(out, "    struct _TestVisitor;");
         let _ = writeln!(out, "    impl {} for _TestVisitor {{", resolve_visitor_trait(&module));
         for (method_name, action) in &visitor_spec.callbacks {
@@ -276,7 +357,14 @@ pub fn render_test_function(
             out,
             "    let visitor = std::rc::Rc::new(std::cell::RefCell::new(_TestVisitor));"
         );
-        arg_exprs.push("Some(visitor)".to_string());
+        if visitor_via_options {
+            // Inject the visitor via the options field rather than as a positional arg.
+            let opts_name = options_arg_name.as_deref().unwrap_or("options");
+            let _ = writeln!(out, "    {opts_name}.visitor = Some(visitor);");
+        } else {
+            // Binding uses a visitor_function override that takes visitor as positional arg.
+            arg_exprs.push("Some(visitor)".to_string());
+        }
     } else {
         // No fixture-supplied visitor: append any extra positional args declared in
         // the rust override (e.g. trailing `None` for an Option<VisitorParam> slot).

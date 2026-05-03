@@ -215,7 +215,8 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
             }],
             work_dir: "packages/zig/".to_owned(),
         }),
-        Language::Rust => None,
+        // C is an e2e test consumer of the FFI layer — no generated files to format.
+        Language::Rust | Language::C => None,
     }
 }
 

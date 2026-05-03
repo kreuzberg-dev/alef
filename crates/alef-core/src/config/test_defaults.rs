@@ -194,6 +194,13 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
             e2e: None,
             coverage: None,
         },
+        Language::C => TestConfig {
+            precondition: None,
+            before: None,
+            command: None,
+            e2e: None,
+            coverage: None,
+        },
         Language::Kotlin => {
             let cmd = wrap(format!("cd {output_dir} && gradle test"), ctx.run_wrapper);
             TestConfig {
