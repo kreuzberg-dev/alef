@@ -484,26 +484,39 @@ impl Backend for WasmBackend {
             if let Some(marker_pos) = content.find(pattern1_marker) {
                 // Search forward for the visitor line from the marker
                 let after_marker = &content[marker_pos..];
-                if let Some(visitor_line_offset) = after_marker.find("            visitor: Default::default(),\n            ..Default::default()") {
+                if let Some(visitor_line_offset) =
+                    after_marker.find("            visitor: Default::default(),\n            ..Default::default()")
+                {
                     let visitor_pos = marker_pos + visitor_line_offset;
                     let before = &content[..visitor_pos];
-                    let after = &content[visitor_pos + "            visitor: Default::default(),\n            ..Default::default()".len()..];
-                    content = format!("{}            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default(){}", before, after);
+                    let after = &content[visitor_pos
+                        + "            visitor: Default::default(),\n            ..Default::default()".len()..];
+                    content = format!(
+                        "{}            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default(){}",
+                        before, after
+                    );
                 }
             }
         }
 
         // Pattern for WasmConversionOptionsUpdate: similar approach
-        let pattern2_start = "impl From<WasmConversionOptionsUpdate> for html_to_markdown_rs::options::ConversionOptionsUpdate {";
+        let pattern2_start =
+            "impl From<WasmConversionOptionsUpdate> for html_to_markdown_rs::options::ConversionOptionsUpdate {";
         let pattern2_marker = "strong_em_symbol: val.strong_em_symbol.and_then(|s| s.chars().next()),";
         if content.contains(pattern2_start) && content.contains(pattern2_marker) {
             if let Some(marker_pos) = content.find(pattern2_marker) {
                 let after_marker = &content[marker_pos..];
-                if let Some(visitor_line_offset) = after_marker.find("            visitor: Default::default(),\n            ..Default::default()") {
+                if let Some(visitor_line_offset) =
+                    after_marker.find("            visitor: Default::default(),\n            ..Default::default()")
+                {
                     let visitor_pos = marker_pos + visitor_line_offset;
                     let before = &content[..visitor_pos];
-                    let after = &content[visitor_pos + "            visitor: Default::default(),\n            ..Default::default()".len()..];
-                    content = format!("{}            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default(){}", before, after);
+                    let after = &content[visitor_pos
+                        + "            visitor: Default::default(),\n            ..Default::default()".len()..];
+                    content = format!(
+                        "{}            visitor: val.visitor.map(|v| (*v.inner).clone()),\n            ..Default::default(){}",
+                        before, after
+                    );
                 }
             }
         }

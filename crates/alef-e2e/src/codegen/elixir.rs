@@ -706,9 +706,10 @@ fn render_test_case(
     );
 
     // Build visitor if present — it will be injected into the options map.
-    let visitor_var = fixture.visitor.as_ref().map(|visitor_spec| {
-        build_elixir_visitor(&mut setup_lines, visitor_spec)
-    });
+    let visitor_var = fixture
+        .visitor
+        .as_ref()
+        .map(|visitor_spec| build_elixir_visitor(&mut setup_lines, visitor_spec));
 
     // If we have a visitor and the args contain a nil for options, replace it with a map
     // containing the visitor. The fixture.visitor is already set above.
@@ -722,7 +723,10 @@ fn render_test_case(
             format!("{}, %{{visitor: {}}}", parts[0], visitor_var)
         } else if parts.len() == 2 {
             // Options is a variable (e.g., "options") — add visitor to it
-            setup_lines.push(format!("{} = Map.put({}, :visitor, {})", parts[1], parts[1], visitor_var));
+            setup_lines.push(format!(
+                "{} = Map.put({}, :visitor, {})",
+                parts[1], parts[1], visitor_var
+            ));
             args_str
         } else if parts.len() == 1 {
             // Only HTML provided — create options map with just visitor

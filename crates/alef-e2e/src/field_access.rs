@@ -442,11 +442,15 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
 ///
 /// When an intermediate field is in the `optional_fields` set, `.orElseThrow()`
 /// is appended after the accessor call to unwrap the `Optional<T>`.
-fn render_java_with_optionals(segments: &[PathSegment], result_var: &str, optional_fields: &HashSet<String>) -> String {
+fn render_java_with_optionals(
+    segments: &[PathSegment],
+    result_var: &str,
+    _optional_fields: &HashSet<String>,
+) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
     for (i, seg) in segments.iter().enumerate() {
-        let is_leaf = i == segments.len() - 1;
+        let _is_leaf = i == segments.len() - 1;
         match seg {
             PathSegment::Field(f) => {
                 if !path_so_far.is_empty() {

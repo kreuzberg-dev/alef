@@ -522,7 +522,7 @@ fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eCon
         .get("go")
         .and_then(|o| o.function.as_deref())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| call_config.function.as_str());
+        .unwrap_or(call_config.function.as_str());
     !fn_name.is_empty()
 }
 

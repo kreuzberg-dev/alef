@@ -1372,7 +1372,11 @@ fn gen_convert_with_visitor(
     let fn_free_string = format!("{_ffi_prefix}_free_string");
     writeln!(out, "\tjsonPtr := C.{fn_result_to_json}(ptr)").ok();
     writeln!(out, "\tif jsonPtr == nil {{").ok();
-    writeln!(out, "\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")").ok();
+    writeln!(
+        out,
+        "\t\treturn nil, fmt.Errorf(\"conversion result serialisation failed\")"
+    )
+    .ok();
     writeln!(out, "\t}}").ok();
     writeln!(out, "\tdefer C.{fn_free_string}(jsonPtr)").ok();
     writeln!(out, "\tvar result ConversionResult").ok();

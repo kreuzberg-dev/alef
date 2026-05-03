@@ -493,7 +493,27 @@ pub(super) fn gen_api_py(
                 crate::type_map::python_type(&param.ty)
             };
             let needs_default = param.optional || promoted_params.contains(&param.name);
-            let py_type = if needs_default {
+            // Required params whose type is a has-default struct are treated as optional
+            // at the Python wrapper level: callers may omit them and the wrapper substitutes
+            // a Rust default-constructed instance (e.g. `_rust.ExtractionConfig()`).
+            // This prevents panics in the PyO3 binding when `None` is passed to a
+            // function whose Rust signature wraps the param in `Option<T>` but immediately
+            // calls `.expect("'param' is required")`.
+            let is_has_default_param = !bridge_param_names.contains(param.name.as_str()) && {
+                let leaf_name = match &param.ty {
+                    alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                leaf_name.is_some_and(|n| default_types.contains_key(n))
+            };
+            let py_type = if needs_default || is_has_default_param {
                 if base_type.ends_with("| None") {
                     format!("{} = None", base_type)
                 } else {
@@ -651,9 +671,7 @@ pub(super) fn gen_api_py(
                         // Rust default constructor instead of raising ValueError.  This lets
                         // callers omit the config argument naturally.
                         if !param.optional && !is_promoted && !is_collection {
-                            out.push_str(&format!(
-                                "    if {var} is None:\n        {var} = _rust.{name}()\n"
-                            ));
+                            out.push_str(&format!("    if {var} is None:\n        {var} = _rust.{name}()\n"));
                         }
                     }
                     call_args.push((pname.clone(), var));
@@ -697,6 +715,22 @@ pub(super) fn gen_api_py(
     for register_fn in crate::trait_bridge::collect_bridge_register_fns(trait_bridges) {
         out.push_str(&format!(
             "def {register_fn}(backend: object) -> None:\n    \"\"\"Register a {register_fn} backend.\"\"\"\n    return _rust.{register_fn}(backend=backend)\n\n\n"
+        ));
+    }
+
+    // Emit pass-through wrappers for trait-bridge unregistration functions.
+    // These allow callers to unregister a named backend via the public package path.
+    for unregister_fn in crate::trait_bridge::collect_bridge_unregister_fns(trait_bridges) {
+        out.push_str(&format!(
+            "def {unregister_fn}(name: str) -> None:\n    \"\"\"Unregister the named {unregister_fn} backend.\"\"\"\n    return _rust.{unregister_fn}(name=name)\n\n\n"
+        ));
+    }
+
+    // Emit pass-through wrappers for trait-bridge clear functions.
+    // These allow callers to clear all registered backends for a plugin type.
+    for clear_fn in crate::trait_bridge::collect_bridge_clear_fns(trait_bridges) {
+        out.push_str(&format!(
+            "def {clear_fn}() -> None:\n    \"\"\"Clear all registered {clear_fn} backends.\"\"\"\n    return _rust.{clear_fn}()\n\n\n"
         ));
     }
 

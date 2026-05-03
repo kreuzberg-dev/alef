@@ -172,9 +172,10 @@ pub(super) fn gen_enum_type(enum_def: &EnumDef) -> String {
     // - The Custom/tuple variant becomes the "fallthrough": arbitrary string values
     //   that don't match a constant are accepted as-is (no extra UnmarshalJSON needed
     //   because the underlying type IS string).
-    let all_data_fields_are_tuple = enum_def.variants.iter().all(|v| {
-        v.fields.is_empty() || v.fields.iter().all(|f| is_tuple_field(f))
-    });
+    let all_data_fields_are_tuple = enum_def
+        .variants
+        .iter()
+        .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field));
 
     if all_data_fields_are_tuple {
         gen_newtype_tuple_enum_type(enum_def)
