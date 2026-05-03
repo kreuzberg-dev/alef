@@ -691,12 +691,16 @@ fn render_test_function(
     }
 
     // Client factory: emit client creation before the call.
-    // The factory receives "test-key" and the mock server base URL so that each
-    // test can verify behaviour in isolation without sharing a global client.
+    // Each test creates a fresh client pointed at MOCK_SERVER_URL/fixtures/<id>
+    // so the mock server can serve the fixture response via prefix routing.
     let call_prefix = if let Some(factory) = client_factory {
         let factory_name = to_go_name(factory);
-        let _ = writeln!(out, "\tbaseURL := os.Getenv(\"MOCK_SERVER_URL\")");
-        let _ = writeln!(out, "\tclient := {import_alias}.{factory_name}(\"test-key\", baseURL)");
+        let fixture_id = &fixture.id;
+        let _ = writeln!(out, "\tmockURL := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"");
+        let _ = writeln!(out, "\tclient, clientErr := {import_alias}.{factory_name}(\"test-key\", &mockURL, nil, nil, nil)");
+        let _ = writeln!(out, "\tif clientErr != nil {{");
+        let _ = writeln!(out, "\t\tt.Fatalf(\"create client failed: %v\", clientErr)");
+        let _ = writeln!(out, "\t}}");
         "client".to_string()
     } else {
         import_alias.to_string()
