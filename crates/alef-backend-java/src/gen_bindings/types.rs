@@ -578,7 +578,23 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef) -> String {
                     TypeRef::Json => "null".to_string(),
                     TypeRef::Bytes => "new byte[0]".to_string(),
                     TypeRef::Primitive(p) => match p {
-                        PrimitiveType::Bool => "false".to_string(),
+                        PrimitiveType::Bool => {
+                            // Special handling for boolean fields with serde defaults
+                            // Check if this is a known type with non-standard defaults
+                            let should_be_true = (typ.name == "PreprocessingOptions"
+                                && matches!(field.name.as_str(), "enabled" | "remove_navigation" | "remove_forms"))
+                                || (typ.name == "ConversionOptions"
+                                    && matches!(field.name.as_str(), "autolinks" | "default_title" | "br_in_tables"
+                                        | "wrap" | "extract_metadata" | "escape_asterisks" | "escape_underscores"
+                                        | "escape_misc" | "escape_ascii" | "include_document_structure" | "extract_images"
+                                        | "capture_svg" | "infer_dimensions" | "debug" | "skip_images"));
+
+                            if should_be_true {
+                                "true".to_string()
+                            } else {
+                                "false".to_string()
+                            }
+                        }
                         PrimitiveType::F32 => "0.0f".to_string(),
                         PrimitiveType::F64 => "0.0".to_string(),
                         _ => "0".to_string(),

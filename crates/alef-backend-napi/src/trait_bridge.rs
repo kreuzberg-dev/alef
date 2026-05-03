@@ -1129,6 +1129,9 @@ pub fn gen_options_field_bridge_function(
     let options_param = &func.params[options_param_idx];
     let options_name = &options_param.name;
 
+    // Check if the options parameter is already Optional
+    let is_param_optional = matches!(&options_param.ty, TypeRef::Optional(_));
+
     // Build parameter list (options param stays as is, no special treatment in signature)
     let params_str = {
         let mut sig_parts = vec![];
@@ -1145,28 +1148,52 @@ pub fn gen_options_field_bridge_function(
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
 
     // Generate visitor extraction and bridge creation
-    let visitor_extract = format!(
-        "let visitor_handle = {options_name}.as_ref().and_then(|o| o.visitor.clone()).map(|v| {{\n    \
-         let bridge = {struct_name}::new(v);\n    \
-         std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
-         }});"
-    );
+    let visitor_extract = if is_param_optional {
+        format!(
+            "let visitor_handle = {options_name}.as_ref().and_then(|o| o.visitor.clone()).map(|v| {{\n    \
+             let bridge = {struct_name}::new(v);\n    \
+             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
+             }});"
+        )
+    } else {
+        format!(
+            "let visitor_handle = {options_name}.visitor.clone().map(|v| {{\n    \
+             let bridge = {struct_name}::new(v);\n    \
+             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
+             }});"
+        )
+    };
 
     // Generate options conversion with visitor preservation.
     // To avoid the From impl dropping the visitor field (it's marked as Default::default()),
     // we clear it from the cloned options before conversion, then re-inject the extracted handle.
     // This ensures the bridge wrapper survives the conversion.
-    let options_convert = format!(
-        "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|mut o| {{\n    \
-         o.visitor = None;\n    \
-         o.into()\n    \
-         }});\n    \
-         if let Some(ref visitor) = visitor_handle {{\n    \
-         if let Some(ref mut opts) = {options_name}_core {{\n        \
-         opts.visitor = Some(visitor.clone());\n    \
-         }}\n    \
-         }}"
-    );
+    let options_convert = if is_param_optional {
+        format!(
+            "let mut {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|mut o| {{\n    \
+             o.visitor = None;\n    \
+             o.into()\n    \
+             }});\n    \
+             if let Some(ref visitor) = visitor_handle {{\n    \
+             if let Some(ref mut opts) = {options_name}_core {{\n        \
+             opts.visitor = Some(visitor.clone());\n    \
+             }}\n    \
+             }}"
+        )
+    } else {
+        format!(
+            "let mut {options_name}_core = {{\n    \
+             let mut o = {options_name}.clone();\n    \
+             o.visitor = None;\n    \
+             Some(o.into())\n    \
+             }};\n    \
+             if let Some(ref visitor) = visitor_handle {{\n    \
+             if let Some(ref mut opts) = {options_name}_core {{\n        \
+             opts.visitor = Some(visitor.clone());\n    \
+             }}\n    \
+             }}"
+        )
+    };
 
     // Build call args, replacing options param with the _core version
     let call_args: String = func
