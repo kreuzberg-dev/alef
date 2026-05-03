@@ -935,33 +935,19 @@ fn build_args_and_setup(
                                         // Handle preprocessing as a nested object using its constructor.
                                         // ext-php-rs uses constructor-based initialization, not property setters.
                                         if let Some(prep_obj) = vv.as_object() {
-                                            // Get default values from the Rust PreprocessingOptions
-                                            let default_prep =
-                                                html_to_markdown_rs::options::PreprocessingOptions::default();
-
-                                            // Extract values from fixture, using defaults for missing fields
-                                            let enabled = prep_obj
-                                                .get("enabled")
-                                                .and_then(|v| v.as_bool())
-                                                .unwrap_or(default_prep.enabled);
+                                            // Extract values from fixture JSON, using sensible defaults
+                                            let enabled = prep_obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
                                             let preset = prep_obj
                                                 .get("preset")
                                                 .and_then(|v| v.as_str())
-                                                .map(|s| s.to_string())
-                                                .unwrap_or_else(|| format!("{:?}", default_prep.preset));
-                                            let remove_navigation = prep_obj
-                                                .get("remove_navigation")
-                                                .and_then(|v| v.as_bool())
-                                                .unwrap_or(default_prep.remove_navigation);
-                                            let remove_forms = prep_obj
-                                                .get("remove_forms")
-                                                .and_then(|v| v.as_bool())
-                                                .unwrap_or(default_prep.remove_forms);
+                                                .unwrap_or("Minimal");
+                                            let remove_navigation = prep_obj.get("remove_navigation").and_then(|v| v.as_bool()).unwrap_or(true);
+                                            let remove_forms = prep_obj.get("remove_forms").and_then(|v| v.as_bool()).unwrap_or(true);
 
                                             setup_lines.push(format!(
                                                 "$preprocessing = new \\HtmlToMarkdown\\PreprocessingOptions({}, {}, {}, {});",
                                                 if enabled { "true" } else { "false" },
-                                                json_to_php(&serde_json::Value::String(preset)),
+                                                json_to_php(&serde_json::Value::String(preset.to_string())),
                                                 if remove_navigation { "true" } else { "false" },
                                                 if remove_forms { "true" } else { "false" }
                                             ));
