@@ -186,7 +186,12 @@ pub(super) fn gen_function(
     //     can pass `&{name}_core` to the core function.
     let mut deser_lines = Vec::new();
     if serde_recoverable {
-        deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import, mapper));
+        deser_lines.extend(magnus_serde_let_bindings(
+            &func.params,
+            opaque_types,
+            core_import,
+            mapper,
+        ));
     } else {
         for (idx, p) in func.params.iter().enumerate() {
             let promoted = alef_codegen::shared::is_promoted_optional(&func.params, idx);
@@ -356,7 +361,7 @@ fn magnus_serde_let_bindings(
     params: &[alef_core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
     core_import: &str,
-    mapper: &MagnusMapper,
+    _mapper: &MagnusMapper,
 ) -> Vec<String> {
     let err = "magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string())";
     let mut out = Vec::new();
@@ -398,18 +403,21 @@ fn magnus_serde_let_bindings(
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
                 // Generic Vec<T> where T is a struct type (e.g., Vec<BatchFileItem>):
-                // Convert from magnus::Value via JSON serde.
-                let inner_ty = mapper.map_type(inner);
-                if p.optional {
-                    out.push(format!(
-                        "let {n}_core: Option<{inner_ty}> = {n}.map(|v| {{ let s: String = v.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err}) }}).transpose()?;",
-                        n = p.name,
-                    ));
-                } else {
-                    out.push(format!(
-                        "let {n}_core: {inner_ty} = {{ let s: String = {n}.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err})? }};",
-                        n = p.name,
-                    ));
+                // Convert from magnus::Value via JSON serde to the core Vec type.
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    let core_inner_ty = format!("{core_import}::{name}");
+                    let vec_ty = format!("Vec<{core_inner_ty}>");
+                    if p.optional {
+                        out.push(format!(
+                            "let {n}_core: Option<{vec_ty}> = {n}.map(|v| {{ let s: String = v.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err}) }}).transpose()?;",
+                            n = p.name,
+                        ));
+                    } else {
+                        out.push(format!(
+                            "let {n}_core: {vec_ty} = {{ let s: String = {n}.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err})? }};",
+                            n = p.name,
+                        ));
+                    }
                 }
             }
             _ => {}
@@ -449,7 +457,12 @@ pub(super) fn gen_async_function(
 
     let mut deser_lines = Vec::new();
     if serde_recoverable {
-        deser_lines.extend(magnus_serde_let_bindings(&func.params, opaque_types, core_import, mapper));
+        deser_lines.extend(magnus_serde_let_bindings(
+            &func.params,
+            opaque_types,
+            core_import,
+            mapper,
+        ));
     } else {
         for (idx, p) in func.params.iter().enumerate() {
             let promoted = alef_codegen::shared::is_promoted_optional(&func.params, idx);
@@ -669,14 +682,15 @@ pub(super) fn gen_module_init(
         if super::is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
-        // Functions with a trait_bridge param go through gen_bridge_function, which emits a
-        // fixed-arity signature (not args: &[Value]). For those we must register fixed arity
-        // even when params include optionals — otherwise Magnus's function! macro fails to
-        // satisfy trait bounds (the fn doesn't take &[Value]). For all other functions we use
-        // variadic arity (-1) so Ruby callers can omit trailing optional arguments; the
-        // generated body uses scan_args to unpack.
+        // Functions with a trait_bridge param or options_field binding go through special
+        // generators that emit fixed-arity signatures (not args: &[Value]). For those we must
+        // register fixed arity even when params include optionals — otherwise Magnus's function!
+        // macro fails to satisfy trait bounds (the fn doesn't take &[Value]). For all other
+        // functions we use variadic arity (-1) so Ruby callers can omit trailing optional
+        // arguments; the generated body uses scan_args to unpack.
         let has_bridge_param = crate::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
-        let param_count: i32 = if !has_bridge_param && needs_variadic_arity(&func.params) {
+        let has_options_field_binding = crate::trait_bridge::find_options_field_binding(func, &config.trait_bridges).is_some();
+        let param_count: i32 = if !(has_bridge_param || has_options_field_binding) && needs_variadic_arity(&func.params) {
             -1
         } else {
             func.params.len() as i32
