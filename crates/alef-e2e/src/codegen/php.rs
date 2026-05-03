@@ -136,6 +136,13 @@ impl E2eCodegen for PhpCodegen {
             generated_header: true,
         });
 
+        // Generate run_tests.php that loads the extension and invokes phpunit.
+        files.push(GeneratedFile {
+            path: output_base.join("run_tests.php"),
+            content: render_run_tests_php(),
+            generated_header: true,
+        });
+
         // Generate test files per category.
         let tests_base = output_base.join("tests");
         let field_resolver = FieldResolver::new(
@@ -235,7 +242,7 @@ fn render_composer_json(
     }}
   }},
   "scripts": {{
-    "test": "phpunit"
+    "test": "php run_tests.php"
   }}
 }}
 "#

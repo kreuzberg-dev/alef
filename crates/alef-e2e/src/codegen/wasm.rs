@@ -185,13 +185,13 @@ impl E2eCodegen for WasmCodegen {
         // to the typescript codegen (`render_test_file`), which already handles
         // both HTTP and function-call fixtures correctly. Passing `lang = "wasm"`
         // routes per-fixture override resolution and skip checks through the wasm
-        // language key.
+        // language key. Then we inject WASM initialization before the describe block.
         for (group, active) in groups.iter().zip(active_per_group.iter()) {
             if active.is_empty() {
                 continue;
             }
             let filename = format!("{}.test.ts", sanitize_filename(&group.category));
-            let content = super::typescript::render_test_file(
+            let mut content = super::typescript::render_test_file(
                 lang,
                 &group.category,
                 active,
@@ -204,6 +204,8 @@ impl E2eCodegen for WasmCodegen {
                 client_factory,
                 e2e_config,
             );
+            // Inject WASM initialization: add initWasm import and beforeAll setup
+            content = inject_wasm_init(&content, &pkg_name);
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
                 content,
@@ -366,4 +368,42 @@ fn render_tsconfig() -> String {
 }
 "#
     .to_string()
+}
+
+/// Inject WASM initialization into a test file.
+/// Adds `initWasm` to the package import and injects a `beforeAll` hook
+/// that awaits WASM initialization before tests run.
+fn inject_wasm_init(content: &str, pkg_name: &str) -> String {
+    // Step 1: Add beforeAll to vitest import if not present
+    let mut result = if content.contains("beforeAll") {
+        content.to_string()
+    } else {
+        content.replace(
+            "import { describe, expect, it } from 'vitest';",
+            "import { beforeAll, describe, expect, it } from 'vitest';",
+        )
+    };
+
+    // Step 2: Add initWasm to package import if not present
+    let pkg_import_pattern = format!("}} from '{pkg_name}';");
+    if !result.contains("initWasm") && result.contains(&pkg_import_pattern) {
+        result = result.replace(
+            &pkg_import_pattern,
+            &format!(", initWasm }} from '{pkg_name}';"),
+        );
+    }
+
+    // Step 3: Inject beforeAll hook before the describe block
+    if let Some(describe_pos) = result.find("describe(") {
+        let before_describe = &result[..describe_pos];
+        let from_describe = &result[describe_pos..];
+
+        let mut output = String::new();
+        output.push_str(before_describe);
+        output.push_str("\nbeforeAll(async () => {\n  await initWasm();\n});\n\n");
+        output.push_str(from_describe);
+        output
+    } else {
+        result
+    }
 }

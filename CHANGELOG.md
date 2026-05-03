@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e/wasm): inject `beforeAll(async () => { await initWasm(); })` hook
+  into generated vitest test files to ensure WASM module is initialized before
+  tests execute. Prevents "WebAssembly bundle is still initializing" errors.
+
 ## [0.14.4] - 2026-05-03
 
 ### Fixed
