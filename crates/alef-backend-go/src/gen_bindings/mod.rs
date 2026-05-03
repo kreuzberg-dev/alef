@@ -6,7 +6,7 @@ use functions::gen_function_wrapper;
 use methods::gen_method_wrapper;
 use types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
-    gen_struct_type, gen_unmarshal_bytes_helper,
+    gen_struct_type, gen_unmarshal_bytes_helper, is_tuple_field,
 };
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
@@ -446,11 +446,19 @@ fn gen_go_file(
     };
 
     // Generate enum types and constants
-    // Only unit enums map to `type X string` — data enums are generated as Go structs below.
+    // Both unit enums and newtype-tuple enums map to `type X string` in Go.
+    // Unit enums: all variants have no fields.
+    // Newtype-tuple enums: all data variants contain only positional tuple fields (which Go
+    // cannot represent as struct fields and are therefore treated as raw string values).
+    // Data enums with named fields become Go structs and must NOT be included here.
     let unit_enum_names: std::collections::HashSet<&str> = api
         .enums
         .iter()
-        .filter(|e| e.variants.iter().all(|v| v.fields.is_empty()))
+        .filter(|e| {
+            e.variants
+                .iter()
+                .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field))
+        })
         .map(|e| e.name.as_str())
         .collect();
     for enum_def in api.enums.iter().filter(|e| !visitor_types.contains(e.name.as_str())) {

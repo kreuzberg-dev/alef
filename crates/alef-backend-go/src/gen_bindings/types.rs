@@ -768,7 +768,10 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
         .ok();
         // Optional fields and fields that use pointer+omitempty (to preserve Rust defaults) both
         // store pointer types in the struct, so we must take the address of v when assigning.
-        let use_ptr = field.optional || needs_omitempty_pointer(field);
+        // Exception: slice (Vec) and map types are reference types in Go — go_optional_type
+        // returns []T and map[K]V (not *[]T / *map[K]V), so no address-of is needed.
+        let is_slice_or_map = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
+        let use_ptr = (field.optional || needs_omitempty_pointer(field)) && !is_slice_or_map;
         let assign_val = if use_ptr { "&v" } else { "v" };
         writeln!(
             out,

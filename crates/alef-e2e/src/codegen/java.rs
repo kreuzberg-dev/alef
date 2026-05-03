@@ -1193,12 +1193,17 @@ fn render_assertion(
                 // Unwrap Optional fields with a type-appropriate fallback.
                 // Map.get() returns nullable, not Optional, so skip .orElse() for map access.
                 if field_resolver.is_optional(resolved) && !field_resolver.has_map_access(f) {
-                    // Wrap the (possibly @Nullable) accessor in Optional.ofNullable so
-                    // .orElse(fallback) works regardless of whether the underlying type
-                    // is `Optional<X>` or `@Nullable X`. Java records emit canonical
-                    // accessors with the field's declared type, so we cannot assume
-                    // the accessor itself returns Optional.
-                    let optional_expr = format!("java.util.Optional.ofNullable({accessor})");
+                    // For Java records, fields declared as Optional<X> have accessors that
+                    // directly return Optional<X>, so we don't need to wrap them.
+                    // The resolved field path typically looks like "field_name" for direct
+                    // Optional fields, so check if we're accessing a direct field vs a nested path.
+                    // When there's no nesting (no ".", no "["), the accessor already returns Optional.
+                    let is_direct_optional = !f.contains('.') && !f.contains('[');
+                    let optional_expr = if is_direct_optional {
+                        accessor.clone()
+                    } else {
+                        format!("java.util.Optional.ofNullable({accessor})")
+                    };
                     match assertion.assertion_type.as_str() {
                         // For not_empty / is_empty on Optional fields, return the raw Optional
                         // so the assertion arms can call isPresent()/isEmpty().
@@ -1225,7 +1230,7 @@ fn render_assertion(
                                     format!("{optional_expr}.orElse(\"\")")
                                 }
                             } else {
-                                format!("{optional_expr}.orElse(\"\"")}
+                                format!("{optional_expr}.orElse(\"\")")
                             }
                         }
                         _ if field_resolver.is_array(resolved) => {
