@@ -1195,10 +1195,9 @@ fn render_assertion(
                 if field_resolver.is_optional(resolved) && !field_resolver.has_map_access(f) {
                     // For Java records, fields declared as Optional<X> have accessors that
                     // directly return Optional<X>, so we don't need to wrap them.
-                    // The resolved field path typically looks like "field_name" for direct
-                    // Optional fields, so check if we're accessing a direct field vs a nested path.
-                    // When there's no nesting (no ".", no "["), the accessor already returns Optional.
-                    let is_direct_optional = !f.contains('.') && !f.contains('[');
+                    // Check the resolved field name (after alias mapping) to see if it's a direct field.
+                    // When the resolved field has no nesting (no ".", no "["), the accessor returns Optional.
+                    let is_direct_optional = !resolved.contains('.') && !resolved.contains('[');
                     let optional_expr = if is_direct_optional {
                         accessor.clone()
                     } else {

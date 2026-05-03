@@ -30,10 +30,20 @@ pub fn find_options_field_binding<'a>(
         }
         if let Some(options_type) = &bridge.options_type {
             for (idx, param) in func.params.iter().enumerate() {
-                if let alef_core::ir::TypeRef::Named(n) = &param.ty {
-                    if n == options_type {
-                        return Some((idx, bridge));
+                // Check if param type is Named(options_type) or Optional(Named(options_type))
+                let matches = match &param.ty {
+                    alef_core::ir::TypeRef::Named(n) => n == options_type,
+                    alef_core::ir::TypeRef::Optional(inner) => {
+                        if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
+                            n == options_type
+                        } else {
+                            false
+                        }
                     }
+                    _ => false,
+                };
+                if matches {
+                    return Some((idx, bridge));
                 }
             }
         }
