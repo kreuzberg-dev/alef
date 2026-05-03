@@ -1268,4 +1268,69 @@ header_name = "mylib.h"
             lib.content
         );
     }
+
+    /// When both `visitor_callbacks = true` AND a `[[crates.trait_bridges]]` entry with
+    /// `bind_via = "options_field"` are configured, the generated lib.rs must include BOTH:
+    ///   - The OptionsField vtable / bridge-new / options-setter / {prefix}_convert symbols
+    ///   - The visitor-callbacks symbols: {prefix}_visitor_create, {prefix}_visitor_free,
+    ///     {prefix}_convert_with_visitor
+    ///
+    /// This is the configuration used by html-to-markdown where Go/C use the OptionsField
+    /// path and Java uses the callbacks-struct path.
+    #[test]
+    fn test_both_options_field_and_visitor_callbacks_emit_both_symbol_sets() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "htm"
+visitor_callbacks = true
+
+[[crates.trait_bridges]]
+trait_name = "HtmlVisitor"
+type_alias = "VisitorHandle"
+param_name = "visitor"
+bind_via = "options_field"
+options_type = "ConversionOptions"
+"#,
+        );
+        let api = sample_api();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // OptionsField symbols must be present
+        assert!(
+            lib.content.contains("htm_options_set_visitor"),
+            "must include htm_options_set_visitor from OptionsField path"
+        );
+
+        // Visitor-callbacks symbols must ALSO be present
+        assert!(
+            lib.content.contains("htm_visitor_create"),
+            "must include htm_visitor_create from visitor_callbacks path"
+        );
+        assert!(
+            lib.content.contains("htm_visitor_free"),
+            "must include htm_visitor_free from visitor_callbacks path"
+        );
+        assert!(
+            lib.content.contains("htm_convert_with_visitor"),
+            "must include htm_convert_with_visitor from visitor_callbacks path"
+        );
+
+        // No duplicate htm_convert — only the OptionsField version is emitted
+        let convert_count = lib.content.matches("fn htm_convert(").count();
+        assert_eq!(
+            convert_count, 1,
+            "htm_convert must appear exactly once (no duplicate from visitor path)"
+        );
+    }
 }
