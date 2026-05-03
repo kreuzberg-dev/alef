@@ -168,7 +168,14 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
     let method = req.method().as_str().to_uppercase();
 
     for route in &state.routes {
-        if route.path == path && route.method.to_uppercase() == method {
+        // Match on method and either exact path or path prefix (route.path is a prefix of the
+        // request path, separated by a '/' boundary). This allows a single route registered at
+        // "/v1/batches" to match requests to "/v1/batches/abc123" or
+        // "/v1/batches/abc123/cancel".
+        let path_matches = path == route.path
+            || (path.starts_with(route.path)
+                && path.as_bytes().get(route.path.len()) == Some(&b'/'));
+        if path_matches && route.method.to_uppercase() == method {
             let status =
                 StatusCode::from_u16(route.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 

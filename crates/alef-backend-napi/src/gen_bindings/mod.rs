@@ -69,7 +69,12 @@ impl Backend for NapiBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let prefix = config.node_type_prefix();
-        let trait_type_names: AHashSet<String> = api.types.iter().filter(|t| t.is_trait).map(|t| t.name.clone()).collect();
+        let trait_type_names: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_trait)
+            .map(|t| t.name.clone())
+            .collect();
         let mapper = NapiMapper::with_traits(prefix.clone(), trait_type_names);
         let core_import = config.core_import_name();
 
@@ -125,14 +130,16 @@ impl Backend for NapiBackend {
             builder.add_item(&functions::gen_tokio_runtime());
         }
 
-        // Check if we have opaque types and add Arc import if needed
+        // Check if we have opaque types and trait types (visitors)
+        // Exclude trait types from opaque_types since they use JsVisitorRef instead of Object<'static>
         let opaque_types: AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| t.is_opaque)
+            .filter(|t| t.is_opaque && !t.is_trait)
             .map(|t| t.name.clone())
             .collect();
-        if !opaque_types.is_empty() {
+        let has_traits = api.types.iter().any(|t| t.is_trait);
+        if !opaque_types.is_empty() || has_traits {
             builder.add_import("std::sync::Arc");
         }
 
@@ -144,6 +151,50 @@ impl Backend for NapiBackend {
 
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Node)?;
+
+        // JsVisitorRef: a thin wrapper around napi::Object that implements Clone.
+        // This newtype makes Object<'static> work with napi(object) field derivations,
+        // which require Clone. Uses std::sync::Arc to make the handle cheaply cloneable.
+        if has_traits {
+            let js_visitor_ref_def = r#"
+/// Wrapper for trait visitor types (napi::Object<'static>) that implements Clone.
+///
+/// Object is not Clone. This wrapper uses Arc<Object<'static>> internally for cheap cloning.
+/// The .inner field is public for compatibility with generated code that needs to access
+/// the underlying Object for trait dispatch.
+#[derive(Debug)]
+pub struct JsVisitorRef {
+    pub inner: std::sync::Arc<napi::bindgen_prelude::Object<'static>>,
+}
+
+impl Clone for JsVisitorRef {
+    fn clone(&self) -> Self {
+        JsVisitorRef {
+            inner: std::sync::Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl From<napi::bindgen_prelude::Object<'static>> for JsVisitorRef {
+    fn from(visitor: napi::bindgen_prelude::Object<'static>) -> Self {
+        JsVisitorRef {
+            inner: std::sync::Arc::new(visitor),
+        }
+    }
+}
+
+impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
+    fn from(visitor_ref: JsVisitorRef) -> Self {
+        // SAFETY: Arc::clone does not actually clone the Object — it just increments
+        // the refcount. When we deref via * and clone, we get a new arc-ed reference
+        // to the same Object data. This is safe because Object<'static> is a reference
+        // type (internally just holding an env + handle pair).
+        (*visitor_ref.inner).clone()
+    }
+}
+"#;
+            builder.add_item(js_visitor_ref_def);
+        }
 
         // Emit adapter-generated standalone items (streaming iterators, callback bridges).
         for adapter in &config.adapters {
