@@ -562,6 +562,21 @@ pub struct CallOverride {
     /// instead of `htmd.Convert(html, nil, visitor)` (which would not compile).
     #[serde(default)]
     pub visitor_function: Option<String>,
+    /// Rust trait names to import when `client_factory` is set (Rust generator only).
+    ///
+    /// When `client_factory` is set, the generated test creates a client object and
+    /// calls methods on it. Those methods are defined on traits (e.g. `LlmClient`,
+    /// `FileClient`) that must be in scope. List the trait names here and the Rust
+    /// generator will emit `use {module}::{trait_name};` for each.
+    ///
+    /// E.g.:
+    /// ```toml
+    /// [e2e.call.overrides.rust]
+    /// client_factory = "create_client"
+    /// trait_imports = ["LlmClient", "FileClient", "BatchClient", "ResponseClient"]
+    /// ```
+    #[serde(default)]
+    pub trait_imports: Vec<String>,
 }
 
 /// Per-language package reference configuration.

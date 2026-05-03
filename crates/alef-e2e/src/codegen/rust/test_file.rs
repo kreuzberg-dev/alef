@@ -133,6 +133,20 @@ pub fn render_test_file(
         }
     }
 
+    // When client_factory is set, emit trait imports required to call methods on the client object.
+    // Traits like LlmClient, FileClient, etc. must be in scope for method dispatch to work.
+    if client_factory.is_some() && file_has_call_based {
+        let trait_imports: Vec<String> = e2e_config
+            .call
+            .overrides
+            .get("rust")
+            .map(|o| o.trait_imports.clone())
+            .unwrap_or_default();
+        for trait_name in &trait_imports {
+            let _ = writeln!(out, "use {module}::{trait_name};");
+        }
+    }
+
     // Import mock_server module when any fixture in this file uses mock_response.
     let file_needs_mock = needs_mock_server && fixtures.iter().any(|f| f.mock_response.is_some());
     if file_needs_mock {

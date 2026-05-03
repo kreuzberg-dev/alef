@@ -52,9 +52,16 @@ pub(super) fn gen_opaque_struct_methods(
 ) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
+
+    // The VisitorHandle bridge module (__alef_wasm_bridge_*) is only emitted
+    // under #[cfg(target_arch = "wasm32")], so guard its impl block identically
+    // to avoid "unresolved module" errors when compiling on host targets.
+    if typ.name == "VisitorHandle" {
+        impl_builder.add_attr("cfg(target_arch = \"wasm32\")");
+    }
     impl_builder.add_attr("wasm_bindgen");
 
-    // Special handling for VisitorHandle: add a constructor if no methods exist
+    // Special handling for VisitorHandle: add a constructor if no methods exist.
     if typ.name == "VisitorHandle" && typ.methods.is_empty() {
         let mut constructor = String::with_capacity(256);
         writeln!(constructor, "#[wasm_bindgen(constructor)]").ok();
