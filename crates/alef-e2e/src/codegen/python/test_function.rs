@@ -101,11 +101,14 @@ pub(super) fn render_test_function(
     let await_prefix = if is_async { "await " } else { "" };
 
     // Client factory: when configured, create a client and dispatch as a method.
+    // Point the client at MOCK_SERVER_URL/fixtures/<id> so the mock server serves
+    // the fixture response via prefix routing.
     let client_factory = resolve_client_factory(e2e_config);
     let call_expr = if let Some(ref factory) = client_factory {
+        let fixture_id = &fixture.id;
         let _ = writeln!(
             out,
-            "    client = {factory}(\"test-key\", os.environ[\"MOCK_SERVER_URL\"])"
+            "    client = {factory}(api_key=\"test-key\", base_url=os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\")"
         );
         format!("{await_prefix}client.{function_name}({call_args_str})")
     } else {
