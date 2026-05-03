@@ -324,6 +324,11 @@ pub(super) fn gen_api_py(
         out.push_str(&format!(
             "    \"\"\"Convert Python {type_name} to Rust binding type.\"\"\"\n"
         ));
+        // Allow dict input as a convenience (callers may pass a literal `{...}` instead
+        // of constructing the dataclass). Coerce to the dataclass before reading attrs.
+        out.push_str(&format!(
+            "    if isinstance(value, dict):\n        value = {type_name}(**value)\n"
+        ));
         out.push_str("    if value is None:\n");
         if let Some((kwarg_name, _field_name, _)) = bridge_visitor_field {
             // When value is None but visitor override is provided, construct a default instance.

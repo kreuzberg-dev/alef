@@ -5,7 +5,7 @@ use std::fmt::Write;
 use super::ConversionConfig;
 use super::binding_to_core::field_conversion_to_core;
 use super::helpers::is_newtype;
-use super::helpers::{binding_prim_str, core_type_path_remapped, needs_i64_cast};
+use super::helpers::{binding_prim_str, core_type_path_remapped, needs_f64_cast, needs_i32_cast, needs_i64_cast};
 
 /// Generate `impl From<core::Type> for BindingType` (core -> binding).
 pub fn gen_from_core_to_binding(typ: &TypeDef, core_import: &str, opaque_types: &AHashSet<String>) -> String {
@@ -523,6 +523,44 @@ pub fn field_conversion_from_core_cfg(
                 format!("{name}: val.{name}.map(|v| v as {cast_to})")
             } else {
                 field_conversion_from_core(name, ty, optional, sanitized, opaque_types)
+            }
+        }
+        // i32 casting for small uint primitives (extendr/R only)
+        TypeRef::Primitive(p) if config.cast_uints_to_i32 && needs_i32_cast(p) => {
+            if optional {
+                format!("{name}: val.{name}.map(|v| v as i32)")
+            } else {
+                format!("{name}: val.{name} as i32")
+            }
+        }
+        // Optional(small_uint) with i32 casting
+        TypeRef::Optional(inner)
+            if config.cast_uints_to_i32
+                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_i32_cast(p)) =>
+        {
+            format!("{name}: val.{name}.map(|v| v as i32)")
+        }
+        // f64 casting for large int primitives (extendr/R only)
+        TypeRef::Primitive(p) if config.cast_large_ints_to_f64 && needs_f64_cast(p) => {
+            if optional {
+                format!("{name}: val.{name}.map(|v| v as f64)")
+            } else {
+                format!("{name}: val.{name} as f64")
+            }
+        }
+        // Optional(large_int) with f64 casting
+        TypeRef::Optional(inner)
+            if config.cast_large_ints_to_f64
+                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p)) =>
+        {
+            format!("{name}: val.{name}.map(|v| v as f64)")
+        }
+        // Duration with f64 casting (R: no u64, use f64 millis)
+        TypeRef::Duration if config.cast_large_ints_to_f64 => {
+            if optional {
+                format!("{name}: val.{name}.map(|d| d.as_millis() as f64)")
+            } else {
+                format!("{name}: val.{name}.as_millis() as f64")
             }
         }
         // f32→f64 casting (NAPI only)

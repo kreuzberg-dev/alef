@@ -120,21 +120,47 @@ impl Backend for ExtendrBackend {
             .filter(|t| t.is_opaque)
             .map(|t| t.name.clone())
             .collect();
+        // Opaque types that use Rc internally cannot be wrapped in Arc for the extendr binding.
+        // These types are excluded from struct generation and skipped as struct fields.
+        // VisitorHandle is Rc<RefCell<dyn HtmlVisitor>>: Rc is !Send, cannot be put in Arc.
+        // We identify them as opaque types that are cfg-feature-gated — only the visitor
+        // machinery (feature = "visitor") produces such types in html-to-markdown.
+        let arc_incompatible_opaque: ahash::AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && t.cfg.is_some())
+            .map(|t| t.name.clone())
+            .collect();
+        let arc_incompatible_opaque_vec: Vec<String> = arc_incompatible_opaque.iter().cloned().collect();
         let mutex_types: ahash::AHashSet<String> = api
             .types
             .iter()
             .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
             .map(|t| t.name.clone())
             .collect();
+        let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
-        // Import Arc when there are opaque types (builder-pattern types use Arc<CoreType>).
-        if !opaque_types.is_empty() {
+        // Helper: returns true if a TypeRef references any arc-incompatible opaque type.
+        let references_arc_incompatible = |ty: &alef_core::ir::TypeRef| -> bool {
+            arc_incompatible_opaque_vec.iter().any(|n| {
+                matches!(ty, alef_core::ir::TypeRef::Named(name) if name == n)
+                    || matches!(ty, alef_core::ir::TypeRef::Optional(inner) if matches!(inner.as_ref(), alef_core::ir::TypeRef::Named(name) if name == n))
+            })
+        };
+
+        // Import Arc when there are arc-compatible opaque types.
+        let has_arc_compatible = opaque_types.iter().any(|n| !arc_incompatible_opaque.contains(n));
+        if has_arc_compatible {
             builder.add_import("std::sync::Arc");
         }
 
         // Generate type bindings
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
+                // Skip opaque types that cannot be wrapped in Arc (e.g. VisitorHandle with Rc).
+                if arc_incompatible_opaque.contains(&typ.name) {
+                    continue;
+                }
                 // Opaque types wrap the core type in Arc<T> and delegate methods to self.inner.
                 builder.add_item(&generators::gen_opaque_struct(typ, &cfg));
                 let impl_block =
@@ -143,19 +169,44 @@ impl Backend for ExtendrBackend {
                     builder.add_item(&impl_block);
                 }
             } else {
+                // If this type has fields referencing arc-incompatible opaque types, generate the
+                // struct with those fields removed. They are skipped in the binding because the
+                // opaque wrapper struct (e.g. VisitorHandle) was not generated.
+                let has_excluded_fields = typ.fields.iter().any(|f| references_arc_incompatible(&f.ty));
+                let struct_typ: std::borrow::Cow<alef_core::ir::TypeDef> = if has_excluded_fields {
+                    let filtered = alef_core::ir::TypeDef {
+                        fields: typ
+                            .fields
+                            .iter()
+                            .filter(|f| !references_arc_incompatible(&f.ty))
+                            .cloned()
+                            .collect(),
+                        ..typ.clone()
+                    };
+                    std::borrow::Cow::Owned(filtered)
+                } else {
+                    std::borrow::Cow::Borrowed(typ)
+                };
+
                 // gen_struct already emits #[derive(Default)] for all structs.
                 // Emitting gen_struct_default_impl here would produce a conflicting
                 // `impl Default` compile error. The derive covers all types where
                 // can_generate_default_impl is true (all field types implement Default).
-                builder.add_item(&generators::gen_struct(typ, self, &cfg));
-                let impl_block = generators::gen_impl_block(typ, self, &cfg, &adapter_bodies, &opaque_types);
+                builder.add_item(&generators::gen_struct(&struct_typ, self, &cfg));
+                let impl_block =
+                    generators::gen_impl_block(&struct_typ, self, &cfg, &adapter_bodies, &opaque_types);
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }
-                // Generate config constructor if type has Default
-                if typ.has_default && !typ.fields.is_empty() {
+                // Generate config constructor if type has Default.
+                // Use the filtered struct so arc-incompatible fields (e.g. visitor) are excluded.
+                if struct_typ.has_default && !struct_typ.fields.is_empty() {
                     let map_fn = |ty: &alef_core::ir::TypeRef| self.map_type(ty);
-                    let config_fn = alef_codegen::config_gen::gen_extendr_kwargs_constructor(typ, &map_fn);
+                    let config_fn = alef_codegen::config_gen::gen_extendr_kwargs_constructor(
+                        &struct_typ,
+                        &map_fn,
+                        &enum_names,
+                    );
                     builder.add_item(&config_fn);
                 }
             }
@@ -173,7 +224,14 @@ impl Backend for ExtendrBackend {
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
-        let extendr_conversion_cfg = alef_codegen::conversions::ConversionConfig::default();
+        let extendr_conversion_cfg = alef_codegen::conversions::ConversionConfig {
+            cast_uints_to_i32: true,
+            cast_large_ints_to_f64: true,
+            // Exclude arc-incompatible opaque types (e.g. VisitorHandle) from conversion
+            // generation so that struct fields referencing them are skipped in From impls.
+            exclude_types: &arc_incompatible_opaque_vec,
+            ..alef_codegen::conversions::ConversionConfig::default()
+        };
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             // binding→core: emit when type is used as input and all fields are
             // convertible (mirrors pyo3/magnus emission paths).
@@ -257,7 +315,9 @@ impl Backend for ExtendrBackend {
             }
         }
 
-        // Module registration
+        // Module registration — only include types that were actually generated.
+        // Arc-incompatible opaque types (e.g. VisitorHandle) were skipped above and
+        // must be omitted from the module so the linker/R doesn't expect them.
         let module_name = config.r_package_name().replace('-', "_");
         let module_items = format!(
             "extendr_module! {{\n    mod {module};\n{types}{funcs}}}\n",
@@ -265,6 +325,7 @@ impl Backend for ExtendrBackend {
             types = api
                 .types
                 .iter()
+                .filter(|t| !t.is_trait && !arc_incompatible_opaque.contains(&t.name))
                 .map(|t| format!("    impl {};\n", t.name))
                 .collect::<String>(),
             funcs = api
