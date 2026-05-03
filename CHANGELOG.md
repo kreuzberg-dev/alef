@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(e2e-go): `client_factory` support in Go e2e codegen. When `[e2e.call.overrides.go] client_factory = "CreateClient"` is set, the generated test creates a client via `pkg.CreateClient("test-key", baseURL)` and calls API methods as `client.Method(args)` instead of `pkg.Function(args)`. Also fixes `fixture_has_go_callable` to return `true` when `client_factory` is configured.
+
+- feat(e2e-python): `client_factory` support in Python e2e codegen. When `[e2e.call.overrides.python] client_factory = "create_client"` is set, the generated test imports only the factory function, creates a client, and dispatches calls as `client.method(args)`.
+
+- feat(e2e-csharp): `client_factory` support in C# e2e codegen. When `[e2e.call.overrides.csharp] client_factory = "createClient"` is set, the generated test calls `ClassName.CreateClient("test-key", baseUrl)` and dispatches as `client.Method(args)`.
+
+- feat(e2e-ruby): `client_factory` support in Ruby e2e codegen. When `[e2e.call.overrides.ruby] client_factory = "create_client"` is set, the generated spec creates a client via `ModuleName.create_client('test-key', ENV.fetch('MOCK_SERVER_URL'))` and calls methods on it.
+
+- feat(e2e-elixir): `client_factory` support in Elixir e2e codegen. When `[e2e.call.overrides.elixir] client_factory = "create_client"` is set, the generated test calls `{:ok, client} = ModuleName.create_client("test-key", base_url)` and passes `client` as the first argument to API functions.
+
 ### Fixed
+
+- fix(e2e): remove language suffix from generated e2e package names. TypeScript packages now use `{pkg}-e2e` instead of `{pkg}-e2e-typescript`; Python packages use `{pkg}-e2e` instead of `{pkg}-e2e-tests`. Python `pkg_name` now defaults to the call module name (replacing a stale hard-coded project name).
 
 - fix(e2e-wasm): remove `initWasm()` call from generated test files. The bundler target auto-initializes when imported, so explicit initialization is unnecessary and causes `TypeError: initWasm is not a function`.
 
