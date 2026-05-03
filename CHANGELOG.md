@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- fix(backend-napi): `find_options_field_binding` now unwraps Optional types when matching
+  options parameters against `options_type` in trait bridge configs. When a function parameter
+  is `Option<ConversionOptions>` and a trait bridge specifies `bind_via = "options_field"`,
+  the NAPI backend now correctly recognizes the parameter and generates the visitor bridge code.
+  Fixes 45 failing Node.js visitor e2e tests where `options.visitor` was being discarded by
+  the generated From impl.
+
 - fix(e2e-php): emit `ConversionOptions::from_json()` instead of direct property assignment,
   since ext-php-rs doesn't support writable #[php(prop)] fields; fixes "No setter available for
   this property" errors in 7 e2e tests with preprocessing/metadata options

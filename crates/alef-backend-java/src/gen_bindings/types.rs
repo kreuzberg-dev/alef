@@ -105,12 +105,7 @@ pub(crate) fn gen_record_type(
     // This ensures that fields with serde defaults (e.g., `enabled = true`) use the
     // builder's defaults instead of Java primitive defaults (false for bool).
     if typ.has_default {
-        writeln!(
-            record_block,
-            "@JsonDeserialize(builder = {}Builder.class)",
-            typ.name
-        )
-        .ok();
+        writeln!(record_block, "@JsonDeserialize(builder = {}Builder.class)", typ.name).ok();
     }
     if single_line_len > RECORD_LINE_WRAP_THRESHOLD && field_entries.len() > 1 {
         writeln!(record_block, "public record {}(", typ.name).ok();
