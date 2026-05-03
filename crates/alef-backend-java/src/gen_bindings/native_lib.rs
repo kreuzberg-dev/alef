@@ -38,7 +38,7 @@ pub(crate) fn gen_native_lib(
     writeln!(body).ok();
     writeln!(body, "    static {{").ok();
     writeln!(body, "        loadNativeLibrary();").ok();
-    writeln!(body, "        LIB = LINKER.defaultLookup();").ok();
+    writeln!(body, "        LIB = PlatformSymbolLookup.create();").ok();
     writeln!(body, "    }}").ok();
     writeln!(body).ok();
     writeln!(body, "    private static void loadNativeLibrary() {{").ok();
@@ -712,6 +712,25 @@ pub(crate) fn gen_native_lib(
     if has_visitor_pattern {
         body.push_str(&crate::gen_visitor::gen_native_lib_visitor_handles(prefix));
     }
+
+    // Add helper class for platform-specific symbol lookup
+    writeln!(body).ok();
+    writeln!(body, "    private static final class PlatformSymbolLookup {{").ok();
+    writeln!(body, "        static SymbolLookup create() {{").ok();
+    writeln!(body, "            SymbolLookup loaderLookup = SymbolLookup.loaderLookup();").ok();
+    writeln!(body, "            return new SymbolLookup() {{").ok();
+    writeln!(body, "                @Override").ok();
+    writeln!(body, "                public java.util.Optional<MemorySegment> find(String name) {{").ok();
+    writeln!(body, "                    String osName = System.getProperty(\"os.name\", \"\").toLowerCase(java.util.Locale.ROOT);").ok();
+    writeln!(body, "                    String symbolName = name;").ok();
+    writeln!(body, "                    if (osName.contains(\"mac\") || osName.contains(\"darwin\") || osName.contains(\"freebsd\")) {{").ok();
+    writeln!(body, "                        symbolName = \"_\" + name;").ok();
+    writeln!(body, "                    }}").ok();
+    writeln!(body, "                    return loaderLookup.find(symbolName);").ok();
+    writeln!(body, "                }}").ok();
+    writeln!(body, "            }};").ok();
+    writeln!(body, "        }}").ok();
+    writeln!(body, "    }}").ok();
 
     writeln!(body, "}}").ok();
 
