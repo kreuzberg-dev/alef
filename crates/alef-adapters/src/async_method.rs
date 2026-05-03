@@ -26,13 +26,43 @@ pub fn generate_body(
     Ok(body)
 }
 
+/// Returns true for primitive Rust types that don't live in any crate namespace.
+fn is_builtin_type(ty: &str) -> bool {
+    matches!(
+        ty,
+        "String"
+            | "&str"
+            | "bool"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "f32"
+            | "f64"
+            | "usize"
+            | "isize"
+    )
+}
+
 /// Build the call arguments with `.into()` conversion.
+/// For `String`/`&str` params, passes `.as_str()` / `.as_deref()` so the
+/// call site receives `&str` when the core method expects it.
 fn call_args(adapter: &AdapterConfig) -> Vec<String> {
     adapter
         .params
         .iter()
         .map(|p| {
-            if p.optional {
+            if p.ty == "String" || p.ty == "&str" {
+                if p.optional {
+                    format!("{}.as_deref()", p.name)
+                } else {
+                    format!("{}.as_str()", p.name)
+                }
+            } else if p.optional {
                 format!("{}.map(Into::into)", p.name)
             } else {
                 format!("{}.into()", p.name)
@@ -62,28 +92,45 @@ fn core_let_bindings(adapter: &AdapterConfig, core_import: &str) -> Vec<String> 
         .params
         .iter()
         .map(|p| {
+            let ty_path = if is_builtin_type(&p.ty) {
+                p.ty.clone()
+            } else {
+                format!("{core_import}::{}", p.ty)
+            };
             if p.optional {
                 format!(
-                    "let core_{name} = {name}.map(|v| -> {core_import}::{ty} {{ v.into() }});",
+                    "let core_{name} = {name}.map(|v| -> {ty_path} {{ v.into() }});",
                     name = p.name,
-                    core_import = core_import,
-                    ty = p.ty,
                 )
             } else {
                 format!(
-                    "let core_{name}: {core_import}::{ty} = {name}.into();",
+                    "let core_{name}: {ty_path} = {name}.into();",
                     name = p.name,
-                    core_import = core_import,
-                    ty = p.ty,
                 )
             }
         })
         .collect()
 }
 
-/// Build core call arguments (prefixed with core_).
+/// Build core call arguments (prefixed with core_) for use in Python async bodies.
+/// For `String`/`&str` params, passes `.as_str()` / `.as_deref()` so the
+/// call site receives `&str` when the core method expects it.
 fn core_call_args(adapter: &AdapterConfig) -> Vec<String> {
-    adapter.params.iter().map(|p| format!("core_{}", p.name)).collect()
+    adapter
+        .params
+        .iter()
+        .map(|p| {
+            if p.ty == "String" || p.ty == "&str" {
+                if p.optional {
+                    format!("core_{}.as_deref()", p.name)
+                } else {
+                    format!("core_{}.as_str()", p.name)
+                }
+            } else {
+                format!("core_{}", p.name)
+            }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +139,7 @@ fn core_call_args(adapter: &AdapterConfig) -> Vec<String> {
 
 fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
-    let returns = adapter.returns.as_deref().unwrap_or("()");
+    let raw_returns = adapter.returns.as_deref().unwrap_or("()");
     let core_import = config.core_import_name();
 
     let let_bindings = core_let_bindings(adapter, &core_import);
@@ -105,13 +152,19 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Str
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
+    let ok_expr = if raw_returns == "bytes::Bytes" {
+        "Ok(result.to_vec())".to_string()
+    } else {
+        format!("Ok({raw_returns}::from(result))")
+    };
+
     format!(
         "let inner = self.inner.clone();\n    \
          {bindings_block}\
          pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n        \
              let result = inner.{core_path}({core_call_str}).await\n            \
                  .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;\n        \
-             Ok({returns}::from(result))\n    \
+             {ok_expr}\n    \
          }})"
     )
 }
@@ -124,10 +177,15 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Strin
     let core_path = &adapter.core_path;
     let prefix = config.node_type_prefix();
     let raw_returns = adapter.returns.as_deref().unwrap_or("()");
-    let returns = if raw_returns == "()" {
-        raw_returns.to_string()
+
+    // bytes::Bytes has no prefixed JS equivalent — map to Vec<u8> via .to_vec().
+    let is_bytes = raw_returns == "bytes::Bytes";
+    let map_expr = if raw_returns == "()" {
+        format!(".map({raw_returns}::from)")
+    } else if is_bytes {
+        ".map(|b| b.to_vec())".to_string()
     } else {
-        format!("{prefix}{raw_returns}")
+        format!(".map({prefix}{raw_returns}::from)")
     };
 
     let args = call_args(adapter);
@@ -135,7 +193,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Strin
     if args.is_empty() {
         format!(
             "self.inner.{core_path}().await\n        \
-             .map({returns}::from)\n        \
+             {map_expr}\n        \
              .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
         )
     } else {
@@ -143,7 +201,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Strin
         format!(
             "let core_req = {call_str};\n    \
              self.inner.{core_path}(core_req).await\n        \
-             .map({returns}::from)\n        \
+             {map_expr}\n        \
              .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
         )
     }
@@ -155,7 +213,13 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Strin
 
 fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
-    let returns = adapter.returns.as_deref().unwrap_or("()");
+    let raw_returns = adapter.returns.as_deref().unwrap_or("()");
+
+    let map_expr = if raw_returns == "bytes::Bytes" {
+        ".map(|b| b.to_vec())".to_string()
+    } else {
+        format!(".map({raw_returns}::from)")
+    };
 
     let args = call_args(adapter);
 
@@ -164,7 +228,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Stri
             "let rt = tokio::runtime::Runtime::new()\n        \
                  .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
              rt.block_on(async {{ self.inner.{core_path}().await }})\n        \
-             .map({returns}::from)\n        \
+             {map_expr}\n        \
              .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
         )
     } else {
@@ -174,7 +238,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Stri
                  .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
              let core_req = {call_str};\n    \
              rt.block_on(async {{ self.inner.{core_path}(core_req).await }})\n        \
-             .map({returns}::from)\n        \
+             {map_expr}\n        \
              .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))"
         )
     }
@@ -186,7 +250,7 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Stri
 
 fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
-    let returns = adapter.returns.as_deref().unwrap_or("()");
+    let raw_returns = adapter.returns.as_deref().unwrap_or("()");
 
     // PHP passes struct params by reference — clone before converting.
     let args = call_args_cloned(adapter);
@@ -198,11 +262,17 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Strin
         format!("self.inner.{core_path}({call_str}).await")
     };
 
+    let map_expr = if raw_returns == "bytes::Bytes" {
+        ".map(|b| b.to_vec())".to_string()
+    } else {
+        format!(".map({raw_returns}::from)")
+    };
+
     format!(
         "WORKER_RUNTIME.block_on(async {{\n        \
              {inner_call}\n    \
          }})\n    \
-         .map({returns}::from)\n    \
+         {map_expr}\n    \
          .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))"
     )
 }
@@ -213,7 +283,13 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Strin
 
 fn gen_elixir_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
-    let returns = adapter.returns.as_deref().unwrap_or("()");
+    let raw_returns = adapter.returns.as_deref().unwrap_or("()");
+
+    let map_expr = if raw_returns == "bytes::Bytes" {
+        ".map(|b| b.to_vec())".to_string()
+    } else {
+        format!(".map({raw_returns}::from)")
+    };
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -221,7 +297,7 @@ fn gen_elixir_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> St
     format!(
         "let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
          rt.block_on(async {{ resource.inner.{core_path}({call_str}).await }})\n        \
-         .map({returns}::from)\n        \
+         {map_expr}\n        \
          .map_err(|e| e.to_string())"
     )
 }
@@ -232,14 +308,20 @@ fn gen_elixir_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> St
 
 fn gen_wasm_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
-    let returns = adapter.returns.as_deref().unwrap_or("JsValue");
+    let raw_returns = adapter.returns.as_deref().unwrap_or("JsValue");
+
+    let map_expr = if raw_returns == "bytes::Bytes" {
+        ".map(|b| b.to_vec())".to_string()
+    } else {
+        format!(".map({raw_returns}::from)")
+    };
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
 
     format!(
         "self.inner.{core_path}({call_str}).await\n        \
-         .map({returns}::from)\n        \
+         {map_expr}\n        \
          .map_err(|e| JsValue::from_str(&e.to_string()))"
     )
 }
@@ -452,7 +534,13 @@ fn gen_csharp_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> Str
 
 fn gen_r_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String {
     let core_path = &adapter.core_path;
-    let returns = adapter.returns.as_deref().unwrap_or("Robj");
+    let raw_returns = adapter.returns.as_deref().unwrap_or("Robj");
+
+    let map_expr = if raw_returns == "bytes::Bytes" {
+        ".map(|b| b.to_vec())".to_string()
+    } else {
+        format!(".map({raw_returns}::from)")
+    };
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -461,7 +549,7 @@ fn gen_r_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String 
         "let rt = tokio::runtime::Runtime::new()\n        \
              .map_err(|e| extendr_api::Error::Other(e.to_string()))?;\n    \
          rt.block_on(async {{ self.inner.{core_path}({call_str}).await }})\n        \
-         .map({returns}::from)\n        \
+         {map_expr}\n        \
          .map_err(|e| extendr_api::Error::Other(e.to_string()))"
     )
 }
