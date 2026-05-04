@@ -24,9 +24,25 @@ pub(crate) fn run_command(cmd: &str) -> anyhow::Result<()> {
 /// threads so concurrent runs from different languages don't interleave
 /// per-line.
 pub(crate) fn run_command_streamed(cmd: &str, label: Option<&str>) -> anyhow::Result<()> {
+    run_command_streamed_with_env(cmd, label, &[])
+}
+
+/// Run a shell command with stdout/stderr streamed and optional environment variables.
+///
+/// `env_vars` is a list of (key, value) tuples to set in the spawned process.
+pub(crate) fn run_command_streamed_with_env(
+    cmd: &str,
+    label: Option<&str>,
+    env_vars: &[(&str, String)],
+) -> anyhow::Result<()> {
     info!("Running: {cmd}");
     let mut command = std::process::Command::new("sh");
     command.args(["-c", cmd]);
+
+    // Apply environment variable overrides
+    for (key, value) in env_vars {
+        command.env(key, value);
+    }
 
     let Some(prefix) = label else {
         let status = command.status().with_context(|| format!("failed to spawn: {cmd}"))?;
@@ -92,14 +108,29 @@ pub(crate) fn run_command_streamed_with_timeout(
     label: Option<&str>,
     timeout_secs: Option<u64>,
 ) -> anyhow::Result<()> {
+    run_command_streamed_with_timeout_and_env(cmd, label, timeout_secs, &[])
+}
+
+/// Streamed variant with optional environment variables.
+pub(crate) fn run_command_streamed_with_timeout_and_env(
+    cmd: &str,
+    label: Option<&str>,
+    timeout_secs: Option<u64>,
+    env_vars: &[(&str, String)],
+) -> anyhow::Result<()> {
     let Some(secs) = timeout_secs else {
-        return run_command_streamed(cmd, label);
+        return run_command_streamed_with_env(cmd, label, env_vars);
     };
     info!("Running (timeout {secs}s): {cmd}");
     let prefix = label.map(|l| format!("[{l}] "));
 
     let mut command = std::process::Command::new("sh");
     command.args(["-c", cmd]);
+
+    // Apply environment variable overrides
+    for (key, value) in env_vars {
+        command.env(key, value);
+    }
 
     let mut child = if prefix.is_some() {
         command
