@@ -414,7 +414,10 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
         let full_from_pos = from_pos + from_marker.len();
         // Search backward from from_pos to find the last `import {` or `import init, {` before it.
         let before_from = &content[..from_pos];
-        if let Some(import_pos) = before_from.rfind("import {").or_else(|| before_from.rfind("import init, {")) {
+        if let Some(import_pos) = before_from
+            .rfind("import {")
+            .or_else(|| before_from.rfind("import init, {"))
+        {
             let import_section = &content[import_pos..full_from_pos];
 
             // Already patched (contains `import init`) — nothing to do.
@@ -427,14 +430,27 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
             // export is bound and `await init()` works at the top level.
             let new_import = import_section.replacen("import {", "import init, {", 1);
 
-            // Use top-level await with wasm-pack's async init() function.
-            let init_code = "await init();\n";
+            // Node.js fetch does not support file:// URLs, so we cannot call init() without
+            // arguments (which internally calls fetch on the .wasm file URL). Instead, read the
+            // binary via readFileSync and pass the buffer directly to init(), bypassing fetch.
+            // We resolve the .wasm path from the installed package directory by replacing the .js
+            // main entry extension. Dynamic imports avoid adding new static import statements that
+            // would require import-order adjustments.
+            let init_code = format!(
+                concat!(
+                    "await init(\n",
+                    "  (await import(\"node:fs\")).readFileSync(\n",
+                    "    (await import(\"node:module\"))\n",
+                    "      .createRequire(import.meta.url)\n",
+                    "      .resolve(\"{pkg_name}\")\n",
+                    "      .replace(/\\.js$/, \"_bg.wasm\"),\n",
+                    "  ),\n",
+                    ");\n",
+                ),
+                pkg_name = pkg_name,
+            );
 
-            return content[..import_pos].to_string()
-                + &new_import
-                + "\n"
-                + init_code
-                + &content[full_from_pos..];
+            return content[..import_pos].to_string() + &new_import + "\n" + &init_code + &content[full_from_pos..];
         }
     }
 
