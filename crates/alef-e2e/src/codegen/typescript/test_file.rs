@@ -519,7 +519,12 @@ fn build_args_and_setup(
             Some(v) => {
                 if arg.arg_type == "json_object" {
                     if let Some(opts_type) = options_type {
-                        parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
+                        // For empty objects, generate new OptionsType() instead of {} as OptionsType
+                        if v.is_object() && v.as_object().is_some_and(|o| o.is_empty()) {
+                            parts.push(format!("new {}()", opts_type));
+                        } else {
+                            parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
+                        }
                     } else {
                         parts.push(json_to_js_camel(v));
                     }

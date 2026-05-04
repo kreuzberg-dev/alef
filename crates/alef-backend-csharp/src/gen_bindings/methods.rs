@@ -249,10 +249,17 @@ fn gen_wrapper_function(
         }
 
         // Check for FFI error (null result means the call failed).
+        // For Optional(_) return types, null means None (not found), not an error.
         if func.return_type != TypeRef::Unit {
-            out.push_str(
-                "            if (nativeResult == IntPtr.Zero)\n            {\n                throw GetLastError();\n            }\n",
-            );
+            if matches!(func.return_type, TypeRef::Optional(_)) {
+                out.push_str(
+                    "            if (nativeResult == IntPtr.Zero)\n            {\n                return null;\n            }\n",
+                );
+            } else {
+                out.push_str(
+                    "            if (nativeResult == IntPtr.Zero)\n            {\n                throw GetLastError();\n            }\n",
+                );
+            }
         }
 
         emit_return_marshalling_indented(
@@ -293,10 +300,17 @@ fn gen_wrapper_function(
         // Check for FFI error (null result means the call failed).
         // Only emit for pointer-returning functions — numeric returns (ulong, uint, bool)
         // don't use IntPtr.Zero as an error sentinel.
+        // For Optional(_) return types, null means None (not found), not an error.
         if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
-            out.push_str(
-                "        if (nativeResult == IntPtr.Zero)\n        {\n            throw GetLastError();\n        }\n",
-            );
+            if matches!(func.return_type, TypeRef::Optional(_)) {
+                out.push_str(
+                    "        if (nativeResult == IntPtr.Zero)\n        {\n            return null;\n        }\n",
+                );
+            } else {
+                out.push_str(
+                    "        if (nativeResult == IntPtr.Zero)\n        {\n            throw GetLastError();\n        }\n",
+                );
+            }
         }
 
         emit_return_marshalling(&mut out, &func.return_type, enum_names, true_opaque_types);

@@ -5,7 +5,7 @@ use alef_codegen::generators;
 use alef_codegen::shared::function_params;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::{Language, ResolvedCrateConfig};
-use alef_core::ir::{ApiSurface, FieldDef, FunctionDef, TypeRef};
+use alef_core::ir::{ApiSurface, FieldDef, FunctionDef, ReceiverKind, TypeRef};
 
 use crate::type_map::MagnusMapper;
 
@@ -672,6 +672,13 @@ pub(super) fn gen_module_init(
                 // which is incompatible with Magnus's method! macro which requires RubyMethod traits.
                 // Callers can use from_update instead.
                 if method.name == "apply_update" {
+                    continue;
+                }
+
+                // Skip &mut self methods: Magnus's method! macro doesn't support mutable receivers.
+                // These methods mutate the wrapper in place, which isn't compatible with Ruby's
+                // object model. Callers should use builder patterns or from_* constructors instead.
+                if matches!(method.receiver, Some(ReceiverKind::RefMut)) {
                     continue;
                 }
 

@@ -210,7 +210,7 @@ pub(crate) fn gen_record_type(
         writeln!(out, "import com.fasterxml.jackson.databind.annotation.JsonDeserialize;").ok();
     }
     if needs_nullable {
-        writeln!(out, "import org.jetbrains.annotations.Nullable;").ok();
+        writeln!(out, "import org.jspecify.annotations.Nullable;").ok();
     }
     writeln!(out).ok();
     write!(out, "{}", record_block).ok();

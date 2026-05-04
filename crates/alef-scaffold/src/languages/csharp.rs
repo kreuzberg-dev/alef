@@ -52,6 +52,10 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
     <None Include="../../LICENSE" Pack="true" PackagePath="/" />
     <None Include="runtimes/**" Pack="true" PackagePath="runtimes/" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../src/**/*.cs" />
+  </ItemGroup>
 </Project>
 "#,
         target_framework = target_framework,

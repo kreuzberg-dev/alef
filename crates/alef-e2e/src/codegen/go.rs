@@ -98,6 +98,35 @@ impl E2eCodegen for GoCodegen {
             generated_header: false,
         });
 
+        // Determine if any fixture needs jsonString helper across all groups.
+        let emits_executable_test =
+            |fixture: &Fixture| fixture.is_http_test() || fixture_has_go_callable(fixture, e2e_config);
+        let needs_json_stringify = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+            emits_executable_test(f)
+                && f.assertions.iter().any(|a| {
+                    matches!(
+                        a.assertion_type.as_str(),
+                        "contains" | "contains_all" | "contains_any" | "not_contains"
+                    ) && {
+                        if a.field.as_ref().is_none_or(|f| f.is_empty()) {
+                            e2e_config.resolve_call(f.call.as_deref()).result_is_array
+                        } else {
+                            let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
+                            field_resolver.is_array(resolved_name)
+                        }
+                    }
+                })
+        });
+
+        // Generate helpers_test.go with jsonString if needed, emitted exactly once.
+        if needs_json_stringify {
+            files.push(GeneratedFile {
+                path: output_base.join("helpers_test.go"),
+                content: render_helpers_test_go(),
+                generated_header: true,
+            });
+        }
+
         // Generate main_test.go with TestMain when any fixture needs the mock server.
         // This covers both `mock_response` fixtures (needs_mock_server) and client_factory
         // fixtures that read MOCK_SERVER_URL.
@@ -254,6 +283,26 @@ fn render_main_test_go() -> String {
     let _ = writeln!(out, "\t_ = cmd.Process.Signal(os.Interrupt)");
     let _ = writeln!(out, "\t_ = cmd.Wait()");
     let _ = writeln!(out, "\tos.Exit(code)");
+    let _ = writeln!(out, "}}");
+    out
+}
+
+/// Generate `helpers_test.go` with the jsonString helper function.
+/// This is emitted once per package to avoid duplicate function definitions.
+fn render_helpers_test_go() -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "package e2e_test");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "import \"encoding/json\"");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "// jsonString converts a value to its JSON string representation.");
+    let _ = writeln!(out, "// Array fields use jsonString instead of fmt.Sprint to preserve structure.");
+    let _ = writeln!(out, "func jsonString(value any) string {{");
+    let _ = writeln!(out, "\tencoded, err := json.Marshal(value)");
+    let _ = writeln!(out, "\tif err != nil {{");
+    let _ = writeln!(out, "\t\treturn \"\"");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out, "\treturn string(encoded)");
     let _ = writeln!(out, "}}");
     out
 }
@@ -428,13 +477,19 @@ fn render_test_file(
                     ) && {
                         // Check if this assertion uses fmt.Sprint (non-array fields).
                         // Array fields use jsonString instead, which also needs fmt.
+                        // Also verify the field is valid for the result type — assertions
+                        // on invalid fields are skipped without emitting any fmt.Sprint call.
                         if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                             // No field: fmt.Sprint only if result is not an array
                             !e2e_config.resolve_call(f.call.as_deref()).result_is_array
                         } else {
                             // Field specified: fmt.Sprint only if that field is not an array
-                            let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
+                            // and the field is actually valid for the result type (otherwise
+                            // the assertion is skipped and fmt.Sprint is never emitted).
+                            let field = a.field.as_deref().unwrap_or("");
+                            let resolved_name = field_resolver.resolve(field);
                             !field_resolver.is_array(resolved_name)
+                                && field_resolver.is_valid_for_result(field)
                         }
                     }
                 }))
@@ -565,17 +620,6 @@ fn render_test_file(
     }
     let _ = writeln!(out, ")");
     let _ = writeln!(out);
-
-    if needs_json_stringify {
-        let _ = writeln!(out, "func jsonString(value any) string {{");
-        let _ = writeln!(out, "\tencoded, err := json.Marshal(value)");
-        let _ = writeln!(out, "\tif err != nil {{");
-        let _ = writeln!(out, "\t\treturn fmt.Sprint(value)");
-        let _ = writeln!(out, "\t}}");
-        let _ = writeln!(out, "\treturn string(encoded)");
-        let _ = writeln!(out, "}}");
-        let _ = writeln!(out);
-    }
 
     // Emit package-level visitor structs (must be outside any function in Go).
     for fixture in fixtures.iter() {
@@ -931,13 +975,13 @@ fn render_test_function(
         if result_is_simple && has_usable_assertion && result_binding != "_" {
             if result_is_array {
                 // Array results are slices (not pointers); assign directly without dereference.
-                let _ = writeln!(out, "\tvalue := {result_var}");
+                let _ = writeln!(out, "\tvalue := {}", result_var);
             } else {
                 // Emit nil check and dereference for simple pointer results.
-                let _ = writeln!(out, "\tif {result_var} == nil {{");
+                let _ = writeln!(out, "\tif {} == nil {{", result_var);
                 let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
                 let _ = writeln!(out, "\t}}");
-                let _ = writeln!(out, "\tvalue := *{result_var}");
+                let _ = writeln!(out, "\tvalue := *{}", result_var);
             }
         }
     }

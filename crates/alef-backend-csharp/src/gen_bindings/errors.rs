@@ -90,6 +90,14 @@ pub(super) fn emit_return_marshalling(
             ));
         }
     } else if returns_json_object(return_type) {
+        // Optional<String> — the FFI returns a raw C string (not JSON-encoded).
+        if let TypeRef::Optional(inner) = return_type {
+            if returns_string(inner) {
+                out.push_str("        var returnValue = Marshal.PtrToStringUTF8(nativeResult);\n");
+                out.push_str("        NativeMethods.FreeString(nativeResult);\n");
+                return;
+            }
+        }
         // IntPtr → JSON string → deserialized object, then free the native buffer.
         let cs_ty = csharp_type(return_type);
         out.push_str("        var json = Marshal.PtrToStringUTF8(nativeResult);\n");
@@ -168,6 +176,14 @@ pub(super) fn emit_return_marshalling_indented(
             ));
         }
     } else if returns_json_object(return_type) {
+        // Optional<String> — the FFI returns a raw C string (not JSON-encoded).
+        if let TypeRef::Optional(inner) = return_type {
+            if returns_string(inner) {
+                out.push_str(&format!("{indent}var returnValue = Marshal.PtrToStringUTF8(nativeResult);\n"));
+                out.push_str(&format!("{indent}NativeMethods.FreeString(nativeResult);\n"));
+                return;
+            }
+        }
         let cs_ty = csharp_type(return_type);
         out.push_str(&format!("{indent}var json = Marshal.PtrToStringUTF8(nativeResult);\n"));
         out.push_str(&format!("{indent}NativeMethods.FreeString(nativeResult);\n"));

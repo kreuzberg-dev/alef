@@ -199,9 +199,15 @@ fn gen_opaque_method(
         out.push_str("\n            );\n");
 
         if method.return_type != TypeRef::Unit && returns_ptr(&method.return_type) {
-            out.push_str(&format!(
-                "            if (nativeResult == IntPtr.Zero)\n            {{\n                throw new {exception_name}(0, \"{cs_native_name} failed\");\n            }}\n"
-            ));
+            if matches!(method.return_type, TypeRef::Optional(_)) {
+                out.push_str(
+                    "            if (nativeResult == IntPtr.Zero)\n            {\n                return null;\n            }\n",
+                );
+            } else {
+                out.push_str(&format!(
+                    "            if (nativeResult == IntPtr.Zero)\n            {{\n                throw new {exception_name}(0, \"{cs_native_name} failed\");\n            }}\n"
+                ));
+            }
         }
 
         emit_return_marshalling_indented(
@@ -231,9 +237,15 @@ fn gen_opaque_method(
         out.push_str("\n        );\n");
 
         if method.return_type != TypeRef::Unit && returns_ptr(&method.return_type) {
-            out.push_str(&format!(
-                "        if (nativeResult == IntPtr.Zero)\n        {{\n            throw new {exception_name}(0, \"{cs_native_name} failed\");\n        }}\n"
-            ));
+            if matches!(method.return_type, TypeRef::Optional(_)) {
+                out.push_str(
+                    "        if (nativeResult == IntPtr.Zero)\n        {\n            return null;\n        }\n",
+                );
+            } else {
+                out.push_str(&format!(
+                    "        if (nativeResult == IntPtr.Zero)\n        {{\n            throw new {exception_name}(0, \"{cs_native_name} failed\");\n        }}\n"
+                ));
+            }
         }
 
         emit_return_marshalling(&mut out, &method.return_type, enum_names, true_opaque_types);

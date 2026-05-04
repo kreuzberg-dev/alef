@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(csharp-backend): `Optional<String>` return types — FFI returns a raw C string, not JSON-encoded; use `Marshal.PtrToStringUTF8` directly instead of `JsonSerializer.Deserialize`, which failed with raw strings not being valid JSON.
+- fix(csharp-backend): `Optional(_)` return types — null pointer means `None` (not found), not an FFI error; generate `return null` instead of `throw GetLastError()` / `throw new ExceptionName(...)` in both top-level methods and opaque type methods.
+- fix(java-backend): use `org.jspecify.annotations.Nullable` instead of `org.jetbrains.annotations.Nullable` in generated record types; aligns with the JSpecify annotations used elsewhere in the Java bindings.
+- fix(magnus-backend): skip `&mut self` methods when registering methods in `gen_module_init`; Magnus's `method!` macro doesn't support mutable receivers, causing a compile error.
+- fix(napi-backend): import `async_trait` when trait bridges are configured; the generated bridge code uses `#[async_trait::async_trait]` but the dependency was missing from the generated Cargo.toml.
+- fix(php-backend): allow `unsafe_code` in generated PHP bindings; `ext-php-rs` macros expand to unsafe blocks, causing clippy to reject with `-D warnings`.
+- fix(e2e/go): move `jsonString` helper into a dedicated `helpers_test.go` file emitted once per package, eliminating duplicate function definition errors when multiple test files needed it.
+- fix(e2e/go): `needs_fmt` calculation now checks `field_resolver.is_valid_for_result(field)` to avoid emitting an unused `fmt` import when an assertion references a field that doesn't exist on the result type.
+- fix(e2e/python): when a fixture argument is an array of objects and `element_type` is declared, construct typed instances (`ElementType(key=value, ...)`) instead of raw dict literals; matches the binding's type-safe API.
+- fix(scaffold/csharp): add `<Compile Include="../src/**/*.cs" />` to the generated `.csproj` so source files from the shared `src/` directory are included in the project build.
+- fix(scaffold/node): add `async-trait = "0.1"` to Node.js Cargo.toml scaffold when trait bridges are configured; the generated bridge code uses `#[async_trait::async_trait]` but the dependency was missing.
 - fix(rustler-backend): declare `visitor_owned_env` as `mut` so `send_and_clear` (which takes `&mut self`) compiles without E0596 borrow error.
 - fix(php-backend): use `!is_php_prop_scalar_with_enums` instead of `type_ref_has_named` when computing `has_named_params` in struct methods codegen, correctly gating named-param constructors on non-scalar fields.
 - fix(pyo3-backend): correct boolean logic in `is_native` computation in `gen_api_py` — options types are now excluded first, then native membership is checked, preventing options types from incorrectly landing in native imports.

@@ -391,25 +391,14 @@ fn render_tsconfig() -> String {
 
 /// Inject WASM initialization code for Node.js environments.
 ///
-/// Injects initSync using fs.readFileSync to load the WASM binary at the module
-/// level. This is necessary for Node.js test environments because the fetch-based
-/// initialization doesn't work.
+/// Injects top-level await for the async init() function from wasm-pack.
+/// This allows the WASM module to be initialized before tests run.
 ///
 /// # Arguments
 /// * `content` — the generated TypeScript test file content
 /// * `pkg_name` — the npm package name (e.g., "kreuzberg" or "@org/kreuzberg")
-/// * `crate_name` — the Rust crate name (e.g., "kreuzberg" or "kreuzberg-wasm")
-fn inject_wasm_init(content: &str, pkg_name: &str, crate_name: &str) -> String {
-    // Derive the wasm binary filename from the WASM crate name: append "-wasm" if
-    // not already present, then replace dashes with underscores, append _bg.wasm.
-    // E.g. "kreuzberg" → "kreuzberg-wasm" → "kreuzberg_wasm_bg.wasm"
-    //      "kreuzberg-wasm" → "kreuzberg-wasm" → "kreuzberg_wasm_bg.wasm"
-    let wasm_crate = if crate_name.ends_with("-wasm") {
-        crate_name.to_string()
-    } else {
-        format!("{}-wasm", crate_name)
-    };
-    let wasm_filename = format!("{}_bg.wasm", wasm_crate.replace('-', "_"));
+/// * `_crate_name` — the Rust crate name (unused in async init pattern)
+fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String {
     // The TypeScript renderer generates single-quoted imports; match both styles for robustness.
     let from_marker_sq = format!("}} from '{pkg_name}';");
     let from_marker_dq = format!("}} from \"{pkg_name}\";");
@@ -419,9 +408,9 @@ fn inject_wasm_init(content: &str, pkg_name: &str, crate_name: &str) -> String {
         from_marker_dq.clone()
     };
     let new_from = if from_marker == from_marker_sq {
-        format!(", initSync }} from '{pkg_name}';")
+        format!(", init }} from '{pkg_name}';")
     } else {
-        format!(", initSync }} from \"{pkg_name}\";")
+        format!(", init }} from \"{pkg_name}\";")
     };
 
     if let Some(import_pos) = content.find("import {") {
@@ -430,29 +419,19 @@ fn inject_wasm_init(content: &str, pkg_name: &str, crate_name: &str) -> String {
             let import_section = &content[import_pos..full_from_pos];
 
             // Already patched — nothing to do.
-            if import_section.contains("initSync") {
+            if import_section.contains("init") {
                 return content.to_string();
             }
 
             let new_import = import_section.replace(&from_marker, &new_from);
 
-            let init_code = format!(
-                r#"import fs from 'fs';
-import path from 'path';
-import {{ fileURLToPath }} from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const wasmPath = path.join(path.dirname(__filename), '../node_modules/{pkg_name}/{wasm_filename}');
-const wasmBuffer = fs.readFileSync(wasmPath);
-initSync({{ module: wasmBuffer }});
-"#
-            );
+            // Use top-level await with wasm-pack's async init() function.
+            let init_code = "await init();\n";
 
             return content[..import_pos].to_string()
                 + &new_import
                 + "\n"
-                + &init_code
-                + "\n"
+                + init_code
                 + &content[full_from_pos..];
         }
     }
