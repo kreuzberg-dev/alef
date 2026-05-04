@@ -356,7 +356,7 @@ fn render_test_file(
         call_args.iter().any(|a| a.arg_type == "mock_url")
     });
 
-    let needs_json_stringify = fixtures.iter().any(|f| {
+    let _needs_json_stringify = fixtures.iter().any(|f| {
         emits_executable_test(f)
             && f.assertions.iter().any(|a| {
                 matches!(
@@ -380,8 +380,7 @@ fn render_test_file(
     // Determine if we need "encoding/json" (handle args with non-null config,
     // json_object args that will be unmarshalled into a typed struct, or HTTP
     // body/partial/validation-error assertions that use json.Unmarshal).
-    let needs_json = needs_json_stringify
-        || fixtures.iter().any(|f| {
+    let needs_json = fixtures.iter().any(|f| {
             // HTTP body assertions use json.Unmarshal for Object/Array bodies;
             // partial body and validation-error assertions always use json.Unmarshal.
             if let Some(http) = &f.http {

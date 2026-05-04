@@ -935,6 +935,18 @@ fn json_array_to_csharp_list(arr: &[serde_json::Value], element_type: Option<&st
                 .collect();
             format!("new List<List<string>>() {{ {} }}", items.join(", "))
         }
+        Some(et) if et != "f32" && et != "(String, String)" && et != "string" => {
+            // Class/record types: deserialize each element from JSON
+            let items: Vec<String> = arr
+                .iter()
+                .map(|v| {
+                    let json_str = serde_json::to_string(v).unwrap_or_default();
+                    let escaped = escape_csharp(&json_str);
+                    format!("JsonSerializer.Deserialize<{et}>(\"{escaped}\", ConfigOptions)!")
+                })
+                .collect();
+            format!("new List<{et}>() {{ {} }}", items.join(", "))
+        }
         _ => {
             let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
             format!("new List<string>() {{ {} }}", items.join(", "))
