@@ -4,7 +4,7 @@ use crate::type_map::WasmMapper;
 use ahash::AHashSet;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_codegen::{generators, naming::to_node_name, shared};
-use alef_core::ir::MethodDef;
+use alef_core::ir::{MethodDef, TypeRef};
 
 use super::functions::{emit_rustdoc, format_param_unused, wasm_wrap_return};
 
@@ -59,12 +59,65 @@ pub(super) fn gen_method(
     }
 
     if method.is_async {
-        // WASM does not use optional promotion, so use gen_named_let_bindings_no_promote.
-        let let_bindings = if alef_codegen::generators::has_named_params(&method.params, opaque_types) {
-            alef_codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
+        // For async methods with named params, use JsValue parameters to avoid _assertClass errors
+        let has_named = alef_codegen::generators::has_named_params(&method.params, opaque_types);
+
+        let async_params: Vec<String> = if has_named {
+            method
+                .params
+                .iter()
+                .map(|p| match &p.ty {
+                    TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
+                        let mapped_ty = if p.optional {
+                            "Option<wasm_bindgen::JsValue>".to_string()
+                        } else {
+                            "wasm_bindgen::JsValue".to_string()
+                        };
+                        format!("{}: {}", p.name, mapped_ty)
+                    }
+                    _ => {
+                        let ty = mapper.map_type(&p.ty);
+                        let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+                        format!("{}: {}", p.name, mapped_ty)
+                    }
+                })
+                .collect()
         } else {
-            String::new()
+            params.clone()
         };
+
+        // Generate serde deserialization let-bindings for named non-opaque params
+        let mut serde_bindings = String::new();
+        if has_named {
+            for p in &method.params {
+                if let alef_core::ir::TypeRef::Named(name) = &p.ty {
+                    if !opaque_types.contains(name.as_str()) {
+                        let core_path = format!("{}::{}", core_import, name);
+                        let err_conv = ".map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))";
+                        if p.optional {
+                            serde_bindings.push_str(&format!(
+                                "let {n}_core: Option<{core_path}> = {n}.map(|v| \
+                                 serde_wasm_bindgen::from_value::<{core_path}>(v){err_conv})\
+                                 .transpose()?;\n    ",
+                                n = p.name,
+                                core_path = core_path,
+                                err_conv = err_conv,
+                            ));
+                        } else {
+                            serde_bindings.push_str(&format!(
+                                "let {n}_core: {core_path} = \
+                                 serde_wasm_bindgen::from_value::<{core_path}>({n}){err_conv}?;\n    ",
+                                n = p.name,
+                                core_path = core_path,
+                                err_conv = err_conv,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        let let_bindings = serde_bindings;
         let call_args = if let_bindings.is_empty() {
             generators::gen_call_args(&method.params, opaque_types)
         } else {
@@ -77,7 +130,7 @@ pub(super) fn gen_method(
         let body = if method.error_type.is_some() {
             format!(
                 "{let_bindings}let result = {core_call}.await\n        \
-                 .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
+                 .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;\n    \
                  Ok({}::from(result))",
                 return_type
             )
@@ -92,7 +145,7 @@ pub(super) fn gen_method(
             "{attrs}#[wasm_bindgen{js_name_attr}]\npub async fn {}(&self, {}) -> {} {{\n    \
              {body}\n}}",
             method.name,
-            params.join(", "),
+            async_params.join(", "),
             return_annotation
         )
     } else if method.is_static {
