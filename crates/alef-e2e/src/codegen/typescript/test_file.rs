@@ -518,10 +518,14 @@ fn build_args_and_setup(
             }
             Some(v) => {
                 if arg.arg_type == "json_object" {
-                    if let Some(opts_type) = options_type {
-                        // For empty objects, generate new OptionsType() instead of {} as OptionsType
+                    if v.is_array() {
+                        // Array args (e.g. batch items) are not the options/config arg — pass as-is.
+                        parts.push(json_to_js_camel(v));
+                    } else if let Some(opts_type) = options_type {
+                        // Object value with known options type — cast to the interface type.
                         if v.is_object() && v.as_object().is_some_and(|o| o.is_empty()) {
-                            parts.push(format!("new {}()", opts_type));
+                            // Options types in TypeScript are interfaces, not classes — use object literal cast.
+                            parts.push(format!("{{}} as {}", opts_type));
                         } else {
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
                         }

@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.21] - 2026-05-04
+
 ### Fixed
+
+- fix(e2e/go): remove `needs_json_stringify` from `needs_json` gating — `jsonString()` lives in `helpers_test.go` which has its own `encoding/json` import; individual test files no longer emit a spurious `import "encoding/json"` that the Go compiler rejects as unused.
+- fix(e2e/typescript): `json_object` args with array values (e.g. batch items) are no longer cast to the `options_type` — only non-array object args receive the interface cast.
+- fix(e2e/typescript): empty-object `json_object` args now emit `{} as OptionsType` (interface cast) instead of `new OptionsType()` (class instantiation); TypeScript options types are interfaces, not classes.
+- fix(e2e/csharp): `json_array_to_csharp_list` now handles typed class element types (e.g. `BatchBytesItem`) by emitting `JsonSerializer.Deserialize<T>(json, ConfigOptions)!` per element; previously fell through to `List<string>` which caused a compile error when the C# binding expects `List<T>`.
 
 - fix(e2e/wasm): `inject_wasm_init` now searches backward from `} from "pkg_name"` to locate the correct `import {` block; previously it matched the first `import {` in the file (the vitest import), corrupting the vitest import line.
 - fix(pyo3-backend): inject `from_json` staticmethod into the existing `#[pymethods]` block instead of emitting a second one; avoids requiring the `multiple-pymethods` pyo3 feature which is not enabled by default.
