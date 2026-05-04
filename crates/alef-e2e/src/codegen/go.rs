@@ -679,10 +679,20 @@ fn render_test_function(
         visitor_arg = "visitor".to_string();
     }
 
-    let final_args = if visitor_arg.is_empty() {
-        args_str
-    } else {
-        format!("{args_str}, {visitor_arg}")
+    let go_extra_args = overrides
+        .map(|o| o.extra_args.as_slice())
+        .unwrap_or(&[])
+        .to_vec();
+    let final_args = {
+        let mut parts: Vec<String> = Vec::new();
+        if !args_str.is_empty() {
+            parts.push(args_str);
+        }
+        parts.extend(go_extra_args);
+        if !visitor_arg.is_empty() {
+            parts.push(visitor_arg);
+        }
+        parts.join(", ")
     };
 
     let _ = writeln!(out, "func Test_{fn_name}(t *testing.T) {{");
