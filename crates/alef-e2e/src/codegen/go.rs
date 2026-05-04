@@ -941,11 +941,19 @@ fn render_test_function(
                 // Array results are slices (not pointers); assign directly without dereference.
                 let _ = writeln!(out, "\tvalue := {result_var}");
             } else {
-                // Emit nil check and dereference for simple pointer results.
-                let _ = writeln!(out, "\tif {result_var} == nil {{");
-                let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
-                let _ = writeln!(out, "\t}}");
-                let _ = writeln!(out, "\tvalue := *{result_var}");
+                // Check if ALL simple-result assertions are is_empty/is_null with no field.
+                // If so, skip dereference — we'll use the pointer directly.
+                let only_nil_assertions = fixture.assertions.iter()
+                    .filter(|a| a.field.as_ref().map_or(true, |f| f.is_empty()))
+                    .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
+
+                if !only_nil_assertions {
+                    // Emit nil check and dereference for simple pointer results.
+                    let _ = writeln!(out, "\tif {result_var} == nil {{");
+                    let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = writeln!(out, "\tvalue := *{result_var}");
+                }
             }
         }
     } else if !effective_returns_result || returns_void {
@@ -977,17 +985,35 @@ fn render_test_function(
                 // Array results are slices (not pointers); assign directly without dereference.
                 let _ = writeln!(out, "\tvalue := {}", result_var);
             } else {
-                // Emit nil check and dereference for simple pointer results.
-                let _ = writeln!(out, "\tif {} == nil {{", result_var);
-                let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
-                let _ = writeln!(out, "\t}}");
-                let _ = writeln!(out, "\tvalue := *{}", result_var);
+                // Check if ALL simple-result assertions are is_empty/is_null with no field.
+                // If so, skip dereference — we'll use the pointer directly.
+                let only_nil_assertions = fixture.assertions.iter()
+                    .filter(|a| a.field.as_ref().map_or(true, |f| f.is_empty()))
+                    .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
+
+                if !only_nil_assertions {
+                    // Emit nil check and dereference for simple pointer results.
+                    let _ = writeln!(out, "\tif {} == nil {{", result_var);
+                    let _ = writeln!(out, "\t\tt.Fatalf(\"expected non-nil result\")");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = writeln!(out, "\tvalue := *{}", result_var);
+                }
             }
         }
     }
 
-    // For result_is_simple functions, assertions reference `value` (the dereferenced result).
-    let effective_result_var = if result_is_simple && has_usable_assertion {
+    // For result_is_simple functions, determine if we created a dereferenced `value` variable.
+    // We skip dereferencing if all simple-result assertions are is_empty/is_null with no field.
+    let has_deref_value = if result_is_simple && has_usable_assertion && !result_is_array {
+        let only_nil_assertions = fixture.assertions.iter()
+            .filter(|a| a.field.as_ref().map_or(true, |f| f.is_empty()))
+            .all(|a| matches!(a.assertion_type.as_str(), "is_empty" | "is_null"));
+        !only_nil_assertions
+    } else {
+        result_is_simple && has_usable_assertion
+    };
+
+    let effective_result_var = if has_deref_value {
         "value".to_string()
     } else {
         result_var.to_string()
@@ -2056,7 +2082,12 @@ fn render_assertion(
                 let rn = field_resolver.resolve(rf);
                 field_resolver.is_array(rn)
             };
-            if is_optional && !field_is_array {
+            // Special case: result_is_simple && !result_is_array && no field means the result is a pointer.
+            // Empty means nil.
+            if result_is_simple && !result_is_array && assertion.field.as_ref().map_or(true, |f| f.is_empty()) {
+                // Pointer result (not dereferenced): empty means nil.
+                let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+            } else if is_optional && !field_is_array {
                 // Struct pointer: empty means nil.
                 let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
             } else if is_optional && field_is_slice {

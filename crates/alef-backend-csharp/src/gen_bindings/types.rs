@@ -27,9 +27,19 @@ pub(super) fn gen_opaque_handle(
 
     // Emit additional using directives when this opaque type has methods that need JSON/async.
     let has_methods = typ.methods.iter().any(|m| !streaming_methods.contains(&m.name));
+    let uses_list = |tr: &TypeRef| -> bool {
+        matches!(tr, TypeRef::Vec(_))
+            || matches!(tr, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)))
+    };
     if has_methods {
         out.push_str("using System.Text.Json;\n");
         out.push_str("using System.Text.Json.Serialization;\n");
+        let needs_list = typ.methods.iter().any(|m| {
+            uses_list(&m.return_type) || m.params.iter().any(|p| uses_list(&p.ty))
+        });
+        if needs_list {
+            out.push_str("using System.Collections.Generic;\n");
+        }
         if typ
             .methods
             .iter()
