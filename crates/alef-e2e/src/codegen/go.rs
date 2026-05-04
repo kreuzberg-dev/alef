@@ -127,17 +127,28 @@ impl E2eCodegen for GoCodegen {
             });
         }
 
-        // Generate main_test.go with TestMain when any fixture needs the mock server.
-        // This covers both `mock_response` fixtures (needs_mock_server) and client_factory
-        // fixtures that read MOCK_SERVER_URL.
-        let needs_main_test = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-            if f.needs_mock_server() {
-                return true;
-            }
-            let cc = e2e_config.resolve_call(f.call.as_deref());
-            let go_override = cc.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
-            go_override.and_then(|o| o.client_factory.as_deref()).is_some()
-        });
+        // Generate main_test.go with TestMain when:
+        // 1. Any fixture needs the mock server (has mock_response), or
+        // 2. Any fixture is client_factory-based (reads MOCK_SERVER_URL), or
+        // 3. Any fixture is file-based (requires test_documents directory setup).
+        //
+        // TestMain runs before all tests and changes to the test_documents directory,
+        // ensuring that relative file paths like "pdf/fake_memo.pdf" resolve correctly.
+        let has_file_fixtures = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .any(|f| f.http.is_none() && !f.needs_mock_server());
+
+        let needs_main_test = has_file_fixtures
+            || groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+                if f.needs_mock_server() {
+                    return true;
+                }
+                let cc = e2e_config.resolve_call(f.call.as_deref());
+                let go_override = cc.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
+                go_override.and_then(|o| o.client_factory.as_deref()).is_some()
+            });
+
         if needs_main_test {
             files.push(GeneratedFile {
                 path: output_base.join("main_test.go"),
@@ -253,36 +264,62 @@ fn render_main_test_go() -> String {
     let _ = writeln!(out, "func TestMain(m *testing.M) {{");
     let _ = writeln!(out, "\t_, filename, _, _ := runtime.Caller(0)");
     let _ = writeln!(out, "\tdir := filepath.Dir(filename)");
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "\t// Change to the test_documents directory so that fixture file paths like"
+    );
+    let _ = writeln!(
+        out,
+        "\t// \"pdf/fake_memo.pdf\" resolve correctly when running go test from e2e/go/."
+    );
+    let _ = writeln!(
+        out,
+        "\ttestDocumentsDir := filepath.Join(dir, \"..\", \"..\", \"test_documents\")"
+    );
+    let _ = writeln!(out, "\tif err := os.Chdir(testDocumentsDir); err != nil {{");
+    let _ = writeln!(out, "\t\tpanic(err)");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "\t// Start the mock HTTP server if it exists.");
     let _ = writeln!(
         out,
         "\tmockServerBin := filepath.Join(dir, \"..\", \"rust\", \"target\", \"release\", \"mock-server\")"
     );
-    let _ = writeln!(out, "\tfixturesDir := filepath.Join(dir, \"..\", \"..\", \"fixtures\")");
-    let _ = writeln!(out, "\tcmd := exec.Command(mockServerBin, fixturesDir)");
-    let _ = writeln!(out, "\tcmd.Stderr = os.Stderr");
-    let _ = writeln!(out, "\tstdout, err := cmd.StdoutPipe()");
-    let _ = writeln!(out, "\tif err != nil {{");
-    let _ = writeln!(out, "\t\tpanic(err)");
-    let _ = writeln!(out, "\t}}");
-    let _ = writeln!(out, "\tif err := cmd.Start(); err != nil {{");
-    let _ = writeln!(out, "\t\tpanic(err)");
-    let _ = writeln!(out, "\t}}");
-    let _ = writeln!(out, "\tscanner := bufio.NewScanner(stdout)");
-    let _ = writeln!(out, "\tfor scanner.Scan() {{");
-    let _ = writeln!(out, "\t\tline := scanner.Text()");
-    let _ = writeln!(out, "\t\tif strings.HasPrefix(line, \"MOCK_SERVER_URL=\") {{");
+    let _ = writeln!(out, "\tif _, err := os.Stat(mockServerBin); err == nil {{");
     let _ = writeln!(
         out,
-        "\t\t\t_ = os.Setenv(\"MOCK_SERVER_URL\", strings.TrimPrefix(line, \"MOCK_SERVER_URL=\"))"
+        "\t\tfixturesDir := filepath.Join(dir, \"..\", \"..\", \"fixtures\")"
     );
-    let _ = writeln!(out, "\t\t\tbreak");
+    let _ = writeln!(out, "\t\tcmd := exec.Command(mockServerBin, fixturesDir)");
+    let _ = writeln!(out, "\t\tcmd.Stderr = os.Stderr");
+    let _ = writeln!(out, "\t\tstdout, err := cmd.StdoutPipe()");
+    let _ = writeln!(out, "\t\tif err != nil {{");
+    let _ = writeln!(out, "\t\t\tpanic(err)");
     let _ = writeln!(out, "\t\t}}");
+    let _ = writeln!(out, "\t\tif err := cmd.Start(); err != nil {{");
+    let _ = writeln!(out, "\t\t\tpanic(err)");
+    let _ = writeln!(out, "\t\t}}");
+    let _ = writeln!(out, "\t\tscanner := bufio.NewScanner(stdout)");
+    let _ = writeln!(out, "\t\tfor scanner.Scan() {{");
+    let _ = writeln!(out, "\t\t\tline := scanner.Text()");
+    let _ = writeln!(out, "\t\t\tif strings.HasPrefix(line, \"MOCK_SERVER_URL=\") {{");
+    let _ = writeln!(
+        out,
+        "\t\t\t\t_ = os.Setenv(\"MOCK_SERVER_URL\", strings.TrimPrefix(line, \"MOCK_SERVER_URL=\"))"
+    );
+    let _ = writeln!(out, "\t\t\t\tbreak");
+    let _ = writeln!(out, "\t\t\t}}");
+    let _ = writeln!(out, "\t\t}}");
+    let _ = writeln!(out, "\t\tgo func() {{ _, _ = io.Copy(io.Discard, stdout) }}()");
+    let _ = writeln!(out, "\t\tcode := m.Run()");
+    let _ = writeln!(out, "\t\t_ = cmd.Process.Signal(os.Interrupt)");
+    let _ = writeln!(out, "\t\t_ = cmd.Wait()");
+    let _ = writeln!(out, "\t\tos.Exit(code)");
+    let _ = writeln!(out, "\t}} else {{");
+    let _ = writeln!(out, "\t\tcode := m.Run()");
+    let _ = writeln!(out, "\t\tos.Exit(code)");
     let _ = writeln!(out, "\t}}");
-    let _ = writeln!(out, "\tgo func() {{ _, _ = io.Copy(io.Discard, stdout) }}()");
-    let _ = writeln!(out, "\tcode := m.Run()");
-    let _ = writeln!(out, "\t_ = cmd.Process.Signal(os.Interrupt)");
-    let _ = writeln!(out, "\t_ = cmd.Wait()");
-    let _ = writeln!(out, "\tos.Exit(code)");
     let _ = writeln!(out, "}}");
     out
 }
