@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.15] - 2026-05-04
+
+### Fixed
+
+- fix(e2e/go-codegen): exclude mock-only fixtures from `needs_pkg` import check. Mock fixtures with no real function calls were incorrectly triggering conditional imports.
+
+- fix(e2e/ruby-scaffold): remove `[lints] workspace = true` from excluded-workspace Magnus Cargo.toml. The lints section is inherited from workspace config, but packages/ruby/ext/kreuzberg_rb/ is excluded from the workspace, so `workspace = true` failed with "cannot find workspace root". Removed the lints section from the generated Cargo.toml template.
+
+- fix(e2e/php-codegen): strip namespace prefix from class names in use statements. When class override contains a namespace (e.g. `Kreuzberg\Kreuzberg`), extract just the class name to avoid triple-nested namespaces like `use Kreuzberg\Kreuzberg\Kreuzberg;`. Now correctly emits `use Kreuzberg\Kreuzberg;`.
+
 ## [0.14.14] - 2026-05-04
 
 ### Fixed

@@ -46,6 +46,7 @@ impl E2eCodegen for PhpCodegen {
         let class_name = overrides
             .and_then(|o| o.class.as_ref())
             .cloned()
+            .map(|cn| cn.split('\\').next_back().unwrap_or(&cn).to_string())
             .unwrap_or_else(|| extension_name.to_upper_camel_case());
         let namespace = overrides.and_then(|o| o.module.as_ref()).cloned().unwrap_or_else(|| {
             if extension_name.contains('_') {
