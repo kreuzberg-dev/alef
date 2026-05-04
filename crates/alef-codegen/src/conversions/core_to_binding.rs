@@ -578,6 +578,56 @@ pub fn field_conversion_from_core_cfg(
         {
             format!("{name}: val.{name}.map(|v| v as f64)")
         }
+        // Vec<usize/u64/i64/isize/f32> needs element-wise f64 cast for extendr/R backend
+        TypeRef::Vec(inner)
+            if config.cast_large_ints_to_f64
+                && matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p)) =>
+        {
+            if optional {
+                format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as f64).collect())")
+            } else {
+                format!("{name}: val.{name}.iter().map(|&v| v as f64).collect()")
+            }
+        }
+        // Optional(Vec(usize/u64/i64/isize/f32)) needs element-wise f64 cast
+        TypeRef::Optional(inner)
+            if config.cast_large_ints_to_f64
+                && matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p))) =>
+        {
+            format!("{name}: val.{name}.as_ref().map(|v| v.iter().map(|&x| x as f64).collect())")
+        }
+        // Vec<Vec<usize/u64/i64/isize/f32>> needs nested element-wise f64 cast (embeddings)
+        TypeRef::Vec(outer)
+            if config.cast_large_ints_to_f64
+                && matches!(outer.as_ref(), TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p))) =>
+        {
+            if optional {
+                format!(
+                    "{name}: val.{name}.as_ref().map(|v| v.iter().map(|inner| inner.iter().map(|&x| x as f64).collect()).collect())"
+                )
+            } else {
+                format!("{name}: val.{name}.iter().map(|inner| inner.iter().map(|&x| x as f64).collect()).collect()")
+            }
+        }
+        // Optional(Vec<Vec<usize/u64/i64/isize/f32>>) needs nested element-wise f64 cast
+        TypeRef::Optional(inner)
+            if config.cast_large_ints_to_f64
+                && matches!(inner.as_ref(), TypeRef::Vec(outer) if matches!(outer.as_ref(), TypeRef::Vec(prim) if matches!(prim.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p)))) =>
+        {
+            format!(
+                "{name}: val.{name}.as_ref().map(|v| v.iter().map(|inner| inner.iter().map(|&x| x as f64).collect()).collect())"
+            )
+        }
+        // Map values that are usize/u64/i64/isize/f32 stored as f64 in binding → cast when reading core
+        TypeRef::Map(_k, v)
+            if config.cast_large_ints_to_f64 && matches!(v.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p)) =>
+        {
+            if optional {
+                format!("{name}: val.{name}.as_ref().map(|m| m.iter().map(|(k, v)| (k.clone(), *v as f64)).collect())")
+            } else {
+                format!("{name}: val.{name}.iter().map(|(k, v)| (k.clone(), *v as f64)).collect()")
+            }
+        }
         // Duration with f64 casting (R: no u64, use f64 millis)
         TypeRef::Duration if config.cast_large_ints_to_f64 => {
             if optional {

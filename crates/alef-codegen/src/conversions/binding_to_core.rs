@@ -167,7 +167,19 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 match &field.ty {
                     TypeRef::Optional(_) => format!("{}: ({expr}).map({newtype_path})", field.name),
                     TypeRef::Vec(_) => {
-                        format!("{}: ({expr}).into_iter().map({newtype_path}).collect()", field.name)
+                        // When the inner expr already ends with .collect() (e.g. because of a
+                        // primitive cast), the compiler cannot infer the intermediate Vec type
+                        // without an explicit type annotation. Use collect::<Vec<_>>() to make
+                        // the intermediate collection type unambiguous before mapping to newtype.
+                        let inner_expr = if let Some(prefix) = expr.strip_suffix(".collect()") {
+                            format!("{prefix}.collect::<Vec<_>>()")
+                        } else {
+                            expr.to_string()
+                        };
+                        format!(
+                            "{}: ({inner_expr}).into_iter().map({newtype_path}).collect()",
+                            field.name
+                        )
                     }
                     _ if field.optional => format!("{}: ({expr}).map({newtype_path})", field.name),
                     _ => format!("{}: {newtype_path}({expr})", field.name),
@@ -818,6 +830,21 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                     format!("{name}: val.{name}.map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
                 } else {
                     format!("{name}: val.{name}.into_iter().map(|v| v as {core_ty}).collect()")
+                }
+            } else {
+                field_conversion_to_core(name, ty, optional)
+            }
+        }
+        // Map<K, usize/u64/i64/isize/f32> needs value-wise f64→core casting (extendr)
+        TypeRef::Map(_k, v)
+            if config.cast_large_ints_to_f64 && matches!(v.as_ref(), TypeRef::Primitive(p) if needs_f64_cast(p)) =>
+        {
+            if let TypeRef::Primitive(p) = v.as_ref() {
+                let core_ty = core_prim_str(p);
+                if optional {
+                    format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v as {core_ty})).collect())")
+                } else {
+                    format!("{name}: val.{name}.into_iter().map(|(k, v)| (k, v as {core_ty})).collect()")
                 }
             } else {
                 field_conversion_to_core(name, ty, optional)

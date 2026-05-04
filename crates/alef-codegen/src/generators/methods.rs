@@ -1,5 +1,5 @@
 use crate::generators::binding_helpers::{
-    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_with_let_bindings,
+    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings,
     gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_named_let_bindings_pub,
     gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param,
     wrap_return_with_mutex,
@@ -104,6 +104,17 @@ pub fn gen_method(
         (
             gen_call_args_with_let_bindings(&method.params, opaque_types),
             gen_named_let_bindings_pub(&method.params, opaque_types, core_import),
+        )
+    } else if cfg.cast_uints_to_i32 || cfg.cast_large_ints_to_f64 {
+        // Use cast-aware call args for backends that remap numeric types (e.g. extendr).
+        (
+            gen_call_args_cfg(
+                &method.params,
+                opaque_types,
+                cfg.cast_uints_to_i32,
+                cfg.cast_large_ints_to_f64,
+            ),
+            String::new(),
         )
     } else {
         (gen_call_args(&method.params, opaque_types), String::new())
