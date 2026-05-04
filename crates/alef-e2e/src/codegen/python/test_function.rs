@@ -43,9 +43,7 @@ pub(super) fn render_test_function(
     let arg_name_map = python_override.map(|o| &o.arg_name_map);
 
     // Per-fixture call override takes precedence over the file-level value.
-    let effective_options_type = python_override
-        .and_then(|o| o.options_type.as_deref())
-        .or(options_type);
+    let effective_options_type = python_override.and_then(|o| o.options_type.as_deref()).or(options_type);
     let effective_options_via = python_override
         .and_then(|o| o.options_via.as_deref())
         .unwrap_or(options_via);
@@ -109,15 +107,20 @@ pub(super) fn render_test_function(
     let await_prefix = if is_async { "await " } else { "" };
 
     // Client factory: when configured, create a client and dispatch as a method.
-    // Point the client at MOCK_SERVER_URL/fixtures/<id> so the mock server serves
-    // the fixture response via prefix routing.
+    // Fixtures with mock_response point the client at the mock server via base_url so
+    // the fixture response is served via prefix routing.
+    // Fixtures without mock_response (real-API smoke tests) use no base_url override.
     let client_factory = resolve_client_factory(e2e_config);
     let call_expr = if let Some(ref factory) = client_factory {
-        let fixture_id = &fixture.id;
-        let _ = writeln!(
-            out,
-            "    client = {factory}(api_key=\"test-key\", base_url=os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\")"
-        );
+        if fixture.mock_response.is_some() || fixture.http.is_some() {
+            let fixture_id = &fixture.id;
+            let _ = writeln!(
+                out,
+                "    client = {factory}(api_key=\"test-key\", base_url=os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\")"
+            );
+        } else {
+            let _ = writeln!(out, "    client = {factory}(api_key=\"test-key\")");
+        }
         format!("{await_prefix}client.{function_name}({call_args_str})")
     } else {
         format!("{await_prefix}{function_name}({call_args_str})")
@@ -152,7 +155,10 @@ fn emit_error_assertion(out: &mut String, fixture: &Fixture, call_expr: &str) {
         let _ = writeln!(out, "        {call_expr}");
         if let Some(msg) = error_assertion.and_then(|a| a.value.as_ref()).and_then(|v| v.as_str()) {
             let escaped = escape_python(msg);
-            let _ = writeln!(out, "    assert \"{escaped}\" in type(exc_info.value).__name__  # noqa: S101");
+            let _ = writeln!(
+                out,
+                "    assert \"{escaped}\" in type(exc_info.value).__name__  # noqa: S101"
+            );
         }
     } else {
         let _ = writeln!(out, "    with pytest.raises(Exception):  # noqa: B017");
@@ -604,7 +610,16 @@ mod tests {
         let mut bindings = Vec::new();
         let mut exprs = Vec::new();
         let value = serde_json::json!({"key": "val"});
-        let done = emit_json_object_arg(&mut bindings, &mut exprs, &value, "opts", None, "dict", &HashMap::new(), &None);
+        let done = emit_json_object_arg(
+            &mut bindings,
+            &mut exprs,
+            &value,
+            "opts",
+            None,
+            "dict",
+            &HashMap::new(),
+            &None,
+        );
         assert!(done);
         assert!(bindings[0].contains("\"key\""), "got: {:?}", bindings[0]);
     }

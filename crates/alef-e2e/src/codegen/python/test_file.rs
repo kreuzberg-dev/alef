@@ -224,13 +224,6 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
             render_http_test_function(&mut out, fixture);
         } else if !is_skipped(fixture, "python") && fixture.assertions.is_empty() {
             emit_skipped_placeholder(&mut out, fixture);
-        } else if client_factory.is_some()
-            && fixture.mock_response.is_none()
-            && fixture.http.is_none()
-            && !is_skipped(fixture, "python")
-        {
-            // No mock response configured — calling the real server would fail in e2e tests.
-            emit_skipped_placeholder_no_mock(&mut out, fixture);
         } else {
             render_test_function(
                 &mut out,
@@ -287,23 +280,6 @@ fn emit_skipped_placeholder(out: &mut String, fixture: &Fixture) {
     let _ = writeln!(
         out,
         "@pytest.mark.skip(reason=\"no assertions configured for this fixture in python e2e\")"
-    );
-    let _ = writeln!(out, "def test_{fn_name}() -> None:");
-    let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
-}
-
-fn emit_skipped_placeholder_no_mock(out: &mut String, fixture: &Fixture) {
-    use crate::escape::sanitize_ident;
-    let fn_name = sanitize_ident(&fixture.id);
-    let description = &fixture.description;
-    let desc_with_period = if description.ends_with('.') {
-        description.to_string()
-    } else {
-        format!("{description}.")
-    };
-    let _ = writeln!(
-        out,
-        "@pytest.mark.skip(reason=\"no mock response configured for this fixture\")"
     );
     let _ = writeln!(out, "def test_{fn_name}() -> None:");
     let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
@@ -410,7 +386,10 @@ fn build_thirdparty_imports(
         }
     }
 
-    if let (true, Some(opts_type)) = (needs_options_type && (options_via == "kwargs" || options_via == "from_json"), options_type) {
+    if let (true, Some(opts_type)) = (
+        needs_options_type && (options_via == "kwargs" || options_via == "from_json"),
+        options_type,
+    ) {
         if options_via == "from_json" {
             // Import opts_type from the native bindings module (e.g., PyO3 _internal_bindings),
             // not the public module — it needs the native from_json() staticmethod.
