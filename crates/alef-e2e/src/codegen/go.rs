@@ -313,11 +313,15 @@ fn render_test_file(
                 matches!(
                     a.assertion_type.as_str(),
                     "contains" | "contains_all" | "contains_any" | "not_contains"
-                ) && a
-                    .field
-                    .as_ref()
-                    .map(|f| field_resolver.is_array(field_resolver.resolve(f)))
-                    .unwrap_or(false)
+                ) && {
+                    // Check if this assertion operates on an array field.
+                    // If no field is specified, check if the result itself is an array.
+                    let resolved_field = a.field.as_deref().unwrap_or("");
+                    let resolved_name = field_resolver.resolve(resolved_field);
+
+                    (resolved_field.is_empty() && e2e_config.resolve_call(f.call.as_deref()).result_is_array)
+                        || field_resolver.is_array(resolved_name)
+                }
             })
     });
 
@@ -401,9 +405,8 @@ fn render_test_file(
     });
 
     // Determine if we need the "fmt" import (CustomTemplate visitor actions
-    // with placeholders, string assertions rendered through fmt.Sprint so
-    // structured slices can be searched without assuming []string, or the
-    // jsonString helper function which uses fmt.Sprint).
+    // with placeholders, string assertions rendered through fmt.Sprint, or the
+    // jsonString helper function which uses fmt.Sprint to convert values).
     let needs_fmt = needs_json_stringify
         || fixtures.iter().any(|f| {
             f.visitor.as_ref().is_some_and(|v| {
@@ -419,11 +422,16 @@ fn render_test_file(
                     matches!(
                         a.assertion_type.as_str(),
                         "contains" | "contains_all" | "contains_any" | "not_contains"
-                    ) && a
-                        .field
-                        .as_ref()
-                        .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
-                        .unwrap_or(true)
+                    ) && {
+                        // Check if this assertion uses fmt.Sprint (non-array fields).
+                        // Array fields use jsonString instead.
+                        let resolved_field = a.field.as_deref().unwrap_or("");
+                        let resolved_name = field_resolver.resolve(resolved_field);
+                        let is_array = (resolved_field.is_empty()
+                            && e2e_config.resolve_call(f.call.as_deref()).result_is_array)
+                            || field_resolver.is_array(resolved_name);
+                        !is_array
+                    }
                 }))
         });
 

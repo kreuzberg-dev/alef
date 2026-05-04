@@ -256,17 +256,10 @@ pub(super) fn gen_rustler_wrap_return(
                 expr.to_string()
             }
         }
-        // Bytes (Vec<u8>): only apply .into() if the core returns a reference (&[u8]).
-        // If returns_ref is false, the core returns owned Vec<u8>, so no conversion needed.
-        TypeRef::Bytes => {
-            if returns_ref {
-                // Core returns &[u8], need to convert to Vec<u8>
-                format!("{expr}.into()")
-            } else {
-                // Core already returns Vec<u8>, no conversion needed
-                expr.to_string()
-            }
-        }
+        // Bytes (Vec<u8>): core may return `bytes::Bytes` or `Vec<u8>` or `&[u8]`.
+        // `.to_vec()` works for all three: owned Bytes→Vec<u8>, owned Vec<u8>→no-op clone,
+        // and &[u8]→Vec<u8>. This is safe to apply unconditionally.
+        TypeRef::Bytes => format!("{expr}.to_vec()"),
         TypeRef::Path => format!("{expr}.to_string_lossy().to_string()"),
         TypeRef::Duration => format!("{expr}.as_millis() as u64"),
         TypeRef::Json => format!("{expr}.to_string()"),

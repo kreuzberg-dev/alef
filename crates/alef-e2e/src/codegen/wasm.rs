@@ -50,13 +50,23 @@ impl E2eCodegen for WasmCodegen {
         let client_factory = overrides.and_then(|o| o.client_factory.as_deref());
 
         // Resolve package config — defaults to a co-located pkg/ directory shipped
-        // by `wasm-pack build` next to the kreuzberg-wasm crate.
+        // by `wasm-pack build` next to the wasm crate.
+        // For projects with a core library name different from the package name,
+        // try both {config.name}-wasm and ts-pack-core-wasm (for tree-sitter-language-pack).
         let wasm_pkg = e2e_config.resolve_package("wasm");
         let pkg_path = wasm_pkg
             .as_ref()
             .and_then(|p| p.path.as_ref())
             .cloned()
-            .unwrap_or_else(|| format!("../../crates/{}-wasm/pkg", config.name));
+            .unwrap_or_else(|| {
+                let default_name = format!("../../crates/{}-wasm/pkg", config.name);
+                // Special case: tree-sitter-language-pack uses ts-pack-core-wasm
+                if config.name == "tree-sitter-language-pack" {
+                    "../../crates/ts-pack-core-wasm/pkg".to_string()
+                } else {
+                    default_name
+                }
+            });
         let pkg_name = wasm_pkg
             .as_ref()
             .and_then(|p| p.name.as_ref())

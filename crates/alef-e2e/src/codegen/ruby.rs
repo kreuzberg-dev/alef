@@ -3,6 +3,7 @@
 //! Generates `e2e/ruby/Gemfile` and `spec/{category}_spec.rb` files from
 //! JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
+use crate::codegen::resolve_field;
 use crate::config::E2eConfig;
 use crate::escape::{ruby_string_literal, sanitize_filename, sanitize_ident};
 use crate::field_access::FieldResolver;
@@ -401,6 +402,10 @@ fn render_spec_file(
                 let fixture_client_factory = fixture_call_overrides
                     .and_then(|o| o.client_factory.as_deref())
                     .or(client_factory);
+                // Per-fixture options_type: prefer fixture-level override, then global default.
+                let fixture_options_type = fixture_call_overrides
+                    .and_then(|o| o.options_type.as_deref())
+                    .or(options_type);
                 render_example(
                     &mut out,
                     fixture,
@@ -409,7 +414,7 @@ fn render_spec_file(
                     fixture_result_var,
                     fixture_args,
                     field_resolver,
-                    options_type,
+                    fixture_options_type,
                     enum_fields,
                     result_is_simple,
                     e2e_config,
@@ -804,8 +809,7 @@ fn build_args_and_setup(
             skipped_optional_count = 0;
             // Generate a create_engine (or equivalent) call and pass the variable.
             let constructor_name = format!("create_{}", arg.name.to_snake_case());
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
+            let config_value = resolve_field(input, &arg.field);
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
@@ -824,8 +828,8 @@ fn build_args_and_setup(
             continue;
         }
 
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        let resolved = resolve_field(input, &arg.field);
+        let val = if resolved.is_null() { None } else { Some(resolved) };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Optional arg with no fixture value: defer; emit nil only if a later arg is present.

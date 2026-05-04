@@ -203,13 +203,13 @@ fn render_composer_json(
     e2e_pkg_name: &str,
     e2e_autoload_ns: &str,
     pkg_name: &str,
-    _pkg_path: &str,
+    pkg_path: &str,
     pkg_version: &str,
     dep_mode: crate::config::DependencyMode,
 ) -> String {
-    let require_section = match dep_mode {
+    let (require_section, autoload_section) = match dep_mode {
         crate::config::DependencyMode::Registry => {
-            format!(
+            let require = format!(
                 r#"  "require": {{
     "{pkg_name}": "{pkg_version}"
   }},
@@ -219,16 +219,40 @@ fn render_composer_json(
   }},"#,
                 phpunit = tv::packagist::PHPUNIT,
                 guzzle = tv::packagist::GUZZLE,
-            )
+            );
+            (require, String::new())
         }
-        crate::config::DependencyMode::Local => format!(
-            r#"  "require-dev": {{
+        crate::config::DependencyMode::Local => {
+            let require = format!(
+                r#"  "require-dev": {{
     "phpunit/phpunit": "{phpunit}",
     "guzzlehttp/guzzle": "{guzzle}"
   }},"#,
-            phpunit = tv::packagist::PHPUNIT,
-            guzzle = tv::packagist::GUZZLE,
-        ),
+                phpunit = tv::packagist::PHPUNIT,
+                guzzle = tv::packagist::GUZZLE,
+            );
+            // For local mode, add autoload for the local package source.
+            // Extract the namespace from pkg_name (org/module) and map it to src/.
+            let pkg_namespace = pkg_name
+                .split('/')
+                .nth(1)
+                .unwrap_or(pkg_name)
+                .split('-')
+                .map(heck::ToUpperCamelCase::to_upper_camel_case)
+                .collect::<Vec<_>>()
+                .join("\\");
+            let autoload = format!(
+                r#"
+  "autoload": {{
+    "psr-4": {{
+      "{}\\": "{}/src/"
+    }}
+  }},"#,
+                pkg_namespace.replace('\\', "\\\\"),
+                pkg_path
+            );
+            (require, autoload)
+        }
     };
 
     format!(
@@ -236,7 +260,7 @@ fn render_composer_json(
   "name": "{e2e_pkg_name}",
   "description": "E2e tests for PHP bindings",
   "type": "project",
-{require_section}
+{require_section}{autoload_section}
   "autoload-dev": {{
     "psr-4": {{
       "{e2e_autoload_ns}": "tests/"

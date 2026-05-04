@@ -597,9 +597,19 @@ pub(super) fn gen_nif_method(
                 params.push(format!("{}: rustler::ResourceArc<{}>", p.name, n));
                 continue;
             }
+            // Optional Named non-opaque params must be Option<T> so callers can
+            // pass nil (Elixir) and the NIF receives None rather than a decode error.
+            if p.optional {
+                params.push(format!("{}: Option<{}>", p.name, n));
+                continue;
+            }
         }
         let param_type = mapper.map_type(&p.ty);
-        params.push(format!("{}: {}", p.name, param_type));
+        if p.optional {
+            params.push(format!("{}: Option<{}>", p.name, param_type));
+        } else {
+            params.push(format!("{}: {}", p.name, param_type));
+        }
     }
 
     let return_type = super::helpers::map_return_type(&method.return_type, mapper, opaque_types);
@@ -743,9 +753,19 @@ pub(super) fn gen_nif_async_method(
                 params.push(format!("{}: rustler::ResourceArc<{}>", p.name, n));
                 continue;
             }
+            // Optional Named non-opaque params must be Option<T> so callers can
+            // pass nil (Elixir) and the NIF receives None rather than a decode error.
+            if p.optional {
+                params.push(format!("{}: Option<{}>", p.name, n));
+                continue;
+            }
         }
         let param_type = mapper.map_type(&p.ty);
-        params.push(format!("{}: {}", p.name, param_type));
+        if p.optional {
+            params.push(format!("{}: Option<{}>", p.name, param_type));
+        } else {
+            params.push(format!("{}: {}", p.name, param_type));
+        }
     }
 
     let return_type = super::helpers::map_return_type(&method.return_type, mapper, opaque_types);
