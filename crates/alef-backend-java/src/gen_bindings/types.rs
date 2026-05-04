@@ -60,7 +60,13 @@ pub(crate) fn gen_record_type(
         let has_nullable = f.optional;
 
         let mut decl = String::new();
-        if has_nullable {
+        // Java type annotations on a fully-qualified type (e.g. `java.nio.file.Path`)
+        // must appear AT the simple-name segment, not before the package prefix:
+        //   wrong:   `@Nullable java.nio.file.Path`
+        //   right:   `java.nio.file.@Nullable Path`
+        // For unqualified types, the leading-position annotation is fine.
+        let nullable_at_leading_pos = has_nullable && !ftype.contains('.');
+        if nullable_at_leading_pos {
             decl.push_str("@Nullable ");
         }
         if needs_non_null {
@@ -69,7 +75,18 @@ pub(crate) fn gen_record_type(
         if has_json_property {
             decl.push_str(&format!("@JsonProperty(\"{}\") ", f.name));
         }
-        decl.push_str(&format!("{} {}", ftype, jname));
+        if has_nullable && !nullable_at_leading_pos {
+            // Fully-qualified type: insert `@Nullable` at the last package boundary.
+            if let Some(idx) = ftype.rfind('.') {
+                let (pkg, simple) = ftype.split_at(idx);
+                let simple = simple.trim_start_matches('.');
+                decl.push_str(&format!("{pkg}.@Nullable {simple} {jname}"));
+            } else {
+                decl.push_str(&format!("@Nullable {ftype} {jname}"));
+            }
+        } else {
+            decl.push_str(&format!("{} {}", ftype, jname));
+        }
 
         if i > 0 {
             fields_joined.push_str(", ");
