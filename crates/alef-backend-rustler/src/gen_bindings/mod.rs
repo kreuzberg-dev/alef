@@ -557,7 +557,11 @@ impl Backend for RustlerBackend {
         content.push_str(&format!("  @moduledoc \"High-level API for {app_name}.\"\n\n"));
 
         // Wrapper functions for top-level API functions
-        for func in &api.functions {
+        for func in api
+            .functions
+            .iter()
+            .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        {
             let nif_fn_name = if func.is_async {
                 let s = func.name.to_snake_case();
                 if s.ends_with("_async") { s } else { format!("{s}_async") }
