@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(napi-backend): force `is_param_optional = true` in bridge functions so options parameters are always treated as `Option<T>` regardless of whether the IR marks them as non-optional.
 - fix(php-backend): add `#[serde(default)]` struct attribute when `has_serde` is enabled, so `from_json()` accepts partial JSON and missing fields use `Default` values instead of failing deserialization.
 - fix(php-backend): always emit `from_json` for has_default structs when `has_serde` is true, preventing broken `__construct` methods with invalid Rust enum defaults (e.g. `BrowserMode::Auto`) that don't exist in the PHP binding's string-mapped enum model.
+- fix(e2e/go): `is_empty` assertions on pointer-to-struct results now generate `if result != nil { ... }` instead of dereferencing and calling `len()` on a struct, which was both invalid and panicked on nil.
+- fix(csharp-backend): add `using System.Collections.Generic;` to generated opaque type source files when any method has a `Vec<T>` parameter or return type.
 
 ## [0.14.19] - 2026-05-04
 
