@@ -875,6 +875,44 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             // Non-enum field (may reference other tainted types, which have their own From)
             let conversion =
                 alef_codegen::conversions::field_conversion_to_core_cfg(name, &field.ty, field.optional, config);
+            // Newtype wrapping: when field was resolved from a newtype (e.g. NodeIndex → String),
+            // wrap the binding value back into the newtype for the core struct.
+            let conversion = if let Some(newtype_path) = &field.newtype_wrapper {
+                if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                    match &field.ty {
+                        TypeRef::Optional(_) => format!("{name}: ({expr}).map({newtype_path})"),
+                        TypeRef::Vec(_) => format!("{name}: ({expr}).into_iter().map({newtype_path}).collect()"),
+                        _ if field.optional => format!("{name}: ({expr}).map({newtype_path})"),
+                        _ => format!("{name}: {newtype_path}({expr})"),
+                    }
+                } else {
+                    conversion
+                }
+            } else {
+                conversion
+            };
+            // Box<T> fields: wrap the converted value in Box::new().
+            let conversion = if field.is_boxed && matches!(&field.ty, TypeRef::Named(_)) {
+                if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
+                    if field.optional {
+                        format!("{name}: {expr}.map(Box::new)")
+                    } else {
+                        format!("{name}: Box::new({expr})")
+                    }
+                } else {
+                    conversion
+                }
+            } else {
+                conversion
+            };
+            // Apply core wrapper handling (Cow/Arc/Bytes; vec_inner_core_wrapper for Vec<Arc<T>>)
+            let conversion = alef_codegen::conversions::apply_core_wrapper_to_core(
+                &conversion,
+                name,
+                &field.core_wrapper,
+                &field.vec_inner_core_wrapper,
+                field.optional,
+            );
             writeln!(out, "            {conversion},").ok();
         }
     }

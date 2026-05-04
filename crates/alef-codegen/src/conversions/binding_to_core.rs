@@ -830,7 +830,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
 
 /// Apply CoreWrapper transformations to a binding→core conversion expression.
 /// Wraps the value expression with Arc::new(), .into() for Cow, etc.
-fn apply_core_wrapper_to_core(
+pub fn apply_core_wrapper_to_core(
     conversion: &str,
     name: &str,
     core_wrapper: &CoreWrapper,
