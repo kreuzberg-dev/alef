@@ -322,9 +322,49 @@ pub(super) fn gen_api_py(
             "    \"\"\"Convert Python {type_name} to Rust binding type.\"\"\"\n"
         ));
         // Allow dict input as a convenience (callers may pass a literal `{...}` instead
-        // of constructing the dataclass). Coerce to the dataclass before reading attrs.
+        // of constructing the dataclass). Coerce enum fields in the dict before constructing.
         out.push_str(&format!(
-            "    if isinstance(value, dict):\n        value = {type_name}(**value)\n"
+            "    if isinstance(value, dict):\n"
+        ));
+        let has_enum_field = typ.fields.iter().any(|f| {
+            let inner_name = match &f.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            inner_name.map_or(false, |n| enum_names.contains(n) && !data_enum_names.contains(n))
+        });
+        if has_enum_field {
+            for field in &typ.fields {
+                let inner_name = match &field.ty {
+                    TypeRef::Named(n) => Some(n.as_str()),
+                    TypeRef::Optional(inner) => {
+                        if let TypeRef::Named(n) = inner.as_ref() {
+                            Some(n.as_str())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(enum_name) = inner_name {
+                    if enum_names.contains(enum_name) && !data_enum_names.contains(enum_name) {
+                        out.push_str(&format!(
+                            "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _coerce_enum(_rust.{enum_name}, value[\"{field_name}\"])\n",
+                            field_name = field.name,
+                        ));
+                    }
+                }
+            }
+        }
+        out.push_str(&format!(
+            "        value = {type_name}(**value)\n"
         ));
         out.push_str("    if value is None:\n");
         if let Some((kwarg_name, _field_name, _)) = bridge_visitor_field {

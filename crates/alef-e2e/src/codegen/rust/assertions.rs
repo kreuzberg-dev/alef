@@ -201,10 +201,11 @@ pub fn render_assertion(
                 // `Ok: Debug` requirement — `BoxStream` (for streaming calls) does
                 // not implement `Debug`, which would cause a compile error.
                 // Use `to_string()` which includes the error prefix (e.g., "unauthorized: ...", "timeout: ...").
-                let _ = writeln!(
-                    out,
+                let line = format!(
                     "    assert!({result_var}.as_ref().err().unwrap().to_string().contains(\"{escaped}\"), \"error message mismatch\");"
                 );
+                eprintln!("DEBUG: rendered error assertion: {}", line);
+                let _ = writeln!(out, "{}", line);
             }
         }
         "not_error" => {

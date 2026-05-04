@@ -1202,17 +1202,9 @@ fn render_assertion(
                 // return @Nullable String, not Optional<String>. We detect this by checking
                 // if the field path contains a dot (nested access).
                 if field_resolver.is_optional(resolved) && !field_resolver.has_map_access(f) {
-                    // For direct optional fields (no dot in path), the accessor returns Optional<T>.
-                    // For nested optional fields (dot in path), the accessor returns nullable type,
-                    // so we need to wrap in Optional.ofNullable().
-                    let is_nested = f.contains('.');
-                    let optional_expr = if is_nested {
-                        // Wrap nullable nested fields in Optional.ofNullable()
-                        format!("java.util.Optional.ofNullable({accessor})")
-                    } else {
-                        // Direct optional fields already return Optional<T>
-                        accessor.clone()
-                    };
+                    // All nullable fields in the Java binding return @Nullable types, not Optional<T>.
+                    // Wrap them in Optional.ofNullable() so e2e tests can use .orElse() fallbacks.
+                    let optional_expr = format!("java.util.Optional.ofNullable({accessor})");
                     match assertion.assertion_type.as_str() {
                         // For not_empty / is_empty on Optional fields, return the raw Optional
                         // so the assertion arms can call isPresent()/isEmpty().
