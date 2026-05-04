@@ -54,7 +54,7 @@ rayon = { workspace = true }
 regex = { workspace = true }
 semver = { workspace = true }
 serde_json = { workspace = true }
-similar = "2"
+similar = "3"
 toml = { workspace = true }
 toml_edit = { workspace = true }
 tracing = { workspace = true }
