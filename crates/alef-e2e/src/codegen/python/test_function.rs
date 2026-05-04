@@ -118,6 +118,21 @@ pub(super) fn render_test_function(
                 out,
                 "    client = {factory}(api_key=\"test-key\", base_url=os.environ[\"MOCK_SERVER_URL\"] + \"/fixtures/{fixture_id}\")"
             );
+        } else if let Some(api_key_var) = fixture
+            .env
+            .as_ref()
+            .and_then(|e| e.api_key_var.as_deref())
+        {
+            let _ = writeln!(out, "    api_key = os.environ.get(\"{api_key_var}\")");
+            let _ = writeln!(
+                out,
+                "    if not api_key:  # noqa: SIM102"
+            );
+            let _ = writeln!(
+                out,
+                "        pytest.skip(\"{api_key_var} not set\")"
+            );
+            let _ = writeln!(out, "    client = {factory}(api_key=api_key)");
         } else {
             let _ = writeln!(out, "    client = {factory}(api_key=\"test-key\")");
         }

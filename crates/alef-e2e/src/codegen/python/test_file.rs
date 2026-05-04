@@ -77,7 +77,10 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
             per_fixture_override.unwrap_or(cc.r#async)
         }) || e2e_config.call.r#async
     });
-    let needs_pytest = has_error_test || has_skipped || is_async;
+    let has_env_api_key = fixtures
+        .iter()
+        .any(|f| f.env.as_ref().and_then(|e| e.api_key_var.as_ref()).is_some());
+    let needs_pytest = has_error_test || has_skipped || is_async || has_env_api_key;
 
     let needs_json_import = effective_options_via == "json"
         && fixtures.iter().any(|f| {
