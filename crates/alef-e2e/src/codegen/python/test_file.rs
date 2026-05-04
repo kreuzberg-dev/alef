@@ -52,7 +52,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     }) || e2e_config.call.r#async;
     let needs_pytest = has_error_test || has_skipped || is_async;
 
-    let needs_json_import = options_via == "json"
+    let needs_json_import = (options_via == "json" || options_via == "from_json")
         && fixtures.iter().any(|f| {
             e2e_config
                 .call
@@ -89,7 +89,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
 
     let _ = has_http_tests;
 
-    let needs_options_type = options_via == "kwargs"
+    let needs_options_type = (options_via == "kwargs" || options_via == "from_json")
         && options_type.is_some()
         && fixtures.iter().any(|f| {
             e2e_config
@@ -343,7 +343,7 @@ fn build_thirdparty_imports(
         }
     }
 
-    if let (true, Some(opts_type)) = (needs_options_type && options_via == "kwargs", options_type) {
+    if let (true, Some(opts_type)) = (needs_options_type && (options_via == "kwargs" || options_via == "from_json"), options_type) {
         import_names.push(opts_type.clone());
         thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
         if !used_enum_types.is_empty() {

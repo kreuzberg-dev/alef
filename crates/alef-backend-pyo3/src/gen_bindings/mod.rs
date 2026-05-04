@@ -506,6 +506,26 @@ impl<'py> pyo3::conversion::IntoPyObject<'py> for PyVisitorRef {
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }
+                // Add from_json staticmethod when serde is available and a core→binding
+                // conversion exists. Uses core type deserialization to bypass fields with
+                // #[serde(skip)] (e.g. Vec<Message> in ChatCompletionRequest).
+                if has_serde
+                    && alef_codegen::conversions::core_to_binding_convertible_types(api)
+                        .contains(&typ.name)
+                {
+                    let core_path = alef_codegen::conversions::core_type_path(typ, &core_import);
+                    let type_name = &typ.name;
+                    let from_json_block = format!(
+                        "#[pymethods]\nimpl {type_name} {{\n    \
+                         #[staticmethod]\n    \
+                         fn from_json(json_str: String) -> pyo3::PyResult<Self> {{\n        \
+                         serde_json::from_str::<{core_path}>(&json_str)\n            \
+                         .map(Into::into)\n            \
+                         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))\n    \
+                         }}\n}}"
+                    );
+                    builder.add_item(&from_json_block);
+                }
             }
         }
         for e in &api.enums {

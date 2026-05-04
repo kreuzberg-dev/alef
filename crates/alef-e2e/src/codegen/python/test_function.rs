@@ -286,6 +286,7 @@ fn build_args_and_setup(
                 options_type,
                 options_via,
                 enum_fields,
+                &arg.element_type,
             )
         {
             continue;
@@ -413,9 +414,33 @@ fn emit_json_object_arg(
     options_type: Option<&str>,
     options_via: &str,
     enum_fields: &HashMap<String, String>,
+    element_type: &Option<String>,
 ) -> bool {
     match options_via {
         "dict" => {
+            // When we have an array of objects and an element_type, construct typed instances.
+            if let (Some(elem_type), Some(arr)) = (element_type, value.as_array()) {
+                if !arr.is_empty() && arr.iter().all(|v| v.is_object()) {
+                    let items: Vec<String> = arr
+                        .iter()
+                        .filter_map(|v| v.as_object())
+                        .map(|obj| {
+                            let kwargs: Vec<String> = obj
+                                .iter()
+                                .map(|(k, v)| {
+                                    let snake_key = k.to_snake_case();
+                                    format!("{snake_key}={}", json_to_python_literal(v))
+                                })
+                                .collect();
+                            format!("{elem_type}({})", kwargs.join(", "))
+                        })
+                        .collect();
+                    arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
+                    kwarg_exprs.push(var_name.to_string());
+                    return true;
+                }
+            }
+            // Fall through to default dict behavior
             let literal = json_to_python_literal(value);
             let noqa = if literal.contains("/tmp/") {
                 "  # noqa: S108"
@@ -432,6 +457,17 @@ fn emit_json_object_arg(
             arg_bindings.push(format!("    {var_name} = json.loads(\"{escaped}\")"));
             kwarg_exprs.push(var_name.to_string());
             true
+        }
+        "from_json" => {
+            if let Some(opts_type) = options_type {
+                let json_str = serde_json::to_string(value).unwrap_or_default();
+                let escaped = escape_python(&json_str);
+                arg_bindings.push(format!("    {var_name} = {opts_type}.from_json(\"{escaped}\")"));
+                kwarg_exprs.push(var_name.to_string());
+                true
+            } else {
+                false
+            }
         }
         _ => {
             // "kwargs" mode
@@ -560,7 +596,7 @@ mod tests {
         let mut bindings = Vec::new();
         let mut exprs = Vec::new();
         let value = serde_json::json!({"key": "val"});
-        let done = emit_json_object_arg(&mut bindings, &mut exprs, &value, "opts", None, "dict", &HashMap::new());
+        let done = emit_json_object_arg(&mut bindings, &mut exprs, &value, "opts", None, "dict", &HashMap::new(), &None);
         assert!(done);
         assert!(bindings[0].contains("\"key\""), "got: {:?}", bindings[0]);
     }
