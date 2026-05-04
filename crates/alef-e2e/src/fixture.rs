@@ -57,6 +57,14 @@ pub enum CallbackAction {
     },
 }
 
+/// Environment variable requirements for a smoke/live test fixture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FixtureEnv {
+    /// Name of the env var that holds the API key (e.g. `"OPENAI_API_KEY"`).
+    #[serde(default)]
+    pub api_key_var: Option<String>,
+}
+
 /// A single e2e test fixture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Fixture {
@@ -73,6 +81,9 @@ pub struct Fixture {
     /// Skip directive.
     #[serde(default)]
     pub skip: Option<SkipDirective>,
+    /// Environment variable requirements (used by smoke/live tests).
+    #[serde(default)]
+    pub env: Option<FixtureEnv>,
     /// Named call config to use (references `[e2e.calls.<name>]`).
     /// When omitted, uses the default `[e2e.call]`.
     #[serde(default)]
