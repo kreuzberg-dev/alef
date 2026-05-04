@@ -608,7 +608,12 @@ fn build_command_for(
         }
         "wasm-pack" => {
             let profile = if release { "--release" } else { "--dev" };
-            format!("wasm-pack build {crate_dir} {profile} --target bundler")
+            // `web` target exposes a default `init(wasm_bytes_or_url)` function which
+            // both the e2e test runner and a typical web app use; `bundler` produces a
+            // package that auto-initializes on import and has no `init` default export.
+            // The e2e test codegen calls `init(wasmBytes)` explicitly, so `web` is the
+            // matching target.
+            format!("wasm-pack build {crate_dir} {profile} --target web")
         }
         "cargo" => {
             // Check for a standalone crate directory (e.g., Ruby's native/ subdir,
