@@ -1118,8 +1118,16 @@ fn render_assertion(
         }
     }
 
-    // When the result is a List<T>, index into the first element for field access.
-    let effective_result_var: String = if result_is_vec {
+    // For count assertions on list results with no field specified, use the list directly.
+    // Otherwise, when the result is a List<T>, index into the first element for field access.
+    let is_count_assertion = matches!(
+        assertion.assertion_type.as_str(),
+        "count_equals" | "count_min" | "count_max"
+    );
+    let is_no_field = assertion.field.is_none() || assertion.field.as_ref().is_some_and(|f| f.is_empty());
+    let use_list_directly = result_is_vec && is_count_assertion && is_no_field;
+
+    let effective_result_var: String = if result_is_vec && !use_list_directly {
         format!("{result_var}[0]")
     } else {
         result_var.to_string()
