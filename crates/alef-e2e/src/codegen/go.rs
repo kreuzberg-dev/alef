@@ -1305,8 +1305,12 @@ fn build_args_and_setup(
             continue;
         }
 
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        let val: Option<&serde_json::Value> = if arg.field == "input" {
+            Some(input)
+        } else {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            input.get(field)
+        };
 
         // Handle bytes type: fixture stores base64-encoded bytes.
         // Emit a Go base64.StdEncoding.DecodeString call to decode at runtime.
@@ -1755,10 +1759,11 @@ fn render_assertion(
                 // For string equality, trim whitespace to handle trailing newlines from the converter.
                 if expected.is_string() {
                     // Wrap field expression with strings.TrimSpace() for string comparisons.
+                    // Use string() cast to handle named string types (e.g. BatchStatus, FinishReason).
                     let trimmed_field = if is_optional && !field_expr.starts_with("len(") {
-                        format!("strings.TrimSpace(*{field_expr})")
+                        format!("strings.TrimSpace(string(*{field_expr}))")
                     } else {
-                        format!("strings.TrimSpace({field_expr})")
+                        format!("strings.TrimSpace(string({field_expr}))")
                     };
                     if is_optional && !field_expr.starts_with("len(") {
                         let _ = writeln!(out_ref, "\tif {field_expr} != nil && {trimmed_field} != {go_val} {{");
