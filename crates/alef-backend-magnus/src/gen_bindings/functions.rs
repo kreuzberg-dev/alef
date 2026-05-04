@@ -419,18 +419,19 @@ fn magnus_serde_let_bindings(
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
                 // Generic Vec<T> where T is a struct type (e.g., Vec<BatchFileItem>):
-                // Convert from magnus::Value via JSON serde to the core Vec type.
+                // The parameter is already a typed Vec<wrapper>; convert each wrapper
+                // element into the core type via the generated `From<wrapper> for core` impl.
                 if let TypeRef::Named(name) = inner.as_ref() {
                     let core_inner_ty = format!("{core_import}::{name}");
                     let vec_ty = format!("Vec<{core_inner_ty}>");
                     if p.optional {
                         out.push(format!(
-                            "let {n}_core: Option<{vec_ty}> = {n}.map(|v| {{ let s: String = v.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err}) }}).transpose()?;",
+                            "let {n}_core: Option<{vec_ty}> = {n}.map(|v| v.into_iter().map(Into::into).collect());",
                             n = p.name,
                         ));
                     } else {
                         out.push(format!(
-                            "let {n}_core: {vec_ty} = {{ let s: String = {n}.funcall(\"to_json\", ())?; serde_json::from_str(&s).map_err(|e| {err})? }};",
+                            "let {n}_core: {vec_ty} = {n}.into_iter().map(Into::into).collect();",
                             n = p.name,
                         ));
                     }
