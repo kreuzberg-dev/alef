@@ -844,8 +844,14 @@ fn build_args_and_setup(
             continue;
         }
 
-        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-        let val = input.get(field);
+        // When field is exactly "input", treat the entire input object as the value.
+        // This matches the convention used by other language generators (e.g. Go).
+        let val: Option<&serde_json::Value> = if arg.field == "input" {
+            Some(input)
+        } else {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            input.get(field)
+        };
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
                 // Optional arg with no fixture value: pass null explicitly since
@@ -855,11 +861,20 @@ fn build_args_and_setup(
             }
             None | Some(serde_json::Value::Null) => {
                 // Required arg with no fixture value: pass a language-appropriate default.
+                // For json_object args with a known options_type, use `new OptionsType()`
+                // so the generated code compiles when the method parameter is non-nullable.
                 let default_val = match arg.arg_type.as_str() {
                     "string" => "\"\"".to_string(),
                     "int" | "integer" => "0".to_string(),
                     "float" | "number" => "0.0d".to_string(),
                     "bool" | "boolean" => "false".to_string(),
+                    "json_object" => {
+                        if let Some(opts_type) = options_type {
+                            format!("new {opts_type}()")
+                        } else {
+                            "null".to_string()
+                        }
+                    }
                     _ => "null".to_string(),
                 };
                 parts.push(default_val);
