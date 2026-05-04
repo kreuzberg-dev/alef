@@ -212,13 +212,25 @@ pub fn update(config: &ResolvedCrateConfig, languages: &[Language], latest: bool
 /// When `e2e` is true, also runs e2e test commands.
 pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, coverage: bool) -> anyhow::Result<()> {
     // Compute pdfium dylib path from the workspace target directory.
-    // This ensures pdfium-render can dlopen libpdfium.dylib at runtime.
-    let pdfium_dylib_path = compute_pdfium_path();
-    let env_vars: Vec<(&str, String)> = if let Some(path) = pdfium_dylib_path {
-        vec![("PDFIUM_DYNAMIC_LIB_PATH", path)]
-    } else {
-        vec![]
-    };
+    // Set DYLD_LIBRARY_PATH/LD_LIBRARY_PATH so pdfium-render can dlopen libpdfium.dylib at runtime.
+    let pdfium_dir = compute_pdfium_dir();
+    let mut env_vars: Vec<(&str, String)> = Vec::new();
+
+    if let Some(lib_dir) = pdfium_dir {
+        // Set platform-appropriate library search path
+        #[cfg(target_os = "macos")]
+        {
+            env_vars.push(("DYLD_LIBRARY_PATH", lib_dir));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            env_vars.push(("LD_LIBRARY_PATH", lib_dir));
+        }
+        #[cfg(target_os = "windows")]
+        {
+            env_vars.push(("PATH", lib_dir));
+        }
+    }
 
     let results: Vec<(Language, anyhow::Result<()>)> = languages
         .par_iter()
@@ -275,20 +287,21 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
     Ok(())
 }
 
-/// Compute the path to the pdfium dylib from the workspace target directory.
+/// Compute the target/release directory path from the workspace root.
 ///
 /// Walks up from the current working directory to find a `target/release/libpdfium.dylib`
-/// or `.dylib`/`.so` file depending on the platform. Returns None if not found.
-fn compute_pdfium_path() -> Option<String> {
+/// and returns the directory path. This directory should be added to the dynamic library
+/// search path (DYLD_LIBRARY_PATH on macOS, LD_LIBRARY_PATH on Linux, PATH on Windows).
+fn compute_pdfium_dir() -> Option<String> {
     use std::env;
 
     let mut current = env::current_dir().ok()?;
 
     // Walk up to find workspace root with target/release
     loop {
-        let target_dir = current.join("target").join("release");
-        if target_dir.exists() {
-            // Try platform-specific dylib names
+        let target_release = current.join("target").join("release");
+        if target_release.exists() {
+            // Verify that pdfium dylib exists in this directory
             let candidates = if cfg!(target_os = "macos") {
                 vec!["libpdfium.dylib"]
             } else if cfg!(target_os = "windows") {
@@ -298,10 +311,10 @@ fn compute_pdfium_path() -> Option<String> {
             };
 
             for candidate in candidates {
-                let dylib_path = target_dir.join(candidate);
+                let dylib_path = target_release.join(candidate);
                 if dylib_path.exists() {
-                    if let Some(path_str) = dylib_path.to_str() {
-                        info!("Found pdfium dylib at: {}", path_str);
+                    if let Some(path_str) = target_release.to_str() {
+                        info!("Found pdfium dylib in: {}", path_str);
                         return Some(path_str.to_string());
                     }
                 }
