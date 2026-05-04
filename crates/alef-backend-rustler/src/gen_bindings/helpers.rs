@@ -71,24 +71,30 @@ pub(super) fn gen_native_ex(
     let _ = writeln!(out, "defmodule {app_module}.Native do");
     let _ = writeln!(out, "  @moduledoc false");
     let _ = writeln!(out);
-    let _ = writeln!(out, "  use RustlerPrecompiled,");
-    let _ = writeln!(out, "    otp_app: :{app_name},");
-    let _ = writeln!(out, "    crate: \"{app_name}_nif\",");
-    let _ = writeln!(out, "    base_url:");
+
+    // When force_build is true (dev/test), use plain Rustler to look for generic .so name.
+    // When false (production), use RustlerPrecompiled with targets and version matching.
+    let is_force_build_env =
+        format!("System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or Mix.env() in [:test, :dev]");
+
+    let _ = writeln!(out, "  if {is_force_build_env} do");
+    let _ = writeln!(out, "    use Rustler, otp_app: :{app_name}, crate: \"{app_name}_nif\"");
+    let _ = writeln!(out, "  else");
+    let _ = writeln!(out, "    use RustlerPrecompiled,");
+    let _ = writeln!(out, "      otp_app: :{app_name},");
+    let _ = writeln!(out, "      crate: \"{app_name}_nif\",");
+    let _ = writeln!(out, "      base_url:");
     let _ = writeln!(
         out,
-        "      \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
+        "        \"{repo_url}/releases/download/v#{{Mix.Project.config()[:version]}}\","
     );
-    let _ = writeln!(out, "    version: Mix.Project.config()[:version],");
+    let _ = writeln!(out, "      version: Mix.Project.config()[:version],");
     let _ = writeln!(
         out,
-        "    force_build:\n      System.get_env(\"{build_env_var}\") in [\"1\", \"true\"] or\n        Mix.env() in [:test, :dev],"
+        "      targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),"
     );
-    let _ = writeln!(
-        out,
-        "    targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),"
-    );
-    let _ = writeln!(out, "    nif_versions: [\"2.16\", \"2.17\"]");
+    let _ = writeln!(out, "      nif_versions: [\"2.16\", \"2.17\"]");
+    let _ = writeln!(out, "  end");
     let _ = writeln!(out);
 
     // Stubs for top-level API functions
