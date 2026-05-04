@@ -498,39 +498,43 @@ pub(crate) fn gen_native_lib(
         .map(|t| t.name.clone())
         .collect();
 
-    // Accessor handles for Named return types (struct pointer → field accessor + free)
+    // Accessor handles for Named return types (struct pointer → field accessor + free).
+    // Also handles `Option<Named>` return types — the FFI layer flattens nullable returns
+    // to a raw pointer that's NULL when the optional is empty.
     for func in &api.functions {
-        if let TypeRef::Named(name) = &func.return_type {
+        let inner_named = match &func.return_type {
+            TypeRef::Named(n) => Some(n),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    Some(n)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(name) = inner_named {
             let type_snake = name.to_snake_case();
             let type_upper = type_snake.to_uppercase();
             let is_opaque = opaque_type_names.contains(name.as_str());
 
-            if is_opaque {
-                // Opaque handles: the caller wraps the pointer directly, no JSON needed.
-                // No content accessor is emitted for opaque types.
-            } else {
-                // Non-opaque record types: use _to_json to serialize the full struct to JSON,
-                // which the Java side then deserializes with ObjectMapper.
-                // NOTE: _content returns only the markdown string field, not the full JSON.
-                let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
-                let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
-                if emitted_to_json_handles.insert(to_json_handle.clone()) {
-                    writeln!(body).ok();
-                    writeln!(
-                        body,
-                        "    static final MethodHandle {} = LINKER.downcallHandle(",
-                        to_json_handle
-                    )
-                    .ok();
-                    writeln!(body, "        LIB.find(\"{}\").orElseThrow(),", to_json_ffi).ok();
-                    writeln!(
-                        body,
-                        "        FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
-                    )
-                    .ok();
-                    writeln!(body, "    );").ok();
-                }
+            // Emit `_to_json` method handle whenever the FFI exposes one for this type.
+            // Both opaque and non-opaque types may have a `_to_json` exporter — the Java
+            // wrapper code uses it to serialize for inspection (e.g. `EmbeddingPreset`).
+            // We use `LIB.find(...).map(...).orElse(null)` so generation is robust if the
+            // function is absent in this build (compile-time presence isn't always guaranteed).
+            let to_json_handle = format!("{}_{}_TO_JSON", prefix.to_uppercase(), type_upper);
+            let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
+            if emitted_to_json_handles.insert(to_json_handle.clone()) {
+                writeln!(body).ok();
+                writeln!(
+                    body,
+                    "    static final MethodHandle {} = LIB.find(\"{}\").map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS))).orElse(null);",
+                    to_json_handle, to_json_ffi
+                )
+                .ok();
             }
+            let _ = is_opaque;
 
             // _free: (struct_ptr) -> void
             let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_upper);

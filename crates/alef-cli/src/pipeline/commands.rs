@@ -645,45 +645,115 @@ fn build_command_for(
                 let dir = standalone.display();
                 format!("cd {dir} && cargo build{release_flag}")
             } else {
-                // Walk up to find the nearest Cargo.toml and read [package].name
-                // to get the cargo-build-p target. Falls back to the dir name.
-                let crate_name = {
-                    let mut p = std::path::PathBuf::from(crate_dir);
-                    let mut name: Option<String> = None;
-                    for _ in 0..4 {
-                        let manifest = p.join("Cargo.toml");
-                        if manifest.exists() {
-                            if let Ok(contents) = std::fs::read_to_string(&manifest) {
+                // Walk up to find the nearest [package] Cargo.toml and remember its dir.
+                // Then walk further up to find a parent [workspace] Cargo.toml to determine
+                // whether the package is a workspace member (use `-p name`) or excluded
+                // (fall back to `cd <dir> && cargo build`).
+                let mut p = std::path::PathBuf::from(crate_dir);
+                let mut package_name: Option<String> = None;
+                let mut package_dir: Option<std::path::PathBuf> = None;
+                for _ in 0..4 {
+                    let manifest = p.join("Cargo.toml");
+                    if manifest.exists() {
+                        if let Ok(contents) = std::fs::read_to_string(&manifest) {
+                            if contents.contains("[package]") {
                                 for line in contents.lines() {
                                     let trimmed = line.trim();
                                     if let Some(rest) = trimmed.strip_prefix("name") {
                                         let rest = rest.trim_start_matches([' ', '=']).trim();
                                         let rest = rest.trim_matches(['"', '\'']);
                                         if !rest.is_empty() {
-                                            name = Some(rest.to_string());
+                                            package_name = Some(rest.to_string());
+                                            package_dir = Some(p.clone());
                                             break;
                                         }
                                     }
                                 }
                             }
-                            break;
                         }
-                        if !p.pop() {
-                            break;
+                        break;
+                    }
+                    if !p.pop() {
+                        break;
+                    }
+                }
+                // Search upward from the package dir for a workspace Cargo.toml.
+                // If found and the package is in `exclude = [...]`, treat as standalone.
+                let is_excluded_from_workspace = if let Some(pdir) = &package_dir {
+                    let mut q = pdir.clone();
+                    let mut excluded = false;
+                    while q.pop() {
+                        let manifest = q.join("Cargo.toml");
+                        if manifest.exists() {
+                            if let Ok(contents) = std::fs::read_to_string(&manifest) {
+                                if contents.contains("[workspace]") {
+                                    let rel = pdir.strip_prefix(&q).unwrap_or(pdir).to_string_lossy().into_owned();
+                                    let rel_norm = rel.replace('\\', "/");
+                                    excluded = contents.lines().map(|l| l.trim()).any(|l| {
+                                        l.contains(&format!("\"{rel_norm}\"")) && {
+                                            // Only count occurrences inside an `exclude = [...]` context;
+                                            // approximate by also looking for "exclude" in nearby lines.
+                                            // A simple heuristic: the path appears after the literal
+                                            // `exclude = [`. Use a substring match on the whole file.
+                                            let needle = format!("\"{rel_norm}\"");
+                                            let exclude_section = contents.split("exclude").nth(1).unwrap_or("");
+                                            let members_section = contents.split("members").nth(1).unwrap_or("");
+                                            let in_exclude = exclude_section.contains(&needle);
+                                            let in_members =
+                                                members_section.contains(&needle) && !exclude_section.contains(&needle);
+                                            in_exclude && !in_members
+                                        }
+                                    });
+                                    break;
+                                }
+                            }
                         }
                     }
-                    name.unwrap_or_else(|| {
+                    excluded
+                } else {
+                    false
+                };
+                if is_excluded_from_workspace {
+                    if let Some(pdir) = package_dir {
+                        let dir = pdir.display();
+                        format!("cd {dir} && cargo build{release_flag}")
+                    } else {
+                        format!("cd {crate_dir} && cargo build{release_flag}")
+                    }
+                } else {
+                    let crate_name = package_name.unwrap_or_else(|| {
                         Path::new(crate_dir)
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or(crate_dir)
                             .to_string()
-                    })
-                };
-                format!("cargo build -p {crate_name}{release_flag}")
+                    });
+                    format!("cargo build -p {crate_name}{release_flag}")
+                }
             }
         }
-        "mix" => "mix compile".to_string(),
+        "mix" => {
+            // The elixir [crates.output] points at native/<nif>/src/, but mix runs from the
+            // mix project root containing mix.exs. Walk up from the source dir to find it.
+            let dir = config
+                .explicit_output
+                .elixir
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .unwrap_or("packages/elixir");
+            let build_dir = {
+                let mut p = std::path::PathBuf::from(dir);
+                loop {
+                    if p.join("mix.exs").exists() {
+                        break p.to_string_lossy().into_owned();
+                    }
+                    if !p.pop() {
+                        break dir.to_string();
+                    }
+                }
+            };
+            format!("cd {build_dir} && mix compile")
+        }
         "mvn" => {
             let dir = config
                 .explicit_output
@@ -714,11 +784,13 @@ fn build_command_for(
                 .as_ref()
                 .and_then(|p| p.to_str())
                 .unwrap_or("packages/csharp");
-            // Find the directory containing the .csproj (may be in a subdirectory)
-            let build_dir = {
-                let dir_path = std::path::Path::new(dir);
-                // Check if .csproj exists directly in dir
-                let has_direct = dir_path
+            // Find the directory containing the .csproj. The csharp [crates.output] often
+            // points at a source path (e.g. `packages/csharp/src/`), so we walk both:
+            //   1. directly inside `dir` and one level of children, and
+            //   2. upward from `dir`, scanning each parent and one level of children.
+            // First match wins.
+            let scan_for_csproj = |start: &std::path::Path| -> Option<String> {
+                if start
                     .read_dir()
                     .ok()
                     .map(|entries| {
@@ -726,28 +798,30 @@ fn build_command_for(
                             .filter_map(|e| e.ok())
                             .any(|e| e.path().extension().is_some_and(|ext| ext == "csproj"))
                     })
-                    .unwrap_or(false);
-                if has_direct {
-                    dir.to_string()
-                } else {
-                    // Search one level of subdirectories
-                    dir_path
-                        .read_dir()
-                        .ok()
-                        .and_then(|entries| {
-                            entries
-                                .filter_map(|e| e.ok())
-                                .find(|e| {
-                                    e.path().is_dir()
-                                        && e.path().read_dir().ok().is_some_and(|sub| {
-                                            sub.filter_map(|s| s.ok())
-                                                .any(|s| s.path().extension().is_some_and(|ext| ext == "csproj"))
-                                        })
-                                })
-                                .map(|e| e.path().to_string_lossy().to_string())
-                        })
-                        .unwrap_or_else(|| dir.to_string())
+                    .unwrap_or(false)
+                {
+                    return Some(start.to_string_lossy().to_string());
                 }
+                start.read_dir().ok().and_then(|entries| {
+                    entries
+                        .filter_map(|e| e.ok())
+                        .find(|e| {
+                            e.path().is_dir()
+                                && e.path().read_dir().ok().is_some_and(|sub| {
+                                    sub.filter_map(|s| s.ok())
+                                        .any(|s| s.path().extension().is_some_and(|ext| ext == "csproj"))
+                                })
+                        })
+                        .map(|e| e.path().to_string_lossy().to_string())
+                })
+            };
+            let build_dir = {
+                let mut p = std::path::PathBuf::from(dir);
+                let mut found = scan_for_csproj(&p);
+                while found.is_none() && p.pop() {
+                    found = scan_for_csproj(&p);
+                }
+                found.unwrap_or_else(|| dir.to_string())
             };
             let dotnet_config = if release { "Release" } else { "Debug" };
             format!("cd {build_dir} && dotnet build --configuration {dotnet_config} -q")
