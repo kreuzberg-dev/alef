@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/csharp): `equals` assertions on optional string fields now emit `field!.Trim()` (null-forgiving) instead of `field.Trim()` to suppress CS8602 nullable warnings.
 - fix(csharp-backend): typed error classes (e.g. `ErrorException`) now inherit from the library's generic fallback exception class (e.g. `TreeSitterLanguagePackException`) instead of `Exception` directly; `Assert.ThrowsAny<LibException>()` now correctly catches typed errors.
 - fix(csharp-backend): `TreeSitterLanguagePackException` (the generic fallback) gains `(string message)` and `(string message, Exception innerException)` constructors so derived error classes can call them without a numeric code.
 - fix(e2e/csharp): use `Assert.ThrowsAny<T>()` / `Assert.ThrowsAnyAsync<T>()` instead of exact `Assert.Throws<T>()` for `is_error` assertions; the base exception class now matches derived exception subclasses (e.g. `ErrorException` from `TreeSitterLanguagePackException`).

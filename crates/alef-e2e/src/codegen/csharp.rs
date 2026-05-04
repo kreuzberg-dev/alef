@@ -1149,7 +1149,7 @@ fn render_assertion(
                 let cs_val = json_to_csharp(expected);
                 if expected.is_string() {
                     // Only call .Trim() on string fields.
-                    let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr}.Trim());");
+                    let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr}!.Trim());");
                 } else if expected.as_bool() == Some(true) {
                     // Boolean true: use Assert.True to avoid xUnit2004 warning.
                     let _ = writeln!(out, "        Assert.True({field_expr});");
