@@ -28,10 +28,20 @@ pub(crate) fn scaffold_python_cargo(
     );
 
     let extra_deps = render_extra_deps(config, Language::Python);
-    let extra_deps_section = if extra_deps.is_empty() {
+
+    let has_trait_bridges = !config.trait_bridges.is_empty();
+    let mut all_deps = extra_deps;
+    if has_trait_bridges && !all_deps.contains("async-trait") {
+        if !all_deps.is_empty() {
+            all_deps.push('\n');
+        }
+        all_deps.push_str("async-trait = \"0.1\"");
+    }
+
+    let extra_deps_section = if all_deps.is_empty() {
         String::new()
     } else {
-        format!("\n{extra_deps}")
+        format!("\n{all_deps}")
     };
     let content = format!(
         r#"{pkg_header}

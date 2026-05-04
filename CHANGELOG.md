@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.19] - 2026-05-04
+
+### Fixed
+
+- fix(scaffold/python): add `async-trait` dependency to Python Cargo.toml scaffold when trait bridges are configured.
+- fix(scaffold/php): add `async-trait` dependency to PHP Cargo.toml scaffold when trait bridges are configured.
+- fix(e2e/c): derive header name from `ffi.header_name` config and lib name from `ffi.lib_name` when package-level overrides are absent.
+- fix(e2e/go): fix array-assertion detection to correctly check `result_is_array` when no field is specified, without falling through to field-level `is_array` check.
+- fix(e2e/ruby): call `.to_s` before `.strip` on simple result fields; call `.to_s` before `not_to be_empty` for simple result fields.
+
 ## [0.14.18] - 2026-05-04
 
 ### Fixed

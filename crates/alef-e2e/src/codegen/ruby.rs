@@ -1076,7 +1076,7 @@ fn render_assertion(
     // For string equality, strip trailing whitespace to handle trailing newlines
     // from the converter.
     let stripped_field_expr = if result_is_simple {
-        format!("{field_expr}.strip")
+        format!("{field_expr}.to_s.strip")
     } else {
         field_expr.clone()
     };
@@ -1145,7 +1145,11 @@ fn render_assertion(
             }
         }
         "not_empty" => {
-            let _ = writeln!(out, "    expect({field_expr}).not_to be_empty");
+            if result_is_simple {
+                let _ = writeln!(out, "    expect({field_expr}.to_s).not_to be_empty");
+            } else {
+                let _ = writeln!(out, "    expect({field_expr}).not_to be_empty");
+            }
         }
         "is_empty" => {
             // Handle nil (None) as empty for optional fields

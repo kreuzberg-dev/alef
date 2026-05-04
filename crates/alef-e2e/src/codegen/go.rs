@@ -316,11 +316,14 @@ fn render_test_file(
                 ) && {
                     // Check if this assertion operates on an array field.
                     // If no field is specified, check if the result itself is an array.
-                    let resolved_field = a.field.as_deref().unwrap_or("");
-                    let resolved_name = field_resolver.resolve(resolved_field);
-
-                    (resolved_field.is_empty() && e2e_config.resolve_call(f.call.as_deref()).result_is_array)
-                        || field_resolver.is_array(resolved_name)
+                    if a.field.as_ref().is_none_or(|f| f.is_empty()) {
+                        // No field specified: check if result is an array
+                        e2e_config.resolve_call(f.call.as_deref()).result_is_array
+                    } else {
+                        // Field specified: check if that field is an array
+                        let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
+                        field_resolver.is_array(resolved_name)
+                    }
                 }
             })
     });
@@ -424,13 +427,15 @@ fn render_test_file(
                         "contains" | "contains_all" | "contains_any" | "not_contains"
                     ) && {
                         // Check if this assertion uses fmt.Sprint (non-array fields).
-                        // Array fields use jsonString instead.
-                        let resolved_field = a.field.as_deref().unwrap_or("");
-                        let resolved_name = field_resolver.resolve(resolved_field);
-                        let is_array = (resolved_field.is_empty()
-                            && e2e_config.resolve_call(f.call.as_deref()).result_is_array)
-                            || field_resolver.is_array(resolved_name);
-                        !is_array
+                        // Array fields use jsonString instead, which also needs fmt.
+                        if a.field.as_ref().is_none_or(|f| f.is_empty()) {
+                            // No field: fmt.Sprint only if result is not an array
+                            !e2e_config.resolve_call(f.call.as_deref()).result_is_array
+                        } else {
+                            // Field specified: fmt.Sprint only if that field is not an array
+                            let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
+                            !field_resolver.is_array(resolved_name)
+                        }
                     }
                 }))
         });
