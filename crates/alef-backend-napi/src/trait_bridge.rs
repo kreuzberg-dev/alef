@@ -761,46 +761,34 @@ fn gen_visitor_method_napi(
         writeln!(out, "        let result = func.call(napi::bindgen_prelude::FnArgs::from({tuple_str}));").unwrap();
     }
 
-    // Parse result
+    // Parse result.
+    // Strategy: only inspect {custom}/{error} properties when the value is a
+    // plain Object. coerce_to_object() succeeds on string primitives too (JS
+    // wraps them in a String object), so get_named_property("custom") on a
+    // string returns Ok(undefined), and coerce_to_string(undefined) yields
+    // the literal "undefined". Check the actual ValueType first.
     writeln!(out, "        match result {{").unwrap();
     writeln!(out, "            Err(_) => {ret_ty}::Continue,").unwrap();
     writeln!(out, "            Ok(val) => {{").unwrap();
-    writeln!(out, "                if let Ok(obj) = val.coerce_to_object() {{").unwrap();
-    writeln!(out, "                    if let Ok(custom_val) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(\"custom\") {{").unwrap();
-    writeln!(out, "                        if let Ok(s) = custom_val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{").unwrap();
-    writeln!(out, "                            {ret_ty}::Custom(s)").unwrap();
-    writeln!(out, "                        }} else {{").unwrap();
-    writeln!(out, "                            {ret_ty}::Continue").unwrap();
+    writeln!(out, "                if val.get_type().ok() == Some(napi::bindgen_prelude::ValueType::Object) {{").unwrap();
+    writeln!(out, "                    if let Ok(obj) = val.coerce_to_object() {{").unwrap();
+    writeln!(out, "                        if let Ok(cv) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(\"custom\") {{").unwrap();
+    writeln!(out, "                            if !matches!(cv.get_type().unwrap_or(napi::bindgen_prelude::ValueType::Undefined), napi::bindgen_prelude::ValueType::Undefined | napi::bindgen_prelude::ValueType::Null) {{").unwrap();
+    writeln!(out, "                                if let Ok(s) = cv.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{").unwrap();
+    writeln!(out, "                                    return {ret_ty}::Custom(s);").unwrap();
+    writeln!(out, "                                }}").unwrap();
+    writeln!(out, "                            }}").unwrap();
     writeln!(out, "                        }}").unwrap();
-    writeln!(out, "                    }} else if let Ok(error_val) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(\"error\") {{").unwrap();
-    writeln!(out, "                        if let Ok(s) = error_val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{").unwrap();
-    writeln!(out, "                            {ret_ty}::Error(s)").unwrap();
-    writeln!(out, "                        }} else {{").unwrap();
-    writeln!(out, "                            {ret_ty}::Continue").unwrap();
+    writeln!(out, "                        if let Ok(ev) = obj.get_named_property::<napi::bindgen_prelude::Unknown>(\"error\") {{").unwrap();
+    writeln!(out, "                            if !matches!(ev.get_type().unwrap_or(napi::bindgen_prelude::ValueType::Undefined), napi::bindgen_prelude::ValueType::Undefined | napi::bindgen_prelude::ValueType::Null) {{").unwrap();
+    writeln!(out, "                                if let Ok(s) = ev.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{").unwrap();
+    writeln!(out, "                                    return {ret_ty}::Error(s);").unwrap();
+    writeln!(out, "                                }}").unwrap();
+    writeln!(out, "                            }}").unwrap();
     writeln!(out, "                        }}").unwrap();
-    writeln!(out, "                    }} else if let Ok(s) = val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{").unwrap();
-    writeln!(out, "                        match s.to_lowercase().as_str() {{").unwrap();
-    writeln!(out, "                            \"continue\" => {ret_ty}::Continue,").unwrap();
-    writeln!(out, "                            \"skip\" => {ret_ty}::Skip,").unwrap();
-    writeln!(
-        out,
-        "                            \"preserve_html\" | \"preservehtml\" => {ret_ty}::PreserveHtml,"
-    )
-    .unwrap();
-    writeln!(
-        out,
-        "                            other => {ret_ty}::Custom(other.to_string()),"
-    )
-    .unwrap();
-    writeln!(out, "                        }}").unwrap();
-    writeln!(out, "                    }} else {{").unwrap();
-    writeln!(out, "                        {ret_ty}::Continue").unwrap();
     writeln!(out, "                    }}").unwrap();
-    writeln!(
-        out,
-        "                }} else if let Ok(s) = val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{"
-    )
-    .unwrap();
+    writeln!(out, "                }}").unwrap();
+    writeln!(out, "                if let Ok(s) = val.coerce_to_string().and_then(|s| s.into_utf8()).and_then(|s| s.into_owned()) {{").unwrap();
     writeln!(out, "                    match s.to_lowercase().as_str() {{").unwrap();
     writeln!(out, "                        \"continue\" => {ret_ty}::Continue,").unwrap();
     writeln!(out, "                        \"skip\" => {ret_ty}::Skip,").unwrap();
