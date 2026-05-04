@@ -408,20 +408,24 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
         from_marker_dq
     };
 
-    if let Some(import_pos) = content.find("import {") {
-        if let Some(from_pos) = content[import_pos..].find(&from_marker) {
-            let full_from_pos = import_pos + from_pos + from_marker.len();
+    // Find the closing `} from "pkg_name";` marker, then search backward for the matching `import {`
+    // to avoid accidentally patching an earlier import statement (e.g. `import { ... } from "vitest"`).
+    if let Some(from_pos) = content.find(&from_marker) {
+        let full_from_pos = from_pos + from_marker.len();
+        // Search backward from from_pos to find the last `import {` or `import init, {` before it.
+        let before_from = &content[..from_pos];
+        if let Some(import_pos) = before_from.rfind("import {").or_else(|| before_from.rfind("import init, {")) {
             let import_section = &content[import_pos..full_from_pos];
 
-            // Already patched — nothing to do.
-            if import_section.contains("init") {
+            // Already patched (contains `import init`) — nothing to do.
+            if import_section.contains("import init,") {
                 return content.to_string();
             }
 
             // wasm-pack exports `init` as the default export, not a named export.
             // Transform `import { ... }` to `import init, { ... }` so the default
             // export is bound and `await init()` works at the top level.
-            let new_import = import_section.replace("import {", "import init, {");
+            let new_import = import_section.replacen("import {", "import init, {", 1);
 
             // Use top-level await with wasm-pack's async init() function.
             let init_code = "await init();\n";
