@@ -774,7 +774,7 @@ fn build_args_and_setup(
     args: &[crate::config::ArgMapping],
     class_name: &str,
     options_type: Option<&str>,
-    _enum_fields: &HashMap<String, String>,
+    enum_fields: &HashMap<String, String>,
     fixture_id: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
@@ -873,9 +873,11 @@ fn build_args_and_setup(
                     }
                     // Object value with known type: deserialize via JsonSerializer so the
                     // library's own [JsonPropertyName] annotations handle field name mapping.
+                    // Normalize enum field values to lowercase to match [JsonPropertyName("lowercase")] attrs.
                     if let Some(opts_type) = options_type {
                         if v.is_object() {
-                            let json_str = serde_json::to_string(v).unwrap_or_default();
+                            let normalized = normalize_csharp_enum_values(v, enum_fields);
+                            let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                             parts.push(format!(
                                 "JsonSerializer.Deserialize<{opts_type}>(\"{}\", ConfigOptions)!",
                                 escape_csharp(&json_str),
@@ -1407,6 +1409,31 @@ fn json_to_csharp(value: &serde_json::Value) -> String {
             let json_str = serde_json::to_string(value).unwrap_or_default();
             format!("\"{}\"", escape_csharp(&json_str))
         }
+    }
+}
+
+/// Convert enum values in a JSON object to lowercase to match C# [JsonPropertyName] attributes.
+/// The JSON deserialization uses JsonPropertyName("lowercase_value"), so fixture enum values
+/// (typically PascalCase like "Tildes") must be converted to lowercase ("tildes") for correct
+/// deserialization with JsonStringEnumConverter.
+fn normalize_csharp_enum_values(
+    value: &serde_json::Value,
+    enum_fields: &HashMap<String, String>,
+) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut result = map.clone();
+            for (key, val) in result.iter_mut() {
+                if enum_fields.contains_key(key) {
+                    // This is an enum field; convert the string value to lowercase.
+                    if let Some(s) = val.as_str() {
+                        *val = serde_json::Value::String(s.to_lowercase());
+                    }
+                }
+            }
+            serde_json::Value::Object(result)
+        }
+        other => other.clone(),
     }
 }
 

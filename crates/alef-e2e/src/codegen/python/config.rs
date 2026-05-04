@@ -75,7 +75,14 @@ ini_options.timeout = 300
 
 pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
     let module = resolve_module(e2e_config);
-    let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
+    let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+        if f.needs_mock_server() {
+            return true;
+        }
+        let cc = e2e_config.resolve_call(f.call.as_deref());
+        let python_override = cc.overrides.get("python").or_else(|| e2e_config.call.overrides.get("python"));
+        python_override.and_then(|o| o.client_factory.as_deref()).is_some()
+    });
 
     let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
         let cc = e2e_config.resolve_call(f.call.as_deref());

@@ -72,6 +72,17 @@ impl E2eCodegen for ElixirCodegen {
         // Check if any fixture in any group is an HTTP test.
         let has_http_tests = groups.iter().any(|g| g.fixtures.iter().any(|f| f.is_http_test()));
         let has_nif_tests = groups.iter().any(|g| g.fixtures.iter().any(|f| !f.is_http_test()));
+        // Check if any fixture needs the mock server (either via http or mock_response or client_factory).
+        let has_mock_server_tests = groups.iter().any(|g| {
+            g.fixtures.iter().any(|f| {
+                if f.needs_mock_server() {
+                    return true;
+                }
+                let cc = e2e_config.resolve_call(f.call.as_deref());
+                let elixir_override = cc.overrides.get("elixir").or_else(|| e2e_config.call.overrides.get("elixir"));
+                elixir_override.and_then(|o| o.client_factory.as_deref()).is_some()
+            })
+        });
 
         // Resolve package reference (path or version) for the NIF dependency.
         let pkg_ref = e2e_config.resolve_package(lang);
@@ -106,7 +117,7 @@ impl E2eCodegen for ElixirCodegen {
         // Generate test_helper.exs.
         files.push(GeneratedFile {
             path: output_base.join("test").join("test_helper.exs"),
-            content: render_test_helper(has_http_tests),
+            content: render_test_helper(has_http_tests || has_mock_server_tests),
             generated_header: false,
         });
 
@@ -822,7 +833,7 @@ fn render_test_case(
         let fixture_id = &fixture.id;
         let _ = writeln!(
             out,
-            "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", System.get_env(\"MOCK_SERVER_URL\") <> \"/fixtures/{fixture_id}\")"
+            "      {{:ok, client}} = {module_path}.{factory}(\"test-key\", (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\")"
         );
     }
 
@@ -903,7 +914,7 @@ fn build_args_and_setup(
     for arg in args {
         if arg.arg_type == "mock_url" {
             setup_lines.push(format!(
-                "{} = System.get_env(\"MOCK_SERVER_URL\") <> \"/fixtures/{fixture_id}\"",
+                "{} = (System.get_env(\"MOCK_SERVER_URL\") || \"\") <> \"/fixtures/{fixture_id}\"",
                 arg.name,
             ));
             parts.push(arg.name.clone());

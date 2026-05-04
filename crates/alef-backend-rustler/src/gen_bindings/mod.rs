@@ -885,7 +885,14 @@ impl Backend for RustlerBackend {
   defp apply_visitor_callback(fun, args_json) do
     args = Jason.decode!(args_json)
     result = fun.(args)
-    if is_binary(result), do: result, else: "continue"
+    case result do
+      :continue -> "continue"
+      :skip -> "skip"
+      :preserve_html -> "preserve_html"
+      {{:custom, value}} -> to_string(value)
+      binary when is_binary(binary) -> binary
+      _ -> "continue"
+    end
   end
 
 "#
