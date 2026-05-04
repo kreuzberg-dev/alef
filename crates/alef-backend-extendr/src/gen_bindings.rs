@@ -1,10 +1,11 @@
+use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, FunctionDef, TypeDef, TypeRef};
 use std::borrow::Cow;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -501,13 +502,32 @@ impl Backend for ExtendrBackend {
                      .map_err(|e| extendr_api::Error::Other(e.to_string()))\n}",
                 );
             } else {
-                builder.add_item(&generators::gen_function(
-                    func,
-                    self,
-                    &cfg,
-                    &adapter_bodies,
+                // Detect functions whose return type or parameter types are incompatible
+                // with extendr's automatic Robj conversions. These need JSON bridging.
+                let func_return_needs_json = return_type_needs_json(
+                    &func.return_type,
+                    &extendr_incompatible_types,
+                    &enum_names,
                     &opaque_types,
-                ));
+                );
+                let func_params_need_json = func.params.iter().any(|p| is_extendr_native_incompatible(&p.ty));
+                if func_return_needs_json || func_params_need_json {
+                    builder.add_item(&gen_extendr_json_bridged_function(
+                        func,
+                        self,
+                        &core_import,
+                        &opaque_types,
+                        &cfg,
+                    ));
+                } else {
+                    builder.add_item(&generators::gen_function(
+                        func,
+                        self,
+                        &cfg,
+                        &adapter_bodies,
+                        &opaque_types,
+                    ));
+                }
             }
         }
 
@@ -723,6 +743,311 @@ fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
     writeln!(out, "}}").ok();
 
     out
+}
+
+/// Returns true if the function return type cannot be handled by extendr's `#[extendr]` macro
+/// automatically, and therefore requires JSON bridging.
+///
+/// Extendr cannot handle:
+///   - Named types in `extendr_incompatible_types` (structs with Vec<T> fields)
+///   - Vec<Named> where Named is extendr-incompatible
+///   - Vec<Vec<_>> (no Robj impl for nested vectors)
+///   - Option<Enum> (enums don't implement ToVectorValue, so Option<Enum> fails)
+///   - Option<non-opaque struct> (Option<ExternalPtr<T>> doesn't implement ToVectorValue)
+fn return_type_needs_json(
+    ret: &TypeRef,
+    extendr_incompatible_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
+    opaque_types: &AHashSet<String>,
+) -> bool {
+    match ret {
+        TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()),
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()),
+            // Vec<Vec<_>> has no From<Vec<Vec<T>>> for Robj regardless of T
+            TypeRef::Vec(_) => true,
+            _ => false,
+        },
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            // Option<Enum>: extendr enums don't implement ToVectorValue
+            TypeRef::Named(n) if enum_names.contains(n.as_str()) => true,
+            // Option<non-opaque struct>: Option<ExternalPtr<T>> doesn't implement
+            // ToVectorValue — bridge via JSON so R receives NULL or a JSON string.
+            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && !enum_names.contains(n.as_str()) => true,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Generate a JSON-bridged `#[extendr]` free function.
+///
+/// When a function's return type or parameter types cannot be handled by extendr's automatic
+/// Robj conversions, this generates a wrapper that:
+///   - For incompatible return types (ExtractionResult, Vec<ExtractionResult>, Vec<Vec<f32/f64>>,
+///     Option<Enum>): serializes the Rust result to a JSON string via serde_json.
+///   - For incompatible parameter types (Vec<Struct>): takes a JSON `String` and deserializes it.
+///   - Async functions use the TokioBlockOn pattern (no `async fn`).
+fn gen_extendr_json_bridged_function(
+    func: &FunctionDef,
+    mapper: &dyn TypeMapper,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+    cfg: &RustBindingConfig,
+) -> String {
+    use alef_codegen::generators::binding_helpers::gen_call_args_cfg;
+
+    let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string()))";
+    let rt_new = format!("tokio::runtime::Runtime::new(){err_map}?");
+
+    // Build the parameter list. For Vec<Struct> params (extendr-incompatible),
+    // take `String` and deserialize from JSON.
+    let mut sig_params: Vec<String> = Vec::new();
+    let mut body_preamble = String::new();
+
+    for param in &func.params {
+        let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+        if needs_json {
+            // Take JSON string, deserialize to core Vec<T>.
+            let core_ty_path = match &param.ty {
+                TypeRef::Vec(inner) => match inner.as_ref() {
+                    TypeRef::Named(n) => format!("{core_import}::{n}"),
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            };
+            if param.optional {
+                sig_params.push(format!("{}: Option<String>", param.name));
+                body_preamble.push_str(&format!(
+                    "let {name}_core: Option<Vec<{ty}>> = {name}.as_deref()\n        \
+                     .map(|s| serde_json::from_str(s){err_map})\n        \
+                     .transpose()?;\n    ",
+                    name = param.name,
+                    ty = core_ty_path,
+                    err_map = err_map,
+                ));
+            } else {
+                sig_params.push(format!("{}: String", param.name));
+                body_preamble.push_str(&format!(
+                    "let {name}_core: Vec<{ty}> = serde_json::from_str(&{name}){err_map}?;\n    ",
+                    name = param.name,
+                    ty = core_ty_path,
+                    err_map = err_map,
+                ));
+            }
+        } else {
+            // Use the standard binding type.
+            let ty_str = mapper.map_type(&param.ty);
+            // Named non-opaque structs must be `&T` (extendr TryFrom<&Robj> for &T).
+            let sig_ty = if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
+                if param.optional {
+                    format!("extendr_api::Nullable<&{ty_str}>")
+                } else {
+                    format!("&{ty_str}")
+                }
+            } else if param.optional {
+                format!("Option<{ty_str}>")
+            } else {
+                ty_str
+            };
+            sig_params.push(format!("{}: {sig_ty}", param.name));
+        }
+    }
+
+    // Build the call argument list. For JSON-deserialized params, use the _core variable.
+    let call_args: Vec<String> = func
+        .params
+        .iter()
+        .map(|param| {
+            let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+            if needs_json {
+                if param.optional {
+                    format!("{}_core.as_deref().unwrap_or_default()", param.name)
+                } else {
+                    format!("{}_core", param.name)
+                }
+            } else {
+                // Use gen_call_args_cfg for regular params.
+                gen_call_args_cfg(
+                    std::slice::from_ref(param),
+                    opaque_types,
+                    cfg.cast_uints_to_i32,
+                    cfg.cast_large_ints_to_f64,
+                )
+            }
+        })
+        .collect();
+    let call_args_str = call_args.join(", ");
+
+    // Determine the core function path.
+    let core_fn_path = {
+        let path = func.rust_path.replace('-', "_");
+        if path.starts_with(core_import) {
+            path
+        } else {
+            format!("{core_import}::{}", func.name)
+        }
+    };
+
+    // Handle named non-opaque struct params that need let bindings (for &T conversion).
+    let mut named_let_bindings = String::new();
+    for param in &func.params {
+        let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+        if !needs_json {
+            if let TypeRef::Named(n) = &param.ty {
+                if !opaque_types.contains(n.as_str()) {
+                    if param.optional {
+                        // Nullable<&T>: use into_option() then map to core
+                        named_let_bindings.push_str(&format!(
+                            "let {name}_core: Option<{ci}::{n}> = {name}.into_option().map(|v| v.clone().into());\n    ",
+                            name = param.name,
+                            ci = core_import,
+                        ));
+                    } else {
+                        named_let_bindings.push_str(&format!(
+                            "let {name}_core: {ci}::{n} = {name}.clone().into();\n    ",
+                            name = param.name,
+                            ci = core_import,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // Adjust call_args for named let binding params.
+    let final_call_args: Vec<String> = func
+        .params
+        .iter()
+        .map(|param| {
+            let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+            if needs_json {
+                if param.optional {
+                    format!("{}_core.as_deref().unwrap_or_default()", param.name)
+                } else {
+                    format!("{}_core", param.name)
+                }
+            } else if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
+                if param.optional {
+                    format!("{}_core.as_ref()", param.name)
+                } else {
+                    format!("&{}_core", param.name)
+                }
+            } else {
+                gen_call_args_cfg(
+                    std::slice::from_ref(param),
+                    opaque_types,
+                    cfg.cast_uints_to_i32,
+                    cfg.cast_large_ints_to_f64,
+                )
+            }
+        })
+        .collect();
+    let _ = call_args_str; // replaced by final_call_args
+    let final_call_args_str = final_call_args.join(", ");
+
+    // Generate the return type — always String (JSON) for JSON-bridged functions,
+    // or Option<String> for Option<Enum> returns.
+    let (ret_type, result_convert) = match &func.return_type {
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+            // Option<Enum>: return Option<String> (or Result<Option<String>> if fallible).
+            // `.transpose()` converts Option<Result<S,E>> → Result<Option<S>,E> for the
+            // Result case; for the non-Result case it converts Option<Result<S,E>> → Result<Option<S>,E>
+            // which we then `?`-unwrap to Option<String>.
+            if func.error_type.is_some() {
+                // Last expression must be Result<Option<String>, E> — use transpose() without `?`
+                let ser = format!(
+                    "result.map(|v| serde_json::to_string(&v){err_map}).transpose()",
+                    err_map = err_map
+                );
+                ("Result<Option<String>>".to_string(), ser)
+            } else {
+                // No error type: result is Option<Enum>, serialize each Some variant
+                let ser = "result.map(|v| serde_json::to_string(&v).expect(\"serialization failed\"))".to_string();
+                ("Option<String>".to_string(), ser)
+            }
+        }
+        _ => {
+            // All other incompatible types: return String (JSON)
+            // For Result<String> functions, the last expr must be Result<String, E> — use map_err
+            // without `?` (the `?` would unwrap to String, not match Result<String>).
+            if func.error_type.is_some() {
+                let ser = format!("serde_json::to_string(&result){err_map}");
+                ("Result<String>".to_string(), ser)
+            } else {
+                (
+                    "String".to_string(),
+                    "serde_json::to_string(&result).expect(\"serialization failed\")".to_string(),
+                )
+            }
+        }
+    };
+
+    // Build the function body.
+    let core_call = format!("{core_fn_path}({final_call_args_str})");
+
+    let body = if func.is_async {
+        // Async: use TokioBlockOn (no async fn for extendr)
+        if func.error_type.is_some() {
+            format!(
+                "{body_preamble}{named_let_bindings}\
+                 let rt = {rt_new};\n    \
+                 let result = rt.block_on(async {{ {core_call}.await{err_map} }})?;\n    \
+                 {result_convert}",
+                err_map = err_map,
+                result_convert = result_convert,
+            )
+        } else {
+            format!(
+                "{body_preamble}{named_let_bindings}\
+                 let rt = {rt_new};\n    \
+                 let result = rt.block_on(async {{ {core_call}.await }});\n    \
+                 {result_convert}"
+            )
+        }
+    } else if func.error_type.is_some() {
+        // Sync with error
+        match &func.return_type {
+            TypeRef::Optional(_) => {
+                // For Option<T> returns: call core, serialize result
+                format!(
+                    "{body_preamble}{named_let_bindings}\
+                     let result = {core_call}{err_map}?;\n    \
+                     {result_convert}"
+                )
+            }
+            _ => {
+                format!(
+                    "{body_preamble}{named_let_bindings}\
+                     let result = {core_call}{err_map}?;\n    \
+                     {result_convert}"
+                )
+            }
+        }
+    } else {
+        // Sync without error
+        format!(
+            "{body_preamble}{named_let_bindings}\
+             let result = {core_call};\n    \
+             {result_convert}"
+        )
+    };
+
+    // Assemble the full function.
+    let params_str = sig_params.join(", ");
+    let allow = if func.error_type.is_some() {
+        "#[allow(clippy::missing_errors_doc)]\n"
+    } else {
+        ""
+    };
+    format!(
+        "{allow}#[extendr]\npub fn {}({params_str}) -> {ret_type} {{\n    {body}\n}}",
+        func.name
+    )
 }
 
 #[cfg(test)]

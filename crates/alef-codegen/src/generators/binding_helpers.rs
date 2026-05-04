@@ -419,6 +419,56 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
         .join(", ")
 }
 
+/// Build call argument expressions with primitive type casting for backends that remap
+/// numeric types (e.g. extendr maps `f32`/`usize`/`u64` to `f64` and `u32` to `i32`).
+///
+/// For `TypeRef::Primitive` params whose binding type differs from the core type, emits
+/// `name as core_ty` (or `.map(|v| v as core_ty)` for optional params). All other params
+/// fall back to the same logic as `gen_call_args`.
+pub fn gen_call_args_cfg(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
+) -> String {
+    params
+        .iter()
+        .enumerate()
+        .map(|(idx, p)| {
+            let promoted = crate::shared::is_promoted_optional(params, idx);
+            let unwrap_suffix = if promoted && p.optional {
+                format!(".expect(\"'{}' is required\")", p.name)
+            } else {
+                String::new()
+            };
+            // Newtype params are handled the same as in gen_call_args.
+            if p.newtype_wrapper.is_some() {
+                // Delegate newtype handling to the standard gen_call_args helper by
+                // collecting a one-element slice and extracting the result.
+                return gen_call_args(std::slice::from_ref(p), opaque_types);
+            }
+            // For primitive params that need a cast, emit the cast expression.
+            if let TypeRef::Primitive(prim) = &p.ty {
+                let core_ty = core_prim_str(prim);
+                let needs_cast =
+                    (cast_uints_to_i32 && needs_i32_cast(prim)) || (cast_large_ints_to_f64 && needs_f64_cast(prim));
+                if needs_cast {
+                    return if p.optional {
+                        format!("{}.map(|v| v as {core_ty})", p.name)
+                    } else if promoted {
+                        format!("({}{}) as {core_ty}", p.name, unwrap_suffix)
+                    } else {
+                        format!("{} as {core_ty}", p.name)
+                    };
+                }
+            }
+            // Delegate all other types to gen_call_args.
+            gen_call_args(std::slice::from_ref(p), opaque_types)
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Build call argument expressions using pre-bound let bindings for non-opaque Named params.
 /// Non-opaque Named params use `&{name}_core` references instead of `.into()`.
 pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
@@ -1171,6 +1221,24 @@ fn gen_lossy_binding_to_core_fields_inner(
                         format!("self.{name}.clone().into_iter().map(Into::into).collect()")
                     }
                 }
+                // Vec<u8/u16/u32/i8/i16> stored as Vec<i32> in binding → cast each element back
+                TypeRef::Primitive(p) if cast_uints_to_i32 && needs_i32_cast(p) => {
+                    let core_ty = core_prim_str(p);
+                    if field.optional {
+                        format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+                    } else {
+                        format!("self.{name}.clone().into_iter().map(|v| v as {core_ty}).collect()")
+                    }
+                }
+                // Vec<usize/u64/i64/isize/f32> stored as Vec<f64> in binding → cast each element back
+                TypeRef::Primitive(p) if cast_large_ints_to_f64 && needs_f64_cast(p) => {
+                    let core_ty = core_prim_str(p);
+                    if field.optional {
+                        format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+                    } else {
+                        format!("self.{name}.clone().into_iter().map(|v| v as {core_ty}).collect()")
+                    }
+                }
                 _ => format!("self.{name}.clone()"),
             },
             TypeRef::Optional(inner) => {
@@ -1187,6 +1255,19 @@ fn gen_lossy_binding_to_core_fields_inner(
                     TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
                         format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
                     }
+                    // Option<Vec<u8/u16/u32/i8/i16>> stored as Option<Vec<i32>> → cast elements back
+                    TypeRef::Vec(vi) => match vi.as_ref() {
+                        TypeRef::Primitive(p) if cast_uints_to_i32 && needs_i32_cast(p) => {
+                            let core_ty = core_prim_str(p);
+                            format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+                        }
+                        // Option<Vec<usize/u64/i64/f32>> stored as Option<Vec<f64>> → cast elements back
+                        TypeRef::Primitive(p) if cast_large_ints_to_f64 && needs_f64_cast(p) => {
+                            let core_ty = core_prim_str(p);
+                            format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+                        }
+                        _ => format!("self.{name}.clone()"),
+                    },
                     _ => format!("self.{name}.clone()"),
                 };
                 if field.optional {
@@ -1222,6 +1303,28 @@ fn gen_lossy_binding_to_core_fields_inner(
                         )
                     } else {
                         format!("self.{name}.clone().into_iter().map(|(k, v)| (k.into(), v.into())).collect()")
+                    }
+                }
+                // Map values that are u8/u16/u32/i8/i16 stored as i32 in binding → cast back
+                TypeRef::Primitive(p) if cast_uints_to_i32 && needs_i32_cast(p) => {
+                    let core_ty = core_prim_str(p);
+                    if field.optional {
+                        format!(
+                            "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k.into(), v as {core_ty})).collect())"
+                        )
+                    } else {
+                        format!("self.{name}.clone().into_iter().map(|(k, v)| (k.into(), v as {core_ty})).collect()")
+                    }
+                }
+                // Map values that are usize/u64/i64/isize/f32 stored as f64 in binding → cast back
+                TypeRef::Primitive(p) if cast_large_ints_to_f64 && needs_f64_cast(p) => {
+                    let core_ty = core_prim_str(p);
+                    if field.optional {
+                        format!(
+                            "self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k.into(), v as {core_ty})).collect())"
+                        )
+                    } else {
+                        format!("self.{name}.clone().into_iter().map(|(k, v)| (k.into(), v as {core_ty})).collect()")
                     }
                 }
                 // Collect to handle HashMap↔BTreeMap conversion
@@ -1378,35 +1481,39 @@ pub fn gen_async_body(
             }
         }
         AsyncPattern::TokioBlockOn => {
+            // tokio::runtime::Runtime::new() returns io::Result<Runtime>, which cannot be
+            // converted to extendr_api::Error via `?`. Use map_err to bridge the error.
+            let rt_new = "tokio::runtime::Runtime::new()\
+                          .map_err(|e| extendr_api::Error::Other(e.to_string()))?";
             if has_error {
                 if is_opaque {
                     format!(
-                        "let rt = tokio::runtime::Runtime::new()?;\n        \
+                        "let rt = {rt_new};\n        \
                          let result = rt.block_on(async {{ {core_call}.await.map_err(|e| e.into()) }})?;\n        \
                          {return_wrap}"
                     )
                 } else {
                     format!(
-                        "let rt = tokio::runtime::Runtime::new()?;\n        \
+                        "let rt = {rt_new};\n        \
                          rt.block_on(async {{ {core_call}.await.map_err(|e| e.into()) }})"
                     )
                 }
             } else if is_opaque {
                 if is_unit_return {
                     format!(
-                        "let rt = tokio::runtime::Runtime::new()?;\n        \
+                        "let rt = {rt_new};\n        \
                          rt.block_on(async {{ {core_call}.await }});"
                     )
                 } else {
                     format!(
-                        "let rt = tokio::runtime::Runtime::new()?;\n        \
+                        "let rt = {rt_new};\n        \
                          let result = rt.block_on(async {{ {core_call}.await }});\n        \
                          {return_wrap}"
                     )
                 }
             } else {
                 format!(
-                    "let rt = tokio::runtime::Runtime::new()?;\n        \
+                    "let rt = {rt_new};\n        \
                      rt.block_on(async {{ {core_call}.await }})"
                 )
             }
