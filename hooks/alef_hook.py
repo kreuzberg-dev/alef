@@ -87,8 +87,9 @@ def _download_and_extract(version: str, asset_name: str, fmt: str, cache: Path) 
     try:
         urlretrieve(url, archive)
     except HTTPError as exc:
-        msg = f"Failed to download {asset_name} (HTTP {exc.code}): {url}\nEnsure release v{version} has platform assets."
-        raise SystemExit(msg) from None
+        raise SystemExit(
+            f"Failed to download {asset_name} (HTTP {exc.code})\n  {url}\nEnsure v{version} release exists with assets."
+        ) from None
     except URLError as exc:
         msg = f"Network error downloading {asset_name}: {exc.reason}"
         raise SystemExit(msg) from None
