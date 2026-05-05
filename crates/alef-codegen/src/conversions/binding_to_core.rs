@@ -850,6 +850,17 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                 field_conversion_to_core(name, ty, optional)
             }
         }
+        // Skip-type: Named types that can't be auto-converted via Into in the binding→core From
+        // impl (e.g. PHP VisitorHandle which is handled separately by bridge machinery).
+        TypeRef::Named(n) if config.from_binding_skip_types.iter().any(|s| s == n) => {
+            format!("{name}: Default::default()")
+        }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if config.from_binding_skip_types.iter().any(|s| s == n) => {
+                format!("{name}: Default::default()")
+            }
+            _ => field_conversion_to_core(name, ty, optional),
+        },
         // Fall through to default for everything else
         _ => field_conversion_to_core(name, ty, optional),
     }
