@@ -435,6 +435,13 @@ pub struct CallOverride {
     /// assertions map to `is_none()`/`is_some()`. (Rust generator.)
     #[serde(default)]
     pub result_is_option: bool,
+    /// When `true`, the R generator emits the call result directly without wrapping
+    /// in `jsonlite::fromJSON()`. Use when the R binding already returns a native
+    /// R list (`Robj`) rather than a JSON string. Field-path assertions still use
+    /// `result$field` accessor syntax (i.e. `result_is_simple` behaviour is NOT
+    /// implied — only the JSON parse wrapper is suppressed). (R generator only.)
+    #[serde(default)]
+    pub result_is_r_list: bool,
     /// When `true`, the Rust generator wraps the `json_object` argument expression
     /// in `Some(...).clone()` to match an owned `Option<T>` parameter slot rather
     /// than passing `&options`. (Rust generator only.)
