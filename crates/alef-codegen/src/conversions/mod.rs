@@ -60,6 +60,10 @@ pub struct ConversionConfig<'a> {
     /// the binding wrapper holds `inner: Arc<CoreT>` and the conversion must extract
     /// `.inner` directly instead of calling `.into()` + wrapping in `Arc::new`.
     pub opaque_types: Option<&'a AHashSet<String>>,
+    /// Type names that should use `Default::default()` in the binding→core From impl.
+    /// Used by PHP to skip bridge type fields (e.g., VisitorHandle) that can't be
+    /// auto-converted via Into and are always handled by the bridge machinery instead.
+    pub from_binding_skip_types: &'a [String],
     /// When `core_crate_override` is set for a language, the IR's `rust_path` values
     /// still contain the original source crate prefix (e.g. `mylib_core::Method`).
     /// This field remaps those paths: `(original_crate_name, override_crate_name)`.

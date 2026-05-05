@@ -361,12 +361,18 @@ impl Backend for PhpBackend {
         // have binding->core From impls because PHP maps enums to String and there's no
         // From<String> for the core enum type. Core->binding is always safe.
         let enum_names_ref = &mapper.enum_names;
+        let bridge_skip_types: Vec<String> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|b| b.type_alias.clone())
+            .collect();
         let php_conv_config = ConversionConfig {
             cast_large_ints_to_i64: true,
             enum_string_names: Some(enum_names_ref),
             json_to_string: true,
             include_cfg_metadata: false,
             option_duration_on_defaults: true,
+            from_binding_skip_types: &bridge_skip_types,
             ..Default::default()
         };
         // Build transitive set of types that can't have binding->core From
