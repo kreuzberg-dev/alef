@@ -187,6 +187,22 @@ pub fn render_test_file(
         }
     }
 
+    // Collect and import element types from json_object args that have an element_type specified.
+    // These types are used in serde_json::from_value::<Vec<{elem}>>() for batch operations.
+    if file_has_call_based {
+        let mut element_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for arg in &e2e_config.call.args {
+            if arg.arg_type == "json_object" {
+                if let Some(ref elem_type) = arg.element_type {
+                    element_types.insert(elem_type.clone());
+                }
+            }
+        }
+        for elem_type in &element_types {
+            let _ = writeln!(out, "use {module}::{elem_type};");
+        }
+    }
+
     let _ = writeln!(out);
 
     for fixture in fixtures {

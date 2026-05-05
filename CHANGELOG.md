@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(rust-e2e-codegen): element types from `json_object` args with `element_type` specified are now imported in the generated test file; batch operations that use `serde_json::from_value::<Vec<{elem}>>()` previously failed to compile with E0425 (cannot find type) because types like `BatchFileItem` and `BatchBytesItem` were not in scope.
 - fix(csharp-backend): `JsonOptions` now uses `DefaultIgnoreCondition = WhenWritingNull` instead of `WhenWritingDefault`; bool fields explicitly set to `false` (CLR default) were silently dropped when serializing options to Rust FFI, so e.g. `remove_forms: false` was never sent and Rust fell back to its own default of `true`.
 - fix(csharp-backend): generated `VisitResult` record now includes a `ToFfiJson()` method that emits Rust-serde-compatible JSON for visitor return values (`"Continue"`, `"Skip"`, `"PreserveHtml"`, `{"Custom":"…"}`, `{"Error":"…"}`); the previous `JsonSerializer.Serialize` produced `{}` for unit-variant records, which Rust could not deserialize.
 - fix(csharp-backend): visitor bridge entry point names now use `to_snake_case()` instead of `to_lowercase()` (e.g. `htm_html_visitor_bridge_new` not `htm_htmlvisitorbridgenew`); the wrong name caused `EntryPointNotFoundException` at runtime.
