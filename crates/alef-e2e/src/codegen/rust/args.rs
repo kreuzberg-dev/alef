@@ -82,7 +82,7 @@ pub fn render_rust_arg(
         if let serde_json::Value::String(path_str) = value {
             // File-path value: load via std::fs::read at test-run time.
             let binding = format!(
-                "let {name} = std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../test_documents/{path_str}\")).expect(\"test_documents/{path_str} must exist\");"
+                "let {name} = std::fs::read(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../test_documents/{path_str}\")).expect(\"test_documents/{path_str} must exist\");"
             );
             let call_expr = if owned { name.to_string() } else { format!("&{name}") };
             return (vec![binding], call_expr);

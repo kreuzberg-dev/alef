@@ -203,6 +203,12 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         crate_dir = crate_dir,
     );
 
+    let js_content = format!(
+        r#"module.exports = require("../../crates/{crate_dir}-node/index.js");
+"#,
+        crate_dir = crate_dir,
+    );
+
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/package.json")),
@@ -225,6 +231,14 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/index.d.ts")),
             content: dts_content,
+            generated_header: false,
+        },
+        // Emit the runtime entry too — `package.json` declares `"main": "index.js"`
+        // so consumers (vitest, node) need a CommonJS shim that re-exports the
+        // napi-built bindings from the corresponding `crates/<name>-node/`.
+        GeneratedFile {
+            path: PathBuf::from(format!("{pkg_dir}/index.js")),
+            content: js_content,
             generated_header: false,
         },
         GeneratedFile {
