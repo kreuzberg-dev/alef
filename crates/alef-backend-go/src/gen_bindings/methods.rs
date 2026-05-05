@@ -370,7 +370,12 @@ pub(super) fn gen_param_to_c(
             }
         }
         TypeRef::Bytes => {
-            writeln!(out, "\t{} := (*C.uint8_t)(unsafe.Pointer(&{}[0]))", c_name, go_param).ok();
+            // Empty slices have no first element — `&slice[0]` panics. Pass a nil
+            // pointer in that case; the FFI side reads zero bytes either way.
+            writeln!(out, "\tvar {} *C.uint8_t", c_name).ok();
+            writeln!(out, "\tif len({}) > 0 {{", go_param).ok();
+            writeln!(out, "\t\t{} = (*C.uint8_t)(unsafe.Pointer(&{}[0]))", c_name, go_param).ok();
+            writeln!(out, "\t}}").ok();
             writeln!(out, "\t{}Len := C.uintptr_t(len({}))", c_name, go_param).ok();
         }
         TypeRef::Named(name) => {
