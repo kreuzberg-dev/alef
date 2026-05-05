@@ -281,9 +281,14 @@ pub fn render_assertion(
                         "    // skipped: greater_than with negative value is always true for unsigned types"
                     );
                 } else if val.as_u64() == Some(0) {
-                    // Clippy prefers !is_empty() over len() > 0
-                    let base = field_access.strip_suffix(".len()").unwrap_or(&field_access);
-                    let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected > 0\");");
+                    if field_access.ends_with(".len()") {
+                        // Clippy prefers !is_empty() over len() > 0 for collections.
+                        let base = field_access.strip_suffix(".len()").unwrap();
+                        let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected > 0\");");
+                    } else {
+                        // Scalar types (usize, u64, etc.) — use direct comparison.
+                        let _ = writeln!(out, "    assert!({field_access} > 0, \"expected > 0\");");
+                    }
                 } else {
                     let lit = numeric_literal(val);
                     let _ = writeln!(out, "    assert!({field_access} > {lit}, \"expected > {lit}\");");
