@@ -923,8 +923,9 @@ fn render_test_method(
 
     let _ = writeln!(out, "        ${result_var} = {call_expr};");
 
+    let result_is_array = call_config.result_is_array;
     for assertion in &fixture.assertions {
-        render_assertion(out, assertion, result_var, field_resolver, result_is_simple);
+        render_assertion(out, assertion, result_var, field_resolver, result_is_simple, result_is_array);
     }
 
     let _ = writeln!(out, "    }}");
@@ -1076,6 +1077,13 @@ fn build_args_and_setup(
                             parts.push(emit_php_batch_item_array(v, elem_type));
                             continue;
                         }
+                        // When element_type is a scalar/primitive and value is an array,
+                        // pass it directly as a PHP array (e.g. ["python"]) rather than
+                        // wrapping in a typed config constructor.
+                        if v.is_array() && is_php_reserved_type(elem_type) {
+                            parts.push(json_to_php(v));
+                            continue;
+                        }
                     }
                     match options_via {
                         "json" => {
@@ -1102,11 +1110,13 @@ fn build_args_and_setup(
                                 // Filter out empty string enum values before passing to from_json().
                                 let filtered_v = filter_empty_enum_strings(v);
 
-                                // If the config is empty, pass null instead of creating an empty object.
-                                // Empty objects cause deserialization errors when required fields have defaults.
+                                // For empty objects, construct with from_json('{}') to get the
+                                // type's defaults rather than passing null (which fails for non-optional params).
                                 if let serde_json::Value::Object(obj) = &filtered_v {
                                     if obj.is_empty() {
-                                        parts.push("null".to_string());
+                                        let arg_var = format!("${}", arg.name);
+                                        setup_lines.push(format!("{arg_var} = {type_name}::from_json('{{}}');"));
+                                        parts.push(arg_var);
                                         continue;
                                     }
                                 }
@@ -1172,6 +1182,7 @@ fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    result_is_array: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
@@ -1386,19 +1397,37 @@ fn render_assertion(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let php_val = json_to_php(expected);
-                let _ = writeln!(
-                    out,
-                    "        $this->assertStringContainsString({php_val}, {field_expr});"
-                );
+                let field_is_array = assertion.field.as_deref().is_some_and(|f| !f.is_empty() && field_resolver.is_array(f));
+                if result_is_array && assertion.field.is_none() {
+                    // Top-level result is an array; use in_array check.
+                    let _ = writeln!(out, "        $this->assertContains({php_val}, {field_expr});");
+                } else if field_is_array {
+                    // Field is an array of objects; check JSON serialization for substring.
+                    let _ = writeln!(
+                        out,
+                        "        $this->assertStringContainsString({php_val}, json_encode({field_expr}));"
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "        $this->assertStringContainsString({php_val}, {field_expr});"
+                    );
+                }
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
+                let field_is_array = assertion.field.as_deref().is_some_and(|f| !f.is_empty() && field_resolver.is_array(f));
+                let effective_expr = if field_is_array {
+                    format!("json_encode({field_expr})")
+                } else {
+                    field_expr.clone()
+                };
                 for val in values {
                     let php_val = json_to_php(val);
                     let _ = writeln!(
                         out,
-                        "        $this->assertStringContainsString({php_val}, {field_expr});"
+                        "        $this->assertStringContainsString({php_val}, {effective_expr});"
                     );
                 }
             }
