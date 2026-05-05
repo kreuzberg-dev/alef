@@ -374,6 +374,11 @@ fn render_test_case(
                 format!("{before_cast}, {{ visitor: {visitor_arg} }}")
             };
             format!("{merged_obj}{type_suffix}")
+        } else if let Some(stripped) = args_str.strip_suffix(", undefined") {
+            // After the `{} as OptionsType` → `undefined` change, the empty-options
+            // tail no longer carries a cast for us to splice into. Replace the trailing
+            // undefined with the visitor-bearing options object.
+            format!("{stripped}, {{ visitor: {visitor_arg} }}")
         } else {
             format!("{args_str}, {{ visitor: {visitor_arg} }}")
         }
