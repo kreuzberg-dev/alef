@@ -5,23 +5,6 @@ use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, PrimitiveType, TypeDef, TypeRef};
 use std::fmt::Write;
 
-/// Generate a serde JSON bridge `impl From<BindingType> for core::Type`.
-/// Used for enum-tainted types where field-by-field From can't work (no From<String> for core enums),
-/// but serde can round-trip through JSON since the binding type derives Serialize and the core type
-/// derives Deserialize.
-pub(crate) fn gen_serde_bridge_from(typ: &TypeDef, core_import: &str) -> String {
-    let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
-    format!(
-        "impl From<{}> for {} {{\n    \
-         fn from(val: {}) -> Self {{\n        \
-         let json = serde_json::to_string(&val).expect(\"alef: serialize binding type\");\n        \
-         serde_json::from_str(&json).expect(\"alef: deserialize to core type\")\n    \
-         }}\n\
-         }}",
-        typ.name, core_path, typ.name
-    )
-}
-
 /// Return true if any field of the type (recursively through Optional/Vec) is a Named type
 /// that is an enum. PHP maps enum Named types to String, so From/Into impls would need
 /// From<String> for the core enum which doesn't exist -- skip generation for such types.
