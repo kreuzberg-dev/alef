@@ -1006,9 +1006,11 @@ fn build_args_and_setup(
                 // Use CrawlConfig::from_json() instead of direct property assignment.
                 // ext-php-rs doesn't support writable #[php(prop)] fields for complex types,
                 // so serialize the config to JSON and use from_json() to construct it.
+                // Filter out empty string enum values before passing to from_json().
+                let filtered_config = filter_empty_enum_strings(config_value);
                 setup_lines.push(format!(
                     "${name}_config = CrawlConfig::from_json(json_encode({}));",
-                    json_to_php(config_value)
+                    json_to_php(&filtered_config)
                 ));
                 setup_lines.push(format!(
                     "${} = {class_name}::{constructor_name}(${name}_config);",
@@ -1050,7 +1052,9 @@ fn build_args_and_setup(
                     match options_via {
                         "json" => {
                             // Pass as JSON string via json_encode(); the Rust method accepts Option<String>.
-                            parts.push(format!("json_encode({})", json_to_php(v)));
+                            // Filter out empty string enum values.
+                            let filtered_v = filter_empty_enum_strings(v);
+                            parts.push(format!("json_encode({})", json_to_php(&filtered_v)));
                             continue;
                         }
                         _ => {
@@ -1058,10 +1062,12 @@ fn build_args_and_setup(
                                 // Use TypeName::from_json(json_encode([...])) to construct the
                                 // typed config object. ext-php-rs structs expose a from_json()
                                 // static method that accepts a JSON string.
+                                // Filter out empty string enum values before passing to from_json().
+                                let filtered_v = filter_empty_enum_strings(v);
                                 let arg_var = format!("${}", arg.name);
                                 setup_lines.push(format!(
                                     "{arg_var} = {type_name}::from_json(json_encode({}));",
-                                    json_to_php(v)
+                                    json_to_php(&filtered_v)
                                 ));
                                 parts.push(arg_var);
                                 continue;
@@ -1588,6 +1594,38 @@ fn build_php_method_call(result_var: &str, method_name: &str, args: Option<&serd
         _ => {
             format!("${result_var}->{method_name}()")
         }
+    }
+}
+
+/// Filters out empty string enum values from JSON objects before rendering.
+/// When a field has an empty string value, it's treated as a missing/null enum field
+/// and should not be included in the PHP array.
+fn filter_empty_enum_strings(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let filtered: serde_json::Map<String, serde_json::Value> = map
+                .iter()
+                .filter_map(|(k, v)| {
+                    // Skip empty string values (typically represent missing enum variants)
+                    if let serde_json::Value::String(s) = v {
+                        if s.is_empty() {
+                            return None;
+                        }
+                    }
+                    // Recursively filter nested objects and arrays
+                    Some((k.clone(), filter_empty_enum_strings(v)))
+                })
+                .collect();
+            serde_json::Value::Object(filtered)
+        }
+        serde_json::Value::Array(arr) => {
+            let filtered: Vec<serde_json::Value> = arr
+                .iter()
+                .map(filter_empty_enum_strings)
+                .collect();
+            serde_json::Value::Array(filtered)
+        }
+        other => other.clone(),
     }
 }
 

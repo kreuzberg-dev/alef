@@ -66,7 +66,7 @@ impl Backend for PhpBackend {
 
     fn capabilities(&self) -> Capabilities {
         Capabilities {
-            supports_async: true,
+            supports_async: false,
             supports_classes: true,
             supports_enums: true,
             supports_option: true,
