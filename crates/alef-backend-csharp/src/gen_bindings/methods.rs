@@ -226,11 +226,13 @@ fn gen_wrapper_function(
         out.push_str("                if (visitorHandle == IntPtr.Zero) throw GetLastError();\n");
         out.push_str("                try\n");
         out.push_str("                {\n");
-        out.push_str("                    var resultPtr = NativeMethods.ConvertWithVisitor(html, optionsHandle, visitorHandle);\n");
-        out.push_str("                    if (resultPtr == IntPtr.Zero) throw GetLastError();\n");
-        out.push_str("                    var json = Marshal.PtrToStringUTF8(resultPtr);\n");
-        out.push_str("                    NativeMethods.FreeString(resultPtr);\n");
-        out.push_str("                    return JsonSerializer.Deserialize<ConversionResult>(json!, JsonOptions)!;\n");
+        out.push_str("                    var nativeResult = NativeMethods.ConvertWithVisitor(html, optionsHandle, visitorHandle);\n");
+        out.push_str("                    if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
+        out.push_str("                    var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
+        out.push_str("                    var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+        out.push_str("                    NativeMethods.FreeString(jsonPtr);\n");
+        out.push_str("                    NativeMethods.ConversionResultFree(nativeResult);\n");
+        out.push_str("                    return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
         out.push_str("                }\n");
         out.push_str("                finally\n");
         out.push_str("                {\n");

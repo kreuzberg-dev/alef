@@ -70,10 +70,9 @@ impl TypeMapper for NapiMapper {
         Cow::Borrowed("String")
     }
 
-    /// NAPI accepts JS Buffer as napi::Buffer which auto-converts to &[u8].
-    /// Functions receive napi::Buffer and must convert to Vec<u8> via .to_vec().
+    /// NAPI v3 removed napi::Buffer; JS Uint8Array ↔ Vec<u8> is automatic.
     fn bytes(&self) -> Cow<'static, str> {
-        Cow::Borrowed("napi::Buffer")
+        Cow::Borrowed("Vec<u8>")
     }
 
     fn error_wrapper(&self) -> &str {
