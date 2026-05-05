@@ -13,7 +13,6 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
-use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -349,7 +348,6 @@ fn render_test_file(
         let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;");
     }
     // Collect all enum types used in builder expressions across all fixtures.
-    let enum_field_keys: std::collections::HashSet<String> = enum_fields.keys().cloned().collect();
     let mut enum_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for f in fixtures.iter() {
         let call_cfg = e2e_config.resolve_call(f.call.as_deref());
@@ -359,7 +357,7 @@ fn render_test_file(
                 if let Some(val) = f.input.get(field) {
                     if !val.is_null() && !val.is_array() {
                         if let Some(obj) = val.as_object() {
-                            collect_enum_and_nested_types(obj, &enum_field_keys, &mut enum_types_used);
+                            collect_enum_and_nested_types(obj, enum_fields, &mut enum_types_used);
                         }
                     }
                 }
@@ -808,7 +806,6 @@ fn render_test_method(
 
     // Emit builder expressions for json_object args.
     if let (true, Some(opts_type)) = (needs_deser, effective_options_type) {
-        let enum_field_keys: std::collections::HashSet<String> = enum_fields.keys().cloned().collect();
         for arg in args {
             if arg.arg_type == "json_object" {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
@@ -816,7 +813,7 @@ fn render_test_method(
                     if !val.is_null() && !val.is_array() {
                         if let Some(obj) = val.as_object() {
                             // Generate builder expression: TypeName.builder().withFieldName(value)...build()
-                            let builder_expr = java_builder_expression(obj, opts_type, &enum_field_keys, nested_types);
+                            let builder_expr = java_builder_expression(obj, opts_type, enum_fields, nested_types);
                             let var_name = &arg.name;
                             let _ = writeln!(out, "        var {var_name} = {builder_expr};");
                         }
@@ -1753,7 +1750,7 @@ fn json_to_java_typed(value: &serde_json::Value, element_type: Option<&str>) -> 
 fn java_builder_expression(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
-    enum_fields: &HashSet<String>,
+    enum_fields: &std::collections::HashMap<String, String>,
     nested_types: &std::collections::HashMap<String, String>,
 ) -> String {
     let mut expr = format!("{}.builder()", type_name);
@@ -1766,13 +1763,14 @@ fn java_builder_expression(
             serde_json::Value::String(s) => {
                 // Check if this field is an enum type by looking up in enum_fields.
                 // enum_fields is keyed by camelCase names (e.g., "codeBlockStyle"), not snake_case.
-                if enum_fields.contains(&camel_key) {
-                    // Enum field: convert string value to EnumType.VariantName
-                    // The enum variant in this project is PascalCase (e.g., "Backticks" not "BACKTICKS")
+                if let Some(enum_type_name) = enum_fields.get(&camel_key) {
+                    // Enum field: use the mapped enum type name from the config
                     let variant_name = s.to_upper_camel_case();
-                    // The enum type is also PascalCase (derived from the camelCase field name)
-                    let enum_type_name = camel_key.to_upper_camel_case();
                     format!("{}.{}", enum_type_name, variant_name)
+                } else if camel_key == "preset" && type_name == "PreprocessingOptionsBuilder" {
+                    // Special case: preset field in PreprocessingOptions maps to PreprocessingPreset
+                    let variant_name = s.to_upper_camel_case();
+                    format!("PreprocessingPreset.{}", variant_name)
                 } else {
                     // String field: emit as a quoted literal
                     format!("\"{}\"", escape_java(s))
@@ -1782,11 +1780,26 @@ fn java_builder_expression(
             serde_json::Value::Null => "null".to_string(),
             serde_json::Value::Number(n) => {
                 // Number field: emit literal with type suffix
-                // Builder setters take plain numbers, not Optional<Number>
-                if n.is_f64() {
-                    format!("{}d", n)
+                // Most numeric fields are Optional<Long> in Java options builder,
+                // but a few (list_indent_width, wrap_width) are plain long.
+                // Check if this is a known plain numeric field.
+                let camel_key = key.to_lower_camel_case();
+                let is_plain = matches!(camel_key.as_str(), "listIndentWidth" | "wrapWidth");
+
+                if is_plain {
+                    // Plain numeric field: no Optional wrapper
+                    if n.is_f64() {
+                        format!("{}d", n)
+                    } else {
+                        format!("{}L", n)
+                    }
                 } else {
-                    format!("{}L", n)
+                    // Optional numeric field: wrap in Optional.of()
+                    if n.is_f64() {
+                        format!("Optional.of({}d)", n)
+                    } else {
+                        format!("Optional.of({}L)", n)
+                    }
                 }
             }
             serde_json::Value::Array(arr) => {
@@ -1846,16 +1859,18 @@ fn default_java_nested_types() -> std::collections::HashMap<String, String> {
 /// Enums are keyed in the enum_fields map by camelCase names (e.g., "codeBlockStyle" → "CodeBlockStyle").
 fn collect_enum_and_nested_types(
     obj: &serde_json::Map<String, serde_json::Value>,
-    enum_fields: &HashSet<String>,
+    enum_fields: &std::collections::HashMap<String, String>,
     types_out: &mut std::collections::BTreeSet<String>,
 ) {
     for (key, val) in obj {
         // enum_fields is keyed by camelCase, not snake_case.
         let camel_key = key.to_lower_camel_case();
-        if enum_fields.contains(&camel_key) {
-            // Add the enum type in PascalCase (derived from camelCase key).
-            let enum_type = camel_key.to_upper_camel_case();
-            types_out.insert(enum_type);
+        if let Some(enum_type) = enum_fields.get(&camel_key) {
+            // Add the enum type from the mapping (e.g., "CodeBlockStyle").
+            types_out.insert(enum_type.clone());
+        } else if camel_key == "preset" {
+            // Special case: preset field uses PreprocessingPreset enum.
+            types_out.insert("PreprocessingPreset".to_string());
         }
         // Recurse into nested objects to find their nested enum types.
         if let Some(nested) = val.as_object() {
