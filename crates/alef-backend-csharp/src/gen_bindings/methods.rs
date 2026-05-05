@@ -204,16 +204,18 @@ fn gen_wrapper_function(
 
     // Detect if this is the main convert function with visitor support.
     // The convert function should have (string, ConversionOptions?) signature and has_visitor_callbacks=true.
-    let has_options_param = visible_params.iter().any(|p| {
-        matches!(&p.ty, TypeRef::Named(n) if n == "ConversionOptions")
-    });
+    let has_options_param = visible_params
+        .iter()
+        .any(|p| matches!(&p.ty, TypeRef::Named(n) if n == "ConversionOptions"));
     let is_convert_with_visitor = has_visitor_callbacks && func.name == "convert" && has_options_param;
 
     // Special handling for convert function with visitor support:
     // Extract visitor from options before serialization
     if is_convert_with_visitor {
         out.push_str("        var visitor = options?.Visitor;\n");
-        out.push_str("        var optionsJson = options != null ? JsonSerializer.Serialize(options, JsonOptions) : \"null\";\n");
+        out.push_str(
+            "        var optionsJson = options != null ? JsonSerializer.Serialize(options, JsonOptions) : \"null\";\n",
+        );
         out.push_str("        var optionsHandle = NativeMethods.ConversionOptionsFromJson(optionsJson);\n");
         out.push_str("        try\n");
         out.push_str("        {\n");
@@ -243,22 +245,26 @@ fn gen_wrapper_function(
         out.push_str("                var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
         out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
         out.push_str("                NativeMethods.ConversionResultFree(nativeResult);\n");
-        out.push_str("                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
+        out.push_str(
+            "                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n",
+        );
         out.push_str("            }\n");
         out.push_str("        }\n");
         out.push_str("        finally\n");
         out.push_str("        {\n");
         out.push_str("            NativeMethods.ConversionOptionsFree(optionsHandle);\n");
         out.push_str("        }\n");
-    } else {
-        // Serialize Named (opaque handle) params to JSON and obtain native handles.
-        emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
+        out.push_str("    }\n\n");
+        return out;
     }
+
+    // Serialize Named (opaque handle) params to JSON and obtain native handles.
+    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
 
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
 
-    if !is_convert_with_visitor && func.is_async {
+    if func.is_async {
         // Async: wrap in Task.Run for non-blocking execution. CS1997 disallows
         // `return await Task.Run(...)` in an `async Task` (non-generic) method,
         // so for unit returns we drop the `return`.

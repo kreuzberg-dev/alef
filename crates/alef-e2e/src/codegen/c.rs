@@ -201,6 +201,7 @@ impl E2eCodegen for CCodegen {
 struct ResolvedCallInfo {
     function_name: String,
     result_type_name: String,
+    options_type_name: String,
     client_factory: Option<String>,
     args: Vec<crate::config::ArgMapping>,
 }
@@ -219,10 +220,15 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
         .and_then(|o| o.result_type.as_ref())
         .cloned()
         .unwrap_or_else(|| call.function.to_pascal_case());
+    let options_type_name = overrides
+        .and_then(|o| o.options_type.as_deref())
+        .unwrap_or("ConversionOptions")
+        .to_string();
     let client_factory = overrides.and_then(|o| o.client_factory.as_ref()).cloned();
     ResolvedCallInfo {
         function_name,
         result_type_name,
+        options_type_name,
         client_factory,
         args: call.args.clone(),
     }
@@ -558,6 +564,7 @@ fn render_test_file(
             field_resolver,
             &e2e_config.fields_c_types,
             &call_info.result_type_name,
+            &call_info.options_type_name,
             call_info.client_factory.as_deref(),
         );
         if i + 1 < fixtures.len() {
@@ -579,6 +586,7 @@ fn render_test_function(
     field_resolver: &FieldResolver,
     fields_c_types: &HashMap<String, String>,
     result_type_name: &str,
+    options_type_name: &str,
     client_factory: Option<&str>,
 ) {
     let fn_name = sanitize_ident(&fixture.id);
@@ -750,9 +758,11 @@ fn render_test_function(
                     let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                     let escaped = escape_c(&json_str);
                     let upper = prefix.to_uppercase();
+                    let options_type_pascal = options_type_name;
+                    let options_type_snake = options_type_name.to_snake_case();
                     let _ = writeln!(
                         out,
-                        "    {upper}ConversionOptions* options_handle = {prefix}_conversion_options_from_json(\"{escaped}\");"
+                        "    {upper}{options_type_pascal}* options_handle = {prefix}_{options_type_snake}_from_json(\"{escaped}\");"
                     );
                     has_options_handle = true;
                 }
@@ -768,7 +778,8 @@ fn render_test_function(
             "    {prefix_upper}{result_type_name}* {result_var} = {prefixed_fn}({args_str});"
         );
         if has_options_handle {
-            let _ = writeln!(out, "    {prefix}_conversion_options_free(options_handle);");
+            let options_type_snake = options_type_name.to_snake_case();
+            let _ = writeln!(out, "    {prefix}_{options_type_snake}_free(options_handle);");
         }
         let _ = writeln!(out, "    assert({result_var} == NULL && \"expected call to fail\");");
         let _ = writeln!(out, "}}");
@@ -844,7 +855,8 @@ fn render_test_function(
         }
     }
     if has_options_handle {
-        let _ = writeln!(out, "    {prefix}_conversion_options_free(options_handle);");
+        let options_type_snake = options_type_name.to_snake_case();
+        let _ = writeln!(out, "    {prefix}_{options_type_snake}_free(options_handle);");
     }
     let result_type_snake = result_type_name.to_snake_case();
     let _ = writeln!(out, "    {prefix}_{result_type_snake}_free({result_var});");

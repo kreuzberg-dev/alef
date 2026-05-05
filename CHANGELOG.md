@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(magnus/trait_bridge): `default_types` parameters in bridge functions are now passed as the binding type and converted to the core type via `.into()` (the Magnus binding already accepts the typed value), instead of being typed `Option<String>` / `String` and parsed via `serde_json::from_str`. The JSON-string detour silently dropped non-string fixture values and forced callers to pre-encode every nested struct.
 - fix(codegen/config_gen): `gen_magnus_kwargs_constructor` now accepts kwargs as `Option<magnus::RHash>` via `scan_args`, so callers can omit the kwargs hash entirely (matching idiomatic Ruby) instead of always passing an empty `{}`.
 - fix(codegen/shared): `constructor_parts_with_renames` no longer double-wraps already-`Optional<T>` fields in another `Option<…>`; previously fields whose IR type is already optional became `Option<Option<T>>` in the generated constructor signature.
+- fix(e2e/wasm): `globalThis.process.chdir(testDocumentsDir)` replaces `process.chdir(testDocumentsDir)`; the WASM module exports a `process` function that shadowed the Node.js global `process` object, making `.chdir` unavailable at test setup time.
+- fix(e2e/c): C generator now reads `options_type` from the call override (`[e2e.call.overrides.c]`) instead of hardcoding `ConversionOptions`; generated code uses the configured type name (e.g. `ProcessConfig`) for both the `*_from_json` constructor and `*_free` calls.
+- fix(e2e/csharp): when a visitor is present but no options argument exists, the generator now emits `new OptionsType { Visitor = visitorVar }` instead of appending the visitor as a bare extra argument.
+- fix(csharp-backend): `is_convert_with_visitor` early-return path now emits the closing brace and returns immediately, preventing the method body from falling through into the standard param-setup path.
 
 ## [0.14.22] - 2026-05-04
 

@@ -706,21 +706,20 @@ fn render_test_method(
     }
 
     // When a visitor is present, embed it in the options object instead of passing as a separate arg.
-    // The options are already in args_str (e.g., "JsonSerializer.Deserialize<ConversionOptions>(...)").
-    // We need to modify that to set Visitor = visitor_instance.
+    // The options may or may not already be in args_str.
     let final_args = if has_visitor && !visitor_arg.is_empty() {
-        // Modify the options argument to embed the visitor
-        // Pattern: JsonSerializer.Deserialize<ConversionOptions>("...") →
-        //         new ConversionOptions { Visitor = visitor_var, ...fields... }
-        // For now, we'll use a simpler approach: create the options, then set Visitor
-        if args_str.contains("JsonSerializer.Deserialize") && effective_options_type.is_some() {
-            // Extract the deserialized object and add Visitor assignment
+        let opts_type = effective_options_type.unwrap_or("ConversionOptions");
+        if args_str.contains("JsonSerializer.Deserialize") {
+            // Deserialize form: extract the deserialized object and set Visitor on it
             setup_lines.push(format!("var options = {args_str};"));
             setup_lines.push(format!("options.Visitor = {visitor_arg};"));
             "options".to_string()
+        } else if args_str.is_empty() {
+            // No options were provided; create new instance with Visitor
+            setup_lines.push(format!("var options = new {opts_type} {{ Visitor = {visitor_arg} }};"));
+            "options".to_string()
         } else {
-            // Fallback: if options are simpler, just pass visitor as additional arg
-            // This shouldn't happen with Convert, but handle it defensively
+            // Some other form; if we can't parse it, append visitor as separate arg (shouldn't happen with Convert)
             format!("{args_str}, {visitor_arg}")
         }
     } else if extra_args_slice.is_empty() {
