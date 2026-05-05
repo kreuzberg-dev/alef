@@ -364,7 +364,7 @@ impl Backend for RustlerBackend {
             .filter(|typ| !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
         {
             let rustler_struct_cfg = alef_codegen::conversions::ConversionConfig {
-                map_as_string: true,
+                map_as_string: false,
                 exclude_types: &bridge_conv_exclude_types,
                 ..Default::default()
             };
