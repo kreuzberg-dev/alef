@@ -285,7 +285,7 @@ fn build_args_and_setup(
             arg_bindings.push(format!(
                 "    {var_name} = os.environ['MOCK_SERVER_URL'] + '/fixtures/{fixture_id}'"
             ));
-            kwarg_exprs.push(var_name.to_string());
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             continue;
         }
 
@@ -302,6 +302,7 @@ fn build_args_and_setup(
                 &mut kwarg_exprs,
                 value,
                 var_name,
+                kwarg_name,
                 options_type,
                 options_via,
                 enum_fields,
@@ -324,12 +325,12 @@ fn build_args_and_setup(
                 _ => "None".to_string(),
             };
             arg_bindings.push(format!("    {var_name} = {default_val}"));
-            kwarg_exprs.push(var_name.to_string());
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             continue;
         }
 
         if arg.arg_type == "bytes" {
-            emit_bytes_arg(&mut arg_bindings, &mut kwarg_exprs, value, var_name);
+            emit_bytes_arg(&mut arg_bindings, &mut kwarg_exprs, value, var_name, kwarg_name);
             continue;
         }
 
@@ -340,7 +341,7 @@ fn build_args_and_setup(
             ""
         };
         arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
-        kwarg_exprs.push(var_name.to_string());
+        kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
     }
 
     (arg_bindings, kwarg_exprs)
@@ -353,7 +354,7 @@ fn emit_handle_arg(
     fixture: &Fixture,
     arg: &crate::config::ArgMapping,
     var_name: &str,
-    _kwarg_name: &str,
+    kwarg_name: &str,
     options_type: Option<&str>,
     handle_nested_types: &HashMap<String, String>,
     handle_dict_types: &HashSet<String>,
@@ -388,7 +389,7 @@ fn emit_handle_arg(
         let literal = json_to_python_literal(config_value);
         arg_bindings.push(format!("    {var_name} = {constructor_name}({literal})"));
     }
-    kwarg_exprs.push(var_name.to_string());
+    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
 }
 
 fn build_handle_kwarg_value(
@@ -430,6 +431,7 @@ fn emit_json_object_arg(
     kwarg_exprs: &mut Vec<String>,
     value: &serde_json::Value,
     var_name: &str,
+    kwarg_name: &str,
     options_type: Option<&str>,
     options_via: &str,
     enum_fields: &HashMap<String, String>,
@@ -455,7 +457,7 @@ fn emit_json_object_arg(
                         })
                         .collect();
                     arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
-                    kwarg_exprs.push(var_name.to_string());
+                    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                     return true;
                 }
             }
@@ -467,14 +469,14 @@ fn emit_json_object_arg(
                 ""
             };
             arg_bindings.push(format!("    {var_name} = {literal}{noqa}"));
-            kwarg_exprs.push(var_name.to_string());
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             true
         }
         "json" => {
             let json_str = serde_json::to_string(value).unwrap_or_default();
             let escaped = escape_python(&json_str);
             arg_bindings.push(format!("    {var_name} = json.loads(\"{escaped}\")"));
-            kwarg_exprs.push(var_name.to_string());
+            kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
             true
         }
         "from_json" => {
@@ -482,7 +484,7 @@ fn emit_json_object_arg(
                 let json_str = serde_json::to_string(value).unwrap_or_default();
                 let escaped = escape_python(&json_str);
                 arg_bindings.push(format!("    {var_name} = {opts_type}.from_json(\"{escaped}\")"));
-                kwarg_exprs.push(var_name.to_string());
+                kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                 true
             } else {
                 false
@@ -500,7 +502,7 @@ fn emit_json_object_arg(
                             .map(|obj| emit_python_batch_item(obj, elem_type))
                             .collect();
                         arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
-                        kwarg_exprs.push(var_name.to_string());
+                        kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                         return true;
                     }
                 }
@@ -526,7 +528,7 @@ fn emit_json_object_arg(
                     .collect();
                 let constructor = format!("{opts_type}({})", kwargs.join(", "));
                 arg_bindings.push(format!("    {var_name} = {constructor}"));
-                kwarg_exprs.push(var_name.to_string());
+                kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
                 true
             } else {
                 false
@@ -540,6 +542,7 @@ fn emit_bytes_arg(
     kwarg_exprs: &mut Vec<String>,
     value: &serde_json::Value,
     var_name: &str,
+    kwarg_name: &str,
 ) {
     if let Some(raw) = value.as_str() {
         match classify_bytes_value(raw) {
@@ -559,7 +562,7 @@ fn emit_bytes_arg(
     } else {
         arg_bindings.push(format!("    {var_name} = None"));
     }
-    kwarg_exprs.push(var_name.to_string());
+    kwarg_exprs.push(format!("{kwarg_name}={var_name}"));
 }
 
 /// Emit a Python batch item (BatchBytesItem or BatchFileItem) constructor.
@@ -677,7 +680,7 @@ mod tests {
         let mut bindings = Vec::new();
         let mut exprs = Vec::new();
         let value = serde_json::Value::String("pdf/memo.pdf".to_string());
-        emit_bytes_arg(&mut bindings, &mut exprs, &value, "content");
+        emit_bytes_arg(&mut bindings, &mut exprs, &value, "content", "content");
         assert!(bindings[0].contains("Path("), "got: {:?}", bindings[0]);
         assert!(bindings[0].contains("read_bytes"), "got: {:?}", bindings[0]);
     }
@@ -687,7 +690,7 @@ mod tests {
         let mut bindings = Vec::new();
         let mut exprs = Vec::new();
         let value = serde_json::Value::String("/9j/4AAQ".to_string());
-        emit_bytes_arg(&mut bindings, &mut exprs, &value, "data");
+        emit_bytes_arg(&mut bindings, &mut exprs, &value, "data", "data");
         assert!(bindings[0].contains("b64decode"), "got: {:?}", bindings[0]);
     }
 
@@ -700,6 +703,7 @@ mod tests {
             &mut bindings,
             &mut exprs,
             &value,
+            "opts",
             "opts",
             None,
             "dict",
