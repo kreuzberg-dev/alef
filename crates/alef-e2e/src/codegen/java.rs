@@ -1785,14 +1785,23 @@ fn java_builder_expression(
             serde_json::Value::Bool(b) => b.to_string(),
             serde_json::Value::Null => "null".to_string(),
             serde_json::Value::Number(n) => {
-                // Number field: emit literal with type suffix
-                // Most numeric fields are Optional<Long> in Java options builder,
-                // but a few (list_indent_width, wrap_width) are plain long.
-                // Check if this is a known plain numeric field.
+                // Number field: emit literal with type suffix.
+                // Java records/classes use either `long` (primitive, not nullable) or
+                // `Optional<Long>` (nullable). The codegen wraps in `Optional.of(...)`
+                // by default since most options builder fields are Optional, but several
+                // record types (e.g. SecurityLimits) use primitive `long` throughout.
+                // Skip the wrap for: (a) known-primitive top-level fields and (b) any
+                // method on a record type whose builder methods take primitives only.
                 let camel_key = key.to_lower_camel_case();
-                let is_plain = matches!(camel_key.as_str(), "listIndentWidth" | "wrapWidth");
+                let is_plain_field = matches!(camel_key.as_str(), "listIndentWidth" | "wrapWidth");
+                // Builders for typed-record nested config classes use primitives
+                // throughout — they're not the optional-options pattern.
+                let is_primitive_builder = matches!(
+                    type_name,
+                    "SecurityLimits" | "SecurityLimitsBuilder"
+                );
 
-                if is_plain {
+                if is_plain_field || is_primitive_builder {
                     // Plain numeric field: no Optional wrapper
                     if n.is_f64() {
                         format!("{}d", n)

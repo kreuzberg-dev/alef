@@ -556,6 +556,89 @@ pub(super) fn gen_struct_type(typ: &TypeDef, enum_names: &std::collections::Hash
     }
 
     writeln!(out, "}}").ok();
+
+    // If any field is a `[]byte` (Vec<u8>), emit custom MarshalJSON so the bytes
+    // serialize as a JSON array of integers — matching what Rust's serde
+    // `Vec<u8>` deserializer expects. Go's default `json.Marshal([]byte)` emits
+    // base64, which Rust's `Deserialize for Vec<u8>` rejects with
+    // `invalid type: string "...", expected a sequence`.
+    let bytes_fields: Vec<&alef_core::ir::FieldDef> = typ
+        .fields
+        .iter()
+        .filter(|f| !is_tuple_field(f) && matches!(&f.ty, TypeRef::Bytes))
+        .collect();
+    if !bytes_fields.is_empty() {
+        writeln!(out).ok();
+        writeln!(
+            out,
+            "// MarshalJSON serializes `[]byte` fields as a JSON array of integers (the format"
+        )
+        .ok();
+        writeln!(
+            out,
+            "// Rust's serde `Vec<u8>` deserializer expects) instead of Go's default base64 string."
+        )
+        .ok();
+        writeln!(out, "func (v {go_name}) MarshalJSON() ([]byte, error) {{").ok();
+        // Explicit shadow struct listing every field — embedding the original
+        // would cause both base64-string and int-array entries for the same JSON
+        // key. Bytes fields rendered as `[]int`; everything else copied verbatim.
+        writeln!(out, "\taux := struct {{").ok();
+        for field in &typ.fields {
+            if is_tuple_field(field) {
+                continue;
+            }
+            let is_visitor_field = field.name == "visitor"
+                && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            if is_visitor_field {
+                continue;
+            }
+            let go_field = to_go_name(&field.name);
+            let json_name = apply_serde_rename(&field.name, typ.serde_rename_all.as_deref());
+            let use_default_pointer = !field.optional && typ.has_default && needs_omitempty_pointer(field);
+            let is_named_enum = !field.optional
+                && !use_default_pointer
+                && typ.has_default
+                && matches!(&field.ty, TypeRef::Named(n) if enum_names.contains(n.as_str()));
+            let is_collection = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
+            let json_tag = if field.optional || is_collection || use_default_pointer || is_named_enum {
+                format!("json:\"{},omitempty\"", json_name)
+            } else {
+                format!("json:\"{}\"", json_name)
+            };
+            let go_field_type: String = if matches!(&field.ty, TypeRef::Bytes) {
+                "[]int".to_string()
+            } else if field.optional || use_default_pointer {
+                go_optional_type(&field.ty).to_string()
+            } else {
+                go_type(&field.ty).to_string()
+            };
+            writeln!(out, "\t\t{} {} `{}`", go_field, go_field_type, json_tag).ok();
+        }
+        writeln!(out, "\t}}{{}}").ok();
+        for field in &typ.fields {
+            if is_tuple_field(field) {
+                continue;
+            }
+            let is_visitor_field = field.name == "visitor"
+                && matches!(&field.ty, TypeRef::Named(n) if n.contains("Visitor"));
+            if is_visitor_field {
+                continue;
+            }
+            let go_field = to_go_name(&field.name);
+            if matches!(&field.ty, TypeRef::Bytes) {
+                writeln!(out, "\taux.{} = make([]int, len(v.{}))", go_field, go_field).ok();
+                writeln!(out, "\tfor i, b := range v.{} {{", go_field).ok();
+                writeln!(out, "\t\taux.{}[i] = int(b)", go_field).ok();
+                writeln!(out, "\t}}").ok();
+            } else {
+                writeln!(out, "\taux.{} = v.{}", go_field, go_field).ok();
+            }
+        }
+        writeln!(out, "\treturn json.Marshal(aux)").ok();
+        writeln!(out, "}}").ok();
+    }
+
     out
 }
 

@@ -70,9 +70,14 @@ impl TypeMapper for NapiMapper {
         Cow::Borrowed("String")
     }
 
-    /// NAPI v3 removed napi::Buffer; JS Uint8Array ↔ Vec<u8> is automatic.
+    /// NAPI v3 keeps `Buffer` under `napi::bindgen_prelude::Buffer`. Using `Vec<u8>`
+    /// would cause napi to treat the field as a JS `Array` and call
+    /// `napi_get_array_length` on it — which fails with "Failed to get Array length"
+    /// when JS passes a `Buffer`/`Uint8Array` (which is what test fixtures emit).
+    /// `Buffer` accepts both `Buffer` and `Uint8Array` from JS and gives Rust
+    /// borrowed access to the bytes without copying.
     fn bytes(&self) -> Cow<'static, str> {
-        Cow::Borrowed("Vec<u8>")
+        Cow::Borrowed("napi::bindgen_prelude::Buffer")
     }
 
     fn error_wrapper(&self) -> &str {
