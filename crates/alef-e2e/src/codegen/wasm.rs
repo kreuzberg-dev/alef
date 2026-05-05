@@ -442,7 +442,7 @@ fn inject_wasm_init(content: &str, pkg_name: &str, _crate_name: &str) -> String 
                     "const __filename = fileURLToPath(import.meta.url);\n",
                     "const __dirname = dirname(__filename);\n",
                     "const testDocumentsDir = join(__dirname, \"..\", \"..\", \"..\", \"test_documents\");\n",
-                    "process.chdir(testDocumentsDir);\n",
+                    "globalThis.process.chdir(testDocumentsDir);\n",
                     "const wasmBinaryPath = (await import(\"node:module\"))\n",
                     "  .createRequire(import.meta.url)\n",
                     "  .resolve(\"{pkg_name}\")\n",

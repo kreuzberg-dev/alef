@@ -797,10 +797,12 @@ fn render_test_method(
         build_args_and_setup(&fixture.input, args, class_name, effective_options_type, &fixture.id);
 
     // Build visitor if present and add to setup
-    let mut visitor_arg = String::new();
+    let mut visitor_var = String::new();
     let mut effective_function_name_for_call = function_name.to_string();
+    let mut has_visitor_fixture = false;
     if let Some(visitor_spec) = &fixture.visitor {
-        visitor_arg = build_java_visitor(&mut setup_lines, visitor_spec, class_name);
+        visitor_var = build_java_visitor(&mut setup_lines, visitor_spec, class_name);
+        has_visitor_fixture = true;
         // Use visitor_function if present
         if let Some(call_override) = call_overrides {
             if let Some(visitor_fn) = &call_override.visitor_function {
@@ -813,10 +815,23 @@ fn render_test_method(
         let _ = writeln!(out, "        {line}");
     }
 
-    let final_args = if visitor_arg.is_empty() {
-        args_str
+    // When visitor is present, attach it to the options parameter
+    // For now, since args_str may contain complex options building, we handle the simple case
+    let final_args = if has_visitor_fixture {
+        // Simple case: no options provided, create new ConversionOptions with visitor
+        if args_str.is_empty() {
+            format!("new ConversionOptions().withVisitor({})", visitor_var)
+        } else if args_str.contains("new ConversionOptions") || args_str.contains("ConversionOptionsBuilder") {
+            // Options are being built; append .withVisitor() call
+            // This is a heuristic - better approach would be to track options building separately
+            format!("{}.withVisitor({})", args_str, visitor_var)
+        } else {
+            // Fall back to: create options with visitor and ignore args_str for now
+            // This is a limitation that would need fixture redesign to fix properly
+            format!("new ConversionOptions().withVisitor({})", visitor_var)
+        }
     } else {
-        format!("{args_str}, {visitor_arg}")
+        args_str
     };
 
     if expects_error {

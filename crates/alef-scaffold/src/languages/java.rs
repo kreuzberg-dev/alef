@@ -471,7 +471,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     </module>
 
     <module name="LineLength">
-        <property name="max" value="200"/>
+        <property name="max" value="120"/>
         <property name="ignorePattern" value="^package.*|^import.*|a]href|href|http://|https://|ftp://"/>
     </module>
 
@@ -487,11 +487,19 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         <module name="ModifierOrder"/>
         <module name="RedundantModifier"/>
 
+        <!-- Imports -->
+        <module name="UnusedImports"/>
+
         <!-- Coding -->
         <module name="EmptyStatement"/>
         <module name="EqualsHashCode"/>
         <module name="SimplifyBooleanExpression"/>
         <module name="SimplifyBooleanReturn"/>
+
+        <!-- Size Violations -->
+        <module name="MethodLength">
+            <property name="max" value="150"/>
+        </module>
 
         <!-- Misc -->
         <module name="ArrayTypeStyle"/>

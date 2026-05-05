@@ -16,6 +16,7 @@ pub(crate) fn gen_record_type(
     typ: &TypeDef,
     complex_enums: &AHashSet<String>,
     lang_rename_all: &str,
+    has_visitor_pattern: bool,
 ) -> String {
     // Single pass: build per-field (decl, doc) pairs and the comma-joined declaration
     // string simultaneously.  This avoids the map+unzip double-allocation and the
@@ -36,7 +37,13 @@ pub(crate) fn gen_record_type(
         // Complex enums (tagged unions with data) can't be simple Java enums.
         // Use Object for flexible Jackson deserialization.
         let is_complex = matches!(&f.ty, TypeRef::Named(n) if complex_enums.contains(n.as_str()));
-        let ftype = if is_complex {
+
+        // Special handling for visitor field in ConversionOptions when visitor pattern is active:
+        // Change type from VisitorHandle (opaque) to Visitor (interface), mark as transient.
+        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && f.name == "visitor";
+        let ftype = if is_visitor_field {
+            "Visitor".to_string()
+        } else if is_complex {
             "Object".to_string()
         } else if f.optional {
             // Java best practice: use @Nullable fields, never Optional in records.
@@ -60,6 +67,12 @@ pub(crate) fn gen_record_type(
         let has_nullable = f.optional;
 
         let mut decl = String::new();
+
+        // Visitor field is transient and not serialized to JSON.
+        if is_visitor_field {
+            decl.push_str("@Transient @JsonIgnore ");
+        }
+
         // Java type annotations on a fully-qualified type (e.g. `java.nio.file.Path`)
         // must appear AT the simple-name segment, not before the package prefix:
         //   wrong:   `@Nullable java.nio.file.Path`
@@ -72,7 +85,7 @@ pub(crate) fn gen_record_type(
         if needs_non_null {
             decl.push_str("@JsonInclude(JsonInclude.Include.NON_NULL) ");
         }
-        if has_json_property {
+        if has_json_property && !is_visitor_field {
             decl.push_str(&format!("@JsonProperty(\"{}\") ", f.name));
         }
         if has_nullable && !nullable_at_leading_pos {
@@ -201,7 +214,9 @@ pub(crate) fn gen_record_type(
     // @JsonInclude may appear in field annotations OR as a class-level annotation in record_block.
     let needs_json_include = fields_joined.contains("@JsonInclude(") || record_block.contains("@JsonInclude(");
     let needs_json_deserialize = record_block.contains("@JsonDeserialize(");
+    let needs_json_ignore = fields_joined.contains("@JsonIgnore");
     let needs_nullable = fields_joined.contains("@Nullable");
+    let needs_transient = fields_joined.contains("@Transient");
     // Optional is needed if fields have Optional<T> in declaration
     let needs_optional = fields_joined.contains("Optional<");
     let mut out = String::with_capacity(record_block.len() + 512);
@@ -225,6 +240,12 @@ pub(crate) fn gen_record_type(
     }
     if needs_json_deserialize {
         writeln!(out, "import com.fasterxml.jackson.databind.annotation.JsonDeserialize;").ok();
+    }
+    if needs_json_ignore {
+        writeln!(out, "import com.fasterxml.jackson.annotation.JsonIgnore;").ok();
+    }
+    if needs_transient {
+        writeln!(out, "import com.fasterxml.jackson.annotation.JsonIgnore;").ok();
     }
     if needs_nullable {
         writeln!(out, "import org.jspecify.annotations.Nullable;").ok();

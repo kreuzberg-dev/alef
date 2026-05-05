@@ -998,21 +998,7 @@ pub fn gen_bridge_function(
             }
         } else {
             let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
-            // default_types are passed as JSON strings at the NIF boundary
-            let is_default_type = match &p.ty {
-                TypeRef::Named(n) => default_types.contains(n.as_str()),
-                TypeRef::Optional(inner) => {
-                    matches!(inner.as_ref(), TypeRef::Named(n) if default_types.contains(n.as_str()))
-                }
-                _ => false,
-            };
-            let ty = if is_default_type {
-                if p.optional || promoted {
-                    "Option<String>".to_string()
-                } else {
-                    "String".to_string()
-                }
-            } else if p.optional || promoted {
+            let ty = if p.optional || promoted {
                 format!("Option<{}>", mapper.map_type(&p.ty))
             } else {
                 mapper.map_type(&p.ty)
@@ -1073,20 +1059,23 @@ pub fn gen_bridge_function(
         })
         .map(|(_, p)| {
             let name = &p.name;
-            let core_path = format!(
-                "{core_import}::{}",
-                match &p.ty {
-                    TypeRef::Named(n) => n.clone(),
-                    TypeRef::Optional(inner) =>
-                        if let TypeRef::Named(n) = inner.as_ref() {
-                            n.clone()
-                        } else {
-                            String::new()
-                        },
-                    _ => String::new(),
+            let named_type = match &p.ty {
+                TypeRef::Named(n) => n.clone(),
+                TypeRef::Optional(inner) => {
+                    if let TypeRef::Named(n) = inner.as_ref() { n.clone() } else { String::new() }
                 }
-            );
-            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                _ => String::new(),
+            };
+            let core_path = format!("{core_import}::{named_type}");
+            let is_dt = default_types.contains(named_type.as_str());
+            if is_dt {
+                // Ruby passes the binding struct directly — convert via Into
+                if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                    format!("let {name}_core: Option<{core_path}> = {name}.map(Into::into);\n    ")
+                } else {
+                    format!("let {name}_core: {core_path} = {name}.into();\n    ")
+                }
+            } else if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
                 format!(
                     "let {name}_core: Option<{core_path}> = {name}.as_deref().filter(|s| *s != \"nil\").map(|s| serde_json::from_str(s){err_conv}).transpose()?;\n    "
                 )

@@ -197,7 +197,7 @@ impl Backend for JavaBackend {
                 }
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
-                    content: gen_record_type(&package, typ, &complex_enums, &lang_rename_all),
+                    content: gen_record_type(&package, typ, &complex_enums, &lang_rename_all, has_visitor_pattern),
                     generated_header: true,
                 });
                 // Generate builder class for types with defaults

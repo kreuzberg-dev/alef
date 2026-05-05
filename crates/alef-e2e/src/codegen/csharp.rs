@@ -705,26 +705,36 @@ fn render_test_method(
         visitor_arg = build_csharp_visitor(&mut setup_lines, visitor_class_decls, &fixture.id, visitor_spec);
     }
 
-    let args_with_visitor = if visitor_arg.is_empty() {
+    // When a visitor is present, embed it in the options object instead of passing as a separate arg.
+    // The options are already in args_str (e.g., "JsonSerializer.Deserialize<ConversionOptions>(...)").
+    // We need to modify that to set Visitor = visitor_instance.
+    let final_args = if has_visitor && !visitor_arg.is_empty() {
+        // Modify the options argument to embed the visitor
+        // Pattern: JsonSerializer.Deserialize<ConversionOptions>("...") →
+        //         new ConversionOptions { Visitor = visitor_var, ...fields... }
+        // For now, we'll use a simpler approach: create the options, then set Visitor
+        if args_str.contains("JsonSerializer.Deserialize") && effective_options_type.is_some() {
+            // Extract the deserialized object and add Visitor assignment
+            let opts_type = effective_options_type.unwrap_or("ConversionOptions");
+            setup_lines.push(format!("var options = {args_str};"));
+            setup_lines.push(format!("options.Visitor = {visitor_arg};"));
+            "options".to_string()
+        } else {
+            // Fallback: if options are simpler, just pass visitor as additional arg
+            // This shouldn't happen with Convert, but handle it defensively
+            format!("{args_str}, {visitor_arg}")
+        }
+    } else if extra_args_slice.is_empty() {
         args_str
-    } else {
-        format!("{args_str}, {visitor_arg}")
-    };
-
-    let final_args = if extra_args_slice.is_empty() {
-        args_with_visitor
-    } else if args_with_visitor.is_empty() {
+    } else if args_str.is_empty() {
         extra_args_slice.join(", ")
     } else {
-        format!("{args_with_visitor}, {}", extra_args_slice.join(", "))
+        format!("{args_str}, {}", extra_args_slice.join(", "))
     };
 
-    // When a visitor is present, use the WithVisitor variant (e.g., ConvertWithVisitor instead of Convert)
-    let effective_function_name = if has_visitor {
-        format!("{}WithVisitor", function_name)
-    } else {
-        function_name.to_string()
-    };
+    // Always use the base function name (Convert) regardless of visitor presence
+    // The visitor is now handled internally via options.Visitor
+    let effective_function_name = function_name.to_string();
 
     let return_type = if is_async { "async Task" } else { "void" };
     let await_kw = if is_async { "await " } else { "" };

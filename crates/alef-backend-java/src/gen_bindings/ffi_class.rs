@@ -50,6 +50,7 @@ pub(crate) fn gen_main_class(
             &opaque_types,
             bridge_param_names,
             bridge_type_aliases,
+            has_visitor_bridge,
         );
         writeln!(body).ok();
 
@@ -60,9 +61,10 @@ pub(crate) fn gen_main_class(
         }
     }
 
-    // Inject convertWithVisitor when a visitor bridge is configured.
+
+    // Add internal convertWithVisitor helper when visitor bridge is configured
     if has_visitor_bridge {
-        body.push_str(&crate::gen_visitor::gen_convert_with_visitor_method(class_name, prefix));
+        body.push_str(&gen_convert_with_visitor_internal_method(class_name, prefix));
         writeln!(body).ok();
     }
 
@@ -134,6 +136,7 @@ pub(crate) fn gen_sync_function_method(
     opaque_types: &AHashSet<String>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
+    has_visitor_bridge: bool,
 ) {
     // Exclude bridge params from the public Java signature. Optional params
     // take the boxed Java type (Integer/Long/Boolean/...) so callers can pass
@@ -163,6 +166,18 @@ pub(crate) fn gen_sync_function_method(
         class_name
     )
     .ok();
+
+    // Check if this is the convert function with visitor support
+    let is_convert_with_visitor_support = has_visitor_bridge && func.name == "convert"
+        && func.params.iter().any(|p| matches!(&p.ty, TypeRef::Named(n) if n == "ConversionOptions"));
+
+    // For convert with visitor, handle delegation at the top level
+    if is_convert_with_visitor_support {
+        writeln!(out, "        if (options != null && options.visitor() != null) {{").ok();
+        writeln!(out, "            return convertWithVisitorInternal(html, options);").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out).ok();
+    }
 
     writeln!(out, "        try (var arena = Arena.ofConfined()) {{").ok();
 
@@ -567,6 +582,100 @@ pub(crate) fn gen_async_wrapper_method(
     writeln!(out, "    }}").ok();
 }
 
+/// Generate the internal convertWithVisitor method to delegate visitor handling.
+///
+/// When the public convert method detects a non-null visitor in options,
+/// it delegates to this private method which creates the VisitorBridge
+/// and calls htm_convert_with_visitor internally.
+fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> String {
+    let mut out = String::with_capacity(2048);
+    let pu = prefix.to_uppercase();
+    let exc = format!("{class_name}Exception");
+
+    writeln!(
+        out,
+        "    private static ConversionResult convertWithVisitorInternal(String html, ConversionOptions options) throws {exc} {{"
+    )
+    .ok();
+    writeln!(out, "        try (var arena = Arena.ofConfined();").ok();
+    writeln!(out, "             var bridge = new VisitorBridge(options.visitor())) {{").ok();
+    writeln!(out, "            var cHtml = arena.allocateFrom(html);").ok();
+    writeln!(out).ok();
+    writeln!(out, "            MemorySegment optionsPtr = MemorySegment.NULL;").ok();
+    writeln!(out, "            if (options != null) {{").ok();
+    writeln!(
+        out,
+        "                var optJson = arena.allocateFrom(MAPPER.writeValueAsString(options));"
+    )
+    .ok();
+    writeln!(
+        out,
+        "                optionsPtr = (MemorySegment) NativeLib.{pu}_CONVERSION_OPTIONS_FROM_JSON.invoke(optJson);"
+    )
+    .ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out).ok();
+    writeln!(
+        out,
+        "            var visitorHandle = (MemorySegment) NativeLib.{pu}_VISITOR_CREATE.invoke(bridge.callbacksStruct());"
+    )
+    .ok();
+    writeln!(out, "            if (visitorHandle.equals(MemorySegment.NULL)) {{").ok();
+    writeln!(
+        out,
+        "                throw new {exc}(\"Failed to create visitor handle\", null);"
+    )
+    .ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out).ok();
+    writeln!(out, "            try {{").ok();
+    writeln!(
+        out,
+        "                var resultPtr = (MemorySegment) NativeLib.{pu}_CONVERT_WITH_VISITOR.invoke(cHtml, optionsPtr, visitorHandle);"
+    )
+    .ok();
+    writeln!(out, "                if (!optionsPtr.equals(MemorySegment.NULL)) {{").ok();
+    writeln!(
+        out,
+        "                    NativeLib.{pu}_CONVERSION_OPTIONS_FREE.invoke(optionsPtr);"
+    )
+    .ok();
+    writeln!(out, "                }}").ok();
+    writeln!(out, "                if (resultPtr.equals(MemorySegment.NULL)) {{").ok();
+    writeln!(out, "                    checkLastError();").ok();
+    writeln!(out, "                    return null;").ok();
+    writeln!(out, "                }}").ok();
+    writeln!(
+        out,
+        "                var markdown = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);"
+    )
+    .ok();
+    writeln!(out, "                NativeLib.{pu}_FREE_STRING.invoke(resultPtr);").ok();
+    writeln!(
+        out,
+        "                return new ConversionResult(markdown, null, null, null, null, null);"
+    )
+    .ok();
+    writeln!(out, "            }} catch (Throwable e) {{").ok();
+    writeln!(out, "                throw new {exc}(\"FFI call failed\", e);").ok();
+    writeln!(out, "            }} finally {{").ok();
+    writeln!(
+        out,
+        "                NativeLib.{pu}_VISITOR_FREE.invoke(visitorHandle);"
+    )
+    .ok();
+    writeln!(out, "                bridge.rethrowVisitorError();").ok();
+    writeln!(out, "            }}").ok();
+    writeln!(out, "        }} catch ({exc} e) {{").ok();
+    writeln!(out, "            throw e;").ok();
+    writeln!(out, "        }} catch (Throwable e) {{").ok();
+    writeln!(out, "            throw new {exc}(\"FFI call failed\", e);").ok();
+    writeln!(out, "        }}").ok();
+    writeln!(out, "    }}").ok();
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -614,6 +723,7 @@ mod tests {
             &opaque_types,
             &bridge_param_names,
             &bridge_type_aliases,
+            false,
         );
 
         assert!(out.contains("return Optional.empty();"));
@@ -639,6 +749,7 @@ mod tests {
             &opaque_types,
             &bridge_param_names,
             &bridge_type_aliases,
+            false,
         );
 
         assert!(out.contains("return Optional.empty();"));
@@ -664,6 +775,7 @@ mod tests {
             &opaque_types,
             &bridge_param_names,
             &bridge_type_aliases,
+            false,
         );
 
         // Vec returns now go through the readJsonList helper to deduplicate
@@ -690,6 +802,7 @@ mod tests {
             &opaque_types,
             &bridge_param_names,
             &bridge_type_aliases,
+            false,
         );
 
         assert!(out.contains("return Optional.empty();"));
@@ -712,6 +825,7 @@ mod tests {
             &opaque_types,
             &bridge_param_names,
             &bridge_type_aliases,
+            false,
         );
 
         assert!(out.contains("return null;"));
@@ -736,6 +850,7 @@ mod tests {
             &opaque_types,
             &bridge_param_names,
             &bridge_type_aliases,
+            false,
         );
 
         assert!(out.contains("return java.nio.file.Path.of(str);"));
@@ -758,6 +873,7 @@ mod tests {
             &opaque_types,
             &bridge_param_names,
             &bridge_type_aliases,
+            false,
         );
 
         assert!(out.contains("return Optional.of(java.nio.file.Path.of(str));"));
@@ -779,6 +895,7 @@ mod tests {
             &opaque_types,
             &bridge_param_names,
             &bridge_type_aliases,
+            false,
         );
 
         // The Vec dispatch path now delegates to the readJsonList helper.
@@ -811,6 +928,7 @@ mod tests {
             &opaque_types,
             &bridge_param_names,
             &bridge_type_aliases,
+            false,
         );
 
         // The previously-duplicated JSON-deserialize line must NOT appear at

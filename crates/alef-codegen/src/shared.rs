@@ -172,7 +172,10 @@ pub fn constructor_parts_with_renames(
         .iter()
         .map(|f| {
             let ty = if f.optional {
-                format!("Option<{}>", type_mapper(&f.ty))
+                match &f.ty {
+                    TypeRef::Optional(_) => type_mapper(&f.ty),
+                    _ => format!("Option<{}>", type_mapper(&f.ty)),
+                }
             } else {
                 type_mapper(&f.ty)
             };
