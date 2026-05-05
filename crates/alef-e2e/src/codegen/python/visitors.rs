@@ -46,21 +46,26 @@ pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, ac
         out,
         "        def {method_name}({params}):  # noqa: A002, ANN001, ANN202, ARG002"
     );
+    // Python PyO3 binding accepts visit-result strings (case-insensitive: "continue", "skip",
+    // "preserve_html") or dicts with a `"custom"` / `"error"` key for the variants that carry
+    // a payload. The previously emitted `{"type": "Custom", "_0": "..."}` form looked like
+    // serde's tagged-enum representation but the binding never recognized it, so every visitor
+    // call silently fell through to Continue.
     match action {
         CallbackAction::Skip => {
-            let _ = writeln!(out, "            return {{\"type\": \"Skip\"}}");
+            let _ = writeln!(out, "            return \"skip\"");
         }
         CallbackAction::Continue => {
-            let _ = writeln!(out, "            return {{\"type\": \"Continue\"}}");
+            let _ = writeln!(out, "            return \"continue\"");
         }
         CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "            return {{\"type\": \"PreserveHtml\"}}");
+            let _ = writeln!(out, "            return \"preserve_html\"");
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_python(output);
             let _ = writeln!(
                 out,
-                "            return {{\"type\": \"Custom\", \"_0\": \"{escaped}\"}}"
+                "            return {{\"custom\": \"{escaped}\"}}"
             );
         }
         CallbackAction::CustomTemplate { template } => {
@@ -74,7 +79,7 @@ pub(super) fn emit_python_visitor_method(out: &mut String, method_name: &str, ac
                 .replace('\t', "\\t");
             let _ = writeln!(
                 out,
-                "            return {{\"type\": \"Custom\", \"_0\": f'{escaped_template}'}}"
+                "            return {{\"custom\": f'{escaped_template}'}}"
             );
         }
     }

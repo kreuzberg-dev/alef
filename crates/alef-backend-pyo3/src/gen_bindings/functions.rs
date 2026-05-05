@@ -337,7 +337,7 @@ pub(super) fn gen_api_py(
                 }
                 _ => None,
             };
-            inner_name.is_some_and(|n| enum_names.contains(n) && !data_enum_names.contains(n))
+            inner_name.is_some_and(|n| enum_names.contains(n))
         });
         if has_enum_field {
             for field in &typ.fields {
@@ -353,7 +353,7 @@ pub(super) fn gen_api_py(
                     _ => None,
                 };
                 if let Some(enum_name) = inner_name {
-                    if enum_names.contains(enum_name) && !data_enum_names.contains(enum_name) {
+                    if enum_names.contains(enum_name) {
                         out.push_str(&format!(
                             "        if \"{field_name}\" in value and value[\"{field_name}\"] is not None:\n            value[\"{field_name}\"] = _coerce_enum(_rust.{enum_name}, value[\"{field_name}\"])\n",
                             field_name = field.name,
