@@ -39,6 +39,36 @@ fn gen_interface_file(trait_def: &TypeDef, package: &str, has_super_trait: bool)
     writeln!(out, "package {package};").ok();
     writeln!(out).ok();
 
+    // Conditionally import java.util.{List,Map} only when the trait's method signatures
+    // actually reference them. Earlier always-import emission was flagged as
+    // [UnusedImports] by Checkstyle for traits whose methods don't use those types.
+    let signatures_text: String = trait_def
+        .methods
+        .iter()
+        .map(|m| {
+            let ret = java_type(&m.return_type);
+            let params = m
+                .params
+                .iter()
+                .map(|p| java_type(&p.ty))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{ret}({params})")
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    let needs_list = signatures_text.contains("List<");
+    let needs_map = signatures_text.contains("Map<");
+    if needs_list {
+        writeln!(out, "import java.util.List;").ok();
+    }
+    if needs_map {
+        writeln!(out, "import java.util.Map;").ok();
+    }
+    if needs_list || needs_map {
+        writeln!(out).ok();
+    }
+
     writeln!(out, "/**").ok();
     writeln!(out, " * Bridge interface for the {trait_pascal} plugin system.").ok();
     writeln!(out, " *").ok();
