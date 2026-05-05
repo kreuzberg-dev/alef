@@ -859,6 +859,21 @@ fn render_test_method(
     let _ = writeln!(out, "    public function test_{method_name}(): void");
     let _ = writeln!(out, "    {{");
 
+    // Honor per-call `skip_languages`: when the call's `skip_languages` includes "php",
+    // the binding doesn't expose the function (e.g. ext-php-rs lacks Vec<#[php_class]>
+    // FromZval support, so batch_extract_* are excluded). Emit a `markTestSkipped`
+    // stub so the test still appears in the report but doesn't try to call.
+    if call_config.skip_languages.iter().any(|l| l == "php") {
+        let _ = writeln!(
+            out,
+            "        $this->markTestSkipped('call {} is skipped for php (skip_languages)');",
+            call_config.function
+        );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        return;
+    }
+
     if let Some(factory) = php_client_factory {
         let _ = writeln!(
             out,
