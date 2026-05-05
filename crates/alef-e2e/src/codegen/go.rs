@@ -396,6 +396,17 @@ fn render_test_file(
         call_args.iter().any(|a| a.arg_type == "mock_url")
     });
 
+    // Determine if we need the "path/filepath" import (file_path args use
+    // filepath.Abs(filepath.Join(...)) to resolve fixture-relative paths into
+    // the repo-root test_documents/ directory at test runtime).
+    let needs_filepath = fixtures.iter().any(|f| {
+        if !emits_executable_test(f) {
+            return false;
+        }
+        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        call_config.args.iter().any(|a| a.arg_type == "file_path")
+    });
+
     let _needs_json_stringify = fixtures.iter().any(|f| {
         emits_executable_test(f)
             && f.assertions.iter().any(|a| {
@@ -640,6 +651,9 @@ fn render_test_file(
     }
     if needs_os {
         let _ = writeln!(out, "\t\"os\"");
+    }
+    if needs_filepath {
+        let _ = writeln!(out, "\t\"path/filepath\"");
     }
     if needs_reflect {
         let _ = writeln!(out, "\t\"reflect\"");
