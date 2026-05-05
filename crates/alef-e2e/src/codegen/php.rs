@@ -1079,6 +1079,15 @@ fn build_args_and_setup(
                             // Pass as JSON string via json_encode(); the Rust method accepts Option<String>.
                             // Filter out empty string enum values.
                             let filtered_v = filter_empty_enum_strings(v);
+
+                            // If the config is empty after filtering, pass null instead.
+                            if let serde_json::Value::Object(obj) = &filtered_v {
+                                if obj.is_empty() {
+                                    parts.push("null".to_string());
+                                    continue;
+                                }
+                            }
+
                             parts.push(format!("json_encode({})", json_to_php(&filtered_v)));
                             continue;
                         }
@@ -1089,6 +1098,16 @@ fn build_args_and_setup(
                                 // static method that accepts a JSON string.
                                 // Filter out empty string enum values before passing to from_json().
                                 let filtered_v = filter_empty_enum_strings(v);
+
+                                // If the config is empty, pass null instead of creating an empty object.
+                                // Empty objects cause deserialization errors when required fields have defaults.
+                                if let serde_json::Value::Object(obj) = &filtered_v {
+                                    if obj.is_empty() {
+                                        parts.push("null".to_string());
+                                        continue;
+                                    }
+                                }
+
                                 let arg_var = format!("${}", arg.name);
                                 setup_lines.push(format!(
                                     "{arg_var} = {type_name}::from_json(json_encode({}));",
