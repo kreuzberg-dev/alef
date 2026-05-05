@@ -357,7 +357,7 @@ pub mod precommit {
     pub const PRE_COMMIT_HOOKS_REV: &str = "v6.0.0";
 
     // renovate: datasource=github-tags packageName=tox-dev/pyproject-fmt
-    pub const PYPROJECT_FMT_REV: &str = "v2.21.1";
+    pub const PYPROJECT_FMT_REV: &str = "v2.21.2";
 
     // renovate: datasource=github-tags packageName=DevinR528/cargo-sort
     pub const CARGO_SORT_REV: &str = "v2.1.4";
@@ -372,7 +372,7 @@ pub mod precommit {
     pub const CARGO_DENY_REV: &str = "0.19.4";
 
     // renovate: datasource=github-tags packageName=rvben/rumdl-pre-commit
-    pub const RUMDL_REV: &str = "v0.1.85";
+    pub const RUMDL_REV: &str = "v0.1.88";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
     pub const TYPOS_REV: &str = "v1.46.0";
