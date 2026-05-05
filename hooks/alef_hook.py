@@ -8,6 +8,7 @@ import sys
 import tarfile
 import zipfile
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import urlretrieve
 
 REPO = "kreuzberg-dev/alef"
@@ -49,12 +50,12 @@ def _expected_checksum(asset_name: str) -> str | None:
     checksums_file = _hooks_dir() / "checksums.txt"
     if not checksums_file.exists():
         return None
-    for line in checksums_file.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+    for raw in checksums_file.read_text().splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        parts = line.split()
-        if len(parts) == 2 and parts[1] == asset_name:
+        parts = stripped.split()
+        if len(parts) == 2 and parts[1] == asset_name:  # noqa: PLR2004
             return parts[0]
     return None
 
@@ -83,7 +84,14 @@ def _download_and_extract(version: str, asset_name: str, fmt: str, cache: Path) 
     cache.mkdir(parents=True, exist_ok=True)
 
     print(f"[alef-hook] Downloading {url}", file=sys.stderr)
-    urlretrieve(url, archive)
+    try:
+        urlretrieve(url, archive)
+    except HTTPError as exc:
+        msg = f"Failed to download {asset_name} (HTTP {exc.code}): {url}\nEnsure release v{version} has platform assets."
+        raise SystemExit(msg) from None
+    except URLError as exc:
+        msg = f"Network error downloading {asset_name}: {exc.reason}"
+        raise SystemExit(msg) from None
 
     expected = _expected_checksum(asset_name)
     if expected is not None:
@@ -95,10 +103,10 @@ def _download_and_extract(version: str, asset_name: str, fmt: str, cache: Path) 
 
     if fmt == "tar.gz":
         with tarfile.open(archive, "r:gz") as tf:
-            tf.extractall(cache)
+            tf.extractall(cache, filter="data")
     else:
         with zipfile.ZipFile(archive, "r") as zf:
-            zf.extractall(cache)
+            zf.extractall(cache)  # noqa: S202
 
     archive.unlink(missing_ok=True)
     return cache / _binary_name()

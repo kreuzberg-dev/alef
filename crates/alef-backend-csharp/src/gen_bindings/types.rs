@@ -380,7 +380,10 @@ pub(super) fn gen_record_type(
 
         // Special handling for visitor bridge fields: always map to IHtmlVisitor?
         if is_visitor_bridge {
-            out.push_str(&format!("    public IHtmlVisitor? {} {{ get; set; }} = null;\n", cs_name));
+            out.push_str(&format!(
+                "    public IHtmlVisitor? {} {{ get; set; }} = null;\n",
+                cs_name
+            ));
             out.push('\n');
             continue;
         }

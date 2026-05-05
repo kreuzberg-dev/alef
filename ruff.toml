@@ -12,12 +12,12 @@ ignore = [
   "FBT",
   "FIX",
   "ISC001",
+  "S310",
   "S603",
+  "S606",
   "S607",
   "T201",
   "TD",
   "TRY",
 ]
 
-[format]
-line-length = 120

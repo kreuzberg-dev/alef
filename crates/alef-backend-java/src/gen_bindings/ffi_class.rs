@@ -61,7 +61,6 @@ pub(crate) fn gen_main_class(
         }
     }
 
-
     // Add internal convertWithVisitor helper when visitor bridge is configured
     if has_visitor_bridge {
         body.push_str(&gen_convert_with_visitor_internal_method(class_name, prefix));
@@ -168,8 +167,12 @@ pub(crate) fn gen_sync_function_method(
     .ok();
 
     // Check if this is the convert function with visitor support
-    let is_convert_with_visitor_support = has_visitor_bridge && func.name == "convert"
-        && func.params.iter().any(|p| matches!(&p.ty, TypeRef::Named(n) if n == "ConversionOptions"));
+    let is_convert_with_visitor_support = has_visitor_bridge
+        && func.name == "convert"
+        && func
+            .params
+            .iter()
+            .any(|p| matches!(&p.ty, TypeRef::Named(n) if n == "ConversionOptions"));
 
     // For convert with visitor, handle delegation at the top level
     if is_convert_with_visitor_support {
@@ -598,7 +601,11 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
     )
     .ok();
     writeln!(out, "        try (var arena = Arena.ofConfined();").ok();
-    writeln!(out, "             var bridge = new VisitorBridge(options.visitor())) {{").ok();
+    writeln!(
+        out,
+        "             var bridge = new VisitorBridge(options.visitor())) {{"
+    )
+    .ok();
     writeln!(out, "            var cHtml = arena.allocateFrom(html);").ok();
     writeln!(out).ok();
     writeln!(out, "            MemorySegment optionsPtr = MemorySegment.NULL;").ok();
