@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(rustler): generated Elixir visitor wrappers now pattern-match `{:ok, _}` instead of `:ok` on the `_with_visitor` NIF call; Rustler encodes `Result<(), String>` as `{:ok, {}}`, so the bare `:ok` match always failed at runtime.
+- fix(php): `from_binding_skip_types` field added to `ConversionConfig`; the PHP backend populates it with trait bridge type aliases (e.g. `VisitorHandle`) so their fields emit `Default::default()` in the binding→core `From` impl instead of `val.field.map(Into::into)`, which failed to compile because no `From` impl exists for the PHP-side bridge handle.
 - fix(e2e/rust): `not_error` assertions on `Result`-returning calls now emit `.expect("should succeed")` so the test actually panics on errors; previously the result was bound to `_` and silently discarded, making the assertion a no-op.
 - fix(php-backend): PHP method names now mirror the Rust source name verbatim (camelCased) without an extra `Async` suffix; the suffix was breaking parity with `alef.toml` call overrides.
 - fix(e2e/go): byte-array JSON arguments are now base64-encoded for Go `json.Unmarshal` compatibility; previously the raw `[0, 1, 2, …]` integer array failed to unmarshal into `[]byte`.
