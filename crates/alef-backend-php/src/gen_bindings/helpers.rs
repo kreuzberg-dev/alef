@@ -811,6 +811,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
 ) -> String {
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
     let mut out = String::with_capacity(512);
+    writeln!(out, "#[allow(clippy::useless_conversion)]").ok();
     writeln!(out, "impl From<{}> for {core_path} {{", typ.name).ok();
     writeln!(out, "    fn from(val: {}) -> Self {{", typ.name).ok();
     writeln!(out, "        Self {{").ok();
