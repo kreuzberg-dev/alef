@@ -23,12 +23,10 @@ impl TypeMapper for RustlerMapper {
         }
     }
 
-    /// All map types encode as a plain `String` in the Rustler NIF binding layer.
-    /// `HashMap` cannot cross the NIF boundary directly, so maps are serialized
-    /// via `format!("{:?}", ...)` in core→binding conversions.
     fn map_type(&self, ty: &TypeRef) -> String {
-        if matches!(ty, TypeRef::Map(_, _)) {
-            return "String".to_string();
+        if let TypeRef::Map(_, _) = ty {
+            // Rustler 0.31+ can encode HashMap<K, V> directly as an Elixir map.
+            // Fall through to the default path which produces HashMap<K, V>.
         }
         match ty {
             TypeRef::Primitive(p) => self.primitive(p).into_owned(),

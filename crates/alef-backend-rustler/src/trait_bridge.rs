@@ -773,11 +773,7 @@ fn gen_visitor_method_async(
         let json_expr = build_json_arg(p);
         // Strip leading `_` from the key so callers see "text" not "_text".
         let key = p.name.strip_prefix('_').unwrap_or(&p.name);
-        writeln!(
-            out,
-            "        args_map.insert(\"{key}\".to_string(), {json_expr});"
-        )
-        .unwrap();
+        writeln!(out, "        args_map.insert(\"{key}\".to_string(), {json_expr});").unwrap();
     }
     writeln!(
         out,

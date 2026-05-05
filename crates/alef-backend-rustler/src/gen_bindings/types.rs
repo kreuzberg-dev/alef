@@ -134,7 +134,11 @@ fn field_type_for_rustler_inner(ty: &TypeRef) -> String {
         TypeRef::Duration => "u64".to_string(),
         TypeRef::Named(n) => n.clone(),
         TypeRef::Vec(inner) => format!("Vec<{}>", field_type_for_rustler_inner(inner)),
-        TypeRef::Map(_, _) => "String".to_string(),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            field_type_for_rustler_inner(k),
+            field_type_for_rustler_inner(v)
+        ),
         TypeRef::Optional(inner) => format!("Option<{}>", field_type_for_rustler_inner(inner)),
         TypeRef::Unit => "()".to_string(),
     }
