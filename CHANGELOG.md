@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.23] - 2026-05-05
+
 ### Added
 
 - feat(hooks): add `hooks/alef_hook.py` plus pinned `hooks/VERSION` so consumers can run `alef` as a pre-commit hook without a local Rust toolchain — the hook downloads, sha-verifies, caches, and execs the matching pre-built `alef` binary for the host platform.
