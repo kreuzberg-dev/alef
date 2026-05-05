@@ -925,6 +925,7 @@ fn emit_elixir_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Str
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],

@@ -74,6 +74,17 @@ impl E2eCodegen for RCodegen {
             generated_header: true,
         });
 
+        // setup-fixtures.R — testthat sources `setup-*.R` files in the tests
+        // directory once before any tests run, with the working directory set
+        // to the tests/ folder. We use this hook to chdir into the repo's
+        // shared `test_documents/` directory so that fixture paths like
+        // `pdf/fake_memo.pdf` resolve at extraction time.
+        files.push(GeneratedFile {
+            path: output_base.join("tests").join("setup-fixtures.R"),
+            content: render_setup_fixtures(),
+            generated_header: true,
+        });
+
         // Generate test files per category.
         for group in groups {
             let active: Vec<&Fixture> = group
@@ -125,6 +136,29 @@ Description: End-to-end test suite.
 Config/testthat/edition: 3
 "#
     )
+}
+
+fn render_setup_fixtures() -> String {
+    let mut out = String::new();
+    out.push_str(&hash::header(CommentStyle::Hash));
+    let _ = writeln!(out);
+    let _ = writeln!(out, "# Resolve and chdir to test_documents/ before any test runs.");
+    let _ = writeln!(
+        out,
+        "# testthat sources setup-*.R with the working directory set to tests/,"
+    );
+    let _ = writeln!(
+        out,
+        "# so test_documents lives three directories up: tests/ -> e2e/r/ -> e2e/ -> repo root."
+    );
+    let _ = writeln!(
+        out,
+        ".kreuzberg_test_documents <- normalizePath(\"../../../test_documents\", mustWork = FALSE)"
+    );
+    let _ = writeln!(out, "if (dir.exists(.kreuzberg_test_documents)) {{");
+    let _ = writeln!(out, "  setwd(.kreuzberg_test_documents)");
+    let _ = writeln!(out, "}}");
+    out
 }
 
 fn render_test_runner(pkg_path: &str, dep_mode: crate::config::DependencyMode) -> String {
@@ -279,11 +313,49 @@ fn build_args_string(input: &serde_json::Value, args: &[crate::config::ArgMappin
                 let r_value = r_default_for_config_arg(&arg.name);
                 return Some(format!("{} = {}", arg.name, r_value));
             }
+            // `bytes` arg type: convert string fixture values into runtime
+            // `readBin(...)` calls so the wrapper receives raw bytes instead
+            // of an R character vector. This mirrors the Python emit_bytes_arg
+            // helper and is what the extendr binding for Vec<u8> expects.
+            if arg.arg_type == "bytes" {
+                if let Some(raw) = val.as_str() {
+                    let r_value = render_bytes_value(raw);
+                    return Some(format!("{} = {}", arg.name, r_value));
+                }
+            }
             Some(format!("{} = {}", arg.name, json_to_r(val, true)))
         })
         .collect();
 
     parts.join(", ")
+}
+
+/// Render a `bytes` fixture value as the R expression that produces a raw
+/// vector at test time. Mirrors python's `emit_bytes_arg` classifier so we can
+/// support both file-path style fixtures (`"pdf/fake_memo.pdf"`) and inline
+/// text payloads (`"<html>..."`). The resulting expression is dropped directly
+/// into the call site, e.g. `content = readBin("pdf/fake_memo.pdf", ...)`.
+fn render_bytes_value(raw: &str) -> String {
+    if raw.starts_with('<') || raw.starts_with('{') || raw.starts_with('[') || raw.contains(' ') {
+        // Inline text payload — encode to raw via charToRaw.
+        let escaped = escape_r(raw);
+        return format!("charToRaw(\"{escaped}\")");
+    }
+    let first = raw.chars().next().unwrap_or('\0');
+    if first.is_ascii_alphanumeric() || first == '_' {
+        if let Some(slash) = raw.find('/') {
+            if slash > 0 {
+                let after = &raw[slash + 1..];
+                if after.contains('.') && !after.is_empty() {
+                    let escaped = escape_r(raw);
+                    return format!("readBin(\"{escaped}\", what = \"raw\", n = file.info(\"{escaped}\")$size)");
+                }
+            }
+        }
+    }
+    // Default to inline text encoding — matches Python's InlineText branch.
+    let escaped = escape_r(raw);
+    format!("charToRaw(\"{escaped}\")")
 }
 
 /// Map the extractor argument name onto its R `*Config$default()` constructor.
