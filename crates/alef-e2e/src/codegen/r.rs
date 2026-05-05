@@ -40,6 +40,7 @@ impl E2eCodegen for RCodegen {
             .cloned()
             .unwrap_or_else(|| call.function.clone());
         let result_is_simple = call.result_is_simple || overrides.is_some_and(|o| o.result_is_simple);
+        let result_is_r_list = overrides.is_some_and(|o| o.result_is_r_list);
         let _result_var = &call.result_var;
 
         // Resolve package config.
@@ -104,7 +105,8 @@ impl E2eCodegen for RCodegen {
                 &e2e_config.result_fields,
                 &e2e_config.fields_array,
             );
-            let content = render_test_file(&group.category, &active, &field_resolver, result_is_simple, e2e_config);
+            let content =
+                render_test_file(&group.category, &active, &field_resolver, result_is_simple, result_is_r_list, e2e_config);
             files.push(GeneratedFile {
                 path: output_base.join("tests").join(filename),
                 content,
@@ -211,6 +213,7 @@ fn render_test_file(
     fixtures: &[&Fixture],
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    result_is_r_list: bool,
     e2e_config: &E2eConfig,
 ) -> String {
     let mut out = String::new();
@@ -219,7 +222,7 @@ fn render_test_file(
     let _ = writeln!(out);
 
     for (i, fixture) in fixtures.iter().enumerate() {
-        render_test_case(&mut out, fixture, e2e_config, field_resolver, result_is_simple);
+        render_test_case(&mut out, fixture, e2e_config, field_resolver, result_is_simple, result_is_r_list);
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
@@ -241,6 +244,7 @@ fn render_test_case(
     e2e_config: &E2eConfig,
     field_resolver: &FieldResolver,
     default_result_is_simple: bool,
+    default_result_is_r_list: bool,
 ) {
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let function_name = &call_config.function;
@@ -255,6 +259,14 @@ fn render_test_case(
         call_config.result_is_simple || r_override.is_some_and(|o| o.result_is_simple)
     } else {
         default_result_is_simple
+    };
+    // Per-fixture override: when the R binding already returns a native R list
+    // (not a JSON string), suppress `jsonlite::fromJSON` wrapping while still
+    // using field-path (`result$field`) accessors in assertions.
+    let result_is_r_list = if fixture.call.is_some() {
+        r_override.is_some_and(|o| o.result_is_r_list)
+    } else {
+        default_result_is_r_list
     };
 
     let test_name = sanitize_ident(&fixture.id);
@@ -308,7 +320,9 @@ fn render_test_case(
     // serialized core result; parse into an R list so tests can use `$`
     // accessors. `result_is_simple` calls (e.g. `convert_html_to_markdown`)
     // already return scalar values and must be passed through verbatim.
-    if result_is_simple {
+    // `result_is_r_list` signals the binding returns a native R list (Robj),
+    // not a JSON string — skip `jsonlite::fromJSON` but keep `$` accessors.
+    if result_is_simple || result_is_r_list {
         let _ = writeln!(out, "  {result_var} <- {function_name}({final_args})");
     } else {
         let _ = writeln!(

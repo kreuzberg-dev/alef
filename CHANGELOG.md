@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(r-e2e-codegen): add `result_is_r_list` flag to `CallOverride`. When `true`, the R generator emits the call result directly without wrapping in `jsonlite::fromJSON()`, fixing test failures for bindings (like html-to-markdown's extendr R binding) that already return a native `Robj` list instead of a JSON string. Field-path assertions (`result$content`, etc.) are unaffected — the flag only suppresses the JSON parse wrapper.
+
 ### Fixed
 
 - fix(php-backend): `ConversionOptionsBuilder.visitor()` method now correctly accepts a `&mut ZendObject` parameter, creates a `PhpHtmlVisitorBridge` from it, wraps it in `Arc::new()`, and passes `Some(&handle)` to the inner builder — instead of ignoring the parameter and always passing `None`. The PHP visitor bridge can now be invoked through the builder API.
