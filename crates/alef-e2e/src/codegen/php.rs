@@ -426,6 +426,8 @@ fn render_test_file(
     let has_http_tests = fixtures.iter().any(|f| f.is_http_test());
 
     // Collect options_type class names that need `use` imports (one import per unique name).
+    // Also pulls in `element_type` declarations from any call's args (e.g. `BatchBytesItem`,
+    // `BatchFileItem` for batch fns) so the test file can reference them by short name.
     let mut options_type_imports: Vec<String> = fixtures
         .iter()
         .flat_map(|f| {
@@ -438,7 +440,15 @@ fn render_test_file(
                     .get(lang)
                     .and_then(|o| o.options_type.as_deref())
             });
-            opt_type.map(|t| t.to_string()).into_iter()
+            let element_types: Vec<String> = call
+                .args
+                .iter()
+                .filter_map(|a| a.element_type.as_ref().map(|t| t.to_string()))
+                .collect();
+            opt_type
+                .map(|t| t.to_string())
+                .into_iter()
+                .chain(element_types)
         })
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -777,12 +787,12 @@ fn render_test_method(
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
-    // PHP ext-php-rs async methods have an _async suffix, but only if the function
-    // name was not explicitly overridden. When a language-specific override provides
-    // a function name, use it as-is without modification.
-    if !has_override && call_config.r#async {
-        function_name = format!("{function_name}_async");
-    }
+    // The internal `KreuzbergApi` class exposes async methods with an `_async` suffix
+    // (`extractBytesAsync`, etc.), but the user-facing `Kreuzberg` facade exposes them
+    // under the bare async-named methods (`extractBytes` is the async one — the sync
+    // version is `extractBytesSync`). The e2e tests target the facade, so don't append
+    // `_async`. (When a language-specific override provides a function name, use it
+    // as-is.)
     // PHP wrapper classes use lowerCamelCase method names (e.g. getLanguage, downloadAll).
     // Convert the Rust snake_case name only when no explicit override is provided.
     if !has_override {
