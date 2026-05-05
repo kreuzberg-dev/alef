@@ -471,7 +471,14 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     </module>
 
     <module name="LineLength">
-        <property name="max" value="120"/>
+        <!-- 140 accommodates Eclipse's record-component continuation indent (8 extra spaces)
+             plus realistic field declarations that combine multiple Jackson annotations
+             (@JsonInclude + @JsonProperty) with generic List<T> types. The Eclipse
+             formatter (run via spotless before checkstyle) reformats alef's emitted
+             4-space-indent records to 8-space record-component indent, reflowing
+             multi-annotation lines that the codegen had wrapped — keeping the limit at
+             120 produces violations even when alef wraps. -->
+        <property name="max" value="140"/>
         <property name="ignorePattern" value="^package.*|^import.*|a]href|href|http://|https://|ftp://"/>
     </module>
 
