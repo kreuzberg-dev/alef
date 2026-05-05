@@ -240,11 +240,22 @@ fn render_test_case(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
     field_resolver: &FieldResolver,
-    result_is_simple: bool,
+    default_result_is_simple: bool,
 ) {
     let call_config = e2e_config.resolve_call(fixture.call.as_deref());
     let function_name = &call_config.function;
     let result_var = &call_config.result_var;
+    // Per-fixture call configs (e.g. `list_document_extractors`) may set
+    // `result_is_simple = true` even when the default `[e2e.call]` does not.
+    // Without this lookup the registry/detection wrappers (which return scalar
+    // strings or character vectors directly) get wrapped in
+    // `jsonlite::fromJSON(...)` and the parser fails on non-JSON output.
+    let r_override = call_config.overrides.get("r");
+    let result_is_simple = if fixture.call.is_some() {
+        call_config.result_is_simple || r_override.is_some_and(|o| o.result_is_simple)
+    } else {
+        default_result_is_simple
+    };
 
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.replace('"', "\\\"");
@@ -255,7 +266,6 @@ fn render_test_case(
     // (e.g. `extract_bytes`, `batch_extract_files`) use language-neutral
     // fixture field names (`data`, `paths`) that the R extendr binding
     // exposes under different identifiers (`content`, `items`).
-    let r_override = call_config.overrides.get("r");
     let arg_name_map = r_override.map(|o| &o.arg_name_map);
     let args_str = build_args_string(&fixture.input, &call_config.args, arg_name_map);
 
@@ -797,7 +807,10 @@ fn render_assertion(
             }
         }
         "not_error" => {
-            // Already handled — the call would stop on error.
+            // The call itself stops the test on error; emit an explicit
+            // `expect_true(TRUE)` so testthat doesn't report the test as
+            // empty when this is the only assertion.
+            let _ = writeln!(out, "  expect_true(TRUE)");
         }
         "error" => {
             // Handled at the test level.
