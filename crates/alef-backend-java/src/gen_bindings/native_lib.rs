@@ -42,7 +42,7 @@ pub(crate) fn gen_native_lib(
     writeln!(body, "        try {{").ok();
     writeln!(
         body,
-        "            java.lang.foreign.Arena arena = java.lang.foreign.Arena.ofConfined();"
+        "            Arena arena = Arena.ofConfined();"
     )
     .ok();
     writeln!(
@@ -437,7 +437,7 @@ pub(crate) fn gen_native_lib(
     .ok();
     writeln!(
         body,
-        "                java.nio.file.Path libPath = java.nio.file.Paths.get(path, fullLibName + libExt);"
+        "                Path libPath = Paths.get(path, fullLibName + libExt);"
     )
     .ok();
     writeln!(body, "                if (java.nio.file.Files.exists(libPath)) {{").ok();

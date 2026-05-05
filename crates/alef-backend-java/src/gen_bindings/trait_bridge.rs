@@ -38,9 +38,6 @@ fn gen_interface_file(trait_def: &TypeDef, package: &str, has_super_trait: bool)
 
     writeln!(out, "package {package};").ok();
     writeln!(out).ok();
-    writeln!(out, "import java.util.List;").ok();
-    writeln!(out, "import java.util.Map;").ok();
-    writeln!(out).ok();
 
     writeln!(out, "/**").ok();
     writeln!(out, " * Bridge interface for the {trait_pascal} plugin system.").ok();
@@ -112,8 +109,6 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
     writeln!(out, "import java.lang.foreign.ValueLayout;").ok();
     writeln!(out, "import java.lang.invoke.MethodHandles;").ok();
     writeln!(out, "import java.lang.invoke.MethodType;").ok();
-    writeln!(out, "import java.util.List;").ok();
-    writeln!(out, "import java.util.Map;").ok();
     writeln!(out, "import java.util.concurrent.ConcurrentHashMap;").ok();
     writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;").ok();
     writeln!(out).ok();
