@@ -50,9 +50,7 @@ pub mod cargo {
     pub const MAGNUS: &str = "0.8";
 
     // renovate: datasource=crate depName=ext-php-rs
-    // Pinned to 0.15.4: 0.15.12+ introduces ext-php-rs-clang-sys which
-    // conflicts with clang-sys when kreuzberg-php is in a shared workspace.
-    pub const EXT_PHP_RS: &str = "0.15.4";
+    pub const EXT_PHP_RS: &str = "0.15";
 
     // renovate: datasource=crate depName=js-sys
     pub const JS_SYS: &str = "0.3";
