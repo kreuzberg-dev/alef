@@ -46,9 +46,11 @@ pub(super) fn gen_function(
         }
     };
 
-    // Use let-binding pattern for non-opaque Named params, or for Vec<f32> params that need conversion
+    // Use let-binding pattern for non-opaque Named params, or for Vec<f32> params that need conversion,
+    // or for Vec<u8> params that come as napi::Buffer
     let use_let_bindings = generators::has_named_params(&func.params, opaque_types)
-        || func.params.iter().any(|p| needs_vec_f32_conversion(&p.ty));
+        || func.params.iter().any(|p| needs_vec_f32_conversion(&p.ty))
+        || func.params.iter().any(|p| is_bytes_param(&p.ty));
     let call_args = if use_let_bindings {
         let base_args = generators::gen_call_args_with_let_bindings(&func.params, opaque_types);
         napi_apply_primitive_casts_to_call_args(&base_args, &func.params)
@@ -107,6 +109,8 @@ pub(super) fn gen_function(
         };
         // Add Vec<f32> conversion bindings for parameters not already handled
         let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
+        // Add napi::Buffer to Vec<u8> conversion bindings
+        let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
         let core_call = format!("{core_fn_path}({call_args})");
         let return_wrap = napi_wrap_return_fn("result", &func.return_type, opaque_types, func.returns_ref, prefix);
         let return_type = mapper.map_type(&func.return_type);
@@ -130,6 +134,8 @@ pub(super) fn gen_function(
         };
         // Add Vec<f32> conversion bindings for parameters not already handled
         let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
+        // Add napi::Buffer to Vec<u8> conversion bindings
+        let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
 
         if func.error_type.is_some() {
             let wrapped = napi_wrap_return_fn("val", &func.return_type, opaque_types, func.returns_ref, prefix);
@@ -223,6 +229,19 @@ pub(super) fn gen_vec_f32_conversion_bindings(params: &[ParamDef]) -> String {
     bindings
 }
 
+/// Generate let bindings for napi::Buffer parameters that need conversion to Vec<u8>.
+/// NAPI gives us napi::Buffer which dereferences to &[u8], but we need Vec<u8>.
+pub(super) fn gen_napi_buffer_conversion_bindings(params: &[ParamDef]) -> String {
+    let mut bindings = String::new();
+    for p in params {
+        if is_bytes_param(&p.ty) {
+            // Convert napi::Buffer to Vec<u8> by calling .to_vec()
+            bindings.push_str(&format!("    let {}: Vec<u8> = {}.to_vec();\n", p.name, p.name));
+        }
+    }
+    bindings
+}
+
 /// NAPI-specific call args that casts i64 params to u64/usize where the core expects it.
 /// Properly handles is_ref for reference parameters and complex type conversions.
 pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
@@ -303,6 +322,8 @@ pub(super) fn napi_gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<St
                     }
                 }
                 TypeRef::Bytes => {
+                    // In NAPI, Bytes becomes napi::Buffer, which needs conversion to Vec<u8>
+                    // The conversion happens in let bindings, so we use the parameter name as-is
                     if p.optional {
                         if p.is_ref {
                             format!("{}.as_deref()", p.name)
@@ -553,6 +574,12 @@ pub(super) fn core_prim_str(p: &alef_core::ir::PrimitiveType) -> &'static str {
         alef_core::ir::PrimitiveType::F32 => "f32",
         _ => unreachable!(),
     }
+}
+
+/// Check if a type is Vec<u8> or Bytes (which becomes napi::Buffer).
+pub(super) fn is_bytes_param(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Bytes)
+        || matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(alef_core::ir::PrimitiveType::U8)))
 }
 
 /// Generate a global Tokio runtime for NAPI async support.

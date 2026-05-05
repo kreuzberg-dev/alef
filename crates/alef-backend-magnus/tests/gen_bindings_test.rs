@@ -907,14 +907,14 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
         "scan_args optional tuple must use Option<magnus::Value>, got:\n{content}"
     );
 
-    // Body must call to_json via funcall before serde_json deserialization
+    // Body must use TryConvert for has_default struct types (no JSON round-trip)
     assert!(
-        content.contains("funcall(\"to_json\", ())"),
-        "Binding body must call funcall(\"to_json\", ()) to obtain JSON string, got:\n{content}"
+        content.contains("ConversionOptions::try_convert"),
+        "Binding body must use TryConvert for has_default struct params, got:\n{content}"
     );
     assert!(
-        content.contains("serde_json::from_str"),
-        "Binding body must use serde_json::from_str to deserialize, got:\n{content}"
+        content.contains("binding_val.into()"),
+        "Binding body must convert binding struct via Into, got:\n{content}"
     );
 
     // Must not use the old as_deref pattern (which assumed a String input)

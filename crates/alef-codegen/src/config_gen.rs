@@ -1990,7 +1990,10 @@ mod tests {
         };
         let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
 
-        assert!(output.contains("kwargs: magnus::RHash"), "should accept RHash");
+        assert!(
+            output.contains("Option<magnus::RHash>"),
+            "should accept RHash via scan_args"
+        );
         assert!(output.contains("ruby.to_symbol("), "should use symbol lookup");
         // Optional field uses and_then without unwrap_or
         assert!(

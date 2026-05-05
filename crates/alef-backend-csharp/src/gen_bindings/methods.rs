@@ -71,6 +71,7 @@ pub(super) fn gen_wrapper_class(
             &true_opaque_types,
             bridge_param_names,
             bridge_type_aliases,
+            has_visitor_callbacks,
         ));
     }
 
@@ -96,14 +97,6 @@ pub(super) fn gen_wrapper_class(
                 bridge_type_aliases,
             ));
         }
-    }
-
-    // Inject ConvertWithVisitor when a visitor bridge is configured.
-    if has_visitor_callbacks {
-        out.push_str(&crate::gen_visitor::gen_convert_with_visitor_method(
-            exception_name,
-            prefix,
-        ));
     }
 
     // Add error handling helper — dispatches typed exceptions by error code
@@ -142,6 +135,7 @@ fn gen_wrapper_function(
     true_opaque_types: &HashSet<String>,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
+    has_visitor_callbacks: bool,
 ) -> String {
     let mut out = String::with_capacity(1024);
 
@@ -208,13 +202,63 @@ fn gen_wrapper_function(
         }
     }
 
-    // Serialize Named (opaque handle) params to JSON and obtain native handles.
-    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
+    // Detect if this is the main convert function with visitor support.
+    // The convert function should have (string, ConversionOptions?) signature and has_visitor_callbacks=true.
+    let has_options_param = visible_params.iter().any(|p| {
+        matches!(&p.ty, TypeRef::Named(n) if n == "ConversionOptions")
+    });
+    let is_convert_with_visitor = has_visitor_callbacks && func.name == "convert" && has_options_param;
+
+    // Special handling for convert function with visitor support:
+    // Extract visitor from options before serialization
+    if is_convert_with_visitor {
+        out.push_str("        var visitor = options?.Visitor;\n");
+        out.push_str("        var optionsJson = options != null ? JsonSerializer.Serialize(options, JsonOptions) : \"null\";\n");
+        out.push_str("        var optionsHandle = NativeMethods.ConversionOptionsFromJson(optionsJson);\n");
+        out.push_str("        try\n");
+        out.push_str("        {\n");
+        out.push_str("            if (visitor != null)\n");
+        out.push_str("            {\n");
+        out.push_str("                using var bridge = new HtmlVisitorBridge(visitor);\n");
+        out.push_str("                var visitorHandle = NativeMethods.VisitorCreate(bridge._vtable);\n");
+        out.push_str("                if (visitorHandle == IntPtr.Zero) throw GetLastError();\n");
+        out.push_str("                try\n");
+        out.push_str("                {\n");
+        out.push_str("                    var resultPtr = NativeMethods.ConvertWithVisitor(html, optionsHandle, visitorHandle);\n");
+        out.push_str("                    if (resultPtr == IntPtr.Zero) throw GetLastError();\n");
+        out.push_str("                    var json = Marshal.PtrToStringUTF8(resultPtr);\n");
+        out.push_str("                    NativeMethods.FreeString(resultPtr);\n");
+        out.push_str("                    return JsonSerializer.Deserialize<ConversionResult>(json!, JsonOptions)!;\n");
+        out.push_str("                }\n");
+        out.push_str("                finally\n");
+        out.push_str("                {\n");
+        out.push_str("                    NativeMethods.VisitorFree(visitorHandle);\n");
+        out.push_str("                }\n");
+        out.push_str("            }\n");
+        out.push_str("            else\n");
+        out.push_str("            {\n");
+        out.push_str("                var nativeResult = NativeMethods.Convert(html, optionsHandle);\n");
+        out.push_str("                if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
+        out.push_str("                var jsonPtr = NativeMethods.ConversionResultToJson(nativeResult);\n");
+        out.push_str("                var json = Marshal.PtrToStringUTF8(jsonPtr);\n");
+        out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
+        out.push_str("                NativeMethods.ConversionResultFree(nativeResult);\n");
+        out.push_str("                return JsonSerializer.Deserialize<ConversionResult>(json ?? \"null\", JsonOptions)!;\n");
+        out.push_str("            }\n");
+        out.push_str("        }\n");
+        out.push_str("        finally\n");
+        out.push_str("        {\n");
+        out.push_str("            NativeMethods.ConversionOptionsFree(optionsHandle);\n");
+        out.push_str("        }\n");
+    } else {
+        // Serialize Named (opaque handle) params to JSON and obtain native handles.
+        emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
+    }
 
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
 
-    if func.is_async {
+    if !is_convert_with_visitor && func.is_async {
         // Async: wrap in Task.Run for non-blocking execution. CS1997 disallows
         // `return await Task.Run(...)` in an `async Task` (non-generic) method,
         // so for unit returns we drop the `return`.

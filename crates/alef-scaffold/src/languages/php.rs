@@ -79,6 +79,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     // PSR-4 namespace derived from the extension name (e.g. html_to_markdown_rs -> Html\To\Markdown\Rs).
     // Double backslashes for JSON string literal output.
     let php_namespace = php_autoload_namespace(config).replace('\\', "\\\\");
+    let name_lower = name.to_lowercase();
 
     let keywords_json = if meta.keywords.is_empty() {
         String::new()
@@ -116,7 +117,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }},
   "autoload": {{
     "psr-4": {{
-      "{php_namespace}\\\\": "src/"
+      "{php_namespace}\\": "src/"
     }}
   }},
   "scripts": {{
@@ -134,7 +135,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }}{keywords}
 }}
 "#,
-        name = name,
+        name = name_lower,
         description = meta.description,
         license = meta.license,
         php_namespace = php_namespace,

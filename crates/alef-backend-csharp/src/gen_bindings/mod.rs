@@ -289,6 +289,7 @@ impl Backend for CsharpBackend {
                         &complex_enums,
                         &custom_converter_enums,
                         &lang_rename_all,
+                        &bridge_type_aliases,
                     )),
                     generated_header: true,
                 });

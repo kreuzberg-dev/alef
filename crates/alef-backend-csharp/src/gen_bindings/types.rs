@@ -299,6 +299,7 @@ pub(super) fn gen_record_type(
     complex_enums: &HashSet<String>,
     custom_converter_enums: &HashSet<String>,
     _lang_rename_all: &str,
+    bridge_type_aliases: &HashSet<String>,
 ) -> String {
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
@@ -335,6 +336,14 @@ pub(super) fn gen_record_type(
             out.push_str("    /// </summary>\n");
         }
 
+        // Check if this field is a visitor bridge (bridge_type_alias field).
+        // If so, generate special handling: IHtmlVisitor? with [JsonIgnore] instead of VisitorHandle?.
+        let is_visitor_bridge = match &field.ty {
+            TypeRef::Named(n) => bridge_type_aliases.contains(n),
+            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if bridge_type_aliases.contains(n)),
+            _ => false,
+        };
+
         // If the field's type is an enum with a custom converter, emit a property-level
         // [JsonConverter] attribute. This ensures the custom converter takes precedence
         // over the global JsonStringEnumConverter registered in JsonSerializerOptions.
@@ -352,17 +361,29 @@ pub(super) fn gen_record_type(
             }
         }
 
-        // [JsonPropertyName("json_name")]
-        // FFI-based languages serialize to JSON that Rust serde deserializes.
-        // Since Rust uses default snake_case, JSON property names must be snake_case.
-        let json_name = field.name.clone();
-        out.push_str(&format!("    [JsonPropertyName(\"{}\")]\n", json_name));
+        // For visitor bridges, use [JsonIgnore] instead of [JsonPropertyName]
+        if is_visitor_bridge {
+            out.push_str("    [JsonIgnore]\n");
+        } else {
+            // [JsonPropertyName("json_name")]
+            // FFI-based languages serialize to JSON that Rust serde deserializes.
+            // Since Rust uses default snake_case, JSON property names must be snake_case.
+            let json_name = field.name.clone();
+            out.push_str(&format!("    [JsonPropertyName(\"{}\")]\n", json_name));
+        }
 
         let cs_name = to_csharp_name(&field.name);
 
         // Check if field type is a complex enum (tagged enum with data variants).
         // These can't be simple C# enums — use JsonElement for flexible deserialization.
         let is_complex = matches!(&field.ty, TypeRef::Named(n) if complex_enums.contains(&n.to_pascal_case()));
+
+        // Special handling for visitor bridge fields: always map to IHtmlVisitor?
+        if is_visitor_bridge {
+            out.push_str(&format!("    public IHtmlVisitor? {} {{ get; set; }} = null;\n", cs_name));
+            out.push('\n');
+            continue;
+        }
 
         if field.optional {
             // Optional fields: nullable type, no `required`, default = null
