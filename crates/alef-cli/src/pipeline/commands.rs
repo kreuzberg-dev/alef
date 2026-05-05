@@ -293,40 +293,45 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
 
 /// Compute the target/release directory path from the workspace root.
 ///
-/// Walks up from the current working directory to find a `target/release/libpdfium.dylib`
-/// and returns the directory path. This directory should be added to the dynamic library
-/// search path (DYLD_LIBRARY_PATH on macOS, LD_LIBRARY_PATH on Linux, PATH on Windows).
+/// Walks up from the current working directory to find any `target/release/`
+/// containing a dynamic library (regardless of which one — pdfium, an FFI crate,
+/// etc.). This directory is added to the dynamic library search path so that
+/// e2e test runners (dotnet test, JVM, Node, …) can dlopen the workspace's
+/// native libraries.
 fn compute_pdfium_dir() -> Option<String> {
     use std::env;
 
+    let (lib_prefix, lib_ext): (&str, &str) = if cfg!(target_os = "macos") {
+        ("lib", ".dylib")
+    } else if cfg!(target_os = "windows") {
+        ("", ".dll")
+    } else {
+        ("lib", ".so")
+    };
+
     let mut current = env::current_dir().ok()?;
 
-    // Walk up to find workspace root with target/release
     loop {
         let target_release = current.join("target").join("release");
         if target_release.exists() {
-            // Verify that pdfium dylib exists in this directory
-            let candidates = if cfg!(target_os = "macos") {
-                vec!["libpdfium.dylib"]
-            } else if cfg!(target_os = "windows") {
-                vec!["pdfium.dll"]
-            } else {
-                vec!["libpdfium.so"]
-            };
-
-            for candidate in candidates {
-                let dylib_path = target_release.join(candidate);
-                if dylib_path.exists() {
-                    if let Some(path_str) = target_release.to_str() {
-                        info!("Found pdfium dylib in: {}", path_str);
-                        return Some(path_str.to_string());
+            // Accept the directory if it contains *any* native library matching
+            // the platform's prefix/extension. We don't care which library — the
+            // DYLD path is shared by every test process that dlopens FFI deps.
+            if let Ok(entries) = std::fs::read_dir(&target_release) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let Some(name_str) = name.to_str() else { continue };
+                    if name_str.starts_with(lib_prefix) && name_str.ends_with(lib_ext) {
+                        if let Some(path_str) = target_release.to_str() {
+                            info!("Native library directory: {}", path_str);
+                            return Some(path_str.to_string());
+                        }
                     }
                 }
             }
         }
 
         if !current.pop() {
-            // Reached filesystem root without finding target/release
             break;
         }
     }
