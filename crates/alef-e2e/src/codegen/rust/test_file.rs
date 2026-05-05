@@ -189,12 +189,26 @@ pub fn render_test_file(
 
     // Collect and import element types from json_object args that have an element_type specified.
     // These types are used in serde_json::from_value::<Vec<{elem}>>() for batch operations.
+    // Collect from all calls used in call-based fixtures (not just the default call).
     if file_has_call_based {
         let mut element_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        for arg in &e2e_config.call.args {
-            if arg.arg_type == "json_object" {
-                if let Some(ref elem_type) = arg.element_type {
-                    element_types.insert(elem_type.clone());
+        for fixture in fixtures.iter().filter(|f| {
+            if f.mock_response.is_some() {
+                return true;
+            }
+            if f.http.is_none() && f.mock_response.is_none() {
+                let call_config = e2e_config.resolve_call(f.call.as_deref());
+                let fn_name = resolve_function_name_for_call(call_config);
+                return !fn_name.is_empty();
+            }
+            false
+        }) {
+            let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+            for arg in &call_config.args {
+                if arg.arg_type == "json_object" {
+                    if let Some(ref elem_type) = arg.element_type {
+                        element_types.insert(elem_type.clone());
+                    }
                 }
             }
         }

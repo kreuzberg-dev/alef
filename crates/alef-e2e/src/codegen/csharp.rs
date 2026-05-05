@@ -1601,6 +1601,11 @@ fn csharp_object_initializer(
     if obj.is_empty() {
         return format!("new {type_name}()");
     }
+
+    // Fields that are JsonElement? in the C# binding (discriminated unions in Rust).
+    // These must be wrapped in JsonDocument.Parse() to create a JsonElement from a value.
+    static JSON_ELEMENT_FIELDS: &[&str] = &["output_format"];
+
     let props: Vec<String> = obj
         .iter()
         .map(|(key, val)| {
@@ -1624,6 +1629,17 @@ fn csharp_object_initializer(
                 // Array: List<string>
                 let items: Vec<String> = arr.iter().map(json_to_csharp).collect();
                 format!("new List<string> {{ {} }}", items.join(", "))
+            } else if JSON_ELEMENT_FIELDS.contains(&key.as_str()) {
+                // JsonElement? fields: wrap the JSON value in JsonDocument.Parse().RootElement
+                if val.is_null() {
+                    "null".to_string()
+                } else {
+                    let json_str = serde_json::to_string(val).unwrap_or_default();
+                    format!(
+                        "JsonDocument.Parse(\"{}\").RootElement",
+                        escape_csharp(&json_str)
+                    )
+                }
             } else {
                 json_to_csharp(val)
             };
