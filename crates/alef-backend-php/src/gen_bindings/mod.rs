@@ -500,13 +500,16 @@ impl Backend for PhpBackend {
                 let builder_type = format!("{}Builder", options_type);
                 let bridge_struct = format!("Php{}Bridge", bridge.trait_name);
 
-                // Match the verbatim output from codegen (4-space method indent,
-                // 8-space body indent — same as every other builder method).
+                // Match the verbatim pre-rustfmt output from codegen.
+                // gen_instance_method produces 4-space-indented lines (signature + body),
+                // then ImplBuilder.build() adds 4 more spaces to every line → 8/8/4 indent.
+                // The body is a single-line Self { inner: Arc::new(...) } expression.
+                // rustfmt later reformats this to the 4/8/8/4 multi-line style on disk.
                 let old_method = format!(
-                    "    pub fn {field_name}(&self, {param_name}: Option<&{type_alias}>) -> {builder_type} {{\n        Self {{\n            inner: Arc::new((*self.inner).clone().{field_name}({param_name}.as_ref().map(|v| &v.inner))),\n        }}\n    }}"
+                    "        pub fn {field_name}(&self, {param_name}: Option<&{type_alias}>) -> {builder_type} {{\n        Self {{ inner: Arc::new((*self.inner).clone().{field_name}({param_name}.as_ref().map(|v| &v.inner))) }}\n    }}"
                 );
                 let new_method = format!(
-                    "    pub fn {field_name}(&self, {param_name}: &mut ext_php_rs::types::ZendObject) -> {builder_type} {{\n        let bridge = {bridge_struct}::new({param_name});\n        let handle: html_to_markdown_rs::visitor::VisitorHandle = std::sync::Arc::new(bridge);\n        Self {{\n            inner: Arc::new((*self.inner).clone().{field_name}(Some(&handle))),\n        }}\n    }}"
+                    "        pub fn {field_name}(&self, {param_name}: &mut ext_php_rs::types::ZendObject) -> {builder_type} {{\n        let bridge = {bridge_struct}::new({param_name});\n        let handle: html_to_markdown_rs::visitor::VisitorHandle = std::sync::Arc::new(bridge);\n        Self {{ inner: Arc::new((*self.inner).clone().{field_name}(Some(&handle))) }}\n    }}"
                 );
 
                 content = content.replace(&old_method, &new_method);
