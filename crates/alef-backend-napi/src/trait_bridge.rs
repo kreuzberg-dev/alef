@@ -859,8 +859,8 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
                 if n == "NodeContext" {
                     return format!(
                         "match nodecontext_to_js_object(&self.env(), {}{}) {{ Ok(o) => o.to_unknown(), Err(_) => unsafe {{ \
-                         let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(std::ptr::null_mut(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                         napi::bindgen_prelude::Unknown::from_raw_unchecked(std::ptr::null_mut(), r) }} \
+                         let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                         napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
                         }}",
                         if p.is_ref { "" } else { "&" },
                         p.name
@@ -874,12 +874,12 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
                      Some(s) => match self.env().create_string(s) {{ \
                        Ok(v) => v.to_unknown(), \
                        Err(_) => unsafe {{ \
-                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(std::ptr::null_mut(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                       napi::bindgen_prelude::Unknown::from_raw_unchecked(std::ptr::null_mut(), r) }} \
+                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
                      }}, \
                      None => unsafe {{ \
-                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(std::ptr::null_mut(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                       napi::bindgen_prelude::Unknown::from_raw_unchecked(std::ptr::null_mut(), r) }} \
+                       let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                       napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
                     }}",
                     name = p.name
                 );
@@ -890,8 +890,8 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
                     "match self.env().create_string({name}) {{ \
                      Ok(s) => s.to_unknown(), \
                      Err(_) => unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(std::ptr::null_mut(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(std::ptr::null_mut(), r) }} \
+                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
                     }}",
                     name = p.name
                 );
@@ -902,8 +902,8 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
                     "match self.env().create_string({name}.as_str()) {{ \
                      Ok(s) => s.to_unknown(), \
                      Err(_) => unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(std::ptr::null_mut(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(std::ptr::null_mut(), r) }} \
+                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
                     }}",
                     name = p.name
                 );
@@ -921,8 +921,8 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
             if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::U32)) {
                 return format!(
                     "match self.env().create_uint32({name}) {{ Ok(n) => n.to_unknown(), Err(_) => unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(std::ptr::null_mut(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(std::ptr::null_mut(), r) }} \
+                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
                     }}",
                     name = p.name
                 );
@@ -930,8 +930,8 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
             if matches!(&p.ty, TypeRef::Primitive(alef_core::ir::PrimitiveType::Usize)) {
                 return format!(
                     "match self.env().create_uint32({name} as u32) {{ Ok(n) => n.to_unknown(), Err(_) => unsafe {{ \
-                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(std::ptr::null_mut(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                     napi::bindgen_prelude::Unknown::from_raw_unchecked(std::ptr::null_mut(), r) }} \
+                     let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                     napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
                     }}",
                     name = p.name
                 );
@@ -940,8 +940,8 @@ fn build_napi_args(method: &MethodDef) -> Vec<String> {
             // Default: serialize as debug string
             format!(
                 "match self.env().create_string(&format!(\"{{:?}}\", {name})) {{ Ok(s) => s.to_unknown(), Err(_) => unsafe {{ \
-                 let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(std::ptr::null_mut(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                 napi::bindgen_prelude::Unknown::from_raw_unchecked(std::ptr::null_mut(), r) }} \
+                 let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
+                 napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
                 }}",
                 name = p.name
             )
