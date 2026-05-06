@@ -438,15 +438,16 @@ pub fn field_conversion_from_core_cfg(
     if sanitized {
         if config.map_uses_jsvalue {
             // Map(String, String) sanitized → JsValue (HashMap maps to JsValue in WASM)
+            // Use js_sys::JSON::parse(json_str) to get a plain JS object (not ES6 Map).
             if let TypeRef::Map(k, v) = ty {
                 if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::String) {
                     if optional {
                         return format!(
-                            "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(&serde_json::to_value(v).unwrap_or(serde_json::Value::Null)).ok())"
+                            "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok()).and_then(|s| js_sys::JSON::parse(&s).ok())"
                         );
                     }
                     return format!(
-                        "{name}: serde_wasm_bindgen::to_value(&serde_json::to_value(&val.{name}).unwrap_or(serde_json::Value::Null)).unwrap_or(JsValue::NULL)"
+                        "{name}: js_sys::JSON::parse(&serde_json::to_string(&val.{name}).unwrap_or_default()).unwrap_or(JsValue::NULL)"
                     );
                 }
             }
@@ -495,7 +496,9 @@ pub fn field_conversion_from_core_cfg(
         }
     }
 
-    // WASM JsValue: use serde_wasm_bindgen for Map and nested Vec types
+    // WASM JsValue: use serde_wasm_bindgen for nested Vec, js_sys::JSON::parse for Map types.
+    // Maps must go through JSON string → js_sys::JSON::parse to get a plain JS object.
+    // serde_wasm_bindgen::to_value always creates ES6 Maps for serialize_map calls.
     if config.map_uses_jsvalue {
         let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));
         let is_map = matches!(ty, TypeRef::Map(_, _));
@@ -508,11 +511,11 @@ pub fn field_conversion_from_core_cfg(
         if is_map {
             if optional {
                 return format!(
-                    "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(&serde_json::to_value(v).unwrap_or(serde_json::Value::Null)).ok())"
+                    "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok()).and_then(|s| js_sys::JSON::parse(&s).ok())"
                 );
             }
             return format!(
-                "{name}: serde_wasm_bindgen::to_value(&serde_json::to_value(&val.{name}).unwrap_or(serde_json::Value::Null)).unwrap_or(JsValue::NULL)"
+                "{name}: js_sys::JSON::parse(&serde_json::to_string(&val.{name}).unwrap_or_default()).unwrap_or(JsValue::NULL)"
             );
         }
         if let TypeRef::Optional(inner) = ty {
@@ -523,7 +526,7 @@ pub fn field_conversion_from_core_cfg(
             }
             if is_inner_map {
                 return format!(
-                    "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(&serde_json::to_value(v).unwrap_or(serde_json::Value::Null)).ok())"
+                    "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok()).and_then(|s| js_sys::JSON::parse(&s).ok())"
                 );
             }
         }
