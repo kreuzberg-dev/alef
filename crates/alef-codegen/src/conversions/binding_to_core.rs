@@ -690,6 +690,7 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         && !config.json_to_string
         && !config.vec_named_to_string
         && !config.map_as_string
+        && config.from_binding_skip_types.is_empty()
     {
         return field_conversion_to_core(name, ty, optional);
     }
