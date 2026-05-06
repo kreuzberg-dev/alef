@@ -990,13 +990,18 @@ fn gen_string_to_enum_expr(
         }
     }
 
-    let first_expr = variant_expr(&core_enum_path, &enum_def.variants[0]);
+    let has_default_variant = enum_def.variants.iter().any(|v| v.is_default);
+    let fallback_expr = if has_default_variant {
+        "Default::default()".to_string()
+    } else {
+        variant_expr(&core_enum_path, &enum_def.variants[0])
+    };
     let mut match_arms = String::new();
     for variant in &enum_def.variants {
         let expr = variant_expr(&core_enum_path, variant);
         write!(match_arms, "\"{}\" => {expr}, ", variant.name).ok();
     }
-    write!(match_arms, "_ => {first_expr}").ok();
+    write!(match_arms, "_ => {fallback_expr}").ok();
 
     if optional {
         format!("{val_expr}.as_deref().map(|s| match s {{ {match_arms} }})")

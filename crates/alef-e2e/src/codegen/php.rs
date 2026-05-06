@@ -151,6 +151,7 @@ impl E2eCodegen for PhpCodegen {
             &e2e_config.fields_optional,
             &e2e_config.result_fields,
             &e2e_config.fields_array,
+            &std::collections::HashSet::new(),
         );
 
         for group in groups {
@@ -1123,7 +1124,7 @@ fn build_args_and_setup(
                                 }
                             }
 
-                            parts.push(format!("json_encode({})", json_to_php(&filtered_v)));
+                            parts.push(format!("json_encode({})", json_to_php_camel_keys(&filtered_v)));
                             continue;
                         }
                         _ => {
@@ -1148,7 +1149,7 @@ fn build_args_and_setup(
                                 let arg_var = format!("${}", arg.name);
                                 setup_lines.push(format!(
                                     "{arg_var} = {type_name}::from_json(json_encode({}));",
-                                    json_to_php(&filtered_v)
+                                    json_to_php_camel_keys(&filtered_v)
                                 ));
                                 parts.push(arg_var);
                                 continue;
@@ -1751,6 +1752,30 @@ fn json_to_php(value: &serde_json::Value) -> String {
                 .collect();
             format!("[{}]", items.join(", "))
         }
+    }
+}
+
+/// Like `json_to_php` but recursively converts all object keys to lowerCamelCase.
+/// Used when generating PHP option arrays passed to `from_json()` — the PHP binding
+/// structs use `#[serde(rename_all = "camelCase")]` so snake_case fixture keys
+/// (e.g. `remove_forms`) must become `removeForms` in the generated test code.
+fn json_to_php_camel_keys(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Object(map) => {
+            let items: Vec<String> = map
+                .iter()
+                .map(|(k, v)| {
+                    let camel_key = k.to_lower_camel_case();
+                    format!("\"{}\" => {}", escape_php(&camel_key), json_to_php_camel_keys(v))
+                })
+                .collect();
+            format!("[{}]", items.join(", "))
+        }
+        serde_json::Value::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(json_to_php_camel_keys).collect();
+            format!("[{}]", items.join(", "))
+        }
+        _ => json_to_php(value),
     }
 }
 

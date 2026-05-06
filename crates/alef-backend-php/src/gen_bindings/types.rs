@@ -143,6 +143,15 @@ pub(crate) fn gen_php_struct(
         if cfg.has_serde && matches!(field.ty, TypeRef::Duration) && !field.optional {
             attrs.push("serde(skip_serializing_if = \"Option::is_none\")".to_string());
         }
+        // Bool fields whose core default is `true` need an explicit per-field serde override.
+        // Without it, serde uses bool::default() = false for structs with #[serde(default)],
+        // which is wrong for fields like PreprocessingOptions.enabled.
+        if cfg.has_serde
+            && typ.has_default
+            && matches!(field.typed_default, Some(alef_core::ir::DefaultValue::BoolLiteral(true)))
+        {
+            attrs.push("serde(default = \"crate::serde_defaults::bool_true\")".to_string());
+        }
         attrs
     };
 
