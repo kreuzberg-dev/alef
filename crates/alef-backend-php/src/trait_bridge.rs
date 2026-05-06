@@ -3,8 +3,8 @@
 //! Generates Rust wrapper structs that implement Rust traits by delegating
 //! to PHP objects via ext-php-rs Zval method calls.
 
-use std::fmt::Write;
 use minijinja::context;
+use std::fmt::Write;
 
 use alef_codegen::generators::trait_bridge::{
     BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, bridge_param_type as param_type, gen_bridge_all,
@@ -85,13 +85,16 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         let is_result_type = method.error_type.is_some();
         let is_unit_return = matches!(method.return_type, TypeRef::Unit);
 
-        crate::template_env::render("sync_method_body.jinja", context! {
-            method_name => name,
-            args_expr => args_expr,
-            is_result_type => is_result_type,
-            is_unit_return => is_unit_return,
-            core_import => &self.core_import,
-        })
+        crate::template_env::render(
+            "sync_method_body.jinja",
+            context! {
+                method_name => name,
+                args_expr => args_expr,
+                is_result_type => is_result_type,
+                is_unit_return => is_unit_return,
+                core_import => &self.core_import,
+            },
+        )
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
@@ -145,21 +148,27 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
         let is_result_type = method.error_type.is_some();
 
-        crate::template_env::render("async_method_body.jinja", context! {
-            method_name => name,
-            args_expr => args_expr,
-            string_params => string_params,
-            is_result_type => is_result_type,
-            core_import => &spec.core_import,
-        })
+        crate::template_env::render(
+            "async_method_body.jinja",
+            context! {
+                method_name => name,
+                args_expr => args_expr,
+                string_params => string_params,
+                is_result_type => is_result_type,
+                core_import => &spec.core_import,
+            },
+        )
     }
 
     fn gen_constructor(&self, spec: &TraitBridgeSpec) -> String {
         let wrapper = spec.wrapper_name();
 
-        crate::template_env::render("bridge_constructor.jinja", context! {
-            wrapper => &wrapper,
-        })
+        crate::template_env::render(
+            "bridge_constructor.jinja",
+            context! {
+                wrapper => &wrapper,
+            },
+        )
     }
 
     fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -168,10 +177,13 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, unregister_fn);
 
-        crate::template_env::render("bridge_unregister_fn.jinja", context! {
-            unregister_fn => unregister_fn,
-            host_path => &host_path,
-        })
+        crate::template_env::render(
+            "bridge_unregister_fn.jinja",
+            context! {
+                unregister_fn => unregister_fn,
+                host_path => &host_path,
+            },
+        )
     }
 
     fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -180,10 +192,13 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
         };
         let host_path = alef_codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
 
-        crate::template_env::render("bridge_clear_fn.jinja", context! {
-            clear_fn => clear_fn,
-            host_path => &host_path,
-        })
+        crate::template_env::render(
+            "bridge_clear_fn.jinja",
+            context! {
+                clear_fn => clear_fn,
+                host_path => &host_path,
+            },
+        )
     }
 
     fn gen_registration_fn(&self, spec: &TraitBridgeSpec) -> String {
@@ -213,14 +228,17 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
 
-        crate::template_env::render("bridge_registration_fn.jinja", context! {
-            register_fn => register_fn,
-            required_methods => required_methods,
-            wrapper => &wrapper,
-            trait_path => &trait_path,
-            registry_getter => registry_getter,
-            extra_args => &extra_args,
-        })
+        crate::template_env::render(
+            "bridge_registration_fn.jinja",
+            context! {
+                register_fn => register_fn,
+                required_methods => required_methods,
+                wrapper => &wrapper,
+                trait_path => &trait_path,
+                registry_getter => registry_getter,
+                extra_args => &extra_args,
+            },
+        )
     }
 }
 
@@ -295,16 +313,22 @@ fn gen_visitor_bridge(
         .to_string();
 
     // Helper: convert NodeContext to a PHP array (Zval)
-    out.push_str(&crate::template_env::render("visitor_nodecontext_helper.jinja", context! {
-        core_crate => &core_crate,
-    }));
-    out.push_str("\n");
+    out.push_str(&crate::template_env::render(
+        "visitor_nodecontext_helper.jinja",
+        context! {
+            core_crate => &core_crate,
+        },
+    ));
+    out.push('\n');
 
     // Helper: map a PHP return Zval to VisitResult.
-    out.push_str(&crate::template_env::render("visitor_zval_to_visitresult.jinja", context! {
-        core_crate => &core_crate,
-    }));
-    out.push_str("\n");
+    out.push_str(&crate::template_env::render(
+        "visitor_zval_to_visitresult.jinja",
+        context! {
+            core_crate => &core_crate,
+        },
+    ));
+    out.push('\n');
 
     // Helper: apply {param_name} template substitution to Custom visit results.
     // Use push_str to avoid writeln! format-string interpretation of braces.
@@ -328,10 +352,13 @@ fn gen_visitor_bridge(
     out.push_str("}\n\n");
 
     // Bridge struct — stores a reference to the PHP object.
-    out.push_str(&crate::template_env::render("visitor_bridge_struct.jinja", context! {
-        struct_name => struct_name,
-    }));
-    out.push_str("\n");
+    out.push_str(&crate::template_env::render(
+        "visitor_bridge_struct.jinja",
+        context! {
+            struct_name => struct_name,
+        },
+    ));
+    out.push('\n');
 
     // Trait impl
     out.push_str(&format!("impl {trait_path} for {struct_name} {{\n"));
@@ -342,7 +369,7 @@ fn gen_visitor_bridge(
         gen_visitor_method_php(&mut out, method, type_paths);
     }
     out.push_str("}}\n");
-    out.push_str("\n");
+    out.push('\n');
 
     out
 }
@@ -430,7 +457,9 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
         out.push_str("        let dyn_args: Vec<&dyn ext_php_rs::convert::IntoZvalDyn> = args.iter().map(|z| z as &dyn ext_php_rs::convert::IntoZvalDyn).collect();\n");
     }
     let args_expr = if has_args { "dyn_args" } else { "vec![]" };
-    out.push_str(&format!("        let result = php_obj_ref.try_call_method(\"{name}\", {args_expr});\n"));
+    out.push_str(&format!(
+        "        let result = php_obj_ref.try_call_method(\"{name}\", {args_expr});\n"
+    ));
 
     // Build template vars for {param_name} → value substitution in Custom results.
     // Each non-ctx param gets an owned String so we can take &str references.
@@ -471,7 +500,9 @@ fn gen_visitor_method_php(out: &mut String, method: &MethodDef, type_paths: &Has
     // Parse result — try_call_method returns Result<Zval> (not Result<Option<Zval>>)
     out.push_str("        match result {{\n");
     out.push_str(&format!("            Err(_) => {ret_ty}::Continue,\n"));
-    out.push_str(&format!("            Ok(val) => php_visit_result_with_template(&val, {tmpl_vars_expr}),\n"));
+    out.push_str(&format!(
+        "            Ok(val) => php_visit_result_with_template(&val, {tmpl_vars_expr}),\n"
+    ));
     out.push_str("        }}\n");
     out.push_str("    }}\n");
     out.push('\n');

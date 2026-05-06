@@ -321,6 +321,7 @@ fn render_test_file(
     });
     if has_array_contains {
         let _ = writeln!(out);
+        let _ = writeln!(out, "  defp alef_e2e_item_texts(item) when is_binary(item), do: [item]");
         let _ = writeln!(out, "  defp alef_e2e_item_texts(item) do");
         let _ = writeln!(out, "    [:kind, :name, :signature, :path, :alias, :text, :source]");
         let _ = writeln!(out, "    |> Enum.filter(&Map.has_key?(item, &1))");

@@ -173,10 +173,10 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str) -> String
     let name = &enum_def.name;
     let mut out = String::with_capacity(1024);
 
-    // Derive line for the struct
+    // Derive line for the struct — no Default here; explicit impl Default below
     writeln!(
         out,
-        "#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, rustler::NifStruct)]"
+        "#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, rustler::NifStruct)]"
     )
     .ok();
     writeln!(out, "#[module = \"{}.{}\"]", module_prefix, name).ok();

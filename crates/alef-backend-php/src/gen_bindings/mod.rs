@@ -557,13 +557,14 @@ impl Backend for PhpBackend {
             .filter_map(|b| b.param_name.as_deref())
             .collect();
 
-        // Config types whose constructors can be called with zero arguments.
-        // A type qualifies if all fields are optional OR if it derives Default (has_default).
-        // Only these types are safe to null-coalesce at call sites: `$x ?? new T()`.
+        // Config types whose PHP constructors can be called with zero arguments.
+        // Only qualifies when ALL fields are optional (PHP constructor needs no required args).
+        // `has_default` (Rust Default impl) is NOT sufficient — the PHP constructor is
+        // generated from struct fields and still requires non-optional ones.
         let no_arg_constructor_types: AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| t.has_default || t.fields.iter().all(|f| f.optional))
+            .filter(|t| t.fields.iter().all(|f| f.optional))
             .map(|t| t.name.clone())
             .collect();
 
