@@ -81,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- feat(hooks): add `hooks/alef_hook.py` plus pinned `hooks/VERSION` so consumers can run `alef` as a pre-commit hook without a local Rust toolchain — the hook downloads, sha-verifies, caches, and execs the matching pre-built `alef` binary for the host platform.
+- feat(hooks): add `hooks/alef_hook.py` so consumers can run `alef` as a pre-commit hook without a local Rust toolchain — the hook reads the version from `alef.toml`, downloads, sha-verifies, caches, and execs the matching pre-built `alef` binary for the host platform.
 
 ### Changed
 
@@ -110,6 +110,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e/c): C generator now reads `options_type` from the call override (`[e2e.call.overrides.c]`) instead of hardcoding `ConversionOptions`; generated code uses the configured type name (e.g. `ProcessConfig`) for both the `*_from_json` constructor and `*_free` calls.
 - fix(e2e/csharp): when a visitor is present but no options argument exists, the generator now emits `new OptionsType { Visitor = visitorVar }` instead of appending the visitor as a bare extra argument.
 - fix(csharp-backend): `is_convert_with_visitor` early-return path now emits the closing brace and returns immediately, preventing the method body from falling through into the standard param-setup path.
+- fix(hooks): `alef_hook.py` now reads the `alef` version from `alef.toml` at hook-cache root instead of a static `hooks/VERSION` file; the `hooks/VERSION` file is removed. This eliminates version-skew bugs where `Cargo.toml` was bumped without a matching `VERSION` update, causing the hook to download a non-existent release artifact.
+- fix(.pre-commit-config.yaml): add `default_stages: [pre-commit]` to prevent hooks without explicit `stages:` from running in the `commit-msg` stage (where they receive the commit message file instead of source files).
 
 ## [0.14.22] - 2026-05-04
 

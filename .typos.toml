@@ -5,3 +5,6 @@ Prelease = "Prelease"
 # Used as a deliberate misspelling in a parse-error test fixture
 # (crates/alef-core/src/config/new_config.rs ~line 684).
 wrkspace = "wrkspace"
+# "abl" is the tree-sitter language identifier for the ABL (OpenEdge) grammar,
+# used in e2e fixture examples and doc comments.
+abl = "abl"
