@@ -448,6 +448,12 @@ impl Backend for PhpBackend {
             builder.add_item(&alef_codegen::error_gen::gen_php_error_converter(error, &core_import));
         }
 
+        // Serde default helpers for bool fields whose core default is `true`.
+        // Referenced by #[serde(default = "crate::serde_defaults::bool_true")] on struct fields.
+        if has_serde {
+            builder.add_item("mod serde_defaults {\n    pub fn bool_true() -> bool { true }\n}");
+        }
+
         // Always enable abi_vectorcall on Windows — ext-php-rs requires the
         // `vectorcall` calling convention for PHP entry points there. The feature
         // is unstable on stable Rust; consumers either build with nightly or set
