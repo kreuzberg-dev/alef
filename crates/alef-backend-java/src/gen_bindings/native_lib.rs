@@ -613,12 +613,9 @@ pub(crate) fn gen_native_lib(
             let to_json_ffi = format!("{}_{}_to_json", prefix, type_snake);
             if emitted_to_json_handles.insert(to_json_handle.clone()) {
                 writeln!(body).ok();
-                writeln!(
-                    body,
-                    "    static final MethodHandle {} = LIB.find(\"{}\").map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS))).orElse(null);",
-                    to_json_handle, to_json_ffi
-                )
-                .ok();
+                writeln!(body, "    static final MethodHandle {} = LIB.find(\"{}\")", to_json_handle, to_json_ffi).ok();
+                writeln!(body, "        .map(s -> LINKER.downcallHandle(s, FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)))").ok();
+                writeln!(body, "        .orElse(null);").ok();
             }
             let _ = is_opaque;
 
