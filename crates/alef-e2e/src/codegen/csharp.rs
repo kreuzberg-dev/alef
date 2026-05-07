@@ -1613,6 +1613,7 @@ fn default_csharp_nested_types() -> HashMap<String, String> {
         ("content_filter", "ContentFilterConfig"),
         ("token_reduction", "TokenReductionOptions"),
         ("security_limits", "SecurityLimits"),
+        ("format", "FormatMetadata"),
     ]
     .iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))

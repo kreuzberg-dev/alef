@@ -154,6 +154,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
 
     let _ = writeln!(out, "import 'package:test/test.dart';");
     let _ = writeln!(out, "import 'dart:io';");
+    let _ = writeln!(out, "import 'package:kreuzberg/kreuzberg.dart';");
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
         let _ = writeln!(out, "import 'dart:convert';");

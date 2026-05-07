@@ -120,6 +120,7 @@ pub(crate) fn gen_record_type(
     // Build the actual record declaration, splitting across lines if too long.
     let mut record_block = String::new();
     emit_javadoc(&mut record_block, &typ.doc, "");
+    writeln!(record_block, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     // Suppress absent fields during serialization: null Java values and empty Optionals must
     // not be sent to Rust as `null` JSON.  Rust's serde would reject null for non-optional
     // fields, and `serde(skip)` fields (e.g. `cancel_token`) cause "unknown field" errors
