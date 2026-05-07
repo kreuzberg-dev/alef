@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e-dart): add missing kreuzberg package import in test files. Generated Dart e2e tests were emitting `KreuzbergBridge.extractBytesSync(...)` calls without importing the kreuzberg package, causing "Undefined name 'KreuzbergBridge'" errors. Test files now include `import 'package:kreuzberg/kreuzberg.dart'` to make the API accessible.
 - fix(swift-backend): emit type aliases for all struct types, not just those referenced in enum variants. swift-bridge doesn't reliably expose all referenced types in generated Swift modules, so the backend now unconditionally emits `public typealias StructName = RustBridge.StructName` for all non-trait types. This ensures metadata types (JatsMetadata, EpubMetadata, PstMetadata, etc.) are accessible in Swift code.
 - fix(swift-backend): add lightweight wrapper functions for extraction methods. The Swift package now includes public `extractFile`, `extractBytes`, `extractFileSync`, and `extractBytesSync` convenience functions that delegate to RustBridge equivalents, providing idiomatic Swift entry points for e2e tests and common use cases.
 - fix(e2e-java): suppress checkstyle LineLength violations on generated test classes. Auto-generated e2e test methods contain byte array literals (for testing error paths) that are unavoidably long; annotate test classes with `@SuppressWarnings("checkstyle:LineLength")` to indicate that these violations are acceptable.
