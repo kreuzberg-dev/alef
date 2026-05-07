@@ -741,6 +741,13 @@ pub(super) fn gen_module_init(
                     typ_name = typ.name
                 ));
             }
+            // Register to_s for structs that have a `content: String` or `content: Option<String>` field.
+            if super::classes::has_content_string_field(typ) {
+                lines.push(format!(
+                    r#"    class.define_method("to_s", method!({typ_name}::to_s, 0))?;"#,
+                    typ_name = typ.name
+                ));
+            }
         }
 
         for method in &typ.methods {
