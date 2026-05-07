@@ -294,16 +294,16 @@ jobs:
       - name: Publish to crates.io
         uses: kreuzberg-dev/actions/publish-crates@v1
         with:
+          # Topological order: deeper deps first.
+          # core → (extract, codegen, adapters, docs) → all backends →
+          # (e2e, readme, scaffold) → publish → cli
+          # alef-e2e depends on alef-backend-php, so backends MUST come first.
           crates: >-
             alef-core
             alef-extract
             alef-codegen
             alef-adapters
             alef-docs
-            alef-e2e
-            alef-readme
-            alef-scaffold
-            alef-publish
             alef-backend-pyo3
             alef-backend-napi
             alef-backend-wasm
@@ -320,6 +320,10 @@ jobs:
             alef-backend-kotlin
             alef-backend-swift
             alef-backend-zig
+            alef-e2e
+            alef-readme
+            alef-scaffold
+            alef-publish
             alef-cli
           version: ${{ needs.prepare.outputs.version }}
           dry-run: ${{ needs.prepare.outputs.dry_run }}
