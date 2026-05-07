@@ -1079,10 +1079,28 @@ fn parse_discriminated_union_access(field: &str) -> Option<(String, String, Stri
         if parts[0] == "metadata" && parts[1] == "format" {
             let variant_name = parts[2];
             // Known C# discriminated union variants (lowercase in fixture paths)
-            let known_variants = ["pdf", "docx", "excel", "email", "pptx", "archive",
-                                   "image", "xml", "text", "html", "ocr", "csv",
-                                   "bibtex", "citation", "fiction_book", "dbf", "jats",
-                                   "epub", "pst", "code"];
+            let known_variants = [
+                "pdf",
+                "docx",
+                "excel",
+                "email",
+                "pptx",
+                "archive",
+                "image",
+                "xml",
+                "text",
+                "html",
+                "ocr",
+                "csv",
+                "bibtex",
+                "citation",
+                "fiction_book",
+                "dbf",
+                "jats",
+                "epub",
+                "pst",
+                "code",
+            ];
             if known_variants.contains(&variant_name) {
                 let variant_pascal = variant_name.to_upper_camel_case();
                 if parts.len() == 4 {
@@ -1143,7 +1161,10 @@ fn render_discriminated_union_assertion(
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let cs_val = json_to_csharp(val);
-                let _ = writeln!(out, "            Assert.True({field_expr} >= {cs_val}, \"expected >= {cs_val}\");");
+                let _ = writeln!(
+                    out,
+                    "            Assert.True({field_expr} >= {cs_val}, \"expected >= {cs_val}\");"
+                );
             }
         }
         "contains_all" => {
@@ -1177,7 +1198,11 @@ fn render_discriminated_union_assertion(
             let _ = writeln!(out, "            Assert.Empty({field_expr});");
         }
         _ => {
-            let _ = writeln!(out, "            // skipped: assertion type '{}' not yet supported for discriminated union fields", assertion.assertion_type);
+            let _ = writeln!(
+                out,
+                "            // skipped: assertion type '{}' not yet supported for discriminated union fields",
+                assertion.assertion_type
+            );
         }
     }
 }
@@ -1362,32 +1387,38 @@ fn render_assertion(
     };
 
     // Check if this is a discriminated union access (e.g., metadata.format.excel.sheet_count)
-    let is_discriminated_union = assertion.field.as_ref().is_some_and(|f| {
-        parse_discriminated_union_access(f).is_some()
-    });
+    let is_discriminated_union = assertion
+        .field
+        .as_ref()
+        .is_some_and(|f| parse_discriminated_union_access(f).is_some());
 
     // For discriminated union assertions, generate pattern-matching wrapper
     if is_discriminated_union {
-        if let Some((_, variant_name, inner_field)) = assertion.field.as_ref()
-            .and_then(|f| parse_discriminated_union_access(f)) {
+        if let Some((_, variant_name, inner_field)) = assertion
+            .field
+            .as_ref()
+            .and_then(|f| parse_discriminated_union_access(f))
+        {
             // Use a unique variable name based on the field hash to avoid shadowing
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
             inner_field.hash(&mut hasher);
             let var_hash = format!("{:x}", hasher.finish());
             let variant_var = format!("variant_{}", &var_hash[..8]);
-            let _ = writeln!(out, "        if ({effective_result_var}.Metadata.Format is FormatMetadata.{} {})", variant_name, &variant_var);
-            let _ = writeln!(out, "        {{");
-            render_discriminated_union_assertion(
+            let _ = writeln!(
                 out,
-                assertion,
-                &variant_var,
-                &inner_field,
-                result_is_vec,
+                "        if ({effective_result_var}.Metadata.Format is FormatMetadata.{} {})",
+                variant_name, &variant_var
             );
+            let _ = writeln!(out, "        {{");
+            render_discriminated_union_assertion(out, assertion, &variant_var, &inner_field, result_is_vec);
             let _ = writeln!(out, "        }}");
             let _ = writeln!(out, "        else");
             let _ = writeln!(out, "        {{");
-            let _ = writeln!(out, "            Assert.Fail(\"Expected {} format metadata\");", variant_name.to_lowercase());
+            let _ = writeln!(
+                out,
+                "            Assert.Fail(\"Expected {} format metadata\");",
+                variant_name.to_lowercase()
+            );
             let _ = writeln!(out, "        }}");
             return;
         }

@@ -553,16 +553,25 @@ fn render_test_method(
             let _ = writeln!(out, "            // success");
             let _ = writeln!(out, "        }}");
         } else {
-            let _ = writeln!(out, "        XCTAssertThrowsError(try {qualified_function_name}({args_str}))");
+            let _ = writeln!(
+                out,
+                "        XCTAssertThrowsError(try {qualified_function_name}({args_str}))"
+            );
         }
         let _ = writeln!(out, "    }}");
         return;
     }
 
     if is_async {
-        let _ = writeln!(out, "        let {result_var} = try await {qualified_function_name}({args_str})");
+        let _ = writeln!(
+            out,
+            "        let {result_var} = try await {qualified_function_name}({args_str})"
+        );
     } else {
-        let _ = writeln!(out, "        let {result_var} = try {qualified_function_name}({args_str})");
+        let _ = writeln!(
+            out,
+            "        let {result_var} = try {qualified_function_name}({args_str})"
+        );
     }
 
     for assertion in &fixture.assertions {

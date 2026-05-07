@@ -290,9 +290,15 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         .unwrap_or_else(|| "KreuzbergBridge".to_string());
 
     if is_async {
-        let _ = writeln!(out, "    final {result_var} = await {receiver_class}.{function_name}({args_str});");
+        let _ = writeln!(
+            out,
+            "    final {result_var} = await {receiver_class}.{function_name}({args_str});"
+        );
     } else {
-        let _ = writeln!(out, "    final {result_var} = {receiver_class}.{function_name}({args_str});");
+        let _ = writeln!(
+            out,
+            "    final {result_var} = {receiver_class}.{function_name}({args_str});"
+        );
     }
 
     let _ = writeln!(out, "  }});");
