@@ -208,9 +208,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         "[JsonPolymorphic(TypeDiscriminatorPropertyName = \"{tag_field}\")]\n"
     ));
     for (pascal, discriminator) in &discriminators {
-        out.push_str(&format!(
-            "[JsonDerivedType(typeof({pascal}), \"{discriminator}\")]\n"
-        ));
+        out.push_str(&format!("[JsonDerivedType(typeof({pascal}), \"{discriminator}\")]\n"));
     }
     out.push_str(&format!("public abstract record {enum_pascal}\n"));
     out.push_str("{\n");
