@@ -12,6 +12,19 @@ use crate::type_map::MagnusMapper;
 
 use super::functions::gen_magnus_unimplemented_body;
 
+/// Check whether a struct has a `content` field of type `String` or `Option<String>`.
+/// When true, a `to_s` method should be generated so Ruby callers can use `result.to_s`
+/// to retrieve the primary markdown output without explicitly calling `.content`.
+pub(super) fn has_content_string_field(typ: &TypeDef) -> bool {
+    typ.fields.iter().any(|f| {
+        if f.name != "content" {
+            return false;
+        }
+        matches!(&f.ty, TypeRef::String)
+            || matches!(&f.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String))
+    })
+}
+
 /// Check if a field contains a type that cannot be safely passed across thread boundaries.
 /// Magnus's #[magnus::wrap] requires Send + Sync bounds. Fields containing types like
 /// VisitorHandle (Rc<RefCell<dyn HtmlVisitor>>) are !Send + !Sync and must be excluded.
@@ -355,6 +368,21 @@ pub(super) fn gen_struct_methods(
                 impl_builder.add_method(&gen_instance_method(method, mapper, typ, opaque_types, core_import));
             }
         }
+    }
+
+    // Generate to_s for structs that have a `content` field of type String or Option<String>.
+    // This lets Ruby callers use `result.to_s` to get the primary markdown output directly.
+    if has_content_string_field(typ) {
+        let content_field = typ.fields.iter().find(|f| f.name == "content").unwrap();
+        let is_optional = matches!(&content_field.ty, TypeRef::Optional(_)) || content_field.optional;
+        let body = if is_optional {
+            "self.content.clone().unwrap_or_default()".to_string()
+        } else {
+            "self.content.clone()".to_string()
+        };
+        impl_builder.add_method(&format!(
+            "#[allow(clippy::should_implement_trait)]\n    fn to_s(&self) -> String {{\n        {body}\n    }}"
+        ));
     }
 
     impl_builder.build()
