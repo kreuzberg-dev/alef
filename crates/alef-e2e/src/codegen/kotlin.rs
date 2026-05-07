@@ -154,11 +154,12 @@ fn render_build_gradle(
 ) -> String {
     let dep_block = match dep_mode {
         crate::config::DependencyMode::Registry => {
-            format!(r#"    testImplementation("{pkg_name}:{pkg_version}")"#)
+            // Registry mode: maven central with group:artifact:version
+            format!(r#"    testImplementation("{kotlin_pkg_id}:{pkg_name}:{pkg_version}")"#)
         }
         crate::config::DependencyMode::Local => {
-            // Local mode: reference local JAR or Maven build output.
-            format!(r#"    testImplementation(files("../../packages/kotlin/build/libs/{pkg_name}-{pkg_version}.jar"))"#)
+            // Local mode: reference local JAR from kreuzberg binding
+            format!(r#"    testImplementation(files("../../target/release/{pkg_name}.jar"))"#)
         }
     };
 
