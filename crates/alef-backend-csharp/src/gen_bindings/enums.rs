@@ -5,7 +5,6 @@ use crate::type_map::csharp_type;
 use alef_codegen::naming::to_csharp_name;
 use alef_core::ir::EnumDef;
 use heck::ToPascalCase;
-use std::fmt::Write;
 
 /// Apply a serde `rename_all` strategy to a variant name.
 pub(super) fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
@@ -303,7 +302,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             }
         }
     }
-
 
     out.push_str("}\n");
 

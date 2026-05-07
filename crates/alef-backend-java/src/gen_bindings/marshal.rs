@@ -199,9 +199,7 @@ pub(crate) fn marshal_param_to_ffi(
 
 pub(crate) fn ffi_param_name(name: &str, ty: &TypeRef, _opaque_types: &AHashSet<String>) -> String {
     match ty {
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => {
-            "c".to_string() + name
-        }
+        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Bytes => "c".to_string() + name,
         TypeRef::Named(_) => "c".to_string() + name,
         TypeRef::Vec(_) | TypeRef::Map(_, _) => "c".to_string() + name,
         TypeRef::Optional(inner) => match inner.as_ref() {

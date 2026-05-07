@@ -231,7 +231,9 @@ pub fn build(b: *std.Build) void {
         content.push_str("        .target = target,\n");
         content.push_str("        .optimize = optimize,\n");
         content.push_str("    });\n");
-        content.push_str(&format!("    {test_name}_module.addImport(\"kreuzberg\", kreuzberg_module);\n"));
+        content.push_str(&format!(
+            "    {test_name}_module.addImport(\"kreuzberg\", kreuzberg_module);\n"
+        ));
         content.push_str(&format!("    const {test_name}_tests = b.addTest(.{{\n"));
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("    });\n");

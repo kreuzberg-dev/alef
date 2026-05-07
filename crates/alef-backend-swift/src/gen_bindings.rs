@@ -61,9 +61,11 @@ impl Backend for SwiftBackend {
         // swift-bridge exposes types that are declared in the extern "Rust" block,
         // so we generate typealiases for all non-excluded types to provide a
         // stable Swift API that references RustBridge types.
-        for ty in api.types.iter().filter(|t| {
-            !t.is_trait && !exclude_types.contains(t.name.as_str())
-        }) {
+        for ty in api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()))
+        {
             emit_doc_comment(&ty.doc, "", &mut body);
             body.push_str(&format!("public typealias {} = RustBridge.{}\n", ty.name, ty.name));
             body.push('\n');
@@ -252,7 +254,7 @@ fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
 
 /// Emits lightweight function wrappers for common extraction functions.
 /// These provide a convenient Swift API surface that delegates to RustBridge.
-fn emit_extraction_wrappers(out: &mut String) {
+fn emit_extraction_wrappers(_out: &mut String) {
     // Disabled: swift-bridge's auto-generated RustBridge functions already provide
     // full extraction APIs. Optional config parameters cannot be implemented here
     // without a Default factory (which requires Rust Default impl on ExtractionConfig).
