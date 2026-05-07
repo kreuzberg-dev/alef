@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.30] - 2026-05-07
+
+### Fixed
+
+- fix(java,csharp,magnus,php-backends): set `keep_trailing_newline(true)` on the minijinja `Environment`. Minijinja strips trailing newlines from rendered templates by default, which caused multi-template concatenation in the Java marshalling helpers (`helper_object_mapper.jinja` + `helper_read_json_list.jinja`) to emit `MAPPER = createObjectMapper();    private static <T> readJsonList(...)` smashed onto a single 294-character line. With the trailing newline preserved, helper templates concatenate with proper separators. Also applied defensively to the csharp/magnus/php backends, which use the same template environment idiom.
+
 ## [0.14.29] - 2026-05-07
 
 ### Changed
