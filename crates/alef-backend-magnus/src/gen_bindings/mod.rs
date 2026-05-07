@@ -472,7 +472,7 @@ impl Backend for MagnusBackend {
         let mut version_content = hash::header(CommentStyle::Hash);
         version_content.push_str("# frozen_string_literal: true\n\n");
         version_content.push_str(&format!("module {module_name}\n"));
-        version_content.push_str(&format!("  VERSION = \"{version}\"\n"));
+        version_content.push_str(&format!("  VERSION = '{version}'\n"));
         version_content.push_str("end\n");
 
         let output_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
