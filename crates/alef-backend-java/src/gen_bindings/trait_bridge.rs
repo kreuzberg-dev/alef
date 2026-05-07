@@ -71,7 +71,6 @@ fn gen_interface_file(trait_def: &TypeDef, package: &str, has_super_trait: bool)
                 javadoc => format!("/** {}. */", method.name),
                 signature => format!("{} {}({}) throws Exception", return_type_str, method.name, params_str),
             }
-            .into()
         })
         .collect();
 
