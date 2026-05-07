@@ -431,6 +431,7 @@ fn render_test_file(
     let _ = writeln!(out);
 
     let _ = writeln!(out, "/** E2e tests for category: {category}. */");
+    let _ = writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")");
     let _ = writeln!(out, "class {test_class_name} {{");
 
     if needs_object_mapper {
