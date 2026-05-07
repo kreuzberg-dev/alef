@@ -1832,6 +1832,12 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
          actual content around 'children':\n{}",
         extract_field_snippet(content, "children")
     );
+    assert!(
+        content.contains("serde_json::to_string"),
+        "Map<String, Named> core→binding conversion must serialize via serde_json::to_string;\n\
+         actual content around 'children':\n{}",
+        extract_field_snippet(content, "children")
+    );
 
     // The generated From impl for WasmParentStruct → ParentStruct (binding→core) must use
     // serde_wasm_bindgen::from_value for the Map fields.
