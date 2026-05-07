@@ -243,16 +243,51 @@ fn check_packagist(package: &str, version: &str) -> Result<bool> {
     }
 }
 
-fn check_homebrew(package: &str, _version: &str, tap_repo: Option<&str>) -> Result<bool> {
-    // Use the Homebrew formula API: https://formulae.brew.sh/api/formula/{name}.json
+fn check_homebrew(package: &str, version: &str, tap_repo: Option<&str>) -> Result<bool> {
     let repo = tap_repo.unwrap_or("Homebrew/homebrew-core");
     if repo == "Homebrew/homebrew-core" {
+        // Homebrew core API exposes the resolved version in the JSON body.
         let url = format!("https://formulae.brew.sh/api/formula/{package}.json");
-        return http_get_ok(&url);
+        let Some(json) = http_get_json(&url)? else {
+            return Ok(false);
+        };
+        let formula_version = json
+            .get("versions")
+            .and_then(|v| v.get("stable"))
+            .and_then(|v| v.as_str());
+        return Ok(formula_version == Some(version));
     }
-    // For third-party taps: use GitHub API to check formula existence.
+    // For third-party taps: fetch the formula source and look for the version.
+    // We accept either a `version "<v>"` line or a `url ".../v<v>.tar.gz"` reference,
+    // since formulae use one form or the other depending on download style.
     let url = format!("https://raw.githubusercontent.com/{repo}/HEAD/Formula/{package}.rb");
-    http_get_ok(&url)
+    let agent = build_agent();
+    let response = agent.get(&url).header("User-Agent", "alef-publish/1.0").call();
+    let resp = match classify(response).with_context(|| format!("HTTP GET {url}"))? {
+        HttpOutcome::Ok(resp) => resp,
+        HttpOutcome::NotFound => return Ok(false),
+    };
+    let body = resp
+        .into_body()
+        .read_to_string()
+        .with_context(|| format!("reading body from {url}"))?;
+
+    // Match `version "1.8.0-rc.31"` (explicit version stanza).
+    let version_stanza = format!("version \"{version}\"");
+    if body.contains(&version_stanza) {
+        return Ok(true);
+    }
+    // Match `version '1.8.0-rc.31'` (single-quoted variant).
+    let version_stanza_sq = format!("version '{version}'");
+    if body.contains(&version_stanza_sq) {
+        return Ok(true);
+    }
+    // Match `url "...vX.Y.Z..."` (e.g. archive URLs of form `/v{version}.tar.gz`).
+    let url_marker = format!("/v{version}");
+    if body.contains(&url_marker) {
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 fn check_github_release(

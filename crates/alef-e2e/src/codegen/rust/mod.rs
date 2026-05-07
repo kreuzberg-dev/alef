@@ -81,7 +81,7 @@ impl E2eCodegen for RustE2eCodegen {
             .any(|c| c.r#async);
         let needs_tokio = needs_mock_server || needs_http_tests || any_async_call;
 
-        let crate_version = resolve_crate_version(e2e_config);
+        let crate_version = resolve_crate_version(e2e_config).or_else(|| config.resolved_version());
         files.push(GeneratedFile {
             path: output_base.join("Cargo.toml"),
             content: render_cargo_toml(
