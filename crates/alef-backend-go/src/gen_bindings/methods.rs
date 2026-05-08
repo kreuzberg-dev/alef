@@ -44,14 +44,22 @@ pub(super) fn gen_method_wrapper(
 
     // Static methods become package-level functions (no receiver in Go)
     if method.is_static {
-        write!(out, "func {}{}(", go_receiver_type, method_go_name).ok();
+        out.push_str(&crate::template_env::render(
+            "method_receiver_static.jinja",
+            minijinja::context! {
+                receiver_type => &go_receiver_type,
+                method_name => &method_go_name,
+            },
+        ));
     } else {
-        write!(
-            out,
-            "func ({} *{}) {}(",
-            receiver_name, go_receiver_type, method_go_name
-        )
-        .ok();
+        out.push_str(&crate::template_env::render(
+            "method_receiver_instance.jinja",
+            minijinja::context! {
+                receiver_name => receiver_name,
+                receiver_type => &go_receiver_type,
+                method_name => &method_go_name,
+            },
+        ));
     }
 
     let params: Vec<String> = method
@@ -72,12 +80,20 @@ pub(super) fn gen_method_wrapper(
             format!("{} {}", go_param_name(&p.name), param_type)
         })
         .collect();
-    write!(out, "{}", params.join(", ")).ok();
+    out.push_str(&params.join(", "));
 
     if return_type.is_empty() {
-        writeln!(out, ") {{").ok();
+        out.push_str(&crate::template_env::render(
+            "method_empty_return.jinja",
+            minijinja::Value::default(),
+        ));
     } else {
-        writeln!(out, ") {} {{", return_type).ok();
+        out.push_str(&crate::template_env::render(
+            "method_return.jinja",
+            minijinja::context! {
+                return_type => &return_type,
+            },
+        ));
     }
 
     {
@@ -157,26 +173,16 @@ pub(super) fn gen_method_wrapper(
             let from_json_err_action = format!(
                 "return {err_prefix}fmt.Errorf(\"failed to create receiver: %s\", C.GoString(C.{ffi_prefix}_last_error_context()))"
             );
-            writeln!(
-                out,
-                "\tjsonBytesRecv, err := json.Marshal({recv})\n\t\
-                 if err != nil {{\n\t\t\
-                 {err_action}\n\t\
-                 }}\n\t\
-                 tmpStrRecv := C.CString(string(jsonBytesRecv))\n\t\
-                 cRecv := C.{ffi_prefix}_{type_snake}_from_json(tmpStrRecv)\n\t\
-                 C.free(unsafe.Pointer(tmpStrRecv))\n\t\
-                 if cRecv == nil {{\n\t\t\
-                 {from_json_err_action}\n\t\
-                 }}\n\t\
-                 defer C.{ffi_prefix}_{type_snake}_free(cRecv)",
-                recv = receiver_name,
-                err_action = err_action,
-                from_json_err_action = from_json_err_action,
-                ffi_prefix = ffi_prefix,
-                type_snake = type_snake,
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "marshal_receiver_to_c.jinja",
+                minijinja::context! {
+                    receiver_name => receiver_name,
+                    err_action => &err_action,
+                    from_json_err_action => &from_json_err_action,
+                    ffi_prefix => ffi_prefix,
+                    type_snake => &type_snake,
+                },
+            ));
             if c_params.is_empty() {
                 format!("C.{}_{}_{}(cRecv)", ffi_prefix, type_snake, method_snake)
             } else {
@@ -198,45 +204,56 @@ pub(super) fn gen_method_wrapper(
 
         if method_can_return_error {
             if matches!(method.return_type, TypeRef::Unit) {
-                writeln!(out, "\t{}", c_call).ok();
+                out.push_str(&crate::template_env::render(
+                    "c_call_unit.jinja",
+                    minijinja::context! {
+                        c_call => &c_call,
+                    },
+                ));
                 // For non-opaque, non-static methods with Unit return, the C function may have
                 // mutated cRecv in place (e.g. apply_update).  Write the updated state back to
                 // the Go receiver so the mutation is visible to the caller.
                 if !method.is_static && !typ.is_opaque {
-                    writeln!(
-                        out,
-                        "\tjsonPtrUpdated := C.{ffi_prefix}_{type_snake}_to_json(cRecv)\n\t\
-                         if jsonPtrUpdated != nil {{\n\t\t\
-                         _ = json.Unmarshal([]byte(C.GoString(jsonPtrUpdated)), {recv})\n\t\t\
-                         C.{ffi_prefix}_free_string(jsonPtrUpdated)\n\t\
-                         }}",
-                        ffi_prefix = ffi_prefix,
-                        type_snake = type_snake,
-                        recv = receiver_name,
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "method_update_from_json.jinja",
+                        minijinja::context! {
+                            ffi_prefix => ffi_prefix,
+                            type_snake => &type_snake,
+                            recv => receiver_name,
+                        },
+                    ));
                 }
                 if method.error_type.is_some() {
-                    writeln!(out, "\treturn lastError()").ok();
+                    out.push_str("\treturn lastError()\n");
                 } else {
-                    writeln!(out, "\treturn nil").ok();
+                    out.push_str("\treturn nil\n");
                 }
             } else {
-                writeln!(out, "\tptr := {}", c_call).ok();
+                out.push_str(&crate::template_env::render(
+                    "c_call_with_ptr_assign.jinja",
+                    minijinja::context! {
+                        c_call => &c_call,
+                    },
+                ));
                 if method.error_type.is_some() {
-                    writeln!(out, "\tif err := lastError(); err != nil {{").ok();
+                    out.push_str("\tif err := lastError(); err != nil {{\n");
                     // Free the pointer if non-nil even on error, to avoid leaks.
                     // Bytes pointers are NOT freed — they alias internal storage.
                     if matches!(
                         method.return_type,
                         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
                     ) {
-                        writeln!(out, "\t\tif ptr != nil {{").ok();
-                        writeln!(out, "\t\t\tC.{}_free_string(ptr)", ffi_prefix).ok();
-                        writeln!(out, "\t\t}}").ok();
+                        out.push_str("\t\tif ptr != nil {{\n");
+                        out.push_str(&crate::template_env::render(
+                            "free_string_on_error.jinja",
+                            minijinja::context! {
+                                ffi_prefix => ffi_prefix,
+                            },
+                        ));
+                        out.push_str("\t\t}}\n");
                     }
-                    writeln!(out, "\t\treturn nil, err").ok();
-                    writeln!(out, "\t}}").ok();
+                    out.push_str("\t\treturn nil, err\n");
+                    out.push_str("\t}}\n");
                 }
                 // Free the FFI-allocated string after unmarshaling.
                 // Bytes pointers are NOT freed — they alias internal storage.
@@ -244,67 +261,125 @@ pub(super) fn gen_method_wrapper(
                     method.return_type,
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
                 ) {
-                    writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
+                    out.push_str(&crate::template_env::render(
+                        "free_string.jinja",
+                        minijinja::context! {
+                            ffi_prefix => ffi_prefix,
+                            ptr => "ptr",
+                        },
+                    ));
                 }
                 // For non-opaque Named return types, free the handle after JSON extraction.
                 // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
                 if let TypeRef::Named(name) = &method.return_type {
                     if !opaque_names.contains(name.as_str()) {
                         let type_snake = name.to_snake_case();
-                        writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                        out.push_str(&crate::template_env::render(
+                            "free_type.jinja",
+                            minijinja::context! {
+                                ffi_prefix => ffi_prefix,
+                                type_snake => &type_snake,
+                                ptr => "ptr",
+                            },
+                        ));
                     }
                 }
                 if is_builder_return {
                     // Builder pattern: C consumed the old pointer and returned a new one.
                     // Update r.ptr in-place so the caller's handle remains valid.
-                    writeln!(out, "\t{}.ptr = unsafe.Pointer(ptr)", receiver_name).ok();
-                    writeln!(out, "\treturn {}, nil", receiver_name).ok();
+                    out.push_str(&crate::template_env::render(
+                        "receiver_ptr_assign.jinja",
+                        minijinja::context! {
+                            receiver_name => receiver_name,
+                        },
+                    ));
+                    out.push_str(&crate::template_env::render(
+                        "return_value_and_nil.jinja",
+                        minijinja::context! {
+                            value => receiver_name,
+                        },
+                    ));
                 } else {
-                    writeln!(
-                        out,
-                        "\treturn {}, nil",
-                        go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
-                    )
-                    .ok();
+                    let return_expr = go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names);
+                    out.push_str(&crate::template_env::render(
+                        "method_return_simple.jinja",
+                        minijinja::context! {
+                            value => format!("{}, nil", return_expr),
+                        },
+                    ));
                 }
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
-            writeln!(out, "\t{}", c_call).ok();
+            out.push_str(&crate::template_env::render(
+                "c_call_simple.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
         } else {
-            writeln!(out, "\tptr := {}", c_call).ok();
+            out.push_str(&crate::template_env::render(
+                "c_call_with_ptr_assign.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
             // Add defer free for C string returns.
             // Bytes pointers are NOT freed — they alias internal storage.
             if matches!(
                 method.return_type,
                 TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
             ) {
-                writeln!(out, "\tdefer C.{}_free_string(ptr)", ffi_prefix).ok();
+                out.push_str(&crate::template_env::render(
+                    "free_string.jinja",
+                    minijinja::context! {
+                        ffi_prefix => ffi_prefix,
+                        ptr => "ptr",
+                    },
+                ));
             }
             // For non-opaque Named return types, free the handle after JSON extraction.
             // Opaque types are NOT freed here — the caller owns them via the Go wrapper.
             if let TypeRef::Named(name) = &method.return_type {
                 if !opaque_names.contains(name.as_str()) {
                     let type_snake = name.to_snake_case();
-                    writeln!(out, "\tdefer C.{}_{}_free(ptr)", ffi_prefix, type_snake).ok();
+                    out.push_str(&crate::template_env::render(
+                        "free_type.jinja",
+                        minijinja::context! {
+                            ffi_prefix => ffi_prefix,
+                            type_snake => &type_snake,
+                            ptr => "ptr",
+                        },
+                    ));
                 }
             }
             if is_builder_return {
                 // Builder pattern: C consumed the old pointer and returned a new one.
                 // Update r.ptr in-place so the caller's handle remains valid.
-                writeln!(out, "\t{}.ptr = unsafe.Pointer(ptr)", receiver_name).ok();
-                writeln!(out, "\treturn {}", receiver_name).ok();
+                out.push_str(&crate::template_env::render(
+                    "method_receiver_ptr_assign.jinja",
+                    minijinja::context! {
+                        receiver_name => receiver_name,
+                    },
+                ));
+                out.push_str(&crate::template_env::render(
+                    "method_return_simple.jinja",
+                    minijinja::context! {
+                        value => receiver_name,
+                    },
+                ));
             } else {
-                writeln!(
-                    out,
-                    "\treturn {}",
-                    go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names)
-                )
-                .ok();
+                let return_expr = go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names);
+                out.push_str(&crate::template_env::render(
+                    "method_return_simple.jinja",
+                    minijinja::context! {
+                        value => return_expr,
+                    },
+                ));
             }
         }
     }
 
-    writeln!(out, "}}").ok();
+    out.push_str("}}\n");
     out
 }
 
@@ -331,63 +406,71 @@ pub(super) fn gen_param_to_c(
         TypeRef::String | TypeRef::Char => {
             if param.optional {
                 // Optional string param (ty=String, optional=true): the Go variable holds *string.
-                writeln!(
-                    out,
-                    "\tvar {c_name} *C.char\n\tif {param} != nil {{\n\t\t\
-                     {c_name} = C.CString(*{param})\n\t\tdefer C.free(unsafe.Pointer({c_name}))\n\t\
-                     }}",
-                    c_name = c_name,
-                    param = go_param,
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_string_optional.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
             } else {
-                writeln!(
-                    out,
-                    "\t{} := C.CString({})\n\tdefer C.free(unsafe.Pointer({}))",
-                    c_name, go_param, c_name
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_string_required.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
             }
         }
         TypeRef::Path => {
             if param.optional {
-                writeln!(
-                    out,
-                    "\tvar {c_name} *C.char\n\tif {param} != nil {{\n\t\t\
-                     {c_name} = C.CString(*{param})\n\t\tdefer C.free(unsafe.Pointer({c_name}))\n\t\
-                     }}",
-                    c_name = c_name,
-                    param = go_param,
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_string_optional.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
             } else {
-                writeln!(
-                    out,
-                    "\t{} := C.CString({})\n\tdefer C.free(unsafe.Pointer({}))",
-                    c_name, go_param, c_name
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_string_required.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
             }
         }
         TypeRef::Bytes => {
             // Empty slices have no first element — `&slice[0]` panics. Pass a nil
             // pointer in that case; the FFI side reads zero bytes either way.
-            writeln!(out, "\tvar {} *C.uint8_t", c_name).ok();
-            writeln!(out, "\tif len({}) > 0 {{", go_param).ok();
-            writeln!(out, "\t\t{} = (*C.uint8_t)(unsafe.Pointer(&{}[0]))", c_name, go_param).ok();
-            writeln!(out, "\t}}").ok();
-            writeln!(out, "\t{}Len := C.uintptr_t(len({}))", c_name, go_param).ok();
+            out.push_str(&crate::template_env::render(
+                "bytes_to_c_pointer.jinja",
+                minijinja::context! {
+                    c_name => &c_name,
+                    go_param => &go_param,
+                },
+            ));
+            out.push('\n');
         }
         TypeRef::Named(name) => {
             if opaque_names.contains(name.as_str()) {
                 // Opaque types are pointer wrappers — cast the raw pointer to the C type.
                 let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name);
-                writeln!(
-                    out,
-                    "\t{c_name} := (*C.{c_type})(unsafe.Pointer({param}.ptr))",
-                    param = go_param,
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_opaque_cast.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                        c_type => &c_type,
+                    },
+                ));
+                out.push('\n');
             } else {
                 // Non-opaque Named types: marshal to JSON, create a handle via _from_json,
                 // and pass that to the C function.
@@ -406,27 +489,18 @@ pub(super) fn gen_param_to_c(
                         "panic(\"failed to create {type_snake}: \" + C.GoString(C.{ffi_prefix}_last_error_context()))"
                     )
                 };
-                writeln!(
-                    out,
-                    "\tjsonBytes{c_name}, err := json.Marshal({param})\n\t\
-                     if err != nil {{\n\t\t\
-                     {err_action}\n\t\
-                     }}\n\t\
-                     tmpStr{c_name} := C.CString(string(jsonBytes{c_name}))\n\t\
-                     {c_name} := C.{ffi_prefix}_{type_snake}_from_json(tmpStr{c_name})\n\t\
-                     C.free(unsafe.Pointer(tmpStr{c_name}))\n\t\
-                     if {c_name} == nil {{\n\t\t\
-                     {from_json_err_action}\n\t\
-                     }}\n\t\
-                     defer C.{ffi_prefix}_{type_snake}_free({c_name})",
-                    c_name = c_name,
-                    param = go_param,
-                    err_action = err_action,
-                    from_json_err_action = from_json_err_action,
-                    ffi_prefix = ffi_prefix,
-                    type_snake = type_snake,
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_named_type.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        go_param => &go_param,
+                        err_action => &err_action,
+                        from_json_err_action => &from_json_err_action,
+                        ffi_prefix => ffi_prefix,
+                        type_snake => &type_snake,
+                    },
+                ));
+                out.push('\n');
             }
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
@@ -436,61 +510,60 @@ pub(super) fn gen_param_to_c(
             } else {
                 "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
             };
-            writeln!(
-                out,
-                "\tjsonBytes{c_name}, err := json.Marshal({param})\n\t\
-                 if err != nil {{\n\t\t\
-                 {err_action}\n\t\
-                 }}\n\t\
-                 {c_name} := C.CString(string(jsonBytes{c_name}))\n\t\
-                 defer C.free(unsafe.Pointer({c_name}))",
-                c_name = c_name,
-                param = go_param,
-                err_action = err_action,
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "param_vec_or_map.jinja",
+                minijinja::context! {
+                    c_name => &c_name,
+                    go_param => &go_param,
+                    err_action => &err_action,
+                },
+            ));
+            out.push('\n');
         }
         TypeRef::Optional(inner) => {
             match inner.as_ref() {
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                    writeln!(
-                        out,
-                        "\tvar {} *C.char\n\tif {} != nil {{\n\t\t\
-                         {} = C.CString(*{})\n\t\tdefer C.free(unsafe.Pointer({}))\n\t\
-                         }}",
-                        c_name, go_param, c_name, go_param, c_name
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "param_string_optional.jinja",
+                        minijinja::context! {
+                            c_name => &c_name,
+                            go_param => &go_param,
+                        },
+                    ));
+                    out.push('\n');
                 }
                 TypeRef::Named(name) if opaque_names.contains(name.as_str()) => {
                     // Optional opaque type: cast the raw pointer to the C type or pass nil.
                     let c_type = format!("{}{}", ffi_prefix.to_uppercase(), name);
-                    writeln!(
-                        out,
-                        "\tvar {c_name} *C.{c_type}\n\tif {param} != nil {{\n\t\t\
-                         {c_name} = (*C.{c_type})(unsafe.Pointer({param}.ptr))\n\t\
-                         }}",
-                        c_name = c_name,
-                        c_type = c_type,
-                        param = go_param,
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "param_optional_opaque.jinja",
+                        minijinja::context! {
+                            c_name => &c_name,
+                            c_type => &c_type,
+                            go_param => &go_param,
+                        },
+                    ));
+                    out.push('\n');
                 }
                 TypeRef::Named(_) => {
-                    writeln!(
-                        out,
-                        "\tvar {} *C.char\n\tif {} != nil {{\n\t\t\
-                         jsonBytes, _ := json.Marshal({})\n\t\t\
-                         {} = C.CString(string(jsonBytes))\n\t\t\
-                         defer C.free(unsafe.Pointer({}))\n\t\
-                         }}",
-                        c_name, go_param, go_param, c_name, c_name
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "param_optional_named_inline.jinja",
+                        minijinja::context! {
+                            c_name => &c_name,
+                            go_param => &go_param,
+                        },
+                    ));
+                    out.push('\n');
                 }
                 _ => {
                     // For other optional types, just pass nil or default
-                    writeln!(out, "\tvar {} *C.char", c_name).ok();
+                    out.push_str(&crate::template_env::render(
+                        "param_optional_decl.jinja",
+                        minijinja::context! {
+                            c_name => &c_name,
+                        },
+                    ));
+                    out.push('\n');
                 }
             }
         }
@@ -502,24 +575,26 @@ pub(super) fn gen_param_to_c(
             // Special case for bool: Go bool cannot be directly cast to C.uchar.
             // Convert via conditional: if true, 1; else 0.
             if matches!(prim, alef_core::ir::PrimitiveType::Bool) {
-                writeln!(
-                    out,
-                    "\tvar {c_name} {cgo_ty}\n\tif {param} {{\n\t\t{c_name} = 1\n\t}} else {{\n\t\t{c_name} = 0\n\t}}",
-                    c_name = c_name,
-                    cgo_ty = cgo_ty,
-                    param = go_param,
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_primitive_bool.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        cgo_ty => &cgo_ty,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
             } else {
-                writeln!(
-                    out,
-                    "\t{c_name} := {cgo_ty}({go_ty}({param}))",
-                    c_name = c_name,
-                    cgo_ty = cgo_ty,
-                    go_ty = go_ty,
-                    param = go_param,
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_primitive_numeric.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        cgo_ty => &cgo_ty,
+                        go_ty => &go_ty,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
             }
         }
         TypeRef::Primitive(prim) if param.optional => {
@@ -538,27 +613,27 @@ pub(super) fn gen_param_to_c(
 
             // Special case for bool: Go bool cannot be directly cast to C.uchar.
             if matches!(prim, alef_core::ir::PrimitiveType::Bool) {
-                writeln!(
-                    out,
-                    "\tvar {c_name} {cgo_ty} = 255\n\tif {param} != nil {{\n\t\t\
-                     if *{param} {{\n\t\t\t{c_name} = 1\n\t\t}} else {{\n\t\t\t{c_name} = 0\n\t\t}}\n\t}}",
-                    c_name = c_name,
-                    cgo_ty = cgo_ty,
-                    param = go_param,
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_optional_primitive_bool.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        cgo_ty => &cgo_ty,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
             } else {
-                writeln!(
-                    out,
-                    "\tvar {c_name} {cgo_ty} = {cgo_ty}({sentinel})\n\tif {param} != nil {{\n\t\t\
-                     {c_name} = {cgo_ty}({go_ty}(*{param}))\n\t}}",
-                    c_name = c_name,
-                    cgo_ty = cgo_ty,
-                    go_ty = go_ty,
-                    sentinel = sentinel,
-                    param = go_param,
-                )
-                .ok();
+                out.push_str(&crate::template_env::render(
+                    "param_optional_primitive_numeric.jinja",
+                    minijinja::context! {
+                        c_name => &c_name,
+                        cgo_ty => &cgo_ty,
+                        go_ty => &go_ty,
+                        sentinel => &sentinel,
+                        go_param => &go_param,
+                    },
+                ));
+                out.push('\n');
             }
         }
         _ => {
@@ -567,7 +642,7 @@ pub(super) fn gen_param_to_c(
     }
 
     if !out.is_empty() {
-        writeln!(out).ok();
+        out.push('\n');
     }
     out
 }

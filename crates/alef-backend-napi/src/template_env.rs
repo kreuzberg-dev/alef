@@ -1,0 +1,91 @@
+use minijinja::Environment;
+
+static TEMPLATES: &[(&str, &str)] = &[
+    (
+        "unregistration_fn.jinja",
+        include_str!("../templates/unregistration_fn.jinja"),
+    ),
+    ("clear_fn.jinja", include_str!("../templates/clear_fn.jinja")),
+    (
+        "registration_fn.jinja",
+        include_str!("../templates/registration_fn.jinja"),
+    ),
+    (
+        "sync_method_unit_return.jinja",
+        include_str!("../templates/sync_method_unit_return.jinja"),
+    ),
+    (
+        "sync_method_non_unit_return.jinja",
+        include_str!("../templates/sync_method_non_unit_return.jinja"),
+    ),
+    (
+        "async_method_unit_return.jinja",
+        include_str!("../templates/async_method_unit_return.jinja"),
+    ),
+    (
+        "async_method_non_unit_return.jinja",
+        include_str!("../templates/async_method_non_unit_return.jinja"),
+    ),
+    (
+        "trait_bridge_constructor.jinja",
+        include_str!("../templates/trait_bridge_constructor.jinja"),
+    ),
+    (
+        "bridge_function.jinja",
+        include_str!("../templates/bridge_function.jinja"),
+    ),
+    (
+        "gen_tagged_enum_binding_to_core.jinja",
+        include_str!("../templates/gen_tagged_enum_binding_to_core.jinja"),
+    ),
+    (
+        "gen_tagged_enum_core_to_binding.jinja",
+        include_str!("../templates/gen_tagged_enum_core_to_binding.jinja"),
+    ),
+    (
+        "visitor_bridge.jinja",
+        include_str!("../templates/visitor_bridge.jinja"),
+    ),
+    (
+        "visitor_method.jinja",
+        include_str!("../templates/visitor_method.jinja"),
+    ),
+    (
+        "clone_impl_header.jinja",
+        include_str!("../templates/clone_impl_header.jinja"),
+    ),
+    (
+        "clone_impl_field.jinja",
+        include_str!("../templates/clone_impl_field.jinja"),
+    ),
+    (
+        "vec_f32_conversion_binding.jinja",
+        include_str!("../templates/vec_f32_conversion_binding.jinja"),
+    ),
+    (
+        "buffer_conversion_binding.jinja",
+        include_str!("../templates/buffer_conversion_binding.jinja"),
+    ),
+    (
+        "trait_bridge_fn_wrapper.jinja",
+        include_str!("../templates/trait_bridge_fn_wrapper.jinja"),
+    ),
+];
+
+pub(crate) fn make_env() -> Environment<'static> {
+    let mut env = Environment::new();
+    env.set_trim_blocks(true);
+    env.set_lstrip_blocks(true);
+    for (name, src) in TEMPLATES {
+        env.add_template(name, src).expect("built-in template is valid");
+    }
+    env
+}
+
+pub(crate) fn render(template_name: &str, ctx: minijinja::Value) -> String {
+    make_env()
+        .get_template(template_name)
+        .unwrap_or_else(|_| panic!("template {template_name} not found"))
+        .render(ctx)
+        .unwrap_or_else(|e| panic!("template {template_name} failed to render: {e}"))
+}

@@ -180,30 +180,14 @@ fn render_csproj(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: cr
             format!("    <ProjectReference Include=\"{pkg_path}\" />")
         }
     };
-    format!(
-        r#"<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="{ms_test_sdk}" />
-    <PackageReference Include="xunit" Version="{xunit}" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="{xunit_runner}" />
-  </ItemGroup>
-
-  <ItemGroup>
-{pkg_ref}
-  </ItemGroup>
-</Project>
-"#,
-        ms_test_sdk = tv::nuget::MICROSOFT_NET_TEST_SDK,
-        xunit = tv::nuget::XUNIT,
-        xunit_runner = tv::nuget::XUNIT_RUNNER_VISUALSTUDIO,
+    crate::template_env::render(
+        "csharp/csproj.jinja",
+        minijinja::context! {
+            pkg_ref => pkg_ref,
+            microsoft_net_test_sdk_version => tv::nuget::MICROSOFT_NET_TEST_SDK,
+            xunit_version => tv::nuget::XUNIT,
+            xunit_runner_version => tv::nuget::XUNIT_RUNNER_VISUALSTUDIO,
+        },
     )
 }
 
@@ -262,42 +246,33 @@ fn render_test_file(
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
 ) -> String {
-    let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    // Always import System.Text.Json for the shared JsonOptions field.
-    let _ = writeln!(out, "using System;");
-    let _ = writeln!(out, "using System.Collections.Generic;");
-    let _ = writeln!(out, "using System.Linq;");
-    let _ = writeln!(out, "using System.Net.Http;");
-    let _ = writeln!(out, "using System.Text;");
-    let _ = writeln!(out, "using System.Text.Json;");
-    let _ = writeln!(out, "using System.Text.Json.Serialization;");
-    let _ = writeln!(out, "using System.Threading.Tasks;");
-    let _ = writeln!(out, "using Xunit;");
-    let _ = writeln!(out, "using {namespace};");
-    let _ = writeln!(out, "using static {namespace}.{class_name};");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "namespace Kreuzberg.E2e;");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "/// <summary>E2e tests for category: {category}.</summary>");
-    let _ = writeln!(out, "public class {test_class}");
-    let _ = writeln!(out, "{{");
-    // Shared options used when deserializing config JSON in test setup.
-    // Mirrors the options used by the library to ensure enum values round-trip correctly.
-    let _ = writeln!(
-        out,
-        "    private static readonly JsonSerializerOptions ConfigOptions = new() {{ Converters = {{ new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) }}, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault }};"
-    );
-    let _ = writeln!(out);
+    // Collect using imports
+    let mut using_imports = String::new();
+    using_imports.push_str("using System;\n");
+    using_imports.push_str("using System.Collections.Generic;\n");
+    using_imports.push_str("using System.Linq;\n");
+    using_imports.push_str("using System.Net.Http;\n");
+    using_imports.push_str("using System.Text;\n");
+    using_imports.push_str("using System.Text.Json;\n");
+    using_imports.push_str("using System.Text.Json.Serialization;\n");
+    using_imports.push_str("using System.Threading.Tasks;\n");
+    using_imports.push_str("using Xunit;\n");
+    using_imports.push_str(&format!("using {namespace};\n"));
+    using_imports.push_str(&format!("using static {namespace}.{class_name};\n"));
+
+    // Shared options field
+    let config_options_field = "    private static readonly JsonSerializerOptions ConfigOptions = new() { Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) }, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault };";
 
     // Visitor class declarations accumulated across all fixtures — emitted as
     // private nested classes inside the test class but outside any method body.
     // C# does not allow local class declarations inside method bodies.
     let mut visitor_class_decls: Vec<String> = Vec::new();
 
+    // Build fixtures body
+    let mut fixtures_body = String::new();
     for (i, fixture) in fixtures.iter().enumerate() {
         render_test_method(
-            &mut out,
+            &mut fixtures_body,
             &mut visitor_class_decls,
             fixture,
             class_name,
@@ -313,18 +288,33 @@ fn render_test_file(
             nested_types,
         );
         if i + 1 < fixtures.len() {
-            let _ = writeln!(out);
+            fixtures_body.push('\n');
         }
     }
 
-    // Emit visitor helper classes at class scope (after test methods).
-    for decl in &visitor_class_decls {
-        let _ = writeln!(out);
-        let _ = writeln!(out, "{decl}");
+    // Build visitor classes string
+    let mut visitor_classes_str = String::new();
+    for (i, decl) in visitor_class_decls.iter().enumerate() {
+        if i > 0 {
+            visitor_classes_str.push('\n');
+        }
+        visitor_classes_str.push('\n');
+        visitor_classes_str.push_str(decl);
+        visitor_classes_str.push('\n');
     }
 
-    let _ = writeln!(out, "}}");
-    out
+    let ctx = minijinja::context! {
+        header => hash::header(CommentStyle::DoubleSlash),
+        using_imports => using_imports,
+        category => category,
+        namespace => namespace,
+        test_class => test_class,
+        config_options_field => config_options_field,
+        fixtures_body => fixtures_body,
+        visitor_class_decls => visitor_classes_str,
+    };
+
+    crate::template_env::render("csharp/test_file.jinja", ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -402,21 +392,22 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
     /// Emit `[Fact]` (or `[Fact(Skip = "…")]` for skipped tests), the method
     /// signature, the opening brace, and the description comment.
     fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
-        if let Some(reason) = skip_reason {
-            let escaped_reason = escape_csharp(reason);
-            let _ = writeln!(out, "    [Fact(Skip = \"{escaped_reason}\")]");
-            let _ = writeln!(out, "    public async Task Test_{fn_name}()");
-        } else {
-            let _ = writeln!(out, "    [Fact]");
-            let _ = writeln!(out, "    public async Task Test_{fn_name}()");
-        }
-        let _ = writeln!(out, "    {{");
-        let _ = writeln!(out, "        // {description}");
+        let escaped_reason = skip_reason.map(escape_csharp);
+        let rendered = crate::template_env::render(
+            "csharp/http_test_open.jinja",
+            minijinja::context! {
+                fn_name => fn_name,
+                description => description,
+                skip_reason => escaped_reason,
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit the closing `}` for a test method.
     fn render_test_close(&self, out: &mut String) {
-        let _ = writeln!(out, "    }}");
+        let rendered = crate::template_env::render("csharp/http_test_close.jinja", minijinja::context! {});
+        out.push_str(&rendered);
     }
 
     /// Emit the `HttpRequestMessage` construction, headers, cookies, body, and
@@ -427,34 +418,21 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
         let method = to_csharp_http_method(ctx.method);
         let path = escape_csharp(ctx.path);
 
-        let _ = writeln!(
-            out,
-            "        var baseUrl = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\";"
-        );
+        out.push_str("        var baseUrl = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\";\n");
         // Disable auto-follow so redirect-status fixtures (3xx) can assert the
         // server's status code rather than the followed-target's status.
-        let _ = writeln!(
-            out,
-            "        using var handler = new System.Net.Http.HttpClientHandler {{ AllowAutoRedirect = false }};"
+        out.push_str(
+            "        using var handler = new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false };\n",
         );
-        let _ = writeln!(
-            out,
-            "        using var client = new System.Net.Http.HttpClient(handler);"
-        );
-        let _ = writeln!(
-            out,
-            "        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}{path}\");"
-        );
+        out.push_str("        using var client = new System.Net.Http.HttpClient(handler);\n");
+        out.push_str(&format!("        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}{path}\");\n"));
 
         // Set body + Content-Type when a request body is present.
         if let Some(body) = ctx.body {
             let content_type = ctx.content_type.unwrap_or("application/json");
             let json_str = serde_json::to_string(body).unwrap_or_default();
             let escaped = escape_csharp(&json_str);
-            let _ = writeln!(
-                out,
-                "        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");"
-            );
+            out.push_str(&format!("        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");\n"));
         }
 
         // Add request headers (skip restricted headers that belong to Content.Headers).
@@ -464,10 +442,9 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
             }
             let escaped_name = escape_csharp(name);
             let escaped_value = escape_csharp(value);
-            let _ = writeln!(
-                out,
-                "        request.Headers.Add(\"{escaped_name}\", \"{escaped_value}\");"
-            );
+            out.push_str(&format!(
+                "        request.Headers.Add(\"{escaped_name}\", \"{escaped_value}\");\n"
+            ));
         }
 
         // Combine cookies into a single `Cookie` header.
@@ -475,15 +452,17 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
             let mut pairs: Vec<String> = ctx.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
             pairs.sort();
             let cookie_header = escape_csharp(&pairs.join("; "));
-            let _ = writeln!(out, "        request.Headers.Add(\"Cookie\", \"{cookie_header}\");");
+            out.push_str(&format!(
+                "        request.Headers.Add(\"Cookie\", \"{cookie_header}\");\n"
+            ));
         }
 
-        let _ = writeln!(out, "        var response = await client.SendAsync(request);");
+        out.push_str("        var response = await client.SendAsync(request);\n");
     }
 
     /// Emit `Assert.Equal(status, (int)response.StatusCode)`.
     fn render_assert_status(&self, out: &mut String, _response_var: &str, status: u16) {
-        let _ = writeln!(out, "        Assert.Equal({status}, (int)response.StatusCode);");
+        out.push_str(&format!("        Assert.Equal({status}, (int)response.StatusCode);\n"));
     }
 
     /// Emit a response-header assertion.
@@ -499,33 +478,21 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
         let escaped_name = escape_csharp(name);
         match expected {
             "<<present>>" => {
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be present\");"
-                );
+                out.push_str(&format!("        Assert.True({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be present\");\n"));
             }
             "<<absent>>" => {
-                let _ = writeln!(
-                    out,
-                    "        Assert.False({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be absent\");"
-                );
+                out.push_str(&format!("        Assert.False({target}.Contains(\"{escaped_name}\"), \"expected header {escaped_name} to be absent\");\n"));
             }
             "<<uuid>>" => {
                 // UUID regex: 8-4-4-4-12 hex groups.
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var _uuidHdr) && System.Text.RegularExpressions.Regex.IsMatch(string.Join(\", \", _uuidHdr), @\"^[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}$\"), \"header {escaped_name} is not a UUID\");"
-                );
+                out.push_str(&format!("        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var _uuidHdr) && System.Text.RegularExpressions.Regex.IsMatch(string.Join(\", \", _uuidHdr), @\"^[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}$\"), \"header {escaped_name} is not a UUID\");\n"));
             }
             literal => {
                 // Use a deterministic local-variable name derived from the header name so
                 // multiple header assertions in the same method body do not redeclare.
                 let var_name = format!("hdr{}", sanitize_ident(name));
                 let escaped_value = escape_csharp(literal);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var {var_name}) && {var_name}.Any(v => v.Contains(\"{escaped_value}\")), \"header {escaped_name} mismatch\");"
-                );
+                out.push_str(&format!("        Assert.True({target}.TryGetValues(\"{escaped_name}\", out var {var_name}) && {var_name}.Any(v => v.Contains(\"{escaped_value}\")), \"header {escaped_name} mismatch\");\n"));
             }
         }
     }
@@ -538,35 +505,22 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
             serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
                 let json_str = serde_json::to_string(expected).unwrap_or_default();
                 let escaped = escape_csharp(&json_str);
-                let _ = writeln!(
-                    out,
-                    "        var bodyText = await response.Content.ReadAsStringAsync();"
-                );
-                let _ = writeln!(out, "        var body = JsonDocument.Parse(bodyText).RootElement;");
-                let _ = writeln!(
-                    out,
-                    "        var expectedBody = JsonDocument.Parse(\"{escaped}\").RootElement;"
-                );
-                let _ = writeln!(
-                    out,
-                    "        Assert.Equal(expectedBody.GetRawText(), body.GetRawText());"
-                );
+                out.push_str("        var bodyText = await response.Content.ReadAsStringAsync();\n");
+                out.push_str("        var body = JsonDocument.Parse(bodyText).RootElement;\n");
+                out.push_str(&format!(
+                    "        var expectedBody = JsonDocument.Parse(\"{escaped}\").RootElement;\n"
+                ));
+                out.push_str("        Assert.Equal(expectedBody.GetRawText(), body.GetRawText());\n");
             }
             serde_json::Value::String(s) => {
                 let escaped = escape_csharp(s);
-                let _ = writeln!(
-                    out,
-                    "        var bodyText = await response.Content.ReadAsStringAsync();"
-                );
-                let _ = writeln!(out, "        Assert.Equal(\"{escaped}\", bodyText.Trim());");
+                out.push_str("        var bodyText = await response.Content.ReadAsStringAsync();\n");
+                out.push_str(&format!("        Assert.Equal(\"{escaped}\", bodyText.Trim());\n"));
             }
             other => {
                 let escaped = escape_csharp(&other.to_string());
-                let _ = writeln!(
-                    out,
-                    "        var bodyText = await response.Content.ReadAsStringAsync();"
-                );
-                let _ = writeln!(out, "        Assert.Equal(\"{escaped}\", bodyText.Trim());");
+                out.push_str("        var bodyText = await response.Content.ReadAsStringAsync();\n");
+                out.push_str(&format!("        Assert.Equal(\"{escaped}\", bodyText.Trim());\n"));
             }
         }
     }
@@ -577,27 +531,17 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
     /// `bodyText` if `render_assert_json_body` was also called.
     fn render_assert_partial_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
         if let Some(obj) = expected.as_object() {
-            let _ = writeln!(
-                out,
-                "        var partialBodyText = await response.Content.ReadAsStringAsync();"
-            );
-            let _ = writeln!(
-                out,
-                "        var partialBody = JsonDocument.Parse(partialBodyText).RootElement;"
-            );
+            out.push_str("        var partialBodyText = await response.Content.ReadAsStringAsync();\n");
+            out.push_str("        var partialBody = JsonDocument.Parse(partialBodyText).RootElement;\n");
             for (key, val) in obj {
                 let escaped_key = escape_csharp(key);
                 let json_str = serde_json::to_string(val).unwrap_or_default();
                 let escaped_val = escape_csharp(&json_str);
                 let var_name = format!("expected{}", key.to_upper_camel_case());
-                let _ = writeln!(
-                    out,
-                    "        var {var_name} = JsonDocument.Parse(\"{escaped_val}\").RootElement;"
-                );
-                let _ = writeln!(
-                    out,
-                    "        Assert.True(partialBody.TryGetProperty(\"{escaped_key}\", out var _partialProp{var_name}) && _partialProp{var_name}.GetRawText() == {var_name}.GetRawText(), \"partial body field '{escaped_key}' mismatch\");"
-                );
+                out.push_str(&format!(
+                    "        var {var_name} = JsonDocument.Parse(\"{escaped_val}\").RootElement;\n"
+                ));
+                out.push_str(&format!("        Assert.True(partialBody.TryGetProperty(\"{escaped_key}\", out var _partialProp{var_name}) && _partialProp{var_name}.GetRawText() == {var_name}.GetRawText(), \"partial body field '{escaped_key}' mismatch\");\n"));
             }
         }
     }
@@ -610,13 +554,12 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
         _response_var: &str,
         errors: &[ValidationErrorExpectation],
     ) {
-        let _ = writeln!(
-            out,
-            "        var validationBodyText = await response.Content.ReadAsStringAsync();"
-        );
+        out.push_str("        var validationBodyText = await response.Content.ReadAsStringAsync();\n");
         for err in errors {
             let escaped_msg = escape_csharp(&err.msg);
-            let _ = writeln!(out, "        Assert.Contains(\"{escaped_msg}\", validationBodyText);");
+            out.push_str(&format!(
+                "        Assert.Contains(\"{escaped_msg}\", validationBodyText);\n"
+            ));
         }
     }
 }
@@ -656,14 +599,16 @@ fn render_test_method(
     // Non-HTTP fixtures with no mock_response: skip only if the C# binding
     // does not have a callable for this function via [e2e.call.overrides.csharp].
     if fixture.mock_response.is_none() && !fixture_has_csharp_callable(fixture, e2e_config) {
-        let _ = writeln!(
-            out,
-            "    [Fact(Skip = \"non-HTTP fixture: C# binding does not expose a callable for the configured `[e2e.call]` function\")]"
-        );
-        let _ = writeln!(out, "    public void Test_{method_name}()");
-        let _ = writeln!(out, "    {{");
-        let _ = writeln!(out, "        // {description}");
-        let _ = writeln!(out, "    }}");
+        let skip_reason =
+            "non-HTTP fixture: C# binding does not expose a callable for the configured `[e2e.call]` function";
+        let ctx = minijinja::context! {
+            is_skipped => true,
+            skip_reason => skip_reason,
+            description => description,
+            method_name => method_name,
+        };
+        let rendered = crate::template_env::render("csharp/test_method.jinja", ctx);
+        out.push_str(&rendered);
         return;
     }
 
@@ -777,74 +722,57 @@ fn render_test_method(
         class_name.to_string()
     };
 
-    let _ = writeln!(out, "    [Fact]");
-    let _ = writeln!(out, "    public {return_type} Test_{method_name}()");
-    let _ = writeln!(out, "    {{");
-    let _ = writeln!(out, "        // {description}");
-
-    for line in &setup_lines {
-        let _ = writeln!(out, "        {line}");
-    }
-
-    // Emit client creation when client_factory is configured.
+    // Build client factory setup code
+    let mut client_factory_setup = String::new();
     if let Some(factory) = client_factory {
         let factory_name = factory.to_upper_camel_case();
         let fixture_id = &fixture.id;
-        let _ = writeln!(
-            out,
-            "        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";"
-        );
-        let _ = writeln!(
-            out,
-            "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);"
-        );
+        client_factory_setup.push_str(&format!("        var baseUrl = (System.Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? string.Empty) + \"/fixtures/{fixture_id}\";\n"));
+        client_factory_setup.push_str(&format!(
+            "        var client = {class_name}.{factory_name}(\"test-key\", baseUrl, null, null, null);\n"
+        ));
     }
 
-    if expects_error {
-        if is_async {
-            let _ = writeln!(
-                out,
-                "        await Assert.ThrowsAnyAsync<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
-            );
-        } else {
-            let _ = writeln!(
-                out,
-                "        Assert.ThrowsAny<{exception_class}>(() => {call_target}.{effective_function_name}({final_args}));"
-            );
-        }
-        let _ = writeln!(out, "    }}");
-        return;
-    }
+    // Build call expression
+    let call_expr = format!("{}({})", effective_function_name, final_args);
 
-    let result_is_vec = call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec);
-    let result_is_array = call_config.result_is_array;
-
-    if returns_void {
-        let _ = writeln!(
-            out,
-            "        {await_kw}{call_target}.{effective_function_name}({final_args});"
-        );
-    } else {
-        let _ = writeln!(
-            out,
-            "        var {result_var} = {await_kw}{call_target}.{effective_function_name}({final_args});"
-        );
+    // Build assertions body for non-error cases
+    let mut assertions_body = String::new();
+    if !expects_error && !returns_void {
         for assertion in &fixture.assertions {
             render_assertion(
-                out,
+                &mut assertions_body,
                 assertion,
                 result_var,
                 class_name,
                 exception_class,
                 field_resolver,
                 effective_result_is_simple,
-                result_is_vec,
-                result_is_array,
+                call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec),
+                call_config.result_is_array,
             );
         }
     }
 
-    let _ = writeln!(out, "    }}");
+    let ctx = minijinja::context! {
+        is_skipped => false,
+        expects_error => expects_error,
+        description => description,
+        return_type => return_type,
+        method_name => method_name,
+        async_kw => await_kw,
+        call_target => call_target,
+        setup_lines => setup_lines.clone(),
+        call_expr => call_expr,
+        exception_class => exception_class,
+        client_factory_setup => client_factory_setup,
+        has_usable_assertion => !expects_error && !returns_void,
+        result_var => result_var,
+        assertions_body => assertions_body,
+    };
+
+    let rendered = crate::template_env::render("csharp/test_method.jinja", ctx);
+    out.push_str(&rendered);
 }
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
@@ -1224,40 +1152,51 @@ fn render_assertion(
     if let Some(f) = &assertion.field {
         match f.as_str() {
             "chunks_have_content" => {
-                let pred = format!("({result_var}.Chunks ?? new()).All(c => !string.IsNullOrEmpty(c.Content))");
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        Assert.True({pred});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        Assert.False({pred});");
-                    }
+                let synthetic_pred =
+                    format!("({result_var}.Chunks ?? new()).All(c => !string.IsNullOrEmpty(c.Content))");
+                let synthetic_pred_type = match assertion.assertion_type.as_str() {
+                    "is_true" => "is_true",
+                    "is_false" => "is_false",
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
+                        out.push_str(&format!(
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
+                        return;
                     }
-                }
+                };
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "synthetic_assertion",
+                        synthetic_pred => synthetic_pred,
+                        synthetic_pred_type => synthetic_pred_type,
+                    },
+                );
+                out.push_str(&rendered);
                 return;
             }
             "chunks_have_embeddings" => {
-                let pred =
+                let synthetic_pred =
                     format!("({result_var}.Chunks ?? new()).All(c => c.Embedding != null && c.Embedding.Count > 0)");
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        Assert.True({pred});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        Assert.False({pred});");
-                    }
+                let synthetic_pred_type = match assertion.assertion_type.as_str() {
+                    "is_true" => "is_true",
+                    "is_false" => "is_false",
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
+                        out.push_str(&format!(
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
+                        return;
                     }
-                }
+                };
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "synthetic_assertion",
+                        synthetic_pred => synthetic_pred,
+                        synthetic_pred_type => synthetic_pred_type,
+                    },
+                );
+                out.push_str(&rendered);
                 return;
             }
             // ---- EmbedResponse virtual fields ----
@@ -1267,26 +1206,57 @@ fn render_assertion(
                 match assertion.assertion_type.as_str() {
                     "count_equals" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.True({result_var}.Count == {cs_val});");
+                            if let Some(n) = val.as_u64() {
+                                let rendered = crate::template_env::render(
+                                    "csharp/assertion.jinja",
+                                    minijinja::context! {
+                                        assertion_type => "synthetic_embeddings_count_equals",
+                                        synthetic_pred => format!("{result_var}.Count"),
+                                        n => n,
+                                    },
+                                );
+                                out.push_str(&rendered);
+                            }
                         }
                     }
                     "count_min" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.True({result_var}.Count >= {cs_val});");
+                            if let Some(n) = val.as_u64() {
+                                let rendered = crate::template_env::render(
+                                    "csharp/assertion.jinja",
+                                    minijinja::context! {
+                                        assertion_type => "synthetic_embeddings_count_min",
+                                        synthetic_pred => format!("{result_var}.Count"),
+                                        n => n,
+                                    },
+                                );
+                                out.push_str(&rendered);
+                            }
                         }
                     }
                     "not_empty" => {
-                        let _ = writeln!(out, "        Assert.NotEmpty({result_var});");
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "synthetic_embeddings_not_empty",
+                                synthetic_pred => result_var.to_string(),
+                            },
+                        );
+                        out.push_str(&rendered);
                     }
                     "is_empty" => {
-                        let _ = writeln!(out, "        Assert.Empty({result_var});");
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "synthetic_embeddings_is_empty",
+                                synthetic_pred => result_var.to_string(),
+                            },
+                        );
+                        out.push_str(&rendered);
                     }
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field 'embeddings'"
+                        out.push_str(
+                            "        // skipped: unsupported assertion type on synthetic field 'embeddings'\n",
                         );
                     }
                 }
@@ -1297,27 +1267,42 @@ fn render_assertion(
                 match assertion.assertion_type.as_str() {
                     "equals" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.True({expr} == {cs_val});");
+                            if let Some(n) = val.as_u64() {
+                                let rendered = crate::template_env::render(
+                                    "csharp/assertion.jinja",
+                                    minijinja::context! {
+                                        assertion_type => "synthetic_embedding_dimensions_equals",
+                                        synthetic_pred => expr,
+                                        n => n,
+                                    },
+                                );
+                                out.push_str(&rendered);
+                            }
                         }
                     }
                     "greater_than" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.True({expr} > {cs_val});");
+                            if let Some(n) = val.as_u64() {
+                                let rendered = crate::template_env::render(
+                                    "csharp/assertion.jinja",
+                                    minijinja::context! {
+                                        assertion_type => "synthetic_embedding_dimensions_greater_than",
+                                        synthetic_pred => expr,
+                                        n => n,
+                                    },
+                                );
+                                out.push_str(&rendered);
+                            }
                         }
                     }
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
-                        );
+                        out.push_str("        // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'\n");
                     }
                 }
                 return;
             }
             "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
-                let pred = match f.as_str() {
+                let synthetic_pred = match f.as_str() {
                     "embeddings_valid" => {
                         format!("{result_var}.All(e => e.Count > 0)")
                     }
@@ -1334,29 +1319,38 @@ fn render_assertion(
                     }
                     _ => unreachable!(),
                 };
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        Assert.True({pred});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        Assert.False({pred});");
-                    }
+                let synthetic_pred_type = match assertion.assertion_type.as_str() {
+                    "is_true" => "is_true",
+                    "is_false" => "is_false",
                     _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
+                        out.push_str(&format!(
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
+                        return;
                     }
-                }
+                };
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "synthetic_assertion",
+                        synthetic_pred => synthetic_pred,
+                        synthetic_pred_type => synthetic_pred_type,
+                    },
+                );
+                out.push_str(&rendered);
                 return;
             }
             // ---- keywords / keywords_count ----
             // C# ExtractionResult does not expose extracted_keywords; skip.
             "keywords" | "keywords_count" => {
-                let _ = writeln!(
-                    out,
-                    "        // skipped: field '{f}' not available on C# ExtractionResult"
+                let skipped_reason = format!("field '{f}' not available on C# ExtractionResult");
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        skipped_reason => skipped_reason,
+                    },
                 );
+                out.push_str(&rendered);
                 return;
             }
             _ => {}
@@ -1366,7 +1360,14 @@ fn render_assertion(
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "        // skipped: field '{f}' not available on result type");
+            let skipped_reason = format!("field '{f}' not available on result type");
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    skipped_reason => skipped_reason,
+                },
+            );
+            out.push_str(&rendered);
             return;
         }
     }
@@ -1458,22 +1459,24 @@ fn render_assertion(
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                if expected.is_string() {
-                    // Only call .Trim() on string fields.
-                    let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr}!.Trim());");
-                } else if expected.as_bool() == Some(true) {
-                    // Boolean true: use Assert.True to avoid xUnit2004 warning.
-                    let _ = writeln!(out, "        Assert.True({field_expr});");
-                } else if expected.as_bool() == Some(false) {
-                    // Boolean false: use Assert.False to avoid xUnit2004 warning.
-                    let _ = writeln!(out, "        Assert.False({field_expr});");
-                } else if expected.is_number() && !expected.as_f64().is_some_and(|f| f.fract() != 0.0) {
-                    // Integer values: use Assert.True(x == n) to avoid xUnit overload
-                    // resolution ambiguity (int vs uint vs long vs DateTime).
-                    let _ = writeln!(out, "        Assert.True({field_expr} == {cs_val});");
-                } else {
-                    let _ = writeln!(out, "        Assert.Equal({cs_val}, {field_expr});");
-                }
+                let is_string_val = expected.is_string();
+                let is_bool_true = expected.as_bool() == Some(true);
+                let is_bool_false = expected.as_bool() == Some(false);
+                let is_integer_val = expected.is_number() && !expected.as_f64().is_some_and(|f| f.fract() != 0.0);
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "equals",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                        is_string_val => is_string_val,
+                        is_bool_true => is_bool_true,
+                        is_bool_false => is_bool_false,
+                        is_integer_val => is_integer_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "contains" => {
@@ -1489,46 +1492,78 @@ fn render_assertion(
                     .as_deref()
                     .map(|s| format!("\"{}\"", escape_csharp(s)))
                     .unwrap_or_else(|| json_to_csharp(expected));
-                let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_as_str}.ToLower());");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains",
+                        field_as_str => field_as_str.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
-                for val in values {
-                    let lower_val = val.as_str().map(|s| s.to_lowercase());
-                    let cs_val = lower_val
-                        .as_deref()
-                        .map(|s| format!("\"{}\"", escape_csharp(s)))
-                        .unwrap_or_else(|| json_to_csharp(val));
-                    let _ = writeln!(out, "        Assert.Contains({cs_val}, {field_as_str}.ToLower());");
-                }
+                let values_cs_lower: Vec<String> = values
+                    .iter()
+                    .map(|val| {
+                        let lower_val = val.as_str().map(|s| s.to_lowercase());
+                        lower_val
+                            .as_deref()
+                            .map(|s| format!("\"{}\"", escape_csharp(s)))
+                            .unwrap_or_else(|| json_to_csharp(val))
+                    })
+                    .collect();
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains_all",
+                        field_as_str => field_as_str.clone(),
+                        values_cs_lower => values_cs_lower,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.DoesNotContain({cs_val}, {field_as_str});");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "not_contains",
+                        field_as_str => field_as_str.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "not_empty" => {
-            if field_needs_json_serialize {
-                let _ = writeln!(out, "        Assert.NotEmpty({field_expr});");
-            } else {
-                let _ = writeln!(
-                    out,
-                    "        Assert.False(string.IsNullOrEmpty({field_expr}?.ToString()));"
-                );
-            }
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "not_empty",
+                    field_expr => field_expr.clone(),
+                    field_needs_json_serialize => field_needs_json_serialize,
+                },
+            );
+            out.push_str(&rendered);
         }
         "is_empty" => {
-            if field_needs_json_serialize {
-                let _ = writeln!(out, "        Assert.Empty({field_expr});");
-            } else {
-                let _ = writeln!(
-                    out,
-                    "        Assert.True(string.IsNullOrEmpty({field_expr}?.ToString()));"
-                );
-            }
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_empty",
+                    field_expr => field_expr.clone(),
+                    field_needs_json_serialize => field_needs_json_serialize,
+                },
+            );
+            out.push_str(&rendered);
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
@@ -1539,158 +1574,314 @@ fn render_assertion(
                         format!("{field_as_str}.Contains({cs_val})")
                     })
                     .collect();
-                let joined = checks.join(" || ");
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({joined}, \"expected to contain at least one of the specified values\");"
+                let contains_any_expr = checks.join(" || ");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains_any",
+                        contains_any_expr => contains_any_expr,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "greater_than" => {
             if let Some(val) = &assertion.value {
                 let cs_val = json_to_csharp(val);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({field_expr} > {cs_val}, \"expected > {cs_val}\");"
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "greater_than",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "less_than" => {
             if let Some(val) = &assertion.value {
                 let cs_val = json_to_csharp(val);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({field_expr} < {cs_val}, \"expected < {cs_val}\");"
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "less_than",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "greater_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let cs_val = json_to_csharp(val);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({field_expr} >= {cs_val}, \"expected >= {cs_val}\");"
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "greater_than_or_equal",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let cs_val = json_to_csharp(val);
-                let _ = writeln!(
-                    out,
-                    "        Assert.True({field_expr} <= {cs_val}, \"expected <= {cs_val}\");"
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "less_than_or_equal",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         "starts_with" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.StartsWith({cs_val}, {field_expr});");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "starts_with",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "ends_with" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.EndsWith({cs_val}, {field_expr});");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "ends_with",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "min_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        Assert.True({field_expr}.Length >= {n}, \"expected length >= {n}\");"
+                    let rendered = crate::template_env::render(
+                        "csharp/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "min_length",
+                            field_expr => field_expr.clone(),
+                            n => n,
+                        },
                     );
+                    out.push_str(&rendered);
                 }
             }
         }
         "max_length" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        Assert.True({field_expr}.Length <= {n}, \"expected length <= {n}\");"
+                    let rendered = crate::template_env::render(
+                        "csharp/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "max_length",
+                            field_expr => field_expr.clone(),
+                            n => n,
+                        },
                     );
+                    out.push_str(&rendered);
                 }
             }
         }
         "count_min" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        Assert.True({field_expr}.Count >= {n}, \"expected at least {n} elements\");"
+                    let rendered = crate::template_env::render(
+                        "csharp/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "count_min",
+                            field_expr => field_expr.clone(),
+                            n => n,
+                        },
                     );
+                    out.push_str(&rendered);
                 }
             }
         }
         "count_equals" => {
             if let Some(val) = &assertion.value {
                 if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "        Assert.Equal({n}, {field_expr}.Count);");
+                    let rendered = crate::template_env::render(
+                        "csharp/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "count_equals",
+                            field_expr => field_expr.clone(),
+                            n => n,
+                        },
+                    );
+                    out.push_str(&rendered);
                 }
             }
         }
         "is_true" => {
-            let _ = writeln!(out, "        Assert.True({field_expr});");
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_true",
+                    field_expr => field_expr.clone(),
+                },
+            );
+            out.push_str(&rendered);
         }
         "is_false" => {
-            let _ = writeln!(out, "        Assert.False({field_expr});");
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_false",
+                    field_expr => field_expr.clone(),
+                },
+            );
+            out.push_str(&rendered);
         }
         "not_error" => {
             // Already handled by the call succeeding without exception.
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "not_error",
+                },
+            );
+            out.push_str(&rendered);
         }
         "error" => {
             // Handled at the test method level.
+            let rendered = crate::template_env::render(
+                "csharp/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "error",
+                },
+            );
+            out.push_str(&rendered);
         }
         "method_result" => {
             if let Some(method_name) = &assertion.method {
                 let call_expr = build_csharp_method_call(result_var, method_name, assertion.args.as_ref(), class_name);
                 let check = assertion.check.as_deref().unwrap_or("is_true");
+
                 match check {
                     "equals" => {
                         if let Some(val) = &assertion.value {
-                            if val.as_bool() == Some(true) {
-                                let _ = writeln!(out, "        Assert.True({call_expr});");
-                            } else if val.as_bool() == Some(false) {
-                                let _ = writeln!(out, "        Assert.False({call_expr});");
-                            } else {
-                                let cs_val = json_to_csharp(val);
-                                let _ = writeln!(out, "        Assert.Equal({cs_val}, {call_expr});");
-                            }
+                            let is_check_bool_true = val.as_bool() == Some(true);
+                            let is_check_bool_false = val.as_bool() == Some(false);
+                            let cs_check_val = json_to_csharp(val);
+
+                            let rendered = crate::template_env::render(
+                                "csharp/assertion.jinja",
+                                minijinja::context! {
+                                    assertion_type => "method_result",
+                                    check => "equals",
+                                    call_expr => call_expr.clone(),
+                                    is_check_bool_true => is_check_bool_true,
+                                    is_check_bool_false => is_check_bool_false,
+                                    cs_check_val => cs_check_val,
+                                },
+                            );
+                            out.push_str(&rendered);
                         }
                     }
                     "is_true" => {
-                        let _ = writeln!(out, "        Assert.True({call_expr});");
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "method_result",
+                                check => "is_true",
+                                call_expr => call_expr.clone(),
+                            },
+                        );
+                        out.push_str(&rendered);
                     }
                     "is_false" => {
-                        let _ = writeln!(out, "        Assert.False({call_expr});");
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "method_result",
+                                check => "is_false",
+                                call_expr => call_expr.clone(),
+                            },
+                        );
+                        out.push_str(&rendered);
                     }
                     "greater_than_or_equal" => {
                         if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(out, "        Assert.True({call_expr} >= {n}, \"expected >= {n}\");");
+                            let check_n = val.as_u64().unwrap_or(0);
+
+                            let rendered = crate::template_env::render(
+                                "csharp/assertion.jinja",
+                                minijinja::context! {
+                                    assertion_type => "method_result",
+                                    check => "greater_than_or_equal",
+                                    call_expr => call_expr.clone(),
+                                    check_n => check_n,
+                                },
+                            );
+                            out.push_str(&rendered);
                         }
                     }
                     "count_min" => {
                         if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(
-                                out,
-                                "        Assert.True({call_expr}.Count >= {n}, \"expected at least {n} elements\");"
+                            let check_n = val.as_u64().unwrap_or(0);
+
+                            let rendered = crate::template_env::render(
+                                "csharp/assertion.jinja",
+                                minijinja::context! {
+                                    assertion_type => "method_result",
+                                    check => "count_min",
+                                    call_expr => call_expr.clone(),
+                                    check_n => check_n,
+                                },
                             );
+                            out.push_str(&rendered);
                         }
                     }
                     "is_error" => {
-                        let _ = writeln!(
-                            out,
-                            "        Assert.ThrowsAny<{exception_class}>(() => {{ {call_expr}; }});"
+                        let rendered = crate::template_env::render(
+                            "csharp/assertion.jinja",
+                            minijinja::context! {
+                                assertion_type => "method_result",
+                                check => "is_error",
+                                call_expr => call_expr.clone(),
+                                exception_class => exception_class,
+                            },
                         );
+                        out.push_str(&rendered);
                     }
                     "contains" => {
                         if let Some(val) = &assertion.value {
-                            let cs_val = json_to_csharp(val);
-                            let _ = writeln!(out, "        Assert.Contains({cs_val}, {call_expr});");
+                            let cs_check_val = json_to_csharp(val);
+
+                            let rendered = crate::template_env::render(
+                                "csharp/assertion.jinja",
+                                minijinja::context! {
+                                    assertion_type => "method_result",
+                                    check => "contains",
+                                    call_expr => call_expr.clone(),
+                                    cs_check_val => cs_check_val,
+                                },
+                            );
+                            out.push_str(&rendered);
                         }
                     }
                     other_check => {
@@ -1704,7 +1895,16 @@ fn render_assertion(
         "matches_regex" => {
             if let Some(expected) = &assertion.value {
                 let cs_val = json_to_csharp(expected);
-                let _ = writeln!(out, "        Assert.Matches({cs_val}, {field_expr});");
+
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "matches_regex",
+                        field_expr => field_expr.clone(),
+                        cs_val => cs_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         other => {
@@ -1904,8 +2104,8 @@ fn build_csharp_visitor(
 
     // Build the class declaration string (indented for nesting inside the test class).
     let mut decl = String::new();
-    let _ = writeln!(decl, "    private sealed class {class_name} : IHtmlVisitor");
-    let _ = writeln!(decl, "    {{");
+    decl.push_str(&format!("    private sealed class {class_name} : IHtmlVisitor\n"));
+    decl.push_str("    {\n");
 
     // List of all visitor methods that must be implemented by IHtmlVisitor.
     let all_methods = [
@@ -1961,7 +2161,7 @@ fn build_csharp_visitor(
         }
     }
 
-    let _ = writeln!(decl, "    }}");
+    decl.push_str("    }\n");
     class_decls.push(decl);
 
     var_name
@@ -2011,29 +2211,27 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
         _ => "NodeContext ctx",
     };
 
-    let _ = writeln!(decl, "        public VisitResult {camel_method}({params})");
-    let _ = writeln!(decl, "        {{");
-    match action {
-        CallbackAction::Skip => {
-            let _ = writeln!(decl, "            return new VisitResult.Skip();");
-        }
-        CallbackAction::Continue => {
-            let _ = writeln!(decl, "            return new VisitResult.Continue();");
-        }
-        CallbackAction::PreserveHtml => {
-            let _ = writeln!(decl, "            return new VisitResult.PreserveHtml();");
-        }
-        CallbackAction::Custom { output } => {
-            let escaped = escape_csharp(output);
-            let _ = writeln!(decl, "            return new VisitResult.Custom(\"{escaped}\");");
-        }
+    let (action_type, action_value) = match action {
+        CallbackAction::Skip => ("skip", String::new()),
+        CallbackAction::Continue => ("continue", String::new()),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new()),
+        CallbackAction::Custom { output } => ("custom", escape_csharp(output)),
         CallbackAction::CustomTemplate { template } => {
             let camel = snake_case_template_to_camel(template);
-            let escaped = escape_csharp(&camel);
-            let _ = writeln!(decl, "            return new VisitResult.Custom($\"{escaped}\");");
+            ("custom_template", escape_csharp(&camel))
         }
-    }
-    let _ = writeln!(decl, "        }}");
+    };
+
+    let rendered = crate::template_env::render(
+        "csharp/visitor_method.jinja",
+        minijinja::context! {
+            camel_method => camel_method,
+            params => params,
+            action_type => action_type,
+            action_value => action_value,
+        },
+    );
+    let _ = write!(decl, "{}", rendered);
 }
 
 /// Convert snake_case method names to C# PascalCase.

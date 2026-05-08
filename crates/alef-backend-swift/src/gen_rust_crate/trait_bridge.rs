@@ -19,7 +19,12 @@ use std::collections::HashSet;
 pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
-    block.push_str(&format!("        type {}Box;\n", trait_def.name));
+    block.push_str(&crate::template_env::render(
+        "trait_extern_type.jinja",
+        minijinja::context! {
+            trait_name => &trait_def.name,
+        },
+    ));
 
     let trait_snake = heck::AsSnakeCase(trait_def.name.as_str()).to_string();
 
@@ -30,9 +35,12 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String 
     // in an extern block. Without this phantom, the generated Swift fails to link.
     // Name does NOT use a leading underscore — Swift treats `_`-prefixed C names as
     // private and excludes them from the imported module scope.
-    block.push_str(&format!(
-        "        fn alef_phantom_vec_{trait_snake}() -> Vec<{trait_name}Box>;\n",
-        trait_name = trait_def.name,
+    block.push_str(&crate::template_env::render(
+        "trait_phantom_fn.jinja",
+        minijinja::context! {
+            trait_name => &trait_def.name,
+            trait_snake => &trait_snake,
+        },
     ));
 
     for method in &trait_def.methods {
@@ -58,7 +66,14 @@ pub(crate) fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef) -> String 
         };
 
         let params_str = params.join(", ");
-        block.push_str(&format!("        fn {fn_name}({params_str}) -> {return_ty};\n"));
+        block.push_str(&crate::template_env::render(
+            "trait_method_fn.jinja",
+            minijinja::context! {
+                fn_name => &fn_name,
+                params => &params_str,
+                return_type => &return_ty,
+            },
+        ));
     }
 
     block.push_str("    }\n\n");
@@ -84,16 +99,24 @@ pub(crate) fn emit_trait_bridge_wrapper(trait_def: &TypeDef, source_crate: &str,
         trait_def.rust_path.replace('-', "_")
     };
 
-    out.push_str(&format!(
-        "pub struct {trait_name}Box(pub Box<dyn {trait_path} + Send + Sync>);\n\n"
+    out.push_str(&crate::template_env::render(
+        "trait_struct.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+            trait_path => &trait_path,
+        },
     ));
 
     // Phantom Vec<{Trait}Box> implementation paired with the extern declaration —
     // never actually called, but its existence forces swift-bridge-build to emit
     // the `__swift_bridge__$Vec_{Trait}Box$*` C symbols that the auto-generated
     // Swift Vec extension references.
-    out.push_str(&format!(
-        "#[doc(hidden)]\npub fn alef_phantom_vec_{trait_snake}() -> Vec<{trait_name}Box> {{ Vec::new() }}\n\n"
+    out.push_str(&crate::template_env::render(
+        "trait_phantom_impl.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+            trait_snake => &trait_snake,
+        },
     ));
 
     for method in &trait_def.methods {
@@ -135,8 +158,14 @@ pub(crate) fn emit_trait_bridge_wrapper(trait_def: &TypeDef, source_crate: &str,
 
         let body = emit_trait_method_body(method, &source_call, &return_ty, enum_names);
 
-        out.push_str(&format!(
-            "pub fn {fn_name}({sig_params_str}) -> {return_ty} {{\n{body}}}\n\n"
+        out.push_str(&crate::template_env::render(
+            "trait_method_impl.jinja",
+            minijinja::context! {
+                fn_name => &fn_name,
+                params => &sig_params_str,
+                return_type => &return_ty,
+                body => &body,
+            },
         ));
     }
 

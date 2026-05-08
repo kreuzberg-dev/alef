@@ -22,15 +22,32 @@ use alef_codegen::type_mapper::TypeMapper;
 pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
     emit_cleaned_kdoc(out, &ty.doc, "");
     if ty.fields.is_empty() {
-        out.push_str(&format!("class {} {{}}\n", ty.name));
+        out.push_str(&crate::template_env::render(
+            "empty_class.jinja",
+            minijinja::context! {
+                name => &ty.name,
+            },
+        ));
         return;
     }
-    out.push_str(&format!("data class {}(\n", ty.name));
+    out.push_str(&crate::template_env::render(
+        "data_class_header.jinja",
+        minijinja::context! {
+            name => &ty.name,
+        },
+    ));
     for (idx, field) in ty.fields.iter().enumerate() {
         let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
         let name = kotlin_field_name(&field.name, idx);
         let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
-        out.push_str(&format!("    val {name}: {ty_str}{comma}\n"));
+        out.push_str(&crate::template_env::render(
+            "class_field.jinja",
+            minijinja::context! {
+                name => &name,
+                type => &ty_str,
+                comma => comma,
+            },
+        ));
     }
     out.push_str(")\n");
 }
@@ -39,27 +56,66 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
     emit_cleaned_kdoc(out, &en.doc, "");
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
     if all_unit {
-        out.push_str(&format!("enum class {} {{\n", en.name));
+        out.push_str(&crate::template_env::render(
+            "enum_class_header.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
         let names: Vec<String> = en.variants.iter().map(|v| to_screaming_snake(&v.name)).collect();
         for (idx, name) in names.iter().enumerate() {
             let comma = if idx + 1 == names.len() { ";" } else { "," };
-            out.push_str(&format!("    {name}{comma}\n"));
+            out.push_str(&crate::template_env::render(
+                "enum_variant.jinja",
+                minijinja::context! {
+                    name => name,
+                    comma => comma,
+                },
+            ));
         }
         out.push_str("}\n");
     } else {
-        out.push_str(&format!("sealed class {} {{\n", en.name));
+        out.push_str(&crate::template_env::render(
+            "sealed_class_header.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
         for variant in &en.variants {
             if variant.fields.is_empty() {
-                out.push_str(&format!("    object {} : {}()\n", variant.name, en.name));
+                out.push_str(&crate::template_env::render(
+                    "sealed_object_variant.jinja",
+                    minijinja::context! {
+                        name => &variant.name,
+                        parent_name => &en.name,
+                    },
+                ));
             } else {
-                out.push_str(&format!("    data class {}(\n", variant.name));
+                out.push_str(&crate::template_env::render(
+                    "variant_data_class_header.jinja",
+                    minijinja::context! {
+                        name => &variant.name,
+                    },
+                ));
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let ty_str = kotlin_type(&f.ty, f.optional, &mut BTreeSet::new());
                     let name = kotlin_field_name(&f.name, idx);
                     let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                    out.push_str(&format!("        val {name}: {ty_str}{comma}\n"));
+                    out.push_str(&crate::template_env::render(
+                        "variant_class_field.jinja",
+                        minijinja::context! {
+                            name => &name,
+                            type => &ty_str,
+                            comma => comma,
+                        },
+                    ));
                 }
-                out.push_str(&format!("    ) : {}()\n", en.name));
+                out.push_str(&crate::template_env::render(
+                    "variant_close.jinja",
+                    minijinja::context! {
+                        parent_name => &en.name,
+                    },
+                ));
             }
         }
         out.push_str("}\n");
@@ -72,20 +128,29 @@ pub(crate) fn emit_error_type_with_imports(
     imports: &mut BTreeSet<String>,
 ) {
     emit_cleaned_kdoc(out, &error.doc, "");
-    out.push_str(&format!(
-        "sealed class {}(message: String) : Exception(message) {{\n",
-        error.name
+    out.push_str(&crate::template_env::render(
+        "error_sealed_class_header.jinja",
+        minijinja::context! {
+            name => &error.name,
+        },
     ));
     for variant in &error.variants {
         if variant.is_unit {
-            out.push_str(&format!(
-                "    object {} : {}(\"{}\")\n",
-                variant.name,
-                error.name,
-                variant.message_template.as_deref().unwrap_or(&variant.name)
+            out.push_str(&crate::template_env::render(
+                "error_object_variant.jinja",
+                minijinja::context! {
+                    name => &variant.name,
+                    parent_name => &error.name,
+                    message => variant.message_template.as_deref().unwrap_or(&variant.name),
+                },
             ));
         } else {
-            out.push_str(&format!("    data class {}(\n", variant.name));
+            out.push_str(&crate::template_env::render(
+                "variant_data_class_header.jinja",
+                minijinja::context! {
+                    name => &variant.name,
+                },
+            ));
             for (idx, f) in variant.fields.iter().enumerate() {
                 let ty_str = kotlin_type_with_string_imports(&f.ty, f.optional, imports);
                 let name = kotlin_field_name(&f.name, idx);
@@ -93,10 +158,24 @@ pub(crate) fn emit_error_type_with_imports(
                 // `kotlin.Throwable` declares `open val message: String?`.
                 let modifier = if name == "message" { "override " } else { "" };
                 let comma = if idx + 1 == variant.fields.len() { "" } else { "," };
-                out.push_str(&format!("        {modifier}val {name}: {ty_str}{comma}\n"));
+                out.push_str(&crate::template_env::render(
+                    "error_field.jinja",
+                    minijinja::context! {
+                        modifier => modifier,
+                        name => &name,
+                        type => &ty_str,
+                        comma => comma,
+                    },
+                ));
             }
             let message_template = variant.message_template.as_deref().unwrap_or(&variant.name);
-            out.push_str(&format!("    ) : {}(\"{message_template}\")\n", error.name));
+            out.push_str(&crate::template_env::render(
+                "error_variant_close.jinja",
+                minijinja::context! {
+                    parent_name => &error.name,
+                    message => message_template,
+                },
+            ));
         }
     }
     out.push_str("}\n");
@@ -120,12 +199,16 @@ pub(crate) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         .collect::<Vec<_>>()
         .join(", ");
 
-    out.push_str(&format!(
-        "    {async_kw}fun {}({}): {} {{\n",
-        func_name_camel,
-        params.join(", "),
-        return_ty
+    out.push_str(&crate::template_env::render(
+        "function_signature.jinja",
+        minijinja::context! {
+            async_kw => async_kw,
+            name => func_name_camel,
+            params => params.join(", "),
+            return_type => return_ty,
+        },
     ));
+    out.push('\n');
 
     if f.is_async {
         // The Java facade lowers async Rust functions to blocking calls (it
@@ -133,13 +216,32 @@ pub(crate) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         // CompletionStage). Wrap the call in `withContext(Dispatchers.IO)` so
         // the suspend function yields the calling thread while the JNI call
         // blocks under it.
-        out.push_str("        return withContext(Dispatchers.IO) {\n");
-        out.push_str(&format!("            Bridge.{}({})\n", func_name_camel, call_args));
-        out.push_str("        }\n");
+        out.push_str(&crate::template_env::render(
+            "bridge_call_with_dispatch.jinja",
+            minijinja::context! {
+                name => func_name_camel,
+                args => call_args,
+            },
+        ));
+        out.push('\n');
     } else if matches!(f.return_type, TypeRef::Unit) {
-        out.push_str(&format!("        Bridge.{}({})\n", func_name_camel, call_args));
+        out.push_str(&crate::template_env::render(
+            "bridge_call_unit.jinja",
+            minijinja::context! {
+                name => func_name_camel,
+                args => call_args,
+            },
+        ));
+        out.push('\n');
     } else {
-        out.push_str(&format!("        return Bridge.{}({})\n", func_name_camel, call_args));
+        out.push_str(&crate::template_env::render(
+            "bridge_call_return.jinja",
+            minijinja::context! {
+                name => func_name_camel,
+                args => call_args,
+            },
+        ));
+        out.push('\n');
     }
     out.push_str("    }\n");
 }

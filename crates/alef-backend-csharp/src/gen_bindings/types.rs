@@ -21,116 +21,50 @@ pub(super) fn gen_opaque_handle(
     streaming_methods: &HashSet<String>,
     all_opaque_type_names: &HashSet<String>,
 ) -> String {
-    let mut out = csharp_file_header();
-    out.push_str("using System;\n");
-    out.push_str("using Microsoft.Win32.SafeHandles;\n");
-    out.push_str("using System.Runtime.InteropServices;\n");
+    use crate::template_env::render;
+    use minijinja::Value;
 
-    // Emit additional using directives when this opaque type has methods that need JSON/async.
+    // Determine which additional using directives are needed
     let has_methods = typ.methods.iter().any(|m| !streaming_methods.contains(&m.name));
     let uses_list = |tr: &TypeRef| -> bool {
         matches!(tr, TypeRef::Vec(_))
             || matches!(tr, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)))
     };
-    if has_methods {
-        out.push_str("using System.Text.Json;\n");
-        out.push_str("using System.Text.Json.Serialization;\n");
-        let needs_list = typ
+    let needs_list = has_methods
+        && typ
             .methods
             .iter()
             .any(|m| uses_list(&m.return_type) || m.params.iter().any(|p| uses_list(&p.ty)));
-        if needs_list {
-            out.push_str("using System.Collections.Generic;\n");
-        }
-        if typ
+    let needs_async = has_methods
+        && typ
             .methods
             .iter()
-            .any(|m| m.is_async && !streaming_methods.contains(&m.name))
-        {
-            out.push_str("using System.Threading.Tasks;\n");
-        }
-    }
-    out.push('\n');
-
-    out.push_str(&crate::template_env::render(
-        "namespace_decl.jinja",
-        minijinja::context! {
-            namespace => namespace
-        },
-    ));
-    out.push('\n');
+            .any(|m| m.is_async && !streaming_methods.contains(&m.name));
 
     let class_name = typ.name.to_pascal_case();
     let free_method = format!("{}Free", class_name);
 
-    // Internal SafeHandle subclass — owns the native handle and calls Free on finalization.
-    // Bugs 1+9: deterministic cleanup via SafeHandle; no-op Dispose() is eliminated.
-    out.push_str(&crate::template_env::render(
-        "safe_handle_class.jinja",
-        minijinja::context! {
-            class_name => class_name
-        },
-    ));
-    out.push_str(&format!(
-        "    internal {class_name}SafeHandle(IntPtr handle) : base(IntPtr.Zero, true)\n"
-    ));
-    out.push_str("    {\n");
-    out.push_str("        SetHandle(handle);\n");
-    out.push_str("    }\n\n");
-    out.push_str("    public override bool IsInvalid => handle == IntPtr.Zero;\n\n");
-    out.push_str("    protected override bool ReleaseHandle()\n");
-    out.push_str("    {\n");
-    out.push_str(&format!("        NativeMethods.{free_method}(handle);\n"));
-    out.push_str("        return true;\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
+    // Prepare doc lines if present
+    let doc_lines: Vec<String> = if !typ.doc.is_empty() {
+        typ.doc.lines().map(|l| l.to_string()).collect()
+    } else {
+        vec![]
+    };
 
-    // Public wrapper class — exposes IDisposable and delegates to SafeHandle.
-    if !typ.doc.is_empty() {
-        out.push_str("/// <summary>\n");
-        for line in typ.doc.lines() {
-            out.push_str(&crate::template_env::render(
-                "doc_line.jinja",
-                minijinja::context! {
-                    line => line
-                },
-            ));
-        }
-        out.push_str("/// </summary>\n");
-    }
-    out.push_str(&crate::template_env::render(
-        "sealed_class_header.jinja",
-        minijinja::context! {
-            class_name => class_name
-        },
-    ));
-
-    if has_methods {
-        out.push_str("    private static readonly JsonSerializerOptions JsonOptions = new()\n");
-        out.push_str("    {\n");
-        out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
-        out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull\n");
-        out.push_str("    };\n\n");
-    }
-
-    out.push_str(&crate::template_env::render(
-        "safehandle_field.jinja",
-        minijinja::context! {
-            class_name => class_name
-        },
-    ));
+    let mut out = render(
+        "opaque_handle_header.jinja",
+        Value::from_serialize(serde_json::json!({
+            "namespace": namespace,
+            "class_name": class_name,
+            "free_method": free_method,
+            "has_methods": has_methods,
+            "needs_list": needs_list,
+            "needs_async": needs_async,
+            "doc": !typ.doc.is_empty(),
+            "doc_lines": doc_lines,
+        })),
+    );
     out.push('\n');
-    out.push_str(&format!("    internal {}(IntPtr handle)\n", class_name));
-    out.push_str("    {\n");
-    out.push_str(&crate::template_env::render(
-        "opaque_ctor_call.jinja",
-        minijinja::context! {
-            class_name => class_name
-        },
-    ));
-    out.push_str("    }\n\n");
-    out.push_str("    internal IntPtr Handle => _safeHandle.DangerousGetHandle();\n\n");
-    out.push_str("    public void Dispose() => _safeHandle.Dispose();\n");
 
     // Generate public methods for each non-streaming method on this opaque type.
     // These delegate to NativeMethods using this.Handle as the receiver.
@@ -164,6 +98,8 @@ fn gen_opaque_method(
     enum_names: &HashSet<String>,
     true_opaque_types: &HashSet<String>,
 ) -> String {
+    use crate::template_env::render;
+
     let mut out = String::new();
 
     // Collect visible params (skip any that are themselves opaque handles acting as bridges).
@@ -173,7 +109,7 @@ fn gen_opaque_method(
     if !method.doc.is_empty() {
         out.push_str("    /// <summary>\n");
         for line in method.doc.lines() {
-            out.push_str(&format!("    /// {}\n", line));
+            out.push_str(&render("doc_line_indented.jinja", minijinja::context! { line }));
         }
         out.push_str("    /// </summary>\n");
     }
@@ -183,7 +119,10 @@ fn gen_opaque_method(
         if method.return_type == TypeRef::Unit {
             "async Task".to_string()
         } else {
-            format!("async Task<{}>", csharp_type(&method.return_type))
+            let return_type = csharp_type(&method.return_type);
+            render("async_task_return_type.jinja", minijinja::context! { return_type })
+                .trim_end_matches('\n')
+                .to_string()
         }
     } else if method.return_type == TypeRef::Unit {
         "void".to_string()
@@ -194,16 +133,34 @@ fn gen_opaque_method(
     let method_cs_name = to_csharp_name(&method.name);
     let is_static = method.is_static || method.receiver.is_none();
     let static_kw = if is_static { "static " } else { "" };
-    out.push_str(&format!("    public {static_kw}{return_type_str} {method_cs_name}("));
+    out.push_str(
+        render(
+            "opaque_method_header.jinja",
+            minijinja::context! { static_kw, return_type_str, method_cs_name },
+        )
+        .trim_end_matches('\n'),
+    );
 
     // Parameters.
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
-        let mapped = csharp_type(&param.ty);
-        if param.optional && !mapped.ends_with('?') {
-            out.push_str(&format!("{mapped}? {param_name}"));
+        let param_type = csharp_type(&param.ty);
+        if param.optional && !param_type.ends_with('?') {
+            out.push_str(
+                render(
+                    "param_decl_optional.jinja",
+                    minijinja::context! { param_type, param_name },
+                )
+                .trim_end_matches('\n'),
+            );
         } else {
-            out.push_str(&format!("{mapped} {param_name}"));
+            out.push_str(
+                render(
+                    "param_decl_required.jinja",
+                    minijinja::context! { param_type, param_name },
+                )
+                .trim_end_matches('\n'),
+            );
         }
         if i < visible_params.len() - 1 {
             out.push_str(", ");
@@ -230,22 +187,31 @@ fn gen_opaque_method(
             out.push_str("            ");
         }
 
-        out.push_str(&format!("NativeMethods.{cs_native_name}(\n"));
+        out.push_str(&render(
+            "native_call_start.jinja",
+            minijinja::context! { method_name => &cs_native_name },
+        ));
         if !is_static {
             out.push_str("                Handle");
             for param in &visible_params {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-                out.push_str(&format!(",\n                {arg}"));
+                out.push_str(",\n");
+                out.push_str(render("indented_arg_async.jinja", minijinja::context! { arg }).trim_end_matches('\n'));
             }
         } else {
             for (i, param) in visible_params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 if i == 0 {
-                    out.push_str(&format!("                {arg}"));
+                    out.push_str(
+                        render("indented_arg_async.jinja", minijinja::context! { arg }).trim_end_matches('\n'),
+                    );
                 } else {
-                    out.push_str(&format!(",\n                {arg}"));
+                    out.push_str(",\n");
+                    out.push_str(
+                        render("indented_arg_async.jinja", minijinja::context! { arg }).trim_end_matches('\n'),
+                    );
                 }
             }
         }
@@ -257,8 +223,9 @@ fn gen_opaque_method(
                     "            if (nativeResult == IntPtr.Zero)\n            {\n                return null;\n            }\n",
                 );
             } else {
-                out.push_str(&format!(
-                    "            if (nativeResult == IntPtr.Zero)\n            {{\n                throw new {exception_name}(0, \"{cs_native_name} failed\");\n            }}\n"
+                out.push_str(&render(
+                    "null_result_throw.jinja",
+                    minijinja::context! { indent => "            ", exception_name, cs_native_name },
                 ));
             }
         }
@@ -280,22 +247,27 @@ fn gen_opaque_method(
             out.push_str("        ");
         }
 
-        out.push_str(&format!("NativeMethods.{cs_native_name}(\n"));
+        out.push_str(&render(
+            "native_call_start.jinja",
+            minijinja::context! { method_name => &cs_native_name },
+        ));
         if !is_static {
             out.push_str("            Handle");
             for param in &visible_params {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
-                out.push_str(&format!(",\n            {arg}"));
+                out.push_str(",\n");
+                out.push_str(render("indented_arg_sync.jinja", minijinja::context! { arg }).trim_end_matches('\n'));
             }
         } else {
             for (i, param) in visible_params.iter().enumerate() {
                 let param_name = param.name.to_lower_camel_case();
                 let arg = super::native_call_arg(&param.ty, &param_name, param.optional, true_opaque_types);
                 if i == 0 {
-                    out.push_str(&format!("            {arg}"));
+                    out.push_str(render("indented_arg_sync.jinja", minijinja::context! { arg }).trim_end_matches('\n'));
                 } else {
-                    out.push_str(&format!(",\n            {arg}"));
+                    out.push_str(",\n");
+                    out.push_str(render("indented_arg_sync.jinja", minijinja::context! { arg }).trim_end_matches('\n'));
                 }
             }
         }
@@ -307,8 +279,9 @@ fn gen_opaque_method(
                     "        if (nativeResult == IntPtr.Zero)\n        {\n            return null;\n        }\n",
                 );
             } else {
-                out.push_str(&format!(
-                    "        if (nativeResult == IntPtr.Zero)\n        {{\n            throw new {exception_name}(0, \"{cs_native_name} failed\");\n        }}\n"
+                out.push_str(&render(
+                    "null_result_throw.jinja",
+                    minijinja::context! { indent => "        ", exception_name, cs_native_name },
                 ));
             }
         }
@@ -331,35 +304,28 @@ pub(super) fn gen_record_type(
     _lang_rename_all: &str,
     bridge_type_aliases: &HashSet<String>,
 ) -> String {
+    use crate::template_env::render;
+
     let mut out = csharp_file_header();
     out.push_str("using System;\n");
     out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.Text.Json;\n");
     out.push_str("using System.Text.Json.Serialization;\n\n");
 
-    out.push_str(&crate::template_env::render(
-        "namespace_decl.jinja",
-        minijinja::context! {
-            namespace => namespace
-        },
-    ));
+    out.push_str(&render("namespace_decl.jinja", minijinja::context! { namespace }));
     out.push('\n');
 
     // Generate doc comment if available
     if !typ.doc.is_empty() {
         out.push_str("/// <summary>\n");
         for line in typ.doc.lines() {
-            out.push_str(&crate::template_env::render(
-                "doc_line.jinja",
-                minijinja::context! {
-                    line => line
-                },
-            ));
+            out.push_str(&render("doc_line.jinja", minijinja::context! { line }));
         }
         out.push_str("/// </summary>\n");
     }
 
-    out.push_str(&format!("public sealed class {}\n", typ.name.to_pascal_case()));
+    let class_name = typ.name.to_pascal_case();
+    out.push_str(&render("record_class_header.jinja", minijinja::context! { class_name }));
     out.push_str("{\n");
 
     for field in &typ.fields {
@@ -372,7 +338,7 @@ pub(super) fn gen_record_type(
         if !field.doc.is_empty() {
             out.push_str("    /// <summary>\n");
             for line in field.doc.lines() {
-                out.push_str(&format!("    /// {}\n", line));
+                out.push_str(&render("doc_line_indented.jinja", minijinja::context! { line }));
             }
             out.push_str("    /// </summary>\n");
         }
@@ -398,7 +364,7 @@ pub(super) fn gen_record_type(
         };
         if let Some(ref base) = field_base_type {
             if custom_converter_enums.contains(base) {
-                out.push_str(&format!("    [JsonConverter(typeof({base}JsonConverter))]\n"));
+                out.push_str(&render("json_converter_attr.jinja", minijinja::context! { base }));
             }
         }
 
@@ -410,7 +376,10 @@ pub(super) fn gen_record_type(
             // FFI-based languages serialize to JSON that Rust serde deserializes.
             // Since Rust uses default snake_case, JSON property names must be snake_case.
             let json_name = field.name.clone();
-            out.push_str(&format!("    [JsonPropertyName(\"{}\")]\n", json_name));
+            out.push_str(&render(
+                "json_property_name_attr.jinja",
+                minijinja::context! { json_name },
+            ));
         }
 
         let cs_name = to_csharp_name(&field.name);
@@ -421,9 +390,9 @@ pub(super) fn gen_record_type(
 
         // Special handling for visitor bridge fields: always map to IHtmlVisitor?
         if is_visitor_bridge {
-            out.push_str(&format!(
-                "    public IHtmlVisitor? {} {{ get; set; }} = null;\n",
-                cs_name
+            out.push_str(&render(
+                "visitor_bridge_property.jinja",
+                minijinja::context! { cs_name },
             ));
             out.push('\n');
             continue;
@@ -441,8 +410,10 @@ pub(super) fn gen_record_type(
             } else {
                 format!("{mapped}?")
             };
-            out.push_str(&format!("    public {} {} {{ get; set; }}", field_type, cs_name));
-            out.push_str(" = null;\n");
+            out.push_str(&render(
+                "property_with_default.jinja",
+                minijinja::context! { field_type, cs_name, default_val => "null" },
+            ));
         } else if typ.has_default || field.default.is_some() {
             // Field with an explicit default value or part of a type with defaults.
             // Use typed_default from IR to get Rust-compatible defaults.
@@ -463,9 +434,9 @@ pub(super) fn gen_record_type(
                 } else {
                     format!("{}?", base_type)
                 };
-                out.push_str(&format!(
-                    "    public {} {} {{ get; set; }} = null;\n",
-                    nullable_type, cs_name
+                out.push_str(&render(
+                    "property_with_default.jinja",
+                    minijinja::context! { field_type => nullable_type, cs_name, default_val => "null" },
                 ));
                 out.push('\n');
                 continue;
@@ -542,9 +513,9 @@ pub(super) fn gen_record_type(
                 base_type
             };
 
-            out.push_str(&format!(
-                "    public {} {} {{ get; set; }} = {};\n",
-                field_type, cs_name, default_val
+            out.push_str(&render(
+                "property_with_default.jinja",
+                minijinja::context! { field_type, cs_name, default_val },
             ));
         } else {
             // Non-optional field without explicit default.
@@ -557,9 +528,9 @@ pub(super) fn gen_record_type(
             };
             // Duration is mapped to ulong? so null is the correct "not set" default.
             if matches!(&field.ty, TypeRef::Duration) {
-                out.push_str(&format!(
-                    "    public {} {} {{ get; set; }} = null;\n",
-                    field_type, cs_name
+                out.push_str(&render(
+                    "property_with_default.jinja",
+                    minijinja::context! { field_type, cs_name, default_val => "null" },
                 ));
             } else {
                 let default_val = match &field.ty {
@@ -572,9 +543,9 @@ pub(super) fn gen_record_type(
                     TypeRef::Primitive(_) => "0",
                     _ => "default!",
                 };
-                out.push_str(&format!(
-                    "    public {} {} {{ get; set; }} = {};\n",
-                    field_type, cs_name, default_val
+                out.push_str(&render(
+                    "property_with_default.jinja",
+                    minijinja::context! { field_type, cs_name, default_val },
                 ));
             }
         }

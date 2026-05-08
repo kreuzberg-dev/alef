@@ -6,7 +6,6 @@ use alef_codegen::builder::ImplBuilder;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_codegen::{generators, naming::to_node_name, shared};
 use alef_core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
-use std::fmt::Write;
 
 use super::functions::{emit_rustdoc, format_param_unused, gen_wasm_unimplemented_body, wasm_wrap_return};
 use super::methods::gen_method;
@@ -28,16 +27,17 @@ pub(super) fn is_copy_type(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool 
 /// Generate an opaque wasm-bindgen struct with inner Arc.
 pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) -> String {
     let js_name = format!("{prefix}{}", typ.name);
+    let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
 
-    // We can't use StructBuilder for private fields, so build manually
     let mut out = String::with_capacity(256);
     out.push_str(&emit_rustdoc(&typ.doc));
-    writeln!(out, "#[derive(Clone)]").ok();
-    writeln!(out, "#[wasm_bindgen]").ok();
-    writeln!(out, "pub struct {} {{", js_name).ok();
-    let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
-    writeln!(out, "    pub(crate) inner: Arc<{}>,", core_path).ok();
-    write!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "gen_opaque_struct",
+        minijinja::context! {
+            struct_name => js_name,
+            core_path => core_path,
+        },
+    ));
     out
 }
 
@@ -63,28 +63,12 @@ pub(super) fn gen_opaque_struct_methods(
 
     // Special handling for VisitorHandle: add a constructor if no methods exist.
     if typ.name == "VisitorHandle" && typ.methods.is_empty() {
-        let mut constructor = String::with_capacity(256);
-        writeln!(constructor, "#[wasm_bindgen(constructor)]").ok();
-        writeln!(
-            constructor,
-            "pub fn new(visitor: wasm_bindgen::JsValue) -> {} {{",
-            js_name
-        )
-        .ok();
-        writeln!(
-            constructor,
-            "    let bridge = __alef_wasm_bridge_htmlvisitor::WasmHtmlVisitorBridge::new(visitor);"
-        )
-        .ok();
-        writeln!(
-            constructor,
-            "    let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge));"
-        )
-        .ok();
-        writeln!(constructor, "    Self {{").ok();
-        writeln!(constructor, "        inner: std::sync::Arc::new(handle),").ok();
-        writeln!(constructor, "    }}").ok();
-        write!(constructor, "}}").ok();
+        let constructor = crate::template_env::render(
+            "gen_visitor_handle_constructor",
+            minijinja::context! {
+                struct_name => js_name,
+            },
+        );
         impl_builder.add_method(&constructor);
     }
 
@@ -346,10 +330,9 @@ pub(super) fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[St
     // Default: enables using unwrap_or_default() in constructors.
     // Note: Do NOT derive Serialize/Deserialize on WASM types. wasm-bindgen handles conversion
     // across the JS boundary, and many WASM struct fields (like JsValue) don't implement Serialize.
-    writeln!(out, "#[derive(Clone, Default)]").ok();
-    writeln!(out, "#[wasm_bindgen]").ok();
-    writeln!(out, "pub struct {} {{", js_name).ok();
 
+    // Build filtered and typed fields
+    let mut fields = Vec::new();
     for field in &typ.fields {
         // Skip cfg-gated fields — they depend on features that may not be enabled
         if field.cfg.is_some() {
@@ -376,11 +359,21 @@ pub(super) fn gen_struct(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[St
         } else {
             mapper.map_type(&field.ty)
         };
-        // Fields are private (no pub)
-        writeln!(out, "    {}: {},", field.name, field_type).ok();
+        fields.push((field.name.clone(), field_type));
     }
 
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "gen_struct",
+        minijinja::context! {
+            struct_name => js_name,
+            fields => fields.iter().map(|(name, ty)| {
+                minijinja::context! {
+                    name => name,
+                    field_type => ty,
+                }
+            }).collect::<Vec<_>>(),
+        },
+    ));
     out
 }
 

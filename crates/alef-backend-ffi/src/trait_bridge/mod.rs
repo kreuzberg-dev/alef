@@ -24,7 +24,6 @@ use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, TypeDef, TypeRef};
 use heck::ToPascalCase;
 use std::collections::HashMap;
-use std::fmt::Write;
 
 use helpers::prim_to_c;
 
@@ -150,33 +149,7 @@ impl FfiBridgeGenerator {
 
 /// Generate the shared FFI error-setting helper function (once per module).
 pub fn gen_ffi_set_out_error_helper() -> String {
-    let mut out = String::with_capacity(512);
-    writeln!(out, "/// Write an error message string into an FFI out-error pointer.").ok();
-    writeln!(out, "///").ok();
-    writeln!(out, "/// # Safety").ok();
-    writeln!(out, "///").ok();
-    writeln!(
-        out,
-        "/// `out_error` must be null or a valid writable `*mut *mut c_char` pointer."
-    )
-    .ok();
-    writeln!(
-        out,
-        "unsafe fn ffi_set_out_error(out_error: *mut *mut std::ffi::c_char, msg: &str) {{"
-    )
-    .ok();
-    writeln!(out, "    if !out_error.is_null() {{").ok();
-    writeln!(out, "        if let Ok(cs) = std::ffi::CString::new(msg) {{").ok();
-    writeln!(
-        out,
-        "            // SAFETY: out_error is non-null; caller must free this string."
-    )
-    .ok();
-    writeln!(out, "            unsafe {{ *out_error = cs.into_raw(); }}").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-    out
+    crate::template_env::render("ffi_set_out_error_helper.jinja", minijinja::context! {})
 }
 
 /// Generate all trait bridge code for a single `[[trait_bridges]]` entry.
@@ -231,41 +204,41 @@ pub fn gen_trait_bridge(
 
     // VTable struct
     out.push_str(&generator.gen_vtable_struct(&spec));
-    writeln!(out).ok();
+    out.push('\n');
 
     // Bridge struct (custom layout: vtable + user_data + cached_name)
     out.push_str(&generator.gen_bridge_struct(&spec));
-    writeln!(out).ok();
+    out.push('\n');
 
     // Drop impl
     out.push_str(&generator.gen_bridge_drop(&spec));
-    writeln!(out).ok();
+    out.push('\n');
 
     // Constructor
     out.push_str(&generator.gen_constructor_impl(&spec));
-    writeln!(out).ok();
+    out.push('\n');
 
     // Plugin / super-trait impl (custom FFI version; do NOT use gen_bridge_plugin_impl
     // because that generates PyO3-style delegation through generator.gen_sync_method_body
     // which references `self.inner`, but our bridge uses `self.vtable` directly)
     if let Some(plugin_impl) = generator.gen_ffi_plugin_impl(&spec) {
         out.push_str(&plugin_impl);
-        writeln!(out).ok();
+        out.push('\n');
     } else {
         // Try the shared gen_bridge_plugin_impl as a fallback (no super_trait configured)
         if let Some(plugin_impl) = gen_bridge_plugin_impl(&spec, &generator) {
             out.push_str(&plugin_impl);
-            writeln!(out).ok();
+            out.push('\n');
         }
     }
 
     // Trait impl — uses shared gen_bridge_trait_impl which calls gen_sync/async_method_body
     out.push_str(&gen_bridge_trait_impl(&spec, &generator));
-    writeln!(out).ok();
+    out.push('\n');
 
     // Registration + unregistration functions
     if spec.bridge_config.register_fn.is_some() {
-        writeln!(out).ok();
+        out.push('\n');
         out.push_str(&generator.gen_registration_fn_impl(&spec));
     }
 

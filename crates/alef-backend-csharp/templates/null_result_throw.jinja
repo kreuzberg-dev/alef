@@ -1,0 +1,4 @@
+{{ indent }}if (nativeResult == IntPtr.Zero)
+{{ indent }}{
+{{ indent }}    throw new {{ exception_name }}(0, "{{ cs_native_name }} failed");
+{{ indent }}}

@@ -7,6 +7,8 @@ use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
+use minijinja::context;
+use std::fmt::Write;
 
 use super::helpers::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params,
@@ -72,60 +74,129 @@ fn has_sanitized_recoverable(params: &[alef_core::ir::ParamDef]) -> bool {
     })
 }
 
-/// Generate let bindings for Named (non-opaque) params, including `is_ref=true` params.
-/// Uses `clone().into()` for all cases since binding types always have `From` impls.
-/// The previous serde round-trip approach caused camelCase/snake_case key mismatches when
-/// the binding type has `rename_all = "camelCase"` but the core type uses snake_case.
+/// Generate serde-based let bindings for Named (non-opaque) params that have `is_ref=true`.
+/// These replace the `.clone().into()` bindings when no `From` impl is available.
+/// The round-trip works because PHP binding types derive `Serialize` and core types derive
+/// `Deserialize`.
 fn gen_php_serde_let_bindings(
     params: &[alef_core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
     core_import: &str,
 ) -> String {
-    use minijinja::context;
     let mut out = String::new();
     for p in params {
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
-                let php_name = &p.name;
-                out.push_str(&crate::template_env::render(
-                    "php_named_let_binding.jinja",
-                    context! {
-                        php_name => php_name,
-                        is_optional => p.optional,
-                        core_import => core_import,
-                        type_name => name,
-                    },
-                ));
+                if p.is_ref {
+                    // Serde round-trip: binding type -> JSON -> core type.
+                    // Build code lines directly to avoid format-string escaping issues.
+                    let pname = &p.name;
+                    if p.optional {
+                        // Generated code pattern:
+                        //   let {pname}_core: Option<{core}::{name}> = {pname}.as_ref()
+                        //       .map(|v| {
+                        //           let _json = serde_json::to_string(v).map_err(|e| format!("{e}"))?;
+                        //           serde_json::from_str::<{core}::{name}>(&_json).map_err(|e| format!("{e}"))
+                        //       }).transpose()?;
+                        let mut line = String::new();
+                        write!(
+                            line,
+                            "let {pname}_core: Option<{core_import}::{name}> = {pname}.as_ref()"
+                        )
+                        .ok();
+                        write!(line, "\n        .map(|v| {{").ok();
+                        write!(line, "\n            let _json = serde_json::to_string(v)").ok();
+                        write!(line, ".map_err(|e| format!(\"{{e}}\"))?;").ok();
+                        write!(
+                            line,
+                            "\n            serde_json::from_str::<{core_import}::{name}>(&_json)"
+                        )
+                        .ok();
+                        write!(line, ".map_err(|e| format!(\"{{e}}\"))").ok();
+                        write!(line, "\n        }}).transpose()?;").ok();
+                        out.push_str(&line);
+                        out.push('\n');
+                    } else {
+                        // Generated code pattern:
+                        //   let {pname}_json = serde_json::to_string(&{pname}).map_err(|e| format!("{e}"))?;
+                        //   let {pname}_core: {core}::{name} = serde_json::from_str(&{pname}_json)
+                        //       .map_err(|e| format!("{e}"))?;
+                        let line = format!(
+                            "let {pname}_json = serde_json::to_string(&{pname})\n        .map_err(|e| format!(\"{{e}}\"))?\n;\n    let {pname}_core: {core_import}::{name} = serde_json::from_str(&{pname}_json)\n        .map_err(|e| format!(\"{{e}}\"))?;"
+                        );
+                        out.push_str(&line);
+                        out.push('\n');
+                    }
+                } else {
+                    // Non-ref Named: use the standard .clone().into() path.
+                    if p.optional {
+                        out.push_str(&crate::template_env::render(
+                            "php_let_binding_named_optional.jinja",
+                            minijinja::context! {
+                                pname => &p.name,
+                                core_import => core_import,
+                                name => name,
+                            },
+                        ));
+                    } else {
+                        out.push_str(&crate::template_env::render(
+                            "php_let_binding_named.jinja",
+                            minijinja::context! {
+                                pname => &p.name,
+                                core_import => core_import,
+                                name => name,
+                            },
+                        ));
+                    }
+                }
             }
             TypeRef::Vec(inner) => {
                 if let TypeRef::Named(name) = inner.as_ref() {
                     if !opaque_types.contains(name.as_str()) {
-                        out.push_str(&crate::template_env::render(
-                            "php_vec_named_let_binding.jinja",
-                            context! {
-                                php_name => &p.name,
-                                is_optional => p.optional,
-                                core_import => core_import,
-                                type_name => name,
-                            },
-                        ));
+                        if p.optional {
+                            out.push_str(&crate::template_env::render(
+                                "php_let_binding_vec_named_optional.jinja",
+                                context! {
+                                    pname => &p.name,
+                                    core_import => core_import,
+                                    name => name,
+                                },
+                            ));
+                        } else {
+                            out.push_str(&crate::template_env::render(
+                                "php_let_binding_vec_named.jinja",
+                                context! {
+                                    pname => &p.name,
+                                    core_import => core_import,
+                                    name => name,
+                                },
+                            ));
+                        }
                     }
                 } else if matches!(inner.as_ref(), TypeRef::String) && p.sanitized && p.original_type.is_some() {
                     // Sanitized Vec<tuple>: binding accepts Vec<String> (each item JSON-encoded
                     // tuple). Deserialize each element into the original tuple type so the core
                     // function can be called with its native signature.
-                    out.push_str(&crate::template_env::render(
-                        "php_sanitized_vec_let_binding.jinja",
-                        context! {
-                            php_name => &p.name,
-                            is_optional => p.optional,
-                        },
-                    ));
+                    if p.optional {
+                        out.push_str(&crate::template_env::render(
+                            "php_let_binding_sanitized_vec_string_optional.jinja",
+                            context! {
+                                pname => &p.name,
+                            },
+                        ));
+                    } else {
+                        out.push_str(&crate::template_env::render(
+                            "php_let_binding_sanitized_vec_string.jinja",
+                            context! {
+                                pname => &p.name,
+                            },
+                        ));
+                    }
                 } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref {
                     out.push_str(&crate::template_env::render(
-                        "php_vec_string_refs_let_binding.jinja",
+                        "php_let_binding_string_refs.jinja",
                         context! {
-                            php_name => &p.name,
+                            pname => &p.name,
                         },
                     ));
                 }
@@ -259,18 +330,23 @@ pub(crate) fn gen_instance_method(
     out.push_str("    ");
     out.push_str(trait_allow);
     if params_str.is_empty() {
-        out.push_str(&format!(
-            "pub fn {}(&self){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            method.name
+        out.push_str(&crate::template_env::render(
+            "php_method_definition_no_params.jinja",
+            context! {
+                name => &method.name,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     } else {
-        out.push_str(&format!(
-            "pub fn {}(&self, {params_str}){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            method.name
+        out.push_str(&crate::template_env::render(
+            "php_method_definition_with_params.jinja",
+            context! {
+                name => &method.name,
+                params => &params_str,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     }
     out
@@ -461,18 +537,23 @@ pub(crate) fn gen_static_method(
     out.push_str("    ");
     out.push_str(trait_allow);
     if params.is_empty() {
-        out.push_str(&format!(
-            "pub fn {}(){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            method.name
+        out.push_str(&crate::template_env::render(
+            "php_static_method_definition_no_params.jinja",
+            context! {
+                name => &method.name,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     } else {
-        out.push_str(&format!(
-            "pub fn {}({params}){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            method.name
+        out.push_str(&crate::template_env::render(
+            "php_static_method_definition_with_params.jinja",
+            context! {
+                name => &method.name,
+                params => &params,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     }
     out
@@ -504,18 +585,23 @@ pub(crate) fn gen_function_as_static_method(
     doc_emission::emit_phpdoc(&mut out, &func.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
-        out.push_str(&format!(
-            "    pub fn {}(){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            func.name
+        out.push_str(&crate::template_env::render(
+            "php_static_method_definition_no_params.jinja",
+            context! {
+                name => &func.name,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     } else {
-        out.push_str(&format!(
-            "    pub fn {}({params}){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            func.name
+        out.push_str(&crate::template_env::render(
+            "php_static_method_definition_with_params.jinja",
+            context! {
+                name => &func.name,
+                params => &params,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     }
     out
@@ -665,18 +751,23 @@ pub(crate) fn gen_async_function_as_static_method(
     doc_emission::emit_phpdoc(&mut out, &func.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
     if params.is_empty() {
-        out.push_str(&format!(
-            "    pub fn {}_async(){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            func.name
+        out.push_str(&crate::template_env::render(
+            "php_async_static_method_definition_no_params.jinja",
+            context! {
+                name => &func.name,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     } else {
-        out.push_str(&format!(
-            "    pub fn {}_async({params}){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            func.name
+        out.push_str(&crate::template_env::render(
+            "php_async_static_method_definition_with_params.jinja",
+            context! {
+                name => &func.name,
+                params => &params,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     }
     out
@@ -795,18 +886,23 @@ pub(crate) fn gen_async_instance_method(
     let ret_sig = return_type_sig(&return_annotation);
     out.push_str("    ");
     if params.is_empty() {
-        out.push_str(&format!(
-            "pub fn {}_async(&self){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            method.name
+        out.push_str(&crate::template_env::render(
+            "php_async_instance_method_definition_no_params.jinja",
+            context! {
+                name => &method.name,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     } else {
-        out.push_str(&format!(
-            "pub fn {}_async(&self, {params}){ret_sig} {{\n    \
-             {body}\n\
-             }}",
-            method.name
+        out.push_str(&crate::template_env::render(
+            "php_async_instance_method_definition_with_params.jinja",
+            context! {
+                name => &method.name,
+                params => &params,
+                ret_sig => &ret_sig,
+                body => &body,
+            },
         ));
     }
     out

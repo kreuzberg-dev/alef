@@ -1,0 +1,7 @@
+#' @export
+`$.{{ type_name }}` <- function(self, name) {
+  func <- {{ type_name }}[[name]]
+  environment(func) <- environment()
+  func
+}
+

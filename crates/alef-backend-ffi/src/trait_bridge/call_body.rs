@@ -2,7 +2,6 @@
 
 use alef_codegen::generators::trait_bridge::{TraitBridgeSpec, format_type_ref};
 use alef_core::ir::{MethodDef, PrimitiveType, TypeRef};
-use std::fmt::Write;
 
 use super::{FfiBridgeGenerator, helpers::default_for_type};
 
@@ -14,19 +13,28 @@ impl FfiBridgeGenerator {
         let has_error = method.error_type.is_some();
 
         // Extract the vtable fn pointer — return an error / default if it's None.
-        writeln!(out, "let Some(fp) = self.vtable.{name} else {{").ok();
+        out.push_str(&crate::template_env::render(
+            "ffi_vtable_extract.jinja",
+            minijinja::context! {
+                name => name,
+            },
+        ));
         if has_error {
-            writeln!(
-                out,
-                "    return Err(Box::from(\"vtable.{name} is null — bridge not initialised\"));"
-            )
-            .ok();
+            out.push_str("return Err(Box::from(\"vtable.{name} is null — bridge not initialised\"));\n");
         } else {
             // For infallible methods, return the Rust default value
             let default_expr = default_for_type(&method.return_type);
-            writeln!(out, "    return {default_expr};").ok();
+            out.push_str(&crate::template_env::render(
+                "ffi_return_default_4.jinja",
+                minijinja::context! {
+                    default_expr => &default_expr,
+                },
+            ));
         }
-        writeln!(out, "}};").ok();
+        out.push_str(
+            "}};
+",
+        );
 
         // Marshal each parameter to its C representation.
         // When p.optional is true, the Rust type is Option<T>; treat it the same as
@@ -42,41 +50,39 @@ impl FfiBridgeGenerator {
                 match inner_ty {
                     TypeRef::String | TypeRef::Char | TypeRef::Path => {
                         // Option<&str> → nullable *const c_char via CString storage
-                        let map_expr = if p.is_ref {
-                            format!(
-                                "let _{name}_storage: Option<std::ffi::CString> = {name}.and_then(|v| std::ffi::CString::new(v).ok());",
-                                name = p.name
-                            )
-                        } else {
-                            format!(
-                                "let _{name}_storage: Option<std::ffi::CString> = {name}.as_deref().and_then(|v| std::ffi::CString::new(v).ok());",
-                                name = p.name
-                            )
-                        };
-                        writeln!(out, "{map_expr}").ok();
-                        writeln!(
-                            out,
-                            "let {name}_ptr: *const std::ffi::c_char = _{name}_storage.as_ref().map_or(std::ptr::null(), |cs| cs.as_ptr());",
-                            name = p.name
-                        )
-                        .ok();
+                        out.push_str(&crate::template_env::render(
+                            "ffi_opt_str_storage_and_ptr.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                is_ref => p.is_ref,
+                            },
+                        ));
                     }
                     TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                        writeln!(
-                            out,
-                            "let _{name}_storage: Option<std::ffi::CString> = {name}.as_ref().and_then(|v| {{",
-                            name = p.name
-                        )
-                        .ok();
-                        writeln!(out, "    let s = serde_json::to_string(v).unwrap_or_default();").ok();
-                        writeln!(out, "    std::ffi::CString::new(s).ok()").ok();
-                        writeln!(out, "}});").ok();
-                        writeln!(
-                            out,
-                            "let {name}_ptr: *const std::ffi::c_char = _{name}_storage.as_ref().map_or(std::ptr::null(), |cs| cs.as_ptr());",
-                            name = p.name
-                        )
-                        .ok();
+                        out.push_str(&crate::template_env::render(
+                            "ffi_opt_json_storage_open.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                            },
+                        ));
+                        out.push_str(
+                            "    let s = serde_json::to_string(v).unwrap_or_default();
+",
+                        );
+                        out.push_str(
+                            "    std::ffi::CString::new(s).ok()
+",
+                        );
+                        out.push_str(
+                            "}});
+",
+                        );
+                        out.push_str(&crate::template_env::render(
+                            "ffi_opt_nullable_ptr.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                            },
+                        ));
                     }
                     _ => {} // optional primitives: pass directly by name (0 = None sentinel on C side)
                 }
@@ -100,53 +106,103 @@ impl FfiBridgeGenerator {
                             }
                         };
                         let arg = if needs_as_ref { format!("{val}.as_ref()") } else { val };
-                        writeln!(
-                            out,
-                            "let _{name}_cs = match std::ffi::CString::new({arg}) {{",
-                            name = p.name
-                        )
-                        .ok();
-                        writeln!(out, "    Ok(s) => s,").ok();
-                        writeln!(out, "    Err(_) => {{").ok();
+                        out.push_str(&crate::template_env::render(
+                            "ffi_cs_match_open.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                                arg => &arg,
+                            },
+                        ));
+                        out.push_str(
+                            "    Ok(s) => s,
+",
+                        );
+                        out.push_str(
+                            "    Err(_) => {{
+",
+                        );
                         if has_error {
-                            writeln!(out, "        return Err(Box::from(\"nul byte in param {}\"));", p.name).ok();
+                            out.push_str(&crate::template_env::render(
+                                "ffi_nul_byte_param_err.jinja",
+                                minijinja::context! {
+                                    name => &p.name,
+                                },
+                            ));
                         } else {
                             let default_expr = default_for_type(&method.return_type);
-                            writeln!(out, "        return {default_expr};").ok();
+                            out.push_str(&crate::template_env::render(
+                                "ffi_return_default_8.jinja",
+                                minijinja::context! {
+                                    default_expr => &default_expr,
+                                },
+                            ));
                         }
-                        writeln!(out, "    }}").ok();
-                        writeln!(out, "}};").ok();
-                        writeln!(out, "let {name}_ptr = _{name}_cs.as_ptr();", name = p.name).ok();
+                        out.push_str(
+                            "    }}
+",
+                        );
+                        out.push_str(
+                            "}};
+",
+                        );
+                        out.push_str(&crate::template_env::render(
+                            "ffi_cs_as_ptr.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                            },
+                        ));
                     }
                     TypeRef::Json | TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                        writeln!(
-                            out,
-                            "let _{name}_json = serde_json::to_string(&{name}).unwrap_or_default();",
-                            name = p.name
-                        )
-                        .ok();
-                        writeln!(
-                            out,
-                            "let _{name}_cs = match std::ffi::CString::new(_{name}_json) {{",
-                            name = p.name
-                        )
-                        .ok();
-                        writeln!(out, "    Ok(s) => s,").ok();
-                        writeln!(out, "    Err(_) => {{").ok();
+                        out.push_str(&crate::template_env::render(
+                            "ffi_json_to_string.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                            },
+                        ));
+                        out.push_str(&crate::template_env::render(
+                            "ffi_json_cs_match_open.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                            },
+                        ));
+                        out.push_str(
+                            "    Ok(s) => s,
+",
+                        );
+                        out.push_str(
+                            "    Err(_) => {{
+",
+                        );
                         if has_error {
-                            writeln!(
-                                out,
-                                "        return Err(Box::from(\"nul byte in serialized param {}\"));",
-                                p.name
-                            )
-                            .ok();
+                            out.push_str(&crate::template_env::render(
+                                "ffi_nul_byte_json_err.jinja",
+                                minijinja::context! {
+                                    name => &p.name,
+                                },
+                            ));
                         } else {
                             let default_expr = default_for_type(&method.return_type);
-                            writeln!(out, "        return {default_expr};").ok();
+                            out.push_str(&crate::template_env::render(
+                                "ffi_return_default_8.jinja",
+                                minijinja::context! {
+                                    default_expr => &default_expr,
+                                },
+                            ));
                         }
-                        writeln!(out, "    }}").ok();
-                        writeln!(out, "}};").ok();
-                        writeln!(out, "let {name}_ptr = _{name}_cs.as_ptr();", name = p.name).ok();
+                        out.push_str(
+                            "    }}
+",
+                        );
+                        out.push_str(
+                            "}};
+",
+                        );
+                        out.push_str(&crate::template_env::render(
+                            "ffi_cs_as_ptr.jinja",
+                            minijinja::context! {
+                                name => &p.name,
+                            },
+                        ));
                     }
                     _ => {} // primitives, bytes, duration: pass directly
                 }
@@ -197,30 +253,21 @@ impl FfiBridgeGenerator {
                 | TypeRef::Map(_, _)
         );
         if needs_result_out {
-            writeln!(
-                out,
-                "let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();"
-            )
-            .ok();
+            out.push_str("let mut _out_result: *mut std::ffi::c_char = std::ptr::null_mut();\n");
             call_args.push("&mut _out_result".to_string());
         }
         if has_error {
-            writeln!(out, "let mut _out_error: *mut std::ffi::c_char = std::ptr::null_mut();").ok();
+            out.push_str(
+                "let mut _out_error: *mut std::ffi::c_char = std::ptr::null_mut();
+",
+            );
             call_args.push("&mut _out_error".to_string());
         }
 
         let args_str = call_args.join(", ");
 
-        writeln!(
-            out,
-            "// SAFETY: fp is a valid non-null function pointer; all temporaries outlive this call;"
-        )
-        .ok();
-        writeln!(
-            out,
-            "// user_data validity is the caller's responsibility (documented in the vtable API)."
-        )
-        .ok();
+        out.push_str("// SAFETY: fp is a valid non-null function pointer; all temporaries outlive this call;\n");
+        out.push_str("// user_data validity is the caller's responsibility (documented in the vtable API).\n");
         // For infallible primitive/Duration returns the body would tail with `_rc`,
         // tripping clippy::let_and_return. Skip the binding in that case and emit the
         // unsafe call inline as the tail expression below.
@@ -243,75 +290,123 @@ impl FfiBridgeGenerator {
                 ) | TypeRef::Duration
             );
         if !tail_returns_rc_only {
-            writeln!(out, "let _rc = unsafe {{ fp({args_str}) }};").ok();
+            out.push_str(&crate::template_env::render(
+                "ffi_unsafe_fp_call.jinja",
+                minijinja::context! {
+                    args => &args_str,
+                },
+            ));
         }
 
         // Handle the return
         if has_error {
-            writeln!(out, "if _rc != 0 {{").ok();
-            writeln!(out, "    let msg = if _out_error.is_null() {{").ok();
-            writeln!(out, "        format!(\"vtable.{name} returned error code {{}}\", _rc)").ok();
-            writeln!(out, "    }} else {{").ok();
-            writeln!(
-                out,
-                "        // SAFETY: out_error was written by the callee as a valid CString."
-            )
-            .ok();
-            writeln!(
-                out,
-                "        let cs = unsafe {{ std::ffi::CString::from_raw(_out_error) }};"
-            )
-            .ok();
-            writeln!(out, "        cs.to_string_lossy().into_owned()").ok();
-            writeln!(out, "    }};").ok();
-            writeln!(out, "    return Err(Box::from(msg));").ok();
-            writeln!(out, "}}").ok();
+            out.push_str(
+                "if _rc != 0 {{
+",
+            );
+            out.push_str(
+                "    let msg = if _out_error.is_null() {{
+",
+            );
+            out.push_str(
+                "        format!(\"vtable.{name} returned error code {{}}\", _rc)
+",
+            );
+            out.push_str(
+                "    }} else {{
+",
+            );
+            out.push_str("// SAFETY: out_error was written by the callee as a valid CString.\n");
+            out.push_str("let cs = unsafe {{ std::ffi::CString::from_raw(_out_error) }};\n");
+            out.push_str(
+                "        cs.to_string_lossy().into_owned()
+",
+            );
+            out.push_str(
+                "    }};
+",
+            );
+            out.push_str(
+                "    return Err(Box::from(msg));
+",
+            );
+            out.push_str(
+                "}}
+",
+            );
 
             // Decode successful return
             match &method.return_type {
                 TypeRef::Unit => {
-                    writeln!(out, "Ok(())").ok();
+                    out.push_str(
+                        "Ok(())
+",
+                    );
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                    writeln!(out, "if _out_result.is_null() {{").ok();
-                    writeln!(out, "    return Ok(String::new());").ok();
-                    writeln!(out, "}}").ok();
-                    writeln!(
-                        out,
-                        "// SAFETY: out_result was written by the callee as a valid CString."
-                    )
-                    .ok();
-                    writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
-                    writeln!(out, "Ok(cs.to_string_lossy().into_owned())").ok();
+                    out.push_str(
+                        "if _out_result.is_null() {{
+",
+                    );
+                    out.push_str(
+                        "    return Ok(String::new());
+",
+                    );
+                    out.push_str(
+                        "}}
+",
+                    );
+                    out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
+                    out.push_str(
+                        "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
+",
+                    );
+                    out.push_str(
+                        "Ok(cs.to_string_lossy().into_owned())
+",
+                    );
                 }
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                     let ret_ty = format_type_ref(&method.return_type, &spec.type_paths);
-                    writeln!(out, "if _out_result.is_null() {{").ok();
-                    writeln!(
-                        out,
-                        "    return Err(Box::from(\"vtable.{name} returned null out_result\"));"
-                    )
-                    .ok();
-                    writeln!(out, "}}").ok();
-                    writeln!(
-                        out,
-                        "// SAFETY: out_result was written by the callee as a valid CString."
-                    )
-                    .ok();
-                    writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
-                    writeln!(out, "let json = cs.to_string_lossy();").ok();
-                    writeln!(
-                        out,
-                        "serde_json::from_str::<{ret_ty}>(&json).map_err(|e| Box::from(e.to_string()) as Box<dyn std::error::Error + Send + Sync>)"
-                    )
-                    .ok();
+                    out.push_str(
+                        "if _out_result.is_null() {{
+",
+                    );
+                    out.push_str("return Err(Box::from(\"vtable.{name} returned null out_result\"));\n");
+                    out.push_str(
+                        "}}
+",
+                    );
+                    out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
+                    out.push_str(
+                        "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
+",
+                    );
+                    out.push_str(
+                        "let json = cs.to_string_lossy();
+",
+                    );
+                    out.push_str(&crate::template_env::render(
+                        "ffi_serde_from_str_err.jinja",
+                        minijinja::context! {
+                            ret_ty => &ret_ty,
+                        },
+                    ));
                 }
                 TypeRef::Primitive(PrimitiveType::Bool) => {
-                    writeln!(out, "Ok(_rc != 0)").ok();
+                    out.push_str(
+                        "Ok(_rc != 0)
+",
+                    );
                 }
                 other => {
                     let ret_ty = format_type_ref(other, &spec.type_paths);
-                    writeln!(out, "Ok(_rc as {ret_ty})").ok();
+                    out.push_str(&crate::template_env::render(
+                        "ffi_ok_rc_as.jinja",
+                        minijinja::context! {
+                            ret_ty => &ret_ty,
+                        },
+                    ));
                 }
             }
         } else {
@@ -319,38 +414,73 @@ impl FfiBridgeGenerator {
             match &method.return_type {
                 TypeRef::Unit => {}
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                    writeln!(out, "if _out_result.is_null() {{").ok();
-                    writeln!(out, "    return String::new();").ok();
-                    writeln!(out, "}}").ok();
-                    writeln!(
-                        out,
-                        "// SAFETY: out_result was written by the callee as a valid CString."
-                    )
-                    .ok();
-                    writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
-                    writeln!(out, "cs.to_string_lossy().into_owned()").ok();
+                    out.push_str(
+                        "if _out_result.is_null() {{
+",
+                    );
+                    out.push_str(
+                        "    return String::new();
+",
+                    );
+                    out.push_str(
+                        "}}
+",
+                    );
+                    out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
+                    out.push_str(
+                        "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
+",
+                    );
+                    out.push_str(
+                        "cs.to_string_lossy().into_owned()
+",
+                    );
                 }
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                     let ret_ty = format_type_ref(&method.return_type, &spec.type_paths);
-                    writeln!(out, "if _out_result.is_null() {{").ok();
-                    writeln!(out, "    return Default::default();").ok();
-                    writeln!(out, "}}").ok();
-                    writeln!(
-                        out,
-                        "// SAFETY: out_result was written by the callee as a valid CString."
-                    )
-                    .ok();
-                    writeln!(out, "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};").ok();
-                    writeln!(out, "let json = cs.to_string_lossy();").ok();
-                    writeln!(out, "serde_json::from_str::<{ret_ty}>(&json).unwrap_or_default()").ok();
+                    out.push_str(
+                        "if _out_result.is_null() {{
+",
+                    );
+                    out.push_str(
+                        "    return Default::default();
+",
+                    );
+                    out.push_str(
+                        "}}
+",
+                    );
+                    out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
+                    out.push_str(
+                        "let cs = unsafe {{ std::ffi::CString::from_raw(_out_result) }};
+",
+                    );
+                    out.push_str(
+                        "let json = cs.to_string_lossy();
+",
+                    );
+                    out.push_str(&crate::template_env::render(
+                        "ffi_serde_from_str_default.jinja",
+                        minijinja::context! {
+                            ret_ty => &ret_ty,
+                        },
+                    ));
                 }
                 TypeRef::Primitive(PrimitiveType::Bool) => {
-                    writeln!(out, "_rc != 0").ok();
+                    out.push_str(
+                        "_rc != 0
+",
+                    );
                 }
                 TypeRef::Primitive(_) | TypeRef::Duration => {
                     // tail_returns_rc_only path: emit the unsafe call as the tail expression
                     // (no preceding `let _rc = ...;`) to avoid clippy::let_and_return.
-                    writeln!(out, "unsafe {{ fp({args_str}) }}").ok();
+                    out.push_str(&crate::template_env::render(
+                        "ffi_unsafe_fp_tail.jinja",
+                        minijinja::context! {
+                            args => &args_str,
+                        },
+                    ));
                 }
                 _ => {}
             }

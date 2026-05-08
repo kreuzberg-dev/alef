@@ -425,7 +425,6 @@ fn flat_field_name(variant: &EnumVariant, field_index: usize) -> String {
 /// after the serde tag (defaulting to `"type"`). This lets `HashMap<String, SecuritySchemeInfo>`
 /// stay as `HashMap<String, SecuritySchemeInfo>` (the flat PHP class) with working `From` impls.
 pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_namespace: Option<&str>) -> String {
-    use std::fmt::Write as _;
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
 
     let php_attrs: String = if let Some(ns) = php_namespace {
@@ -437,13 +436,20 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
     };
 
     let mut out = String::new();
-    writeln!(out, "{php_attrs}").ok();
-    writeln!(out, "#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]").ok();
-    writeln!(out, "pub struct {} {{", enum_def.name).ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_struct_start.jinja",
+        minijinja::context! {
+            php_attrs => &php_attrs,
+            enum_name => &enum_def.name,
+        },
+    ));
     // Discriminator field
-    writeln!(out, "    #[php(prop, name = \"{tag_field}\")]").ok();
-    writeln!(out, "    #[serde(rename = \"{tag_field}\")]").ok();
-    writeln!(out, "    pub {tag_field}_tag: String,").ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_tag_field.jinja",
+        minijinja::context! {
+            tag_field => tag_field,
+        },
+    ));
 
     // Collect all unique flat fields across variants, all made Optional.
     // For tuple variants each positional field gets a per-variant name so that
@@ -460,18 +466,25 @@ pub(crate) fn gen_flat_data_enum(enum_def: &EnumDef, mapper: &PhpMapper, php_nam
                 // field is already optional (field.optional == true), the mapped type
                 // is the inner type and we still wrap it in Option.
                 let field_ty = format!("Option<{mapped}>");
-                writeln!(out, "    #[serde(skip_serializing_if = \"Option::is_none\")]").ok();
-                writeln!(out, "    pub {flat_name}: {field_ty},").ok();
+                out.push_str(&crate::template_env::render(
+                    "php_flat_enum_option_field.jinja",
+                    minijinja::context! {
+                        flat_name => &flat_name,
+                        field_ty => &field_ty,
+                    },
+                ));
             }
         }
     }
-    out.push('}');
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_struct_end.jinja",
+        minijinja::Value::default(),
+    ));
     out
 }
 
 /// Generate `#[php_impl]` accessor methods and a `from_json` constructor for the flat data enum.
 pub(crate) fn gen_flat_data_enum_methods(enum_def: &EnumDef, mapper: &PhpMapper) -> String {
-    use std::fmt::Write as _;
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let mut impl_builder = ImplBuilder::new(&enum_def.name);
     impl_builder.add_attr("php_impl");
@@ -511,7 +524,9 @@ pub(crate) fn gen_flat_data_enum_methods(enum_def: &EnumDef, mapper: &PhpMapper)
     }
 
     let mut out = String::new();
-    writeln!(out, "{}", impl_builder.build()).ok();
+    let impl_code = impl_builder.build();
+    out.push_str(&impl_code);
+    out.push('\n');
     out
 }
 
@@ -544,7 +559,6 @@ fn apply_rename_all(name: &str, strategy: &str) -> String {
 /// for a tagged data enum lowered to a flat PHP class.
 pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &str) -> String {
     use alef_core::ir::{PrimitiveType, TypeRef};
-    use std::fmt::Write as _;
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let core_path = alef_codegen::conversions::core_enum_path(enum_def, core_import);
     let binding_name = &enum_def.name;
@@ -568,28 +582,28 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
     // Destructuring patterns for boxed fields use the raw IR name (e.g. `_0`);
     // sanitized fields are excluded from the pattern (bound with `_`-prefixed name),
     // Path fields are converted via `to_string_lossy()`, Usize/U64/Isize are cast to i64.
-    writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();
-    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
-    writeln!(out, "        match val {{").ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_impl_from_start.jinja",
+        minijinja::context! {
+            core_path => &core_path,
+            binding_name => &binding_name,
+        },
+    ));
     for variant in &enum_def.variants {
         let tag_val = variant_tag_value(variant, enum_def);
         if variant.fields.is_empty() {
             // No variant fields: only the tag is set; all Option fields default to None.
             // `..Default::default()` is only needed when the struct has other fields.
-            if all_flat_fields.is_empty() {
-                writeln!(
-                    out,
-                    "            {core_path}::{name} => Self {{ {tag_field}_tag: \"{tag_val}\".to_string() }},",
-                    name = variant.name,
-                )
-                .ok();
-            } else {
-                writeln!(
-                    out,
-                    "            {core_path}::{name} => Self {{ {tag_field}_tag: \"{tag_val}\".to_string(), ..Default::default() }},",
-                    name = variant.name,
-                ).ok();
-            }
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_variant_match_empty.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    variant_name => &variant.name,
+                    tag_field => tag_field,
+                    tag_val => &tag_val,
+                    needs_default => !all_flat_fields.is_empty(),
+                },
+            ));
         } else {
             let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
             // Build destructuring pattern.
@@ -627,17 +641,19 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                     .collect();
                 bindings.join(", ")
             };
-            if is_tuple {
-                write!(out, "            {core_path}::{}({pattern}) => Self {{", variant.name).ok();
+            let pattern_start = if is_tuple {
+                format!("            {core_path}::{}({pattern}) => Self {{", variant.name)
             } else {
-                write!(
-                    out,
-                    "            {core_path}::{}{{ {pattern} }} => Self {{",
-                    variant.name
-                )
-                .ok();
-            }
-            write!(out, " {tag_field}_tag: \"{tag_val}\".to_string(),").ok();
+                format!("            {core_path}::{}{{ {pattern} }} => Self {{", variant.name)
+            };
+            out.push_str(&pattern_start);
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_tag_assignment.jinja",
+                minijinja::context! {
+                    tag_field => tag_field,
+                    tag_val => &tag_val,
+                },
+            ));
             for (idx, f) in variant.fields.iter().enumerate() {
                 let flat_name = flat_field_name(variant, idx);
                 // The destructuring variable name:
@@ -651,43 +667,61 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                 };
                 // f.optional means the core field is Option<T>; binding is always Option<T>.
                 let expr = flat_enum_core_to_binding_field_expr(f, &bound_var);
-                write!(out, " {flat_name}: {expr},").ok();
+                out.push_str(&crate::template_env::render(
+                    "php_flat_enum_variant_field.jinja",
+                    minijinja::context! {
+                        flat_name => &flat_name,
+                        expr => &expr,
+                    },
+                ));
             }
             // Omit `..Default::default()` when this variant's fields cover every flat struct
             // field — the struct update would have no effect and triggers `clippy::needless_update`.
             let variant_flat_names: std::collections::BTreeSet<String> =
                 (0..variant.fields.len()).map(|i| flat_field_name(variant, i)).collect();
             if variant_flat_names == all_flat_fields {
-                writeln!(out, " }},").ok();
+                out.push_str(" }},\n");
             } else {
-                writeln!(out, " ..Default::default() }},").ok();
+                out.push_str(" ..Default::default() }},\n");
             }
         }
     }
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
-
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_impl_match_end.jinja",
+        minijinja::Value::default(),
+    ));
 
     // --- binding → core: match on the tag field to reconstruct the correct variant ---
     // We use tag-value matching rather than serde round-trip to avoid serde field rename
     // mismatches between the flat struct (uses Rust snake_case names) and the core type
     // (may have #[serde(rename = "camelCase")] on individual variant fields).
-    writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
-    writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
-    writeln!(out, "        match val.{tag_field}_tag.as_str() {{").ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_impl_into_start.jinja",
+        minijinja::context! {
+            binding_name => &binding_name,
+            core_path => &core_path,
+            tag_field => tag_field,
+        },
+    ));
     for variant in &enum_def.variants {
         let tag_val = variant_tag_value(variant, enum_def);
         if variant.fields.is_empty() {
-            writeln!(out, "            \"{tag_val}\" => {core_path}::{},", variant.name).ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_variant_match_into_empty.jinja",
+                minijinja::context! {
+                    tag_val => &tag_val,
+                    core_path => &core_path,
+                    variant_name => &variant.name,
+                },
+            ));
         } else {
             let is_tuple = alef_codegen::conversions::is_tuple_variant(&variant.fields);
-            if is_tuple {
-                write!(out, "            \"{tag_val}\" => {core_path}::{}(", variant.name).ok();
+            let pattern_start = if is_tuple {
+                format!("            \"{tag_val}\" => {core_path}::{}(", variant.name)
             } else {
-                write!(out, "            \"{tag_val}\" => {core_path}::{}{{", variant.name).ok();
-            }
+                format!("            \"{tag_val}\" => {core_path}::{}{{", variant.name)
+            };
+            out.push_str(&pattern_start);
             if is_tuple {
                 // Tuple variant: positional syntax uses `, ` separators.
                 let exprs: Vec<String> = variant
@@ -696,25 +730,48 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                     .enumerate()
                     .map(|(idx, f)| flat_enum_binding_to_core_field_expr(f, &flat_field_name(variant, idx)))
                     .collect();
-                write!(out, " {}", exprs.join(", ")).ok();
-                writeln!(out, " ),").ok();
+                out.push_str(&crate::template_env::render(
+                    "php_flat_enum_tuple_exprs.jinja",
+                    minijinja::context! {
+                        exprs_joined => exprs.join(", "),
+                    },
+                ));
+                out.push_str(" ),\n");
             } else {
                 // Struct variant: `field_name: <expr>,` for each field.
                 for (idx, f) in variant.fields.iter().enumerate() {
                     let flat_name = flat_field_name(variant, idx);
                     let expr = flat_enum_binding_to_core_field_expr(f, &flat_name);
-                    write!(out, " {flat_name}: {expr},").ok();
+                    out.push_str(&crate::template_env::render(
+                        "php_flat_enum_variant_field.jinja",
+                        minijinja::context! {
+                            flat_name => &flat_name,
+                            expr => &expr,
+                        },
+                    ));
                 }
-                writeln!(out, " }},").ok();
+                out.push_str(" }},\n");
             }
         }
     }
     // Fallback to first variant (with all fields defaulted) for unrecognised tags.
     if let Some(first) = enum_def.variants.first() {
         if first.fields.is_empty() {
-            writeln!(out, "            _ => {core_path}::{},", first.name).ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_fallback_variant_empty.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    variant_name => &first.name,
+                },
+            ));
         } else if alef_codegen::conversions::is_tuple_variant(&first.fields) {
-            write!(out, "            _ => {core_path}::{}(", first.name).ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_fallback_variant_tuple_start.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    variant_name => &first.name,
+                },
+            ));
             let parts: Vec<String> = first
                 .fields
                 .iter()
@@ -726,24 +783,42 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
                     }
                 })
                 .collect();
-            write!(out, " {}", parts.join(", ")).ok();
-            writeln!(out, " ),").ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_tuple_exprs.jinja",
+                minijinja::context! {
+                    exprs_joined => parts.join(", "),
+                },
+            ));
+            out.push_str(" ),\n");
         } else {
-            write!(out, "            _ => {core_path}::{}{{", first.name).ok();
+            out.push_str(&crate::template_env::render(
+                "php_flat_enum_fallback_variant_struct_start.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    variant_name => &first.name,
+                },
+            ));
             for f in &first.fields {
                 let default_expr = if f.is_boxed {
                     format!("{name}: Box::new(Default::default()),", name = f.name)
                 } else {
                     format!("{name}: Default::default(),", name = f.name)
                 };
-                write!(out, " {default_expr}").ok();
+                out.push_str(&crate::template_env::render(
+                    "php_flat_enum_fallback_variant_field.jinja",
+                    minijinja::context! {
+                        field_name => &f.name,
+                        default_expr => &default_expr,
+                    },
+                ));
             }
-            writeln!(out, " }},").ok();
+            out.push_str(" }},\n");
         }
     }
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
+    out.push_str(&crate::template_env::render(
+        "php_flat_enum_impl_match_end.jinja",
+        minijinja::Value::default(),
+    ));
 
     // Suppress the unused import warning that would appear when TypeRef/PrimitiveType
     // are only referenced inside the helper closures above (Rust may not see the use).

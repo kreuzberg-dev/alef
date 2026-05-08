@@ -264,52 +264,27 @@ fn render_package_json(
         crate::config::DependencyMode::Registry => pkg_version.to_string(),
         crate::config::DependencyMode::Local => format!("file:{pkg_path}"),
     };
-    format!(
-        r#"{{
-  "name": "{pkg_name}-e2e-wasm",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {{
-    "test": "vitest run"
-  }},
-  "devDependencies": {{
-    "{pkg_name}": "{dep_value}",
-    "rollup": "{rollup}",
-    "vite-plugin-wasm": "{vite_plugin_wasm}",
-    "vitest": "{vitest}"
-  }}
-}}
-"#,
-        rollup = tv::npm::ROLLUP,
-        vite_plugin_wasm = tv::npm::VITE_PLUGIN_WASM,
-        vitest = tv::npm::VITEST,
+    crate::template_env::render(
+        "wasm/package.json.jinja",
+        minijinja::context! {
+            pkg_name => pkg_name,
+            dep_value => dep_value,
+            rollup => tv::npm::ROLLUP,
+            vite_plugin_wasm => tv::npm::VITE_PLUGIN_WASM,
+            vitest => tv::npm::VITEST,
+        },
     )
 }
 
 fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    let setup_files_line = if with_file_setup {
-        "    setupFiles: ['./setup.ts'],\n"
-    } else {
-        ""
-    };
-    let global_setup_line = if with_global_setup {
-        "    globalSetup: './globalSetup.ts',\n"
-    } else {
-        ""
-    };
-    format!(
-        r#"{header}import {{ defineConfig }} from 'vitest/config';
-import wasm from 'vite-plugin-wasm';
-
-export default defineConfig({{
-  plugins: [wasm()],
-  test: {{
-    include: ['tests/**/*.test.ts'],
-{global_setup_line}{setup_files_line}  }},
-}});
-"#
+    crate::template_env::render(
+        "wasm/vitest.config.ts.jinja",
+        minijinja::context! {
+            header => header,
+            with_global_setup => with_global_setup,
+            with_file_setup => with_file_setup,
+        },
     )
 }
 
@@ -332,56 +307,16 @@ process.chdir(testDocumentsDir);
 
 fn render_global_setup() -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    format!(
-        r#"{header}import {{ spawn }} from 'child_process';
-import {{ resolve }} from 'path';
-
-let serverProcess: any;
-
-export async function setup() {{
-  // Mock server binary must be pre-built (e.g. by CI or `cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release`)
-  serverProcess = spawn(
-    resolve(__dirname, '../rust/target/release/mock-server'),
-    [resolve(__dirname, '../../fixtures')],
-    {{ stdio: ['pipe', 'pipe', 'inherit'] }}
-  );
-
-  const url = await new Promise<string>((resolve, reject) => {{
-    serverProcess.stdout.on('data', (data: Buffer) => {{
-      const match = data.toString().match(/MOCK_SERVER_URL=(.*)/);
-      if (match) resolve(match[1].trim());
-    }});
-    setTimeout(() => reject(new Error('Mock server startup timeout')), 30000);
-  }});
-
-  process.env.MOCK_SERVER_URL = url;
-}}
-
-export async function teardown() {{
-  if (serverProcess) {{
-    serverProcess.stdin.end();
-    serverProcess.kill();
-  }}
-}}
-"#
+    crate::template_env::render(
+        "wasm/globalSetup.ts.jinja",
+        minijinja::context! {
+            header => header,
+        },
     )
 }
 
 fn render_tsconfig() -> String {
-    r#"{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "strictNullChecks": false,
-    "esModuleInterop": true,
-    "skipLibCheck": true
-  },
-  "include": ["tests/**/*.ts", "vitest.config.ts"]
-}
-"#
-    .to_string()
+    crate::template_env::render("wasm/tsconfig.jinja", minijinja::context! {})
 }
 
 /// Inject WASM initialization code for Node.js environments.

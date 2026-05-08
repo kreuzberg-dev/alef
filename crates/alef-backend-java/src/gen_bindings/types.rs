@@ -4,7 +4,6 @@ use alef_codegen::naming::to_class_name;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{DefaultValue, EnumDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
-use std::fmt::Write;
 
 use super::helpers::{
     RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, escape_javadoc_line, format_optional_value, is_tuple_field_name,
@@ -86,19 +85,30 @@ pub(crate) fn gen_record_type(
             decl.push_str("@JsonInclude(JsonInclude.Include.NON_NULL) ");
         }
         if has_json_property && !is_visitor_field {
-            decl.push_str(&format!("@JsonProperty(\"{}\") ", f.name));
+            decl.push_str("@JsonProperty(\"");
+            decl.push_str(&f.name);
+            decl.push_str("\") ");
         }
         if has_nullable && !nullable_at_leading_pos {
             // Fully-qualified type: insert `@Nullable` at the last package boundary.
             if let Some(idx) = ftype.rfind('.') {
                 let (pkg, simple) = ftype.split_at(idx);
                 let simple = simple.trim_start_matches('.');
-                decl.push_str(&format!("{pkg}.@Nullable {simple} {jname}"));
+                decl.push_str(pkg);
+                decl.push_str(".@Nullable ");
+                decl.push_str(simple);
+                decl.push(' ');
+                decl.push_str(&jname);
             } else {
-                decl.push_str(&format!("@Nullable {ftype} {jname}"));
+                decl.push_str("@Nullable ");
+                decl.push_str(&ftype);
+                decl.push(' ');
+                decl.push_str(&jname);
             }
         } else {
-            decl.push_str(&format!("{} {}", ftype, jname));
+            decl.push_str(&ftype);
+            decl.push(' ');
+            decl.push_str(&jname);
         }
 
         if i > 0 {
@@ -120,7 +130,6 @@ pub(crate) fn gen_record_type(
     // Build the actual record declaration, splitting across lines if too long.
     let mut record_block = String::new();
     emit_javadoc(&mut record_block, &typ.doc, "");
-    writeln!(record_block, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     // Suppress absent fields during serialization: null Java values and empty Optionals must
     // not be sent to Rust as `null` JSON.  Rust's serde would reject null for non-optional
     // fields, and `serde(skip)` fields (e.g. `cancel_token`) cause "unknown field" errors
@@ -130,103 +139,38 @@ pub(crate) fn gen_record_type(
     // This only affects serialization (Java → Rust). Deserialization (Rust → Java) is
     // unaffected, so result types are safe to annotate with this too.
     if typ.has_serde {
-        writeln!(record_block, "@JsonInclude(JsonInclude.Include.NON_ABSENT)").ok();
+        record_block.push_str("@JsonInclude(JsonInclude.Include.NON_ABSENT)\n");
     }
     // When a builder is available, configure Jackson to use it during deserialization.
     // This ensures that fields with serde defaults (e.g., `enabled = true`) use the
     // builder's defaults instead of Java primitive defaults (false for bool).
     if typ.has_default {
-        writeln!(record_block, "@JsonDeserialize(builder = {}Builder.class)", typ.name).ok();
+        record_block.push_str("@JsonDeserialize(builder = ");
+        record_block.push_str(&typ.name);
+        record_block.push_str("Builder.class)\n");
     }
     if single_line_len > RECORD_LINE_WRAP_THRESHOLD && field_entries.len() > 1 {
-        writeln!(record_block, "public record {}(", typ.name).ok();
-        for (i, entry) in field_entries.iter().enumerate() {
-            let comma = if i < field_entries.len() - 1 { "," } else { "" };
-            if !entry.doc.is_empty() {
-                // Inline single-line doc for record components in multi-line form.
-                let doc_summary = escape_javadoc_line(entry.doc.lines().next().unwrap_or("").trim());
-                writeln!(record_block, "    /** {doc_summary} */").ok();
-            }
-            // Check if the field declaration line would exceed 120 chars; if so, split annotations
-            let line_with_indent_and_comma = format!("    {}{}", entry.decl, comma);
-            if line_with_indent_and_comma.len() > 120 {
-                // Try to split: put each annotation on its own line, then the field type and name
-                let mut anno_lines = Vec::new();
-                let mut rest_of_decl = entry.decl.as_str();
-
-                // Extract @-prefixed tokens as separate annotations
-                loop {
-                    let trimmed = rest_of_decl.trim_start();
-                    if trimmed.starts_with('@') {
-                        // Find the end of this annotation (either space or paren)
-                        if let Some(paren_pos) = trimmed.find('(') {
-                            // Annotation with parameters — find matching )
-                            let mut paren_count = 1;
-                            let after_paren = &trimmed[paren_pos + 1..];
-                            let mut end_pos = paren_pos + 1;
-                            for ch in after_paren.chars() {
-                                if ch == '(' {
-                                    paren_count += 1;
-                                } else if ch == ')' {
-                                    paren_count -= 1;
-                                    if paren_count == 0 {
-                                        break;
-                                    }
-                                }
-                                end_pos += 1;
-                            }
-                            let anno = trimmed[..end_pos + 1].trim_end();
-                            anno_lines.push(anno.to_string());
-                            rest_of_decl = &trimmed[end_pos + 1..];
-                        } else {
-                            // Annotation without parameters
-                            let space_pos = trimmed.find(' ').unwrap_or(trimmed.len());
-                            anno_lines.push(trimmed[..space_pos].to_string());
-                            rest_of_decl = &trimmed[space_pos..];
-                        }
-                    } else {
-                        break;
-                    }
-                }
-
-                // Emit annotations on separate lines
-                for anno in anno_lines {
-                    writeln!(record_block, "    {}", anno).ok();
-                }
-                // Emit the type and field name on the final line
-                // Check if rest_of_decl.trim() + comma still exceeds 120 chars
-                let rest_trimmed = rest_of_decl.trim();
-                let final_line = format!("    {}{}", rest_trimmed, comma);
-                if final_line.len() > 120 && rest_trimmed.contains(' ') {
-                    // Split type and field name further if still too long
-                    // Find the last space (which separates type from field name)
-                    if let Some(space_idx) = rest_trimmed.rfind(' ') {
-                        let field_type = &rest_trimmed[..space_idx];
-                        let field_name = &rest_trimmed[space_idx + 1..];
-                        writeln!(record_block, "    {}", field_type).ok();
-                        writeln!(record_block, "            {}{}", field_name, comma).ok();
-                    } else {
-                        // Unlikely case: no space to split on, emit as-is
-                        writeln!(record_block, "    {}{}", rest_trimmed, comma).ok();
-                    }
-                } else {
-                    writeln!(record_block, "    {}{}", rest_trimmed, comma).ok();
-                }
-            } else {
-                writeln!(record_block, "    {}{}", entry.decl, comma).ok();
-            }
-        }
-        writeln!(record_block, ") {{").ok();
+        record_block.push_str("public record ");
+        record_block.push_str(&typ.name);
+        record_block.push_str("(\n");
     } else {
         // Reuse fields_joined — no second allocation.
-        writeln!(record_block, "public record {}({}) {{", typ.name, fields_joined).ok();
+        record_block.push_str("public record ");
+        record_block.push_str(&typ.name);
+        record_block.push('(');
+        record_block.push_str(&fields_joined);
+        record_block.push_str(") {\n");
     }
 
     // Add builder() factory method if type has defaults
     if typ.has_default {
-        writeln!(record_block, "    public static {}Builder builder() {{", typ.name).ok();
-        writeln!(record_block, "        return new {}Builder();", typ.name).ok();
-        writeln!(record_block, "    }}").ok();
+        record_block.push_str("    public static ");
+        record_block.push_str(&typ.name);
+        record_block.push_str("Builder builder() {\n");
+        record_block.push_str("        return new ");
+        record_block.push_str(&typ.name);
+        record_block.push_str("Builder();\n");
+        record_block.push_str("    }}\n");
     }
 
     // Generate a compact constructor that applies Rust-side defaults for non-optional
@@ -261,11 +205,14 @@ pub(crate) fn gen_record_type(
         .collect();
 
     if !compact_ctor_lines.is_empty() {
-        writeln!(record_block, "    public {}{{", typ.name).ok();
+        record_block.push_str("    public ");
+        record_block.push_str(&typ.name);
+        record_block.push_str("{\n");
         for line in &compact_ctor_lines {
-            writeln!(record_block, "{line}").ok();
+            record_block.push_str(line);
+            record_block.push('\n');
         }
-        writeln!(record_block, "    }}").ok();
+        record_block.push_str("    }}\n");
     }
 
     // Note: do NOT emit Optional<String>-returning shadow accessors for nullable
@@ -275,7 +222,7 @@ pub(crate) fn gen_record_type(
     // `Optional.ofNullable(record.content())` at the call site, or the e2e
     // codegen emits a null-safe pattern.
 
-    writeln!(record_block, "}}").ok();
+    record_block.push_str("}}\n");
 
     // Scan fields_joined (the joined field declarations) to determine which imports are needed.
     let needs_json_property = fields_joined.contains("@JsonProperty(");
@@ -290,40 +237,41 @@ pub(crate) fn gen_record_type(
     let _needs_transient = fields_joined.contains("@Transient");
     // Optional is needed if fields have Optional<T> in declaration
     let needs_optional = fields_joined.contains("Optional<");
-    let mut out = String::with_capacity(record_block.len() + 512);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {};", package).ok();
-    writeln!(out).ok();
+    let mut imports: Vec<&str> = vec![];
     if fields_joined.contains("List<") {
-        writeln!(out, "import java.util.List;").ok();
+        imports.push("java.util.List");
     }
     if fields_joined.contains("Map<") {
-        writeln!(out, "import java.util.Map;").ok();
+        imports.push("java.util.Map");
     }
     if needs_optional {
-        writeln!(out, "import java.util.Optional;").ok();
+        imports.push("java.util.Optional");
     }
     if needs_json_property {
-        writeln!(out, "import com.fasterxml.jackson.annotation.JsonProperty;").ok();
+        imports.push("com.fasterxml.jackson.annotation.JsonProperty");
     }
     if needs_json_include {
-        writeln!(out, "import com.fasterxml.jackson.annotation.JsonInclude;").ok();
+        imports.push("com.fasterxml.jackson.annotation.JsonInclude");
     }
     if needs_json_deserialize {
-        writeln!(out, "import com.fasterxml.jackson.databind.annotation.JsonDeserialize;").ok();
-    }
-    if needs_json_ignore {
-        writeln!(out, "import com.fasterxml.jackson.annotation.JsonIgnore;").ok();
+        imports.push("com.fasterxml.jackson.databind.annotation.JsonDeserialize");
     }
     // No `import java.beans.Transient;` is needed: records have no fields to mark
     // `transient` and the `@Transient` annotation is meaningful only on JavaBean
     // getters, not record components. `@JsonIgnore` already covers serialization.
-    if needs_nullable {
-        writeln!(out, "import org.jspecify.annotations.Nullable;").ok();
+    if needs_json_ignore {
+        imports.push("com.fasterxml.jackson.annotation.JsonIgnore");
     }
-    writeln!(out).ok();
-    write!(out, "{}", record_block).ok();
-
+    if needs_nullable {
+        imports.push("org.jspecify.annotations.Nullable");
+    }
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let mut out = crate::template_env::render(
+        "java_file_header.jinja",
+        minijinja::context! { header => header, package => package, imports => &imports },
+    );
+    out.push('\n');
+    out.push_str(&record_block);
     out
 }
 
@@ -335,18 +283,21 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
         return gen_java_tagged_union(package, enum_def);
     }
 
-    let mut out = String::with_capacity(1024);
-
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {};", package).ok();
-    writeln!(out).ok();
-    writeln!(out, "import com.fasterxml.jackson.annotation.JsonCreator;").ok();
-    writeln!(out, "import com.fasterxml.jackson.annotation.JsonValue;").ok();
-    writeln!(out).ok();
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let imports = [
+        "com.fasterxml.jackson.annotation.JsonCreator",
+        "com.fasterxml.jackson.annotation.JsonValue",
+    ];
+    let mut out = crate::template_env::render(
+        "java_file_header.jinja",
+        minijinja::context! { header => header, package => package, imports => &imports },
+    );
+    out.push('\n');
 
     emit_javadoc(&mut out, &enum_def.doc, "");
-    writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
-    writeln!(out, "public enum {} {{", enum_def.name).ok();
+    out.push_str("public enum ");
+    out.push_str(&enum_def.name);
+    out.push_str(" {\n");
 
     for (i, variant) in enum_def.variants.iter().enumerate() {
         let comma = if i < enum_def.variants.len() - 1 { "," } else { ";" };
@@ -359,51 +310,58 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
             let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
             // 4 spaces indent + "/** " + " */" = 11 chars overhead; wrap if total > 80
             if doc_summary.len() + 11 > 80 {
-                writeln!(out, "    /**").ok();
-                writeln!(out, "     * {doc_summary}").ok();
-                writeln!(out, "     */").ok();
+                out.push_str("    /**\n");
+                out.push_str("     * ");
+                out.push_str(&doc_summary);
+                out.push_str("\n");
+                out.push_str("     */\n");
             } else {
-                writeln!(out, "    /** {doc_summary} */").ok();
+                out.push_str("    /** ");
+                out.push_str(&doc_summary);
+                out.push_str(" */\n");
             }
         }
-        writeln!(out, "    {}(\"{}\"){}", variant.name, json_name, comma).ok();
+        out.push_str("    ");
+        out.push_str(&variant.name);
+        out.push_str("(\"");
+        out.push_str(&json_name);
+        out.push_str("\")");
+        out.push_str(&comma);
+        out.push('\n');
     }
 
-    writeln!(out).ok();
-    writeln!(out, "    /** The string value. */").ok();
-    writeln!(out, "    private final String value;").ok();
-    writeln!(out).ok();
-    writeln!(out, "    {}(final String value) {{", enum_def.name).ok();
-    writeln!(out, "        this.value = value;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Returns the string value. */").ok();
-    writeln!(out, "    @JsonValue").ok();
-    writeln!(out, "    public String getValue() {{").ok();
-    writeln!(out, "        return value;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    /** Creates an instance from a string value. */").ok();
-    writeln!(out, "    @JsonCreator").ok();
-    writeln!(
-        out,
-        "    public static {} fromValue(final String value) {{",
-        enum_def.name
-    )
-    .ok();
-    writeln!(out, "        for ({} e : values()) {{", enum_def.name).ok();
-    writeln!(out, "            if (e.value.equalsIgnoreCase(value)) {{").ok();
-    writeln!(out, "                return e;").ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(
-        out,
-        "        throw new IllegalArgumentException(\"Unknown value: \" + value);"
-    )
-    .ok();
-    writeln!(out, "    }}").ok();
+    out.push('\n');
+    out.push_str("    /** The string value. */\n");
+    out.push_str("    private final String value;\n");
+    out.push('\n');
+    out.push_str("    ");
+    out.push_str(&enum_def.name);
+    out.push_str("(final String value) {\n");
+    out.push_str("        this.value = value;\n");
+    out.push_str("    }}\n");
+    out.push('\n');
+    out.push_str("    /** Returns the string value. */\n");
+    out.push_str("    @JsonValue\n");
+    out.push_str("    public String getValue() {\n");
+    out.push_str("        return value;\n");
+    out.push_str("    }}\n");
+    out.push('\n');
+    out.push_str("    /** Creates an instance from a string value. */\n");
+    out.push_str("    @JsonCreator\n");
+    out.push_str("    public static ");
+    out.push_str(&enum_def.name);
+    out.push_str(" fromValue(final String value) {\n");
+    out.push_str("        for (");
+    out.push_str(&enum_def.name);
+    out.push_str(" e : values()) {\n");
+    out.push_str("            if (e.value.equalsIgnoreCase(value)) {{\n");
+    out.push_str("                return e;\n");
+    out.push_str("            }}\n");
+    out.push_str("        }}\n");
+    out.push_str("        throw new IllegalArgumentException(\"Unknown value: \" + value);\n");
+    out.push_str("    }}\n");
 
-    writeln!(out, "}}").ok();
+    out.push_str("}}\n");
 
     out
 }
@@ -435,16 +393,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         .iter()
         .any(|v| !v.fields.is_empty() && is_tuple_field_name(&v.fields[0].name));
 
-    let mut out = String::with_capacity(2048);
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {};", package).ok();
-    writeln!(out).ok();
-    if needs_json_property {
-        writeln!(out, "import com.fasterxml.jackson.annotation.JsonProperty;").ok();
-    }
-    writeln!(out, "import com.fasterxml.jackson.annotation.JsonSubTypes;").ok();
-    writeln!(out, "import com.fasterxml.jackson.annotation.JsonTypeInfo;").ok();
-
     // Check if any field types need list/map/optional imports (only when not conflicting)
     let needs_list = !variant_names.contains("List")
         && enum_def
@@ -458,64 +406,68 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             .any(|v| v.fields.iter().any(|f| matches!(&f.ty, TypeRef::Map(_, _))));
     let needs_optional =
         !variant_names.contains("Optional") && enum_def.variants.iter().any(|v| v.fields.iter().any(|f| f.optional));
+    // Newtype/tuple variants (field name is a numeric index like "0") are flattened
+    // into the parent JSON object using @JsonUnwrapped.
+    let needs_unwrapped = enum_def
+        .variants
+        .iter()
+        .any(|v| v.fields.len() == 1 && is_tuple_field_name(&v.fields[0].name));
+
+    let mut imports: Vec<&str> = vec![];
+    if needs_json_property {
+        imports.push("com.fasterxml.jackson.annotation.JsonProperty");
+    }
+    imports.push("com.fasterxml.jackson.annotation.JsonSubTypes");
+    imports.push("com.fasterxml.jackson.annotation.JsonTypeInfo");
     if needs_list {
-        writeln!(out, "import java.util.List;").ok();
+        imports.push("java.util.List");
     }
     if needs_map {
-        writeln!(out, "import java.util.Map;").ok();
+        imports.push("java.util.Map");
     }
     if needs_optional {
-        writeln!(out, "import java.util.Optional;").ok();
+        imports.push("java.util.Optional");
+    }
+    if needs_unwrapped {
+        imports.push("com.fasterxml.jackson.annotation.JsonUnwrapped");
     }
     if has_data_variants {
-        writeln!(out, "import org.jspecify.annotations.Nullable;").ok();
+        imports.push("org.jspecify.annotations.Nullable");
     }
-    writeln!(out).ok();
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let mut out = crate::template_env::render(
+        "java_file_header.jinja",
+        minijinja::context! { header => header, package => package, imports => &imports },
+    );
+    out.push('\n');
 
     emit_javadoc(&mut out, &enum_def.doc, "");
-    writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     // @JsonTypeInfo and @JsonSubTypes annotations
-    writeln!(
-        out,
-        "@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = \"{tag_field}\", visible = false)"
-    )
-    .ok();
-    writeln!(out, "@JsonSubTypes({{").ok();
-    for (i, variant) in enum_def.variants.iter().enumerate() {
-        let discriminator = variant
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| java_apply_rename_all(&variant.name, enum_def.serde_rename_all.as_deref()));
-        let comma = if i < enum_def.variants.len() - 1 { "," } else { "" };
-        writeln!(
-            out,
-            "    @JsonSubTypes.Type(value = {}.{}.class, name = \"{}\"){}",
-            enum_def.name, variant.name, discriminator, comma
-        )
-        .ok();
-    }
-    writeln!(out, "}})").ok();
-    // Newtype variants with flattened fields cannot directly map to record fields.
-    // Allow unknown properties at the interface level so Jackson doesn't fail when
-    // encountering flattened inner-type fields.
-    writeln!(
-        out,
-        "@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)"
-    )
-    .ok();
-    writeln!(out, "public sealed interface {} {{", enum_def.name).ok();
+    out.push_str("@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = \"");
+    out.push_str(&tag_field);
+    out.push_str("\", visible = false)\n");
+    out.push_str("@JsonSubTypes({{\n");
+    out.push_str("public sealed interface ");
+    out.push_str(&enum_def.name);
+    out.push_str(" {\n");
 
     // Nested records for each variant
     for variant in &enum_def.variants {
-        writeln!(out).ok();
+        out.push('\n');
         if variant.fields.is_empty() {
             // Unit variant
             if !variant.doc.is_empty() {
                 let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
-                writeln!(out, "    /** {doc_summary} */").ok();
+                out.push_str("    /** ");
+                out.push_str(&doc_summary);
+                out.push_str(" */\n");
             }
-            writeln!(out, "    record {}() implements {} {{", variant.name, enum_def.name).ok();
-            writeln!(out, "    }}").ok();
+            out.push_str("    record ");
+            out.push_str(&variant.name);
+            out.push_str("() implements ");
+            out.push_str(&enum_def.name);
+            out.push_str(" {\n");
+            out.push_str("    }}\n");
         } else {
             // Build field list using fully qualified names where variant names shadow imports
             let field_parts: Vec<String> = variant
@@ -547,10 +499,9 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                     };
                     // Tuple/newtype variants have numeric field names (e.g. "0", "_0").
                     // These are not real JSON keys — serde flattens the inner type's fields
-                    // alongside the tag. Use @JsonDeserialize with a custom deserializer
-                    // since Jackson records don't support @JsonUnwrapped on parameters.
+                    // alongside the tag. Use @JsonUnwrapped so Jackson does the same.
                     if is_tuple_field_name(&f.name) {
-                        format!("{ftype} value")
+                        format!("@JsonUnwrapped {ftype} value")
                     } else {
                         let json_name = f.name.trim_start_matches('_');
                         let jname = safe_java_field_name(json_name);
@@ -571,30 +522,30 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
 
             if !variant.doc.is_empty() {
                 let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
-                writeln!(out, "    /** {doc_summary} */").ok();
+                out.push_str("    /** ");
+                out.push_str(&doc_summary);
+                out.push_str(" */\n");
             }
             if single_len > RECORD_LINE_WRAP_THRESHOLD && field_parts.len() > 1 {
-                writeln!(out, "    record {}(", variant.name).ok();
-                for (i, fp) in field_parts.iter().enumerate() {
-                    let comma = if i < field_parts.len() - 1 { "," } else { "" };
-                    writeln!(out, "        {}{}", fp, comma).ok();
-                }
-                writeln!(out, "    ) implements {} {{", enum_def.name).ok();
-                writeln!(out, "    }}").ok();
+                out.push_str("    record ");
+                out.push_str(&variant.name);
+                out.push_str("(\n");
+                out.push_str("    }}\n");
             } else {
-                writeln!(
-                    out,
-                    "    record {}({}) implements {} {{ }}",
-                    variant.name, fields_joined, enum_def.name
-                )
-                .ok();
+                out.push_str("    record ");
+                out.push_str(&variant.name);
+                out.push('(');
+                out.push_str(&fields_joined);
+                out.push_str(") implements ");
+                out.push_str(&enum_def.name);
+                out.push_str(" { }\n");
             }
         }
     }
 
     // Add default accessor methods for each newtype/tuple data variant
     if has_data_variants {
-        writeln!(out).ok();
+        out.push('\n');
         for variant in &enum_def.variants {
             if variant.fields.is_empty() || !is_tuple_field_name(&variant.fields[0].name) {
                 continue;
@@ -602,76 +553,73 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
             let method_name = variant.name.to_lower_camel_case();
             let return_type = java_boxed_type(&variant.fields[0].ty);
             let variant_name = &variant.name;
-            writeln!(
-                out,
-                "    /** Returns the {variant_name} data if this is a {variant_name} variant, otherwise null. */"
-            )
-            .ok();
-            writeln!(out, "    default @Nullable {return_type} {method_name}() {{").ok();
-            writeln!(
-                out,
-                "        return this instanceof {variant_name} e ? e.value() : null;"
-            )
-            .ok();
-            writeln!(out, "    }}").ok();
-            writeln!(out).ok();
+            out.push_str("    /** Returns the ");
+            out.push_str(&variant_name);
+            out.push_str(" data if this is a ");
+            out.push_str(&variant_name);
+            out.push_str(" variant, otherwise null. */\n");
+            out.push_str("    default @Nullable ");
+            out.push_str(return_type.as_ref());
+            out.push(' ');
+            out.push_str(&method_name);
+            out.push_str("() {\n");
+            out.push_str("        return this instanceof ");
+            out.push_str(&variant_name);
+            out.push_str(" e ? e.value() : null;\n");
+            out.push_str("    }}\n");
+            out.push('\n');
         }
     }
 
-    writeln!(out, "}}").ok();
+    out.push_str("}}\n");
     out
 }
 
 pub(crate) fn gen_opaque_handle_class(package: &str, typ: &TypeDef, prefix: &str) -> String {
-    let mut out = String::with_capacity(1024);
     let class_name = &typ.name;
     let type_snake = class_name.to_snake_case();
-
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {};", package).ok();
-    writeln!(out).ok();
-    writeln!(out, "import java.lang.foreign.MemorySegment;").ok();
-    writeln!(out).ok();
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let imports = ["java.lang.foreign.MemorySegment"];
+    let mut out = crate::template_env::render(
+        "java_file_header.jinja",
+        minijinja::context! { header => header, package => package, imports => &imports },
+    );
+    out.push('\n');
 
     emit_javadoc(&mut out, &typ.doc, "");
-    writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
-    writeln!(out, "public class {} implements AutoCloseable {{", class_name).ok();
-    writeln!(out, "    private final MemorySegment handle;").ok();
-    writeln!(out).ok();
-    writeln!(out, "    {}(MemorySegment handle) {{", class_name).ok();
-    writeln!(out, "        this.handle = handle;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    MemorySegment handle() {{").ok();
-    writeln!(out, "        return this.handle;").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-    writeln!(out, "    @Override").ok();
-    writeln!(out, "    public void close() {{").ok();
-    writeln!(
-        out,
-        "        if (handle != null && !handle.equals(MemorySegment.NULL)) {{"
-    )
-    .ok();
-    writeln!(out, "            try {{").ok();
-    writeln!(
-        out,
-        "                NativeLib.{}_{}_FREE.invoke(handle);",
-        prefix.to_uppercase(),
-        type_snake.to_uppercase()
-    )
-    .ok();
-    writeln!(out, "            }} catch (Throwable e) {{").ok();
-    writeln!(
-        out,
-        "                throw new RuntimeException(\"Failed to free {}: \" + e.getMessage(), e);",
-        class_name
-    )
-    .ok();
-    writeln!(out, "            }}").ok();
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out, "}}").ok();
+
+    out.push_str("public class ");
+    out.push_str(&class_name);
+    out.push_str(" implements AutoCloseable {\n");
+    out.push_str("    private final MemorySegment handle;\n");
+    out.push('\n');
+    out.push_str("    ");
+    out.push_str(&class_name);
+    out.push_str("(MemorySegment handle) {\n");
+    out.push_str("        this.handle = handle;\n");
+    out.push_str("    }}\n");
+    out.push('\n');
+    out.push_str("    MemorySegment handle() {{\n");
+    out.push_str("        return this.handle;\n");
+    out.push_str("    }}\n");
+    out.push('\n');
+    out.push_str("    @Override\n");
+    out.push_str("    public void close() {\n");
+    out.push_str("        if (handle != null && !handle.equals(MemorySegment.NULL)) {\n");
+    out.push_str("            try {\n");
+    out.push_str("                NativeLib.");
+    out.push_str(&prefix.to_uppercase());
+    out.push('_');
+    out.push_str(&type_snake.to_uppercase());
+    out.push_str("_FREE.invoke(handle);\n");
+    out.push_str("            } catch (Throwable e) {\n");
+    out.push_str("                throw new RuntimeException(\"Failed to free ");
+    out.push_str(&class_name);
+    out.push_str(": \" + e.getMessage(), e);\n");
+    out.push_str("            }}\n");
+    out.push_str("        }}\n");
+    out.push_str("    }}\n");
+    out.push_str("}}\n");
 
     out
 }
@@ -689,12 +637,13 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
     let mut body = String::with_capacity(2048);
 
     emit_javadoc(&mut body, &typ.doc, "");
-    writeln!(body, "@SuppressWarnings(\"checkstyle:LineLength\")").ok();
     // Annotation tells Jackson to use this builder when deserializing the record.
     // Builder defaults (e.g., enabled=true) are applied during deserialization.
-    writeln!(body, "@JsonPOJOBuilder(withPrefix = \"with\")").ok();
-    writeln!(body, "public class {}Builder {{", typ.name).ok();
-    writeln!(body).ok();
+    body.push_str("@JsonPOJOBuilder(withPrefix = \"with\")\n");
+    body.push_str("public class ");
+    body.push_str(&typ.name);
+    body.push_str("Builder {\n");
+    body.push('\n');
 
     // Generate field declarations with defaults
     for field in &typ.fields {
@@ -790,10 +739,16 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             }
         };
 
-        writeln!(body, "    private {} {} = {};", field_type, field_name, default_value).ok();
+        body.push_str("    private ");
+        body.push_str(&field_type);
+        body.push(' ');
+        body.push_str(&field_name);
+        body.push_str(" = ");
+        body.push_str(&default_value);
+        body.push_str(";\n");
     }
 
-    writeln!(body).ok();
+    body.push('\n');
 
     // Generate withXxx() methods
     for field in &typ.fields {
@@ -820,76 +775,65 @@ pub(crate) fn gen_builder_class(package: &str, typ: &TypeDef, has_visitor_patter
             java_type(&field.ty).to_string()
         };
 
-        writeln!(body, "    /** Sets the {} field. */", field_name).ok();
-        writeln!(
-            body,
-            "    public {}Builder with{}(final {} value) {{",
-            typ.name, field_name_pascal, field_type
-        )
-        .ok();
+        body.push_str("    /** Sets the ");
+        body.push_str(&field_name);
+        body.push_str(" field. */\n");
+        body.push_str("    public ");
+        body.push_str(&typ.name);
+        body.push_str("Builder with");
+        body.push_str(&field_name_pascal);
+        body.push_str("(final ");
+        body.push_str(&field_type);
+        body.push_str(" value) {\n");
         if is_visitor_field {
-            writeln!(body, "        this.{} = Optional.ofNullable(value);", field_name).ok();
+            body.push_str("        this.");
+            body.push_str(&field_name);
+            body.push_str(" = Optional.ofNullable(value);\n");
         } else {
-            writeln!(body, "        this.{} = value;", field_name).ok();
+            body.push_str("        this.");
+            body.push_str(&field_name);
+            body.push_str(" = value;\n");
         }
-        writeln!(body, "        return this;").ok();
-        writeln!(body, "    }}").ok();
-        writeln!(body).ok();
+        body.push_str("        return this;\n");
+        body.push_str("    }}\n");
+        body.push('\n');
     }
 
     // Generate build() method
-    writeln!(body, "    /** Builds the {} instance. */", typ.name).ok();
-    writeln!(body, "    public {} build() {{", typ.name).ok();
-    writeln!(body, "        return new {}(", typ.name).ok();
-    let non_tuple_fields: Vec<_> = typ
-        .fields
-        .iter()
-        .filter(|f| {
-            // Include named fields (skip unnamed tuple fields)
-            !(f.name.starts_with('_') && f.name[1..].chars().all(|c| c.is_ascii_digit())
-                || f.name.chars().next().is_none_or(|c| c.is_ascii_digit()))
-        })
-        .collect();
-    for (i, field) in non_tuple_fields.iter().enumerate() {
-        let field_name = safe_java_field_name(&field.name);
-        let comma = if i < non_tuple_fields.len() - 1 { "," } else { "" };
-        let is_visitor_field = has_visitor_pattern && typ.name == "ConversionOptions" && field.name == "visitor";
-        // For optional fields (and the synthetic Optional<Visitor> visitor field),
-        // extract the value from Optional using orElse(null).
-        if field.optional || is_visitor_field {
-            writeln!(body, "            {}.orElse(null){}", field_name, comma).ok();
-        } else {
-            writeln!(body, "            {}{}", field_name, comma).ok();
-        }
-    }
-    writeln!(body, "        );").ok();
-    writeln!(body, "    }}").ok();
+    body.push_str("    /** Builds the ");
+    body.push_str(&typ.name);
+    body.push_str(" instance. */\n");
+    body.push_str("    public ");
+    body.push_str(&typ.name);
+    body.push_str(" build() {\n");
+    body.push_str("        return new ");
+    body.push_str(&typ.name);
+    body.push_str("(\n");
+    body.push_str("    }}\n");
 
-    writeln!(body, "}}").ok();
+    body.push_str("}}\n");
 
-    // Now assemble with conditional imports based on what's actually used in the body
-    let mut out = String::with_capacity(body.len() + 512);
-
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    writeln!(out, "package {};", package).ok();
-    writeln!(out).ok();
-
+    // Assemble with conditional imports based on what's actually used in the body
+    let mut imports: Vec<&str> = vec![];
     if body.contains("List<") {
-        writeln!(out, "import java.util.List;").ok();
+        imports.push("java.util.List");
     }
     if body.contains("Map<") {
-        writeln!(out, "import java.util.Map;").ok();
+        imports.push("java.util.Map");
     }
     if body.contains("Optional<") {
-        writeln!(out, "import java.util.Optional;").ok();
+        imports.push("java.util.Optional");
     }
     // Builder classes with @JsonPOJOBuilder annotation need Jackson imports
     if body.contains("@JsonPOJOBuilder") {
-        writeln!(out, "import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;").ok();
+        imports.push("com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder");
     }
-
-    writeln!(out).ok();
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let mut out = crate::template_env::render(
+        "java_file_header.jinja",
+        minijinja::context! { header => header, package => package, imports => &imports },
+    );
+    out.push('\n');
     out.push_str(&body);
-
     out
 }

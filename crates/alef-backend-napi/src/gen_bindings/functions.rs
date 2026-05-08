@@ -266,9 +266,12 @@ pub(super) fn gen_vec_f32_conversion_bindings(params: &[ParamDef]) -> String {
     for p in params {
         if needs_vec_f32_conversion(&p.ty) && p.is_ref {
             let conv_name = format!("{}_f32", p.name);
-            bindings.push_str(&format!(
-                "    let {conv_name}: Vec<f32> = {}.iter().map(|&x| x as f32).collect();\n",
-                p.name
+            bindings.push_str(&crate::template_env::render(
+                "vec_f32_conversion_binding.jinja",
+                minijinja::context! {
+                    conv_name => conv_name,
+                    param_name => &p.name,
+                },
             ));
         }
     }
@@ -282,7 +285,12 @@ pub(super) fn gen_napi_buffer_conversion_bindings(params: &[ParamDef]) -> String
     for p in params {
         if is_bytes_param(&p.ty) {
             // Convert napi::Buffer to Vec<u8> by calling .to_vec()
-            bindings.push_str(&format!("    let {}: Vec<u8> = {}.to_vec();\n", p.name, p.name));
+            bindings.push_str(&crate::template_env::render(
+                "buffer_conversion_binding.jinja",
+                minijinja::context! {
+                    param_name => &p.name,
+                },
+            ));
         }
     }
     bindings

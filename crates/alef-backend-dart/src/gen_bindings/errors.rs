@@ -4,6 +4,7 @@ use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
 use crate::ident::dart_safe_ident;
+use crate::template_env;
 
 use super::render_type::render_type;
 
@@ -41,9 +42,13 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
             out.push('\n');
         }
     }
-    out.push_str(&format!("sealed class {} implements Exception {{\n", error.name));
-    out.push_str("  String get message;\n");
-    out.push_str("}\n\n");
+    out.push_str(&template_env::render(
+        "error_sealed_class.jinja",
+        minijinja::context! {
+            name => error.name.as_str(),
+        },
+    ));
+    out.push('\n');
     for variant in &error.variants {
         if !variant.doc.is_empty() {
             for line in variant.doc.lines() {
@@ -55,33 +60,82 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
         if variant.is_unit {
             let raw_msg = build_message(&variant.name, variant.message_template.as_deref());
             let msg = escape_dart_string_literal(&raw_msg);
-            out.push_str(&format!("final class {} implements {} {{\n", variant.name, error.name));
-            out.push_str(&format!("  @override\n  String get message => '{msg}';\n"));
-            out.push_str(&format!("  const {}();\n", variant.name));
-            out.push_str("}\n");
+            out.push_str(&template_env::render(
+                "error_class_header.jinja",
+                minijinja::context! {
+                    name => variant.name.as_str(),
+                    error_name => error.name.as_str(),
+                },
+            ));
+            out.push_str(&template_env::render(
+                "override_message_getter.jinja",
+                minijinja::context! {
+                    msg => msg,
+                },
+            ));
+            out.push_str(&template_env::render(
+                "const_constructor.jinja",
+                minijinja::context! {
+                    name => variant.name.as_str(),
+                },
+            ));
+            out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
         } else {
-            out.push_str(&format!("final class {} implements {} {{\n", variant.name, error.name));
+            out.push_str(&template_env::render(
+                "error_class_header.jinja",
+                minijinja::context! {
+                    name => variant.name.as_str(),
+                    error_name => error.name.as_str(),
+                },
+            ));
             for f in &variant.fields {
                 let ty_str = render_type(&f.ty, imports);
                 let fname = dart_safe_ident(&f.name.to_lower_camel_case());
-                out.push_str(&format!("  final {ty_str} {fname};\n"));
+                out.push_str(&template_env::render(
+                    "final_field_decl.jinja",
+                    minijinja::context! {
+                        ty_str => ty_str,
+                        name => fname.as_str(),
+                    },
+                ));
             }
             let raw_msg = build_message(&variant.name, variant.message_template.as_deref());
             let msg = escape_dart_string_literal(&raw_msg);
             out.push_str("  @override\n");
-            out.push_str(&format!("  String get message => '{msg}';\n"));
+            out.push_str(&template_env::render(
+                "override_message_getter.jinja",
+                minijinja::context! {
+                    msg => msg,
+                },
+            ));
             if variant.fields.len() == 1 {
                 let fname = dart_safe_ident(&variant.fields[0].name.to_lower_camel_case());
-                out.push_str(&format!("  {}(this.{fname});\n", variant.name));
+                out.push_str(&template_env::render(
+                    "single_param_constructor.jinja",
+                    minijinja::context! {
+                        name => variant.name.as_str(),
+                        param_name => fname.as_str(),
+                    },
+                ));
             } else {
-                out.push_str(&format!("  {}({{\n", variant.name));
+                out.push_str(&template_env::render(
+                    "multi_param_constructor_open.jinja",
+                    minijinja::context! {
+                        name => variant.name.as_str(),
+                    },
+                ));
                 for f in &variant.fields {
                     let fname = dart_safe_ident(&f.name.to_lower_camel_case());
-                    out.push_str(&format!("    required this.{fname},\n"));
+                    out.push_str(&template_env::render(
+                        "constructor_required_param.jinja",
+                        minijinja::context! {
+                            name => fname.as_str(),
+                        },
+                    ));
                 }
-                out.push_str("  });\n");
+                out.push_str(&template_env::render("constructor_close.jinja", minijinja::context! {}));
             }
-            out.push_str("}\n");
+            out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
         }
     }
 }

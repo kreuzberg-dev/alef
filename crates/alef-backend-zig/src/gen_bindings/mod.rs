@@ -71,7 +71,13 @@ impl Backend for ZigBackend {
         }
         content.push('\n');
         content.push_str("const std = @import(\"std\");\n");
-        content.push_str(&format!("pub const c = @cImport(@cInclude(\"{header}\"));\n\n"));
+        content.push_str(&crate::template_env::render(
+            "c_import.jinja",
+            minijinja::context! {
+                header => header,
+            },
+        ));
+        content.push('\n');
 
         // Emit helper wrappers for FFI error introspection and string ownership.
         emit_helpers(&prefix, &mut content);

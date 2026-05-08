@@ -1,0 +1,34 @@
+<?php
+{{ header }}
+declare(strict_types=1);
+
+// Load the e2e project autoloader (PHPUnit, test helpers).
+require_once __DIR__ . '/vendor/autoload.php';
+
+// Load the PHP binding package classes via its Composer autoloader.
+// The package's autoloader is separate from the e2e project's autoloader
+// since the php-ext type prevents direct composer path dependency.
+$pkgAutoloader = __DIR__ . '/{{ pkg_path }}/vendor/autoload.php';
+if (file_exists($pkgAutoloader)) {
+    require_once $pkgAutoloader;
+}{% if has_http_fixtures %}
+
+// Spawn the mock HTTP server binary for HTTP fixture tests.
+$mockServerBin = __DIR__ . '/../rust/target/release/mock-server';
+$fixturesDir = __DIR__ . '/../../fixtures';
+if (file_exists($mockServerBin)) {
+    $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR];
+    $proc = proc_open([$mockServerBin, $fixturesDir], $descriptors, $pipes);
+    if (is_resource($proc)) {
+        $line = fgets($pipes[1]);
+        if ($line !== false && str_starts_with($line, 'MOCK_SERVER_URL=')) {
+            putenv(trim($line));
+            $_ENV['MOCK_SERVER_URL'] = trim(substr(trim($line), strlen('MOCK_SERVER_URL=')));
+        }
+        // Drain stdout in background thread is not possible in PHP; keep pipe open.
+        register_shutdown_function(static function () use ($proc, $pipes): void {
+            fclose($pipes[0]);
+            proc_close($proc);
+        });
+    }
+}{% endif %}

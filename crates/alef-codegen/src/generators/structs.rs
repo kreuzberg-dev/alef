@@ -1,8 +1,7 @@
 use crate::builder::StructBuilder;
 use crate::generators::RustBindingConfig;
 use crate::type_mapper::TypeMapper;
-use alef_core::ir::{CoreWrapper, DefaultValue, TypeDef, TypeRef};
-use std::fmt::Write;
+use alef_core::ir::{CoreWrapper, TypeDef, TypeRef};
 
 /// Check if a type's fields can all be safely defaulted.
 /// Primitives, strings, collections, Options, and Duration all have Default impls.
@@ -295,27 +294,31 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
 /// that the struct's fields can be safely defaulted before calling this function.
 pub fn gen_struct_default_impl(typ: &TypeDef, name_prefix: &str) -> String {
     let full_name = format!("{}{}", name_prefix, typ.name);
-    let mut out = String::with_capacity(256);
-    writeln!(out, "impl Default for {} {{", full_name).ok();
-    writeln!(out, "    fn default() -> Self {{").ok();
-    writeln!(out, "        Self {{").ok();
-    for field in &typ.fields {
-        if field.cfg.is_some() {
-            continue;
-        }
-        let default_val = match (&field.ty, &field.typed_default) {
-            (_, Some(DefaultValue::BoolLiteral(b))) => b.to_string(),
-            (_, Some(DefaultValue::IntLiteral(n))) => n.to_string(),
-            (_, Some(DefaultValue::StringLiteral(s))) => format!("String::from(\"{}\")", s),
-            (_, Some(DefaultValue::None)) | (TypeRef::Optional(_), _) => "None".to_string(),
-            _ => "Default::default()".to_string(),
-        };
-        writeln!(out, "            {}: {},", field.name, default_val).ok();
-    }
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    out
+    let fields: Vec<_> = typ
+        .fields
+        .iter()
+        .filter_map(|field| {
+            if field.cfg.is_some() {
+                return None;
+            }
+            let default_val = match &field.ty {
+                TypeRef::Optional(_) => "None".to_string(),
+                _ => "Default::default()".to_string(),
+            };
+            Some(minijinja::context! {
+                name => field.name.clone(),
+                default_val => default_val
+            })
+        })
+        .collect();
+
+    crate::template_env::render(
+        "structs/default_impl.jinja",
+        minijinja::context! {
+            full_name => full_name,
+            fields => fields
+        },
+    )
 }
 
 /// Check if any method on a type takes `&mut self`, meaning the opaque wrapper
@@ -376,25 +379,27 @@ pub fn gen_opaque_struct(typ: &TypeDef, cfg: &RustBindingConfig) -> String {
     let has_unresolvable_generics = core_path.contains('<');
     let all_methods_sanitized = !typ.methods.is_empty() && typ.methods.iter().all(|m| m.sanitized);
     let omit_inner = all_methods_sanitized && has_unresolvable_generics;
-    let mut out = String::with_capacity(512);
-    if !cfg.struct_derives.is_empty() {
-        writeln!(out, "#[derive(Clone)]").ok();
-    }
-    for attr in cfg.struct_attrs {
-        writeln!(out, "#[{attr}]").ok();
-    }
-    writeln!(out, "pub struct {} {{", typ.name).ok();
-    if !omit_inner {
-        if typ.is_trait {
-            writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
-        } else if needs_mutex {
-            writeln!(out, "    inner: Arc<std::sync::Mutex<{core_path}>>,").ok();
-        } else {
-            writeln!(out, "    inner: Arc<{core_path}>,").ok();
-        }
-    }
-    write!(out, "}}").ok();
-    out
+
+    let struct_attrs: Vec<_> = cfg.struct_attrs.iter().map(|s| s.to_string()).collect();
+    let has_derives = !cfg.struct_derives.is_empty();
+    let inner_type = if typ.is_trait {
+        format!("Arc<dyn {core_path} + Send + Sync>")
+    } else if needs_mutex {
+        format!("Arc<std::sync::Mutex<{core_path}>>")
+    } else {
+        format!("Arc<{core_path}>")
+    };
+
+    crate::template_env::render(
+        "structs/opaque_struct.jinja",
+        minijinja::context! {
+            struct_name => typ.name.clone(),
+            has_derives => has_derives,
+            struct_attrs => struct_attrs,
+            omit_inner => omit_inner,
+            inner_type => inner_type,
+        },
+    )
 }
 
 /// Generate an opaque wrapper struct with `inner: Arc<core::Type>` and a name prefix.
@@ -408,25 +413,28 @@ pub fn gen_opaque_struct_prefixed(typ: &TypeDef, cfg: &RustBindingConfig, prefix
     let has_unresolvable_generics = core_path.contains('<');
     let all_methods_sanitized = !typ.methods.is_empty() && typ.methods.iter().all(|m| m.sanitized);
     let omit_inner = all_methods_sanitized && has_unresolvable_generics;
-    let mut out = String::with_capacity(512);
-    if !cfg.struct_derives.is_empty() {
-        writeln!(out, "#[derive(Clone)]").ok();
-    }
-    for attr in cfg.struct_attrs {
-        writeln!(out, "#[{attr}]").ok();
-    }
-    writeln!(out, "pub struct {}{} {{", prefix, typ.name).ok();
-    if !omit_inner {
-        if typ.is_trait {
-            writeln!(out, "    inner: Arc<dyn {core_path} + Send + Sync>,").ok();
-        } else if needs_mutex {
-            writeln!(out, "    inner: Arc<std::sync::Mutex<{core_path}>>,").ok();
-        } else {
-            writeln!(out, "    inner: Arc<{core_path}>,").ok();
-        }
-    }
-    write!(out, "}}").ok();
-    out
+
+    let struct_attrs: Vec<_> = cfg.struct_attrs.iter().map(|s| s.to_string()).collect();
+    let has_derives = !cfg.struct_derives.is_empty();
+    let struct_name = format!("{prefix}{}", typ.name);
+    let inner_type = if typ.is_trait {
+        format!("Arc<dyn {core_path} + Send + Sync>")
+    } else if needs_mutex {
+        format!("Arc<std::sync::Mutex<{core_path}>>")
+    } else {
+        format!("Arc<{core_path}>")
+    };
+
+    crate::template_env::render(
+        "structs/opaque_struct.jinja",
+        minijinja::context! {
+            struct_name => struct_name,
+            has_derives => has_derives,
+            struct_attrs => struct_attrs,
+            omit_inner => omit_inner,
+            inner_type => inner_type,
+        },
+    )
 }
 
 #[cfg(test)]

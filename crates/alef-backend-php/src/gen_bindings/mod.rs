@@ -14,6 +14,7 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::ApiSurface;
 use alef_core::ir::{PrimitiveType, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
+use minijinja::context;
 use std::path::PathBuf;
 
 use crate::naming::php_autoload_namespace;
@@ -478,17 +479,26 @@ impl Backend for PhpBackend {
             .iter()
             .filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name))
         {
-            class_registrations.push_str(&format!("\n    .class::<{}>()", typ.name));
+            class_registrations.push_str(&crate::template_env::render(
+                "php_class_registration.jinja",
+                context! { class_name => &typ.name },
+            ));
         }
         // Register the facade class that wraps free functions as static methods.
         if !api.functions.is_empty() {
             let facade_class_name = extension_name.to_pascal_case();
-            class_registrations.push_str(&format!("\n    .class::<{facade_class_name}Api>()"));
+            class_registrations.push_str(&crate::template_env::render(
+                "php_class_registration.jinja",
+                context! { class_name => &format!("{facade_class_name}Api") },
+            ));
         }
         // Tagged data enums are lowered to flat PHP classes — register them like other classes.
         // Unit-variant enums remain as string constants and don't need .class::<T>() registration.
         for enum_def in api.enums.iter().filter(|e| is_tagged_data_enum(e)) {
-            class_registrations.push_str(&format!("\n    .class::<{}>()", enum_def.name));
+            class_registrations.push_str(&crate::template_env::render(
+                "php_class_registration.jinja",
+                context! { class_name => &enum_def.name },
+            ));
         }
         builder.add_item(&format!(
             "#[php_module]\npub fn get_module(module: ModuleBuilder) -> ModuleBuilder {{\n    module{class_registrations}\n}}"
@@ -540,16 +550,28 @@ impl Backend for PhpBackend {
         let class_name = extension_name.to_pascal_case();
 
         // Generate PHP wrapper class
-        let mut content = String::from("<?php\n\n");
+        let mut content = String::new();
+        content.push_str(&crate::template_env::render(
+            "php_file_header.jinja",
+            minijinja::Value::default(),
+        ));
         content.push_str(&hash::header(CommentStyle::DoubleSlash));
-        content.push_str("declare(strict_types=1);\n\n");
+        content.push_str(&crate::template_env::render(
+            "php_declare_strict_types.jinja",
+            minijinja::Value::default(),
+        ));
 
         // Determine namespace — delegates to config so [php].namespace overrides are respected.
         let namespace = php_autoload_namespace(config);
 
-        content.push_str(&format!("namespace {};\n\n", namespace));
-        content.push_str(&format!("final class {}\n", class_name));
-        content.push_str("{\n");
+        content.push_str(&crate::template_env::render(
+            "php_namespace.jinja",
+            context! { namespace => &namespace },
+        ));
+        content.push_str(&crate::template_env::render(
+            "php_facade_class_declaration.jinja",
+            context! { class_name => &class_name },
+        ));
 
         // Build the set of bridge param names so they are excluded from public PHP signatures.
         let bridge_param_names_pub: ahash::AHashSet<&str> = config
@@ -587,29 +609,63 @@ impl Backend for PhpBackend {
                 .collect();
 
             // PHPDoc block
-            content.push_str("    /**\n");
+            content.push_str(&crate::template_env::render(
+                "php_phpdoc_block_start.jinja",
+                minijinja::Value::default(),
+            ));
             for line in func.doc.lines() {
                 if line.is_empty() {
-                    content.push_str("     *\n");
+                    content.push_str(&crate::template_env::render(
+                        "php_phpdoc_empty_line.jinja",
+                        minijinja::Value::default(),
+                    ));
                 } else {
-                    content.push_str(&format!("     * {}\n", line));
+                    content.push_str(&crate::template_env::render(
+                        "php_phpdoc_text_line.jinja",
+                        context! { text => line },
+                    ));
                 }
             }
             if func.doc.is_empty() {
-                content.push_str(&format!("     * {}.\n", method_name));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_text_line.jinja",
+                    context! { text => &format!("{}.", method_name) },
+                ));
             }
-            content.push_str("     *\n");
+            content.push_str(&crate::template_env::render(
+                "php_phpdoc_empty_line.jinja",
+                minijinja::Value::default(),
+            ));
             for p in &visible_params {
                 let ptype = php_phpdoc_type(&p.ty);
                 let nullable_prefix = if p.optional { "?" } else { "" };
-                content.push_str(&format!("     * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_param_line.jinja",
+                    context! {
+                        nullable_prefix => nullable_prefix,
+                        param_type => &ptype,
+                        param_name => &p.name,
+                    },
+                ));
             }
             let return_phpdoc = php_phpdoc_type(&func.return_type);
-            content.push_str(&format!("     * @return {}\n", return_phpdoc));
+            content.push_str(&crate::template_env::render(
+                "php_phpdoc_return_line.jinja",
+                context! { return_type => &return_phpdoc },
+            ));
             if func.error_type.is_some() {
-                content.push_str(&format!("     * @throws \\{}\\{}Exception\n", namespace, class_name));
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_throws_line.jinja",
+                    context! {
+                        namespace => namespace.as_str(),
+                        class_name => &class_name,
+                    },
+                ));
             }
-            content.push_str("     */\n");
+            content.push_str(&crate::template_env::render(
+                "php_phpdoc_block_end.jinja",
+                minijinja::Value::default(),
+            ));
 
             // Method signature with type hints.
             // Keep parameters in their original Rust order.
@@ -638,7 +694,10 @@ impl Backend for PhpBackend {
                 }
             }
 
-            content.push_str(&format!("    public static function {}(", method_name));
+            content.push_str(&crate::template_env::render(
+                "php_method_signature_start.jinja",
+                context! { method_name => &method_name },
+            ));
 
             let params: Vec<String> = visible_params
                 .iter()
@@ -660,8 +719,10 @@ impl Backend for PhpBackend {
                 })
                 .collect();
             content.push_str(&params.join(", "));
-            content.push_str(&format!("): {}\n", return_php_type));
-            content.push_str("    {\n");
+            content.push_str(&crate::template_env::render(
+                "php_method_signature_end.jinja",
+                context! { return_type => &return_php_type },
+            ));
             // Async functions are registered in the extension with an `_async` suffix
             // (see gen_async_function which generates `pub fn {name}_async`).
             // Delegate to the native extension class (registered as `{namespace}\{class_name}Api`).
@@ -695,25 +756,28 @@ impl Backend for PhpBackend {
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            let call_expr = format!(
-                "\\{}\\{}Api::{}({})",
-                namespace, class_name, ext_method_name, call_params
-            );
+            let call_expr = format!("\\{namespace}\\{class_name}Api::{ext_method_name}({call_params})");
             if is_void {
-                content.push_str(&format!(
-                    "        {}; // delegate to native extension class\n",
-                    call_expr
+                content.push_str(&crate::template_env::render(
+                    "php_method_call_statement.jinja",
+                    context! { call_expr => &call_expr },
                 ));
             } else {
-                content.push_str(&format!(
-                    "        return {}; // delegate to native extension class\n",
-                    call_expr
+                content.push_str(&crate::template_env::render(
+                    "php_method_call_return.jinja",
+                    context! { call_expr => &call_expr },
                 ));
             }
-            content.push_str("    }\n\n");
+            content.push_str(&crate::template_env::render(
+                "php_method_end.jinja",
+                minijinja::Value::default(),
+            ));
         }
 
-        content.push_str("}\n");
+        content.push_str(&crate::template_env::render(
+            "php_class_end.jinja",
+            minijinja::Value::default(),
+        ));
 
         // Use PHP stubs output path if configured, otherwise fall back to packages/php/src/.
         // This is intentionally separate from config.output.php, which controls the Rust binding
@@ -747,19 +811,29 @@ impl Backend for PhpBackend {
         // php-cs-fixer enforces this and would insert it post-write,
         // making `alef verify` see content that differs from what was
         // freshly generated. Emit it here so generated == on-disk.
-        let mut content = String::from("<?php\n\n");
+        let mut content = String::new();
+        content.push_str(&crate::template_env::render(
+            "php_file_header.jinja",
+            minijinja::Value::default(),
+        ));
         content.push_str(&hash::header(CommentStyle::DoubleSlash));
         content.push_str("// Type stubs for the native PHP extension — declares classes\n");
         content.push_str("// provided at runtime by the compiled Rust extension (.so/.dll).\n");
         content.push_str("// Include this in phpstan.neon scanFiles for static analysis.\n\n");
-        content.push_str("declare(strict_types=1);\n\n");
+        content.push_str(&crate::template_env::render(
+            "php_declare_strict_types.jinja",
+            minijinja::Value::default(),
+        ));
         // Use bracketed namespace syntax so we can add global-namespace function stubs later.
-        content.push_str(&format!("namespace {} {{\n\n", namespace));
+        content.push_str(&crate::template_env::render(
+            "php_namespace_block_begin.jinja",
+            context! { namespace => &namespace },
+        ));
 
         // Exception class
-        content.push_str(&format!(
-            "class {}Exception extends \\RuntimeException\n{{\n",
-            class_name
+        content.push_str(&crate::template_env::render(
+            "php_exception_class_declaration.jinja",
+            context! { class_name => &class_name },
         ));
         content.push_str(
             "    public function getErrorCode(): int { throw new \\RuntimeException('Not implemented.'); }\n",
@@ -775,12 +849,18 @@ impl Backend for PhpBackend {
                         if line.is_empty() {
                             content.push_str(" *\n");
                         } else {
-                            content.push_str(&format!(" * {}\n", line));
+                            content.push_str(&crate::template_env::render(
+                                "php_phpdoc_doc_line.jinja",
+                                context! { line => line },
+                            ));
                         }
                     }
                     content.push_str(" */\n");
                 }
-                content.push_str(&format!("class {}\n{{\n", typ.name));
+                content.push_str(&crate::template_env::render(
+                    "php_opaque_class_stub_declaration.jinja",
+                    context! { class_name => &typ.name },
+                ));
                 // Opaque handles have no public constructors in PHP
                 content.push_str("}\n\n");
             }
@@ -797,12 +877,18 @@ impl Backend for PhpBackend {
                     if line.is_empty() {
                         content.push_str(" *\n");
                     } else {
-                        content.push_str(&format!(" * {}\n", line));
+                        content.push_str(&crate::template_env::render(
+                            "php_phpdoc_doc_line.jinja",
+                            context! { line => line },
+                        ));
                     }
                 }
                 content.push_str(" */\n");
             }
-            content.push_str(&format!("class {}\n{{\n", typ.name));
+            content.push_str(&crate::template_env::render(
+                "php_record_class_stub_declaration.jinja",
+                context! { class_name => &typ.name },
+            ));
 
             // Public property declarations (ext-php-rs exposes struct fields as properties)
             for field in &typ.fields {
@@ -820,9 +906,21 @@ impl Backend for PhpBackend {
                 if is_array {
                     let phpdoc = php_phpdoc_type(&field.ty);
                     let nullable_prefix = if field.optional { "?" } else { "" };
-                    content.push_str(&format!("    /** @var {}{} */\n", nullable_prefix, phpdoc));
+                    content.push_str(&crate::template_env::render(
+                        "php_property_type_annotation.jinja",
+                        context! {
+                            nullable_prefix => nullable_prefix,
+                            phpdoc => &phpdoc,
+                        },
+                    ));
                 }
-                content.push_str(&format!("    public {} ${};\n", prop_type, field.name));
+                content.push_str(&crate::template_env::render(
+                    "php_property_stub.jinja",
+                    context! {
+                        prop_type => &prop_type,
+                        field_name => &field.name,
+                    },
+                ));
             }
             content.push('\n');
 
@@ -844,7 +942,14 @@ impl Backend for PhpBackend {
                 for f in &array_fields {
                     let phpdoc = php_phpdoc_type(&f.ty);
                     let nullable_prefix = if f.optional { "?" } else { "" };
-                    content.push_str(&format!("     * @param {}{} ${}\n", nullable_prefix, phpdoc, f.name));
+                    content.push_str(&crate::template_env::render(
+                        "php_phpdoc_array_param.jinja",
+                        context! {
+                            nullable_prefix => nullable_prefix,
+                            phpdoc => &phpdoc,
+                            param_name => &f.name,
+                        },
+                    ));
                 }
                 content.push_str("     */\n");
             }
@@ -862,9 +967,10 @@ impl Backend for PhpBackend {
                     format!("        {} ${}{}", nullable, f.name, default)
                 })
                 .collect();
-            content.push_str("    public function __construct(\n");
-            content.push_str(&params.join(",\n"));
-            content.push_str("\n    ) { }\n\n");
+            content.push_str(&crate::template_env::render(
+                "php_constructor_method.jinja",
+                context! { params => &params.join(",\n") },
+            ));
 
             // Getter methods for each field
             for field in &typ.fields {
@@ -884,7 +990,10 @@ impl Backend for PhpBackend {
                 if is_array {
                     let phpdoc = php_phpdoc_type(&field.ty);
                     let nullable_prefix = if field.optional { "?" } else { "" };
-                    content.push_str(&format!("    /** @return {}{} */\n", nullable_prefix, phpdoc));
+                    content.push_str(&crate::template_env::render(
+                        "php_constructor_doc_return.jinja",
+                        context! { return_type => &format!("{nullable_prefix}{phpdoc}") },
+                    ));
                 }
                 let is_void_getter = return_type == "void";
                 let getter_body = if is_void_getter {
@@ -892,10 +1001,13 @@ impl Backend for PhpBackend {
                 } else {
                     "{ throw new \\RuntimeException('Not implemented.'); }".to_string()
                 };
-                content.push_str(&format!(
-                    "    public function get{}(): {} {getter_body}\n",
-                    getter_name.to_pascal_case(),
-                    return_type
+                content.push_str(&crate::template_env::render(
+                    "php_getter_stub.jinja",
+                    context! {
+                        getter_name => &format!("get{}", getter_name.to_pascal_case()),
+                        return_type => &return_type,
+                        getter_body => &getter_body,
+                    },
                 ));
             }
 
@@ -913,18 +1025,32 @@ impl Backend for PhpBackend {
                         if line.is_empty() {
                             content.push_str(" *\n");
                         } else {
-                            content.push_str(&format!(" * {}\n", line));
+                            content.push_str(&crate::template_env::render(
+                                "php_phpdoc_doc_line.jinja",
+                                context! { line => line },
+                            ));
                         }
                     }
                     content.push_str(" */\n");
                 }
-                content.push_str(&format!("class {}\n{{\n", enum_def.name));
+                content.push_str(&crate::template_env::render(
+                    "php_record_class_stub_declaration.jinja",
+                    context! { class_name => &enum_def.name },
+                ));
                 content.push_str("}\n\n");
             } else {
                 // Unit-variant enums → PHP 8.1+ enum constants.
-                content.push_str(&format!("enum {}: string\n{{\n", enum_def.name));
+                content.push_str(&crate::template_env::render(
+                    "php_tagged_enum_declaration.jinja",
+                    context! { enum_name => &enum_def.name },
+                ));
                 for variant in &enum_def.variants {
-                    content.push_str(&format!("    case {} = '{}';\n", variant.name, variant.name));
+                    content.push_str(&crate::template_env::render(
+                        "php_enum_variant_stub.jinja",
+                        context! {
+                            variant_name => &variant.name,
+                        },
+                    ));
                 }
                 content.push_str("}\n\n");
             }
@@ -942,7 +1068,10 @@ impl Backend for PhpBackend {
                 .filter_map(|b| b.param_name.as_deref())
                 .collect();
 
-            content.push_str(&format!("class {}Api\n{{\n", class_name));
+            content.push_str(&crate::template_env::render(
+                "php_api_class_declaration.jinja",
+                context! { class_name => &class_name },
+            ));
             for func in &api.functions {
                 let return_type = php_type_fq(&func.return_type, &namespace);
                 let return_phpdoc = php_phpdoc_type_fq(&func.return_type, &namespace);
@@ -968,9 +1097,19 @@ impl Backend for PhpBackend {
                     for p in &visible_params {
                         let ptype = php_phpdoc_type_fq(&p.ty, &namespace);
                         let nullable_prefix = if p.optional { "?" } else { "" };
-                        content.push_str(&format!("     * @param {}{} ${}\n", nullable_prefix, ptype, p.name));
+                        content.push_str(&crate::template_env::render(
+                            "php_phpdoc_static_param.jinja",
+                            context! {
+                                nullable_prefix => nullable_prefix,
+                                ptype => &ptype,
+                                param_name => &p.name,
+                            },
+                        ));
                     }
-                    content.push_str(&format!("     * @return {}\n", return_phpdoc));
+                    content.push_str(&crate::template_env::render(
+                        "php_phpdoc_static_return.jinja",
+                        context! { return_phpdoc => &return_phpdoc },
+                    ));
                     content.push_str("     */\n");
                 }
                 let params: Vec<String> = visible_params
@@ -996,18 +1135,24 @@ impl Backend for PhpBackend {
                 } else {
                     "{ throw new \\RuntimeException('Not implemented.'); }".to_string()
                 };
-                content.push_str(&format!(
-                    "    public static function {}({}): {} {stub_body}\n",
-                    stub_method_name,
-                    params.join(", "),
-                    return_type
+                content.push_str(&crate::template_env::render(
+                    "php_static_method_stub.jinja",
+                    context! {
+                        method_name => &stub_method_name,
+                        params => &params.join(", "),
+                        return_type => &return_type,
+                        stub_body => &stub_body,
+                    },
                 ));
             }
             content.push_str("}\n\n");
         }
 
         // Close the namespaced block
-        content.push_str("} // end namespace\n");
+        content.push_str(&crate::template_env::render(
+            "php_namespace_block_end.jinja",
+            minijinja::Value::default(),
+        ));
 
         // Use stubs output path if configured, otherwise packages/php/stubs/
         let output_dir = config

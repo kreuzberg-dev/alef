@@ -15,7 +15,6 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{ApiSurface, TypeRef};
 use heck::ToPascalCase;
 use std::collections::HashSet;
-use std::fmt::Write;
 use std::path::PathBuf;
 
 pub struct GoBackend;
@@ -66,6 +65,20 @@ impl Backend for GoBackend {
 
         let ffi_lib_name = config.ffi_lib_name();
         let ffi_header = config.ffi_header_name();
+        // Derive the FFI crate directory from the output path (e.g., "crates/html-to-markdown-ffi/src/" → "crates/html-to-markdown-ffi")
+        let ffi_crate_dir = config
+            .output_paths
+            .get("ffi")
+            .and_then(|p| {
+                let path = p.as_path();
+                path.ancestors()
+                    .find(|a| {
+                        a.file_name()
+                            .is_some_and(|n| n != "src" && n != "lib" && n != "include")
+                    })
+                    .map(|a| a.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| format!("crates/{ffi_lib_name}"));
         // Collect bridge param names from trait_bridges config so we can strip them
         // from generated function signatures and emit ConvertWithVisitor instead.
         let bridge_param_names: HashSet<String> = config
@@ -117,6 +130,7 @@ impl Backend for GoBackend {
             &pkg_name,
             &ffi_lib_name,
             &ffi_header,
+            &ffi_crate_dir,
             &output_dir,
             &bridge_param_names,
             &bridge_type_aliases,
@@ -127,6 +141,10 @@ impl Backend for GoBackend {
 
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Go)?;
+
+        // Compute relative path from Go output dir to project root.
+        let depth = output_dir.trim_end_matches('/').matches('/').count() + 1;
+        let to_root = "../".repeat(depth);
 
         let mut files = vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("binding.go"),
@@ -152,6 +170,8 @@ impl Backend for GoBackend {
                 &pkg_name,
                 &ffi_prefix,
                 &ffi_header,
+                &ffi_crate_dir,
+                &to_root,
                 &vtable_trait_name,
                 &options_field,
             ));
@@ -172,6 +192,8 @@ impl Backend for GoBackend {
                 &pkg_name,
                 &ffi_prefix,
                 &ffi_header,
+                &ffi_crate_dir,
+                &to_root,
                 &config.name,
             ));
             if !trait_bridges_content.trim().is_empty() && trait_bridges_content.len() > 100 {
@@ -290,6 +312,7 @@ fn gen_go_file(
     pkg_name: &str,
     ffi_lib_name: &str,
     ffi_header: &str,
+    ffi_crate_dir: &str,
     go_output_dir: &str,
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
@@ -311,23 +334,23 @@ fn gen_go_file(
 
     // Package header and cgo directives.
     // The package comment must immediately precede the package declaration with no blank line.
-    writeln!(
-        out,
-        "// Package {} provides Go bindings for the {} library.",
-        pkg_name, config.name
-    )
-    .ok();
-    writeln!(out, "package {}\n", pkg_name).ok();
-    writeln!(out, "/*").ok();
-    writeln!(out, "#cgo CFLAGS: -I${{SRCDIR}}/include").ok();
-    writeln!(
-        out,
-        "#cgo LDFLAGS: -L${{SRCDIR}}/{to_root}target/release -l{ffi_lib_name}"
-    )
-    .ok();
-    writeln!(out, "#include \"{}\"", ffi_header).ok();
-    writeln!(out, "*/\nimport \"C\"").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "package_doc_and_declaration.jinja",
+        minijinja::context! {
+            pkg_name => pkg_name,
+            crate_name => &config.name,
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "cgo_preamble_binding.jinja",
+        minijinja::context! {
+            to_root => &to_root,
+            ffi_crate_dir => ffi_crate_dir,
+            ffi_lib_name => ffi_lib_name,
+            ffi_header => ffi_header,
+        },
+    ));
+    out.push('\n');
     // Determine which imports are needed based on generated code.
     let has_opaque_types = api.types.iter().any(|t| t.is_opaque);
     // Functions that are not skipped (non-async or with non-Named returns) need json + unsafe.
@@ -347,50 +370,51 @@ fn gen_go_file(
     if !api.errors.is_empty() {
         imports.insert(1.min(imports.len()), "\"errors\"");
     }
-    writeln!(
-        out,
-        "import (\n{}\n)\n",
-        imports
-            .iter()
-            .map(|i| format!("\t{}", i))
-            .collect::<Vec<_>>()
-            .join("\n")
-    )
-    .ok();
+    out.push_str(&crate::template_env::render(
+        "imports_basic.jinja",
+        minijinja::context! {
+            imports => imports,
+        },
+    ));
 
     // Error helper functions
-    writeln!(out, "{}\n", gen_last_error_helper(ffi_prefix)).ok();
+    out.push_str(&gen_last_error_helper(ffi_prefix));
+    out.push_str("\n\n");
 
     // Bytes helper: emitted once per package, used by every method/function
     // returning `TypeRef::Bytes`. Defining it here (rather than inline at each
     // call site) avoids repeated declarations and keeps a single place to
     // adjust ownership semantics.
-    writeln!(out, "{}\n", gen_unmarshal_bytes_helper()).ok();
+    out.push_str(&gen_unmarshal_bytes_helper());
+    out.push_str("\n\n");
 
     // Generate trait bridge exports (//export trampolines called by C)
     let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
     if has_plugin_bridges {
-        writeln!(out, "// Trait bridge trampolines (exported to C)\n").ok();
-        for bridge_cfg in &config.trait_bridges {
-            if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
-                // IR type names are already PascalCase from Rust source. Avoid
-                // ToPascalCase here — it mangles all-caps acronyms (GraphQL ->
-                // GraphQl) and disagrees with cbindgen's emitted C type name.
-                let pascal = trait_def.name.clone();
-                // Trait method trampolines
-                for method in &trait_def.methods {
-                    let export_name = format!("go{}{}", pascal, method.name.to_pascal_case());
-                    writeln!(out, "//export {}", export_name).ok();
-                }
-                // Plugin lifecycle trampolines
-                writeln!(out, "//export go{}Name", pascal).ok();
-                writeln!(out, "//export go{}Version", pascal).ok();
-                writeln!(out, "//export go{}Initialize", pascal).ok();
-                writeln!(out, "//export go{}Shutdown", pascal).ok();
-                writeln!(out, "//export go{}FreeUserData", pascal).ok();
-            }
-        }
-        writeln!(out).ok();
+        let bridges: Vec<_> = config
+            .trait_bridges
+            .iter()
+            .filter_map(|bridge_cfg| {
+                api.types
+                    .iter()
+                    .find(|t| t.name == bridge_cfg.trait_name)
+                    .map(|trait_def| {
+                        minijinja::Value::from_serialize(serde_json::json!({
+                            "pascal_name": trait_def.name,
+                            "methods": trait_def.methods.iter().map(|m| serde_json::json!({
+                                "name": m.name.to_pascal_case(),
+                            })).collect::<Vec<_>>(),
+                        }))
+                    })
+            })
+            .collect();
+        out.push_str(&crate::template_env::render(
+            "plugin_bridge_exports.jinja",
+            minijinja::context! {
+                bridges => bridges,
+            },
+        ));
+        out.push('\n');
     }
 
     // Generate error types: a single consolidated sentinel `var (...)` block
@@ -399,19 +423,11 @@ fn gen_go_file(
     // `ErrGraphQLValidationError` vs `ErrSchemaValidationError`), followed by
     // the per-error structured error struct + Error() method.
     if !api.errors.is_empty() {
-        writeln!(
-            out,
-            "{}\n",
-            alef_codegen::error_gen::gen_go_sentinel_errors(&api.errors)
-        )
-        .ok();
+        out.push_str(&alef_codegen::error_gen::gen_go_sentinel_errors(&api.errors));
+        out.push_str("\n\n");
         for error in &api.errors {
-            writeln!(
-                out,
-                "{}\n",
-                alef_codegen::error_gen::gen_go_error_struct(error, pkg_name)
-            )
-            .ok();
+            out.push_str(&alef_codegen::error_gen::gen_go_error_struct(error, pkg_name));
+            out.push_str("\n\n");
         }
     }
 
@@ -440,7 +456,8 @@ fn gen_go_file(
         .map(|e| e.name.as_str())
         .collect();
     for enum_def in api.enums.iter().filter(|e| !visitor_types.contains(e.name.as_str())) {
-        writeln!(out, "{}\n", gen_enum_type(enum_def)).ok();
+        out.push_str(&gen_enum_type(enum_def));
+        out.push_str("\n\n");
     }
 
     // Error type names that are also opaque types — in this case the error struct emitted by
@@ -475,18 +492,22 @@ fn gen_go_file(
             // struct was already emitted by gen_go_error_types. Skip the duplicate struct
             // definition but still emit the Free() method.
             if error_names.contains(typ.name.as_str()) {
-                writeln!(out, "{}\n", gen_opaque_type_free_only(typ, ffi_prefix)).ok();
+                out.push_str(&gen_opaque_type_free_only(typ, ffi_prefix));
+                out.push_str("\n\n");
             } else {
-                writeln!(out, "{}\n", gen_opaque_type(typ, ffi_prefix)).ok();
+                out.push_str(&gen_opaque_type(typ, ffi_prefix));
+                out.push_str("\n\n");
             }
         } else {
-            writeln!(out, "{}\n", gen_struct_type(typ, &unit_enum_names)).ok();
+            out.push_str(&gen_struct_type(typ, &unit_enum_names));
+            out.push_str("\n\n");
             // Generate functional options pattern if type has defaults.
             // Skip "Update" types (e.g., ConversionOptionsUpdate) — they are partial update
             // structs that share field names with the primary config type, producing duplicate
             // With* function declarations.
             if typ.has_default && !typ.name.ends_with("Update") {
-                writeln!(out, "{}\n", gen_config_options(typ, &unit_enum_names)).ok();
+                out.push_str(&gen_config_options(typ, &unit_enum_names));
+                out.push_str("\n\n");
             }
         }
     }
@@ -502,19 +523,17 @@ fn gen_go_file(
         // For the convert function with visitor support, wrap it with visitor-awareness logic
         // instead of generating the basic wrapper.
         if func.name == "convert" && has_options_field_bridge {
-            writeln!(
-                out,
-                "{}\n",
-                gen_convert_with_visitor_wrapper(func, ffi_prefix, &opaque_names)
-            )
-            .ok();
+            out.push_str(&gen_convert_with_visitor_wrapper(func, ffi_prefix, &opaque_names));
+            out.push_str("\n\n");
         } else {
-            writeln!(
-                out,
-                "{}\n",
-                gen_function_wrapper(func, ffi_prefix, &opaque_names, bridge_param_names, bridge_type_aliases)
-            )
-            .ok();
+            out.push_str(&gen_function_wrapper(
+                func,
+                ffi_prefix,
+                &opaque_names,
+                bridge_param_names,
+                bridge_type_aliases,
+            ));
+            out.push_str("\n\n");
         }
     }
 
@@ -547,7 +566,8 @@ fn gen_go_file(
             if uses_ffi_enum_type(&method.params, &method.return_type, &ffi_enum_names, &opaque_names) {
                 continue;
             }
-            writeln!(out, "{}\n", gen_method_wrapper(typ, method, ffi_prefix, &opaque_names)).ok();
+            out.push_str(&gen_method_wrapper(typ, method, ffi_prefix, &opaque_names));
+            out.push_str("\n\n");
         }
     }
 

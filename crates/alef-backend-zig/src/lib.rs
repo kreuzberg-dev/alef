@@ -4,6 +4,7 @@
 //! with `BuildDependency::Ffi`. Real codegen lands in Phase 1B.
 
 mod gen_bindings;
+mod template_env;
 mod trait_bridge;
 mod type_map;
 

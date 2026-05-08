@@ -93,7 +93,12 @@ impl Backend for DartBackend {
             imports.insert(format!("import '{module_name}_bridge_generated.dart' as rust_bridge;"));
 
             let bridge_class = dart_bridge_class_name(&config.name);
-            body.push_str(&format!("class {bridge_class} {{\n"));
+            body.push_str(&crate::template_env::render(
+                "dart_bridge_class_open.jinja",
+                minijinja::context! {
+                    bridge_class => bridge_class.as_str(),
+                },
+            ));
             for f in &visible_functions {
                 emit_function(f, &mut body, &mut imports);
                 body.push('\n');

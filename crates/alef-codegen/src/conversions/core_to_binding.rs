@@ -1,6 +1,5 @@
 use ahash::AHashSet;
 use alef_core::ir::{CoreWrapper, PrimitiveType, TypeDef, TypeRef};
-use std::fmt::Write;
 
 use super::ConversionConfig;
 use super::binding_to_core::field_conversion_to_core;
@@ -21,28 +20,32 @@ pub fn gen_from_core_to_binding_cfg(
 ) -> String {
     let core_path = core_type_path_remapped(typ, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, typ.name);
-    let mut out = String::with_capacity(256);
-    writeln!(out, "#[allow(clippy::redundant_closure, clippy::useless_conversion)]").ok();
-    writeln!(out, "impl From<{core_path}> for {binding_name} {{").ok();
-    writeln!(out, "    fn from(val: {core_path}) -> Self {{").ok();
 
     // Newtype structs: extract inner value with val.0
     if is_newtype(typ) {
         let field = &typ.fields[0];
-        let inner_expr = match &field.ty {
+        let newtype_inner_expr = match &field.ty {
             TypeRef::Named(_) => "val.0.into()".to_string(),
             TypeRef::Path => "val.0.to_string_lossy().to_string()".to_string(),
             TypeRef::Duration => "val.0.as_millis() as u64".to_string(),
             _ => "val.0".to_string(),
         };
-        writeln!(out, "        Self {{ _0: {inner_expr} }}").ok();
-        writeln!(out, "    }}").ok();
-        write!(out, "}}").ok();
-        return out;
+        return crate::template_env::render(
+            "conversions/core_to_binding_impl",
+            minijinja::context! {
+                core_path => core_path,
+                binding_name => binding_name,
+                is_newtype => true,
+                newtype_inner_expr => newtype_inner_expr,
+                fields => vec![] as Vec<String>,
+            },
+        );
     }
 
     let optionalized = config.optionalize_defaults && typ.has_default;
-    writeln!(out, "        Self {{").ok();
+
+    // Pre-compute all field conversions
+    let mut fields = Vec::new();
     for field in &typ.fields {
         // Fields referencing excluded types are not present in the binding struct — skip
         if !config.exclude_types.is_empty()
@@ -193,13 +196,22 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             conversion
         };
-        writeln!(out, "            {conversion},").ok();
+        fields.push(minijinja::Value::from_serialize(&minijinja::context! {
+            name => binding_field,
+            conversion => conversion,
+        }));
     }
 
-    writeln!(out, "        }}").ok();
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    out
+    crate::template_env::render(
+        "conversions/core_to_binding_impl",
+        minijinja::context! {
+            core_path => core_path,
+            binding_name => binding_name,
+            is_newtype => false,
+            newtype_inner_expr => "",
+            fields => fields,
+        },
+    )
 }
 
 /// Same but for core -> binding direction.
@@ -496,18 +508,12 @@ pub fn field_conversion_from_core_cfg(
         }
     }
 
-    // WASM JsValue: use serde_wasm_bindgen for nested Vec, js_sys::JSON::parse for Map types.
-    // Maps must go through JSON string → js_sys::JSON::parse to get a plain JS object.
-    // serde_wasm_bindgen::to_value always creates ES6 Maps for serialize_map calls.
+    // WASM JsValue: use js_sys::JSON::parse for Map types (produces plain JS objects, not ES6
+    // Maps which serde_wasm_bindgen would produce for serialize_map calls). Use
+    // serde_wasm_bindgen for nested Vec types.
     if config.map_uses_jsvalue {
         let is_nested_vec = matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Vec(_)));
         let is_map = matches!(ty, TypeRef::Map(_, _));
-        if is_nested_vec {
-            if optional {
-                return format!("{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())");
-            }
-            return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
-        }
         if is_map {
             if optional {
                 return format!(
@@ -518,16 +524,22 @@ pub fn field_conversion_from_core_cfg(
                 "{name}: js_sys::JSON::parse(&serde_json::to_string(&val.{name}).unwrap_or_default()).unwrap_or(JsValue::NULL)"
             );
         }
+        if is_nested_vec {
+            if optional {
+                return format!("{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())");
+            }
+            return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
+        }
         if let TypeRef::Optional(inner) = ty {
             let is_inner_nested = matches!(inner.as_ref(), TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Vec(_)));
             let is_inner_map = matches!(inner.as_ref(), TypeRef::Map(_, _));
-            if is_inner_nested {
-                return format!("{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())");
-            }
             if is_inner_map {
                 return format!(
                     "{name}: val.{name}.as_ref().and_then(|v| serde_json::to_string(v).ok()).and_then(|s| js_sys::JSON::parse(&s).ok())"
                 );
+            }
+            if is_inner_nested {
+                return format!("{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(v).ok())");
             }
         }
     }

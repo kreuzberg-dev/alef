@@ -1,4 +1,5 @@
 use super::types::gen_rustler_wrap_return;
+use crate::template_env;
 use crate::type_map::RustlerMapper;
 use ahash::AHashSet;
 use alef_codegen::doc_emission;
@@ -369,19 +370,20 @@ pub(super) fn gen_nif_function(
     };
     let mut out = String::new();
     doc_emission::emit_rustdoc(&mut out, &func.doc, "");
-    if cpu_bound_functions.contains(func.name.as_str()) {
-        out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
+    let template_name = if cpu_bound_functions.contains(func.name.as_str()) {
+        "dirty_cpu_nif_function.rs.jinja"
     } else {
-        out.push_str("#[rustler::nif]\npub fn ");
-    }
-    out.push_str(&func.name);
-    out.push('(');
-    out.push_str(&params_str);
-    out.push_str(") -> ");
-    out.push_str(&return_annotation);
-    out.push_str(" {\n    ");
-    out.push_str(&body);
-    out.push_str("\n}");
+        "nif_function.rs.jinja"
+    };
+    out.push_str(&template_env::render(
+        template_name,
+        minijinja::context! {
+            func_name => &func.name,
+            params_str => &params_str,
+            ret => &return_annotation,
+            body => &body,
+        },
+    ));
     out
 }
 
@@ -600,15 +602,15 @@ pub(super) fn gen_nif_async_function(
     };
     let mut out = String::new();
     doc_emission::emit_rustdoc(&mut out, &func.doc, "");
-    out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
-    out.push_str(&nif_fn_name);
-    out.push('(');
-    out.push_str(&params_str);
-    out.push_str(") -> ");
-    out.push_str(&return_annotation);
-    out.push_str(" {\n    ");
-    out.push_str(&body);
-    out.push_str("\n}");
+    out.push_str(&template_env::render(
+        "dirty_cpu_nif_function.rs.jinja",
+        minijinja::context! {
+            func_name => &nif_fn_name,
+            params_str => &params_str,
+            ret => &return_annotation,
+            body => &body,
+        },
+    ));
     out
 }
 
@@ -709,7 +711,14 @@ pub(super) fn gen_nif_method(
                         } else {
                             format!("{}.into()", p.name)
                         };
-                        preamble.push_str(&format!("let {core_var}: {core_type} = {src};\n    "));
+                        preamble.push_str(&template_env::render(
+                            "rust_let_binding.jinja",
+                            minijinja::context! {
+                                var_name => &core_var,
+                                var_type => &core_type,
+                                expr => &src,
+                            },
+                        ));
                         // Replace the generated expression in call_args with the variable name.
                         if p.optional {
                             resolved_args = resolved_args.replace(&format!("{}.map(Into::into)", p.name), &core_var);
@@ -756,15 +765,15 @@ pub(super) fn gen_nif_method(
     };
     let mut out = String::new();
     doc_emission::emit_rustdoc(&mut out, &method.doc, "");
-    out.push_str("#[rustler::nif]\npub fn ");
-    out.push_str(&method_fn_name);
-    out.push('(');
-    out.push_str(&params.join(", "));
-    out.push_str(") -> ");
-    out.push_str(&return_annotation);
-    out.push_str(" {\n    ");
-    out.push_str(&body);
-    out.push_str("\n}");
+    out.push_str(&template_env::render(
+        "nif_function.rs.jinja",
+        minijinja::context! {
+            func_name => &method_fn_name,
+            params_str => &params.join(", "),
+            ret => &return_annotation,
+            body => &body,
+        },
+    ));
     out
 }
 
@@ -890,14 +899,14 @@ pub(super) fn gen_nif_async_method(
     };
     let mut out = String::new();
     doc_emission::emit_rustdoc(&mut out, &method.doc, "");
-    out.push_str("#[rustler::nif(schedule = \"DirtyCpu\")]\npub fn ");
-    out.push_str(&method_fn_name);
-    out.push('(');
-    out.push_str(&params.join(", "));
-    out.push_str(") -> ");
-    out.push_str(&return_annotation);
-    out.push_str(" {\n    ");
-    out.push_str(&body);
-    out.push_str("\n}");
+    out.push_str(&template_env::render(
+        "dirty_cpu_nif_function.rs.jinja",
+        minijinja::context! {
+            func_name => &method_fn_name,
+            params_str => &params.join(", "),
+            ret => &return_annotation,
+            body => &body,
+        },
+    ));
     out
 }

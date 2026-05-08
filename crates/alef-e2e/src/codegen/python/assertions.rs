@@ -237,74 +237,26 @@ fn render_standard_assertion(
         "error" | "not_error" => {
             // Handled at call site.
         }
-        "equals" => {
-            if let Some(val) = &assertion.value {
-                let expected = value_to_python_string(val);
-                let op = if val.is_boolean() || val.is_null() { "is" } else { "==" };
-                if val.is_string() {
-                    if field_is_enum {
-                        // Enum __str__ may differ in case from the expected string literal —
-                        // compare case-insensitively via _alef_e2e_text() which handles None.
-                        let _ = writeln!(
-                            out,
-                            "    assert _alef_e2e_text({field_access}).lower() {op} {expected}.lower()  # noqa: S101"
-                        );
-                    } else {
-                        let _ = writeln!(out, "    assert {field_access}.strip() {op} {expected}  # noqa: S101");
-                    }
-                } else {
-                    let _ = writeln!(out, "    assert {field_access} {op} {expected}  # noqa: S101");
-                }
-            }
-        }
-        "contains" => {
-            if let Some(val) = &assertion.value {
-                let expected = value_to_python_string(val);
-                let cmp_expr =
-                    python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
-                if field_is_optional {
-                    let _ = writeln!(out, "    assert {field_access} is not None  # noqa: S101");
-                    let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
-                } else {
-                    let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
-                }
-            }
-        }
         "contains_all" => {
             if let Some(values) = &assertion.values {
-                for val in values {
-                    let expected = value_to_python_string(val);
-                    let cmp_expr =
-                        python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
-                    if field_is_optional {
-                        let _ = writeln!(out, "    assert {field_access} is not None  # noqa: S101");
-                        let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
-                    } else {
-                        let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
-                    }
-                }
+                let values_list: Vec<String> = values
+                    .iter()
+                    .map(|v| {
+                        let expected = value_to_python_string(v);
+                        python_contains_expr(field_access, &expected, field_is_enum, field_is_array, v.is_string())
+                    })
+                    .collect();
+                let rendered = crate::template_env::render(
+                    "python/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains_all",
+                        field_access => field_access,
+                        field_is_optional => field_is_optional,
+                        values_list => values_list,
+                    },
+                );
+                out.push_str(&rendered);
             }
-        }
-        "not_contains" => {
-            if let Some(val) = &assertion.value {
-                let expected = value_to_python_string(val);
-                let cmp_expr =
-                    python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
-                if field_is_optional {
-                    let _ = writeln!(
-                        out,
-                        "    assert {field_access} is None or not ({cmp_expr})  # noqa: S101"
-                    );
-                } else {
-                    let _ = writeln!(out, "    assert not ({cmp_expr})  # noqa: S101");
-                }
-            }
-        }
-        "not_empty" => {
-            let _ = writeln!(out, "    assert {field_access}  # noqa: S101");
-        }
-        "is_empty" => {
-            let _ = writeln!(out, "    assert not {field_access}  # noqa: S101");
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
@@ -319,95 +271,168 @@ fn render_standard_assertion(
                 } else {
                     format!("any(v in {field_access} for v in [{list_str}])")
                 };
-                if field_is_optional {
-                    let _ = writeln!(out, "    assert {field_access} is not None  # noqa: S101");
-                    let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
-                } else {
-                    let _ = writeln!(out, "    assert {cmp_expr}  # noqa: S101");
-                }
+                let rendered = crate::template_env::render(
+                    "python/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains_any",
+                        field_access => field_access,
+                        field_is_optional => field_is_optional,
+                        cmp_expr_any => cmp_expr,
+                    },
+                );
+                out.push_str(&rendered);
             }
-        }
-        "greater_than" => {
-            if let Some(val) = &assertion.value {
-                let expected = value_to_python_string(val);
-                let _ = writeln!(out, "    assert {field_access} > {expected}  # noqa: S101");
-            }
-        }
-        "less_than" => {
-            if let Some(val) = &assertion.value {
-                let expected = value_to_python_string(val);
-                let _ = writeln!(out, "    assert {field_access} < {expected}  # noqa: S101");
-            }
-        }
-        "greater_than_or_equal" | "min" => {
-            if let Some(val) = &assertion.value {
-                let expected = value_to_python_string(val);
-                let _ = writeln!(out, "    assert {field_access} >= {expected}  # noqa: S101");
-            }
-        }
-        "less_than_or_equal" | "max" => {
-            if let Some(val) = &assertion.value {
-                let expected = value_to_python_string(val);
-                let _ = writeln!(out, "    assert {field_access} <= {expected}  # noqa: S101");
-            }
-        }
-        "starts_with" => {
-            if let Some(val) = &assertion.value {
-                let expected = value_to_python_string(val);
-                let _ = writeln!(out, "    assert {field_access}.startswith({expected})  # noqa: S101");
-            }
-        }
-        "ends_with" => {
-            if let Some(val) = &assertion.value {
-                let expected = value_to_python_string(val);
-                let _ = writeln!(out, "    assert {field_access}.endswith({expected})  # noqa: S101");
-            }
-        }
-        "min_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    assert len({field_access}) >= {n}  # noqa: S101");
-                }
-            }
-        }
-        "max_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    assert len({field_access}) <= {n}  # noqa: S101");
-                }
-            }
-        }
-        "count_min" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    assert len({field_access}) >= {n}  # noqa: S101");
-                }
-            }
-        }
-        "count_equals" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    assert len({field_access}) == {n}  # noqa: S101");
-                }
-            }
-        }
-        "is_true" => {
-            let _ = writeln!(out, "    assert {field_access} is True  # noqa: S101");
-        }
-        "is_false" => {
-            let _ = writeln!(out, "    assert not {field_access}  # noqa: S101");
         }
         "method_result" => {
             render_method_result(out, assertion, result_var);
         }
+        "equals" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let op = if val.is_boolean() || val.is_null() { "is" } else { "==" };
+                let rendered = crate::template_env::render(
+                    "python/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "equals",
+                        field_access => field_access,
+                        field_is_optional => field_is_optional,
+                        is_enum => field_is_enum,
+                        expected_val => expected,
+                        op => op,
+                        is_string_val => val.is_string(),
+                    },
+                );
+                out.push_str(&rendered);
+            }
+        }
+        "contains" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let cmp_expr =
+                    python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
+                let rendered = crate::template_env::render(
+                    "python/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "contains",
+                        field_access => field_access,
+                        field_is_optional => field_is_optional,
+                        cmp_expr => cmp_expr,
+                    },
+                );
+                out.push_str(&rendered);
+            }
+        }
+        "not_contains" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let cmp_expr =
+                    python_contains_expr(field_access, &expected, field_is_enum, field_is_array, val.is_string());
+                let rendered = crate::template_env::render(
+                    "python/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "not_contains",
+                        field_access => field_access,
+                        field_is_optional => field_is_optional,
+                        cmp_expr => cmp_expr,
+                    },
+                );
+                out.push_str(&rendered);
+            }
+        }
+        "not_empty" => {
+            let rendered = crate::template_env::render(
+                "python/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "not_empty",
+                    field_access => field_access,
+                },
+            );
+            out.push_str(&rendered);
+        }
+        "is_empty" => {
+            let rendered = crate::template_env::render(
+                "python/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_empty",
+                    field_access => field_access,
+                },
+            );
+            out.push_str(&rendered);
+        }
+        "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" | "min" | "max" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let rendered = crate::template_env::render(
+                    "python/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion.assertion_type.as_str(),
+                        field_access => field_access,
+                        expected_val => expected,
+                    },
+                );
+                out.push_str(&rendered);
+            }
+        }
+        "starts_with" | "ends_with" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let rendered = crate::template_env::render(
+                    "python/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion.assertion_type.as_str(),
+                        field_access => field_access,
+                        expected_val => expected,
+                    },
+                );
+                out.push_str(&rendered);
+            }
+        }
+        "min_length" | "max_length" | "count_min" | "count_equals" => {
+            if let Some(val) = &assertion.value {
+                let n = val.as_u64().unwrap_or(0);
+                let rendered = crate::template_env::render(
+                    "python/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion.assertion_type.as_str(),
+                        field_access => field_access,
+                        n => n,
+                    },
+                );
+                out.push_str(&rendered);
+            }
+        }
+        "is_true" => {
+            let rendered = crate::template_env::render(
+                "python/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_true",
+                    field_access => field_access,
+                },
+            );
+            out.push_str(&rendered);
+        }
+        "is_false" => {
+            let rendered = crate::template_env::render(
+                "python/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => "is_false",
+                    field_access => field_access,
+                },
+            );
+            out.push_str(&rendered);
+        }
         "matches_regex" => {
             if let Some(val) = &assertion.value {
                 let expected = value_to_python_string(val);
-                let _ = writeln!(out, "    import re  # noqa: PLC0415");
-                let _ = writeln!(
-                    out,
-                    "    assert re.search({expected}, {field_access}) is not None  # noqa: S101"
+                let rendered = crate::template_env::render(
+                    "python/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "matches_regex",
+                        field_access => field_access,
+                        expected_val => expected,
+                    },
                 );
+                out.push_str(&rendered);
             }
         }
         other => {

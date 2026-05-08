@@ -2,7 +2,6 @@
 
 use alef_codegen::generators::trait_bridge::TraitBridgeSpec;
 use alef_core::ir::MethodDef;
-use std::fmt::Write;
 
 use super::FfiBridgeGenerator;
 
@@ -12,72 +11,20 @@ impl FfiBridgeGenerator {
         let vtable = self.vtable_name(spec);
         let mut out = String::with_capacity(1024);
 
-        writeln!(
-            out,
-            "/// VTable for C plugin bridges implementing the `{}` trait.",
-            spec.trait_def.name
-        )
-        .ok();
-        writeln!(out, "///").ok();
-        writeln!(out, "/// # Safety").ok();
-        writeln!(out, "///").ok();
-        writeln!(
-            out,
-            "/// All function pointers must be valid for the lifetime of any bridge created from"
-        )
-        .ok();
-        writeln!(
-            out,
-            "/// this vtable.  `free_user_data`, when non-null, is called once with `user_data`"
-        )
-        .ok();
-        writeln!(out, "/// when the bridge is dropped.").ok();
-        writeln!(out, "#[derive(Copy, Clone)]").ok();
-        writeln!(out, "#[repr(C)]").ok();
-        writeln!(out, "pub struct {vtable} {{").ok();
+        out.push_str(&crate::template_env::render(
+            "vtable_struct_header.jinja",
+            minijinja::context! {
+                trait_name => &spec.trait_def.name,
+                vtable_name => &vtable,
+            },
+        ));
 
         // Super-trait methods (Plugin: name, version, initialize, shutdown)
         if spec.bridge_config.super_trait.is_some() {
-            writeln!(
-                out,
-                "    /// Return a null-terminated UTF-8 name string into `out_name`."
-            )
-            .ok();
-            writeln!(
-                out,
-                "    pub name_fn: Option<unsafe extern \"C\" fn(user_data: *const std::ffi::c_void, out_name: *mut *mut std::ffi::c_char)>,"
-            )
-            .ok();
-            writeln!(
-                out,
-                "    /// Return a null-terminated UTF-8 version string into `out_version`."
-            )
-            .ok();
-            writeln!(
-                out,
-                "    pub version_fn: Option<unsafe extern \"C\" fn(user_data: *const std::ffi::c_void, out_version: *mut *mut std::ffi::c_char)>,"
-            )
-            .ok();
-            writeln!(
-                out,
-                "    /// Initialise the plugin; return 0 on success, non-zero on failure (error text in `out_error`)."
-            )
-            .ok();
-            writeln!(
-                out,
-                "    pub initialize_fn: Option<unsafe extern \"C\" fn(user_data: *const std::ffi::c_void, out_error: *mut *mut std::ffi::c_char) -> i32>,"
-            )
-            .ok();
-            writeln!(
-                out,
-                "    /// Shut down the plugin; return 0 on success, non-zero on failure (error text in `out_error`)."
-            )
-            .ok();
-            writeln!(
-                out,
-                "    pub shutdown_fn: Option<unsafe extern \"C\" fn(user_data: *const std::ffi::c_void, out_error: *mut *mut std::ffi::c_char) -> i32>,"
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "vtable_super_trait_methods.jinja",
+                minijinja::context! {},
+            ));
         }
 
         // One field per trait method (own methods only; super-trait methods are covered above)
@@ -93,36 +40,52 @@ impl FfiBridgeGenerator {
                 for line in method.doc.lines() {
                     let stripped = line.trim_start_matches("///").trim_start();
                     if stripped.is_empty() {
-                        writeln!(out, "    ///").ok();
+                        out.push_str(
+                            "    ///
+",
+                        );
                     } else {
-                        writeln!(out, "    /// {stripped}").ok();
+                        out.push_str(&crate::template_env::render(
+                            "vtable_method_doc_line.jinja",
+                            minijinja::context! {
+                                doc_line => stripped,
+                            },
+                        ));
                     }
                 }
             }
-            writeln!(out, "{}", self.vtable_fn_ptr_field(method)).ok();
+            // Build params and return type inline for the template
+            let mut params = vec!["user_data: *const std::ffi::c_void".to_string()];
+            for p in &method.params {
+                let cty = Self::c_param_type(&p.ty);
+                params.push(format!("{}: {}", p.name, cty));
+            }
+            let has_error = method.error_type.is_some();
+            let (out_params, ret_ty) = Self::c_return_convention(&method.return_type, has_error);
+            params.extend(out_params);
+
+            out.push_str(&crate::template_env::render(
+                "vtable_method_field.jinja",
+                minijinja::context! {
+                    method_name => &method.name,
+                    params_str => params.join(", "),
+                    ret_ty => ret_ty,
+                },
+            ));
         }
 
-        // free_user_data destructor
-        writeln!(
-            out,
-            "    /// Optional destructor: called once with `user_data` when the bridge is dropped."
-        )
-        .ok();
-        writeln!(
-            out,
-            "    pub free_user_data: Option<unsafe extern \"C\" fn(*mut std::ffi::c_void)>,"
-        )
-        .ok();
-
-        writeln!(out, "}}").ok();
+        // free_user_data destructor and Send + Sync
+        out.push_str(
+            "}}
+",
+        );
         let vtable = self.vtable_name(spec);
-        writeln!(
-            out,
-            "// SAFETY: all fields are function pointers and free_user_data, which are Send + Sync."
-        )
-        .ok();
-        writeln!(out, "unsafe impl Send for {vtable} {{}}").ok();
-        writeln!(out, "unsafe impl Sync for {vtable} {{}}").ok();
+        out.push_str(&crate::template_env::render(
+            "vtable_free_user_data.jinja",
+            minijinja::context! {
+                vtable_name => &vtable,
+            },
+        ));
         out
     }
 
@@ -130,83 +93,27 @@ impl FfiBridgeGenerator {
     pub(super) fn gen_bridge_struct(&self, spec: &TraitBridgeSpec) -> String {
         let vtable = self.vtable_name(spec);
         let bridge = self.bridge_name(spec);
-        let mut out = String::with_capacity(512);
 
-        writeln!(
-            out,
-            "/// Rust-side bridge that holds a C vtable pointer and opaque `user_data`."
+        crate::template_env::render(
+            "bridge_struct.jinja",
+            minijinja::context! {
+                trait_name => &spec.trait_def.name,
+                bridge_name => &bridge,
+                vtable_name => &vtable,
+            },
         )
-        .ok();
-        writeln!(out, "///").ok();
-        writeln!(
-            out,
-            "/// Implements `{}` by forwarding calls through the vtable.",
-            spec.trait_def.name
-        )
-        .ok();
-        writeln!(out, "pub struct {bridge} {{").ok();
-        writeln!(out, "    vtable: {vtable},").ok();
-        writeln!(out, "    user_data: *const std::ffi::c_void,").ok();
-        writeln!(out, "    cached_name: String,").ok();
-        writeln!(out, "    cached_version: String,").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-        // The vtable contains raw fn pointers which are not Debug, so we implement manually.
-        writeln!(out, "impl std::fmt::Debug for {bridge} {{").ok();
-        writeln!(
-            out,
-            "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{"
-        )
-        .ok();
-        writeln!(out, "        f.debug_struct(\"{bridge}\")").ok();
-        writeln!(out, "            .field(\"cached_name\", &self.cached_name)").ok();
-        writeln!(out, "            .field(\"cached_version\", &self.cached_version)").ok();
-        writeln!(out, "            .finish_non_exhaustive()").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        writeln!(out).ok();
-        writeln!(
-            out,
-            "// SAFETY: The caller is responsible for ensuring `user_data` is safe to send across"
-        )
-        .ok();
-        writeln!(
-            out,
-            "// thread boundaries. This is documented in `{vtable}` and the registration function."
-        )
-        .ok();
-        writeln!(out, "unsafe impl Send for {bridge} {{}}").ok();
-        writeln!(out, "unsafe impl Sync for {bridge} {{}}").ok();
-        out
     }
 
     /// Generate the `Drop` impl that calls `free_user_data` if non-null.
     pub(super) fn gen_bridge_drop(&self, spec: &TraitBridgeSpec) -> String {
         let bridge = self.bridge_name(spec);
-        let mut out = String::with_capacity(256);
 
-        writeln!(out, "impl Drop for {bridge} {{").ok();
-        writeln!(out, "    fn drop(&mut self) {{").ok();
-        writeln!(out, "        if let Some(free_fn) = self.vtable.free_user_data {{").ok();
-        writeln!(
-            out,
-            "            // SAFETY: free_fn is a valid function pointer; user_data is the pointer"
+        crate::template_env::render(
+            "bridge_drop.jinja",
+            minijinja::context! {
+                bridge_name => &bridge,
+            },
         )
-        .ok();
-        writeln!(
-            out,
-            "            // originally provided at registration. Called exactly once here."
-        )
-        .ok();
-        writeln!(
-            out,
-            "            unsafe {{ free_fn(self.user_data as *mut std::ffi::c_void) }}"
-        )
-        .ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
-        out
     }
 
     /// Generate the `impl Plugin for FfiBridge` block using vtable fn pointers.
@@ -222,155 +129,42 @@ impl FfiBridgeGenerator {
         };
 
         let mut out = String::with_capacity(1024);
-        writeln!(out, "impl {super_trait_path} for {bridge} {{").ok();
 
-        // name() — uses cached_name
-        writeln!(out, "    fn name(&self) -> &str {{").ok();
-        writeln!(out, "        &self.cached_name").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
-
-        // version() — calls vtable.version_fn, returns String
-        writeln!(out, "    fn version(&self) -> String {{").ok();
-        writeln!(
-            out,
-            "        let Some(fp) = self.vtable.version_fn else {{ return String::new() }};"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let mut _out: *mut std::ffi::c_char = std::ptr::null_mut();"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        // SAFETY: fp is valid; user_data validity is the caller's responsibility."
-        )
-        .ok();
-        writeln!(out, "        unsafe {{ fp(self.user_data, &mut _out) }};").ok();
-        writeln!(
-            out,
-            "        if _out.is_null() {{ return self.cached_version.clone(); }}"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        // SAFETY: _out is a callee-allocated CString; we take ownership."
-        )
-        .ok();
-        writeln!(out, "        let cs = unsafe {{ std::ffi::CString::from_raw(_out) }};").ok();
-        writeln!(out, "        cs.to_string_lossy().into_owned()").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
-
-        // initialize()
         let error_type = &self.error_type;
-        writeln!(
-            out,
-            "    fn initialize(&self) -> std::result::Result<(), {core_import}::{error_type}> {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let Some(fp) = self.vtable.initialize_fn else {{ return Ok(()); }};"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let mut _out_error: *mut std::ffi::c_char = std::ptr::null_mut();"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        // SAFETY: fp is valid; user_data validity is the caller's responsibility."
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let rc = unsafe {{ fp(self.user_data, &mut _out_error) }};"
-        )
-        .ok();
-        writeln!(out, "        if rc != 0 {{").ok();
-        writeln!(
-            out,
-            "            let msg = if _out_error.is_null() {{ format!(\"initialize returned {{}}\", rc) }} else {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "                // SAFETY: _out_error is a callee-allocated CString; we take ownership."
-        )
-        .ok();
-        writeln!(
-            out,
-            "                let cs = unsafe {{ std::ffi::CString::from_raw(_out_error) }};"
-        )
-        .ok();
-        writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
-        writeln!(out, "            }};").ok();
-        writeln!(
-            out,
-            "            return Err(kreuzberg::KreuzbergError::Plugin {{ message: msg, plugin_name: String::new() }});"
-        )
-        .ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "        Ok(())").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out).ok();
 
-        // shutdown()
-        writeln!(
-            out,
-            "    fn shutdown(&self) -> std::result::Result<(), {core_import}::{error_type}> {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let Some(fp) = self.vtable.shutdown_fn else {{ return Ok(()); }};"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let mut _out_error: *mut std::ffi::c_char = std::ptr::null_mut();"
-        )
-        .ok();
-        writeln!(
-            out,
-            "        // SAFETY: fp is valid; user_data validity is the caller's responsibility."
-        )
-        .ok();
-        writeln!(
-            out,
-            "        let rc = unsafe {{ fp(self.user_data, &mut _out_error) }};"
-        )
-        .ok();
-        writeln!(out, "        if rc != 0 {{").ok();
-        writeln!(
-            out,
-            "            let msg = if _out_error.is_null() {{ format!(\"shutdown returned {{}}\", rc) }} else {{"
-        )
-        .ok();
-        writeln!(
-            out,
-            "                // SAFETY: _out_error is a callee-allocated CString; we take ownership."
-        )
-        .ok();
-        writeln!(
-            out,
-            "                let cs = unsafe {{ std::ffi::CString::from_raw(_out_error) }};"
-        )
-        .ok();
-        writeln!(out, "                cs.to_string_lossy().into_owned()").ok();
-        writeln!(out, "            }};").ok();
-        writeln!(
-            out,
-            "            return Err(kreuzberg::KreuzbergError::Plugin {{ message: msg, plugin_name: String::new() }});"
-        )
-        .ok();
-        writeln!(out, "        }}").ok();
-        writeln!(out, "        Ok(())").ok();
-        writeln!(out, "    }}").ok();
-        writeln!(out, "}}").ok();
+        // plugin_impl_header
+        out.push_str(&crate::template_env::render(
+            "plugin_impl_header.jinja",
+            minijinja::context! {
+                super_trait_path => &super_trait_path,
+                bridge_name => &bridge,
+            },
+        ));
+
+        // plugin_impl_version
+        out.push_str(&crate::template_env::render(
+            "plugin_impl_version.jinja",
+            minijinja::context! {},
+        ));
+
+        // plugin_impl_initialize
+        out.push_str(&crate::template_env::render(
+            "plugin_impl_initialize.jinja",
+            minijinja::context! {
+                core_import => core_import,
+                error_type => error_type,
+            },
+        ));
+
+        // plugin_impl_shutdown
+        out.push_str(&crate::template_env::render(
+            "plugin_impl_shutdown.jinja",
+            minijinja::context! {
+                core_import => core_import,
+                error_type => error_type,
+            },
+        ));
+
         Some(out)
     }
 

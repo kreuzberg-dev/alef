@@ -13,7 +13,6 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
 use heck::{ToLowerCamelCase, ToUpperCamelCase};
-use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
@@ -186,87 +185,17 @@ fn render_pom_xml(
             )
         }
     };
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-
-    <groupId>{java_group_id}</groupId>
-    <artifactId>{artifact_id}</artifactId>
-    <version>0.1.0</version>
-
-    <properties>
-        <maven.compiler.source>25</maven.compiler.source>
-        <maven.compiler.target>25</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <junit.version>{junit}</junit.version>
-    </properties>
-
-    <dependencies>
-{dep_block}
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>{jackson}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jdk8</artifactId>
-            <version>{jackson}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.jetbrains</groupId>
-            <artifactId>annotations</artifactId>
-            <version>24.1.0</version>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>${{junit.version}}</version>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>build-helper-maven-plugin</artifactId>
-                <version>{build_helper}</version>
-                <executions>
-                    <execution>
-                        <id>add-test-source</id>
-                        <phase>generate-test-sources</phase>
-                        <goals>
-                            <goal>add-test-source</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <source>src/test/java</source>
-                            </sources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>{maven_surefire}</version>
-                <configuration>
-                    <argLine>--enable-preview --enable-native-access=ALL-UNNAMED -Djava.library.path=${{project.basedir}}/../../target/release</argLine>
-                    <workingDirectory>${{project.basedir}}/../../test_documents</workingDirectory>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
-</project>
-"#,
-        junit = tv::maven::JUNIT,
-        jackson = tv::maven::JACKSON_E2E,
-        build_helper = tv::maven::BUILD_HELPER_MAVEN_PLUGIN,
-        maven_surefire = tv::maven::MAVEN_SUREFIRE_PLUGIN_E2E,
+    crate::template_env::render(
+        "java/pom.xml.jinja",
+        minijinja::context! {
+            artifact_id => artifact_id,
+            java_group_id => java_group_id,
+            dep_block => dep_block,
+            junit_version => tv::maven::JUNIT,
+            jackson_version => tv::maven::JACKSON_E2E,
+            build_helper_version => tv::maven::BUILD_HELPER_MAVEN_PLUGIN,
+            maven_surefire_version => tv::maven::MAVEN_SUREFIRE_PLUGIN_E2E,
+        },
     )
 }
 
@@ -287,8 +216,7 @@ fn render_test_file(
     nested_types: &std::collections::HashMap<String, String>,
     nested_types_optional: bool,
 ) -> String {
-    let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    let header = hash::header(CommentStyle::DoubleSlash);
     let test_class_name = format!("{}Test", sanitize_filename(category).to_upper_camel_case());
 
     // If the class_name is fully qualified (contains '.'), import it and use
@@ -300,15 +228,8 @@ fn render_test_file(
         ("", class_name)
     };
 
-    let _ = writeln!(out, "package {java_group_id}.e2e;");
-    let _ = writeln!(out);
-
     // Check if any fixture (with its resolved call) will emit MAPPER usage.
-    // Note: we no longer use MAPPER for json_object options (using builder pattern instead).
-    // But we still need it for handle args and HTTP fixtures.
     let lang_for_om = "java";
-    let _needs_object_mapper_for_options = false;
-    // Also need ObjectMapper when a handle arg has a non-null config.
     let needs_object_mapper_for_handle = fixtures.iter().any(|f| {
         args.iter().filter(|a| a.arg_type == "handle").any(|a| {
             let v = f.input.get(&a.field).unwrap_or(&serde_json::Value::Null);
@@ -341,20 +262,9 @@ fn render_test_file(
         }
     }
 
-    let _ = writeln!(out, "import org.junit.jupiter.api.Test;");
-    let _ = writeln!(out, "import static org.junit.jupiter.api.Assertions.*;");
-    if !import_path.is_empty() {
-        let _ = writeln!(out, "import {import_path};");
-    }
-    if needs_object_mapper {
-        let _ = writeln!(out, "import com.fasterxml.jackson.databind.ObjectMapper;");
-        let _ = writeln!(out, "import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;");
-    }
     // Collect all enum types used in builder expressions across all fixtures.
     let mut enum_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     // Collect nested config types actually referenced in fixture builder expressions
-    // (rather than importing all defaults unconditionally, which causes javac errors
-    // when a type like ChunkingConfig doesn't exist in the binding's package).
     let mut nested_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for f in fixtures.iter() {
         let call_cfg = e2e_config.resolve_call(f.call.as_deref());
@@ -373,6 +283,20 @@ fn render_test_file(
         }
     }
 
+    // Build imports list
+    let mut imports: Vec<String> = Vec::new();
+    imports.push("import org.junit.jupiter.api.Test;".to_string());
+    imports.push("import static org.junit.jupiter.api.Assertions.*;".to_string());
+
+    if !import_path.is_empty() {
+        imports.push(format!("import {import_path};"));
+    }
+
+    if needs_object_mapper {
+        imports.push("import com.fasterxml.jackson.databind.ObjectMapper;".to_string());
+        imports.push("import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;".to_string());
+    }
+
     // Import all options types used across fixtures (for builder expressions and MAPPER).
     if !all_options_types.is_empty() {
         let opts_pkg = if !import_path.is_empty() {
@@ -386,7 +310,7 @@ fn render_test_file(
             } else {
                 format!("{opts_pkg}.{opts_type}")
             };
-            let _ = writeln!(out, "import {qualified};");
+            imports.push(format!("import {qualified};"));
         }
     }
 
@@ -394,57 +318,45 @@ fn render_test_file(
     if !enum_types_used.is_empty() && !import_path.is_empty() {
         let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
         for enum_type in &enum_types_used {
-            let _ = writeln!(out, "import {binding_pkg}.{enum_type};");
+            imports.push(format!("import {binding_pkg}.{enum_type};"));
         }
     }
 
-    // Import only the nested options types that are actually referenced in fixture
-    // builder expressions. Using `nested_types_used` (populated above) rather than
-    // all `nested_types.values()` avoids javac `cannot find symbol` errors for types
-    // like ChunkingConfig that exist in other Kreuzberg bindings but not this one.
+    // Import nested options types
     if !nested_types_used.is_empty() && !import_path.is_empty() {
         let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
         for type_name in &nested_types_used {
-            let _ = writeln!(out, "import {binding_pkg}.{type_name};");
+            imports.push(format!("import {binding_pkg}.{type_name};"));
         }
     }
 
     // Import CrawlConfig when handle args need JSON deserialization.
     if needs_object_mapper_for_handle && !import_path.is_empty() {
         let pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
-        let _ = writeln!(out, "import {pkg}.CrawlConfig;");
+        imports.push(format!("import {pkg}.CrawlConfig;"));
     }
+
     // Import visitor types when any fixture uses visitor callbacks.
     let has_visitor_fixtures = fixtures.iter().any(|f| f.visitor.is_some());
     if has_visitor_fixtures && !import_path.is_empty() {
         let binding_pkg = import_path.rsplit_once('.').map(|(p, _)| p).unwrap_or("");
         if !binding_pkg.is_empty() {
-            let _ = writeln!(out, "import {binding_pkg}.Visitor;");
-            let _ = writeln!(out, "import {binding_pkg}.NodeContext;");
-            let _ = writeln!(out, "import {binding_pkg}.VisitResult;");
+            imports.push(format!("import {binding_pkg}.Visitor;"));
+            imports.push(format!("import {binding_pkg}.NodeContext;"));
+            imports.push(format!("import {binding_pkg}.VisitResult;"));
         }
     }
+
     // Import Optional when using builder expressions with optional fields
     if !all_options_types.is_empty() {
-        let _ = writeln!(out, "import java.util.Optional;");
-    }
-    let _ = writeln!(out);
-
-    let _ = writeln!(out, "/** E2e tests for category: {category}. */");
-    let _ = writeln!(out, "@SuppressWarnings(\"checkstyle:LineLength\")");
-    let _ = writeln!(out, "class {test_class_name} {{");
-
-    if needs_object_mapper {
-        let _ = writeln!(out);
-        let _ = writeln!(
-            out,
-            "    private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module());"
-        );
+        imports.push("import java.util.Optional;".to_string());
     }
 
-    for fixture in fixtures {
+    // Render all test methods
+    let mut fixtures_body = String::new();
+    for (i, fixture) in fixtures.iter().enumerate() {
         render_test_method(
-            &mut out,
+            &mut fixtures_body,
             fixture,
             simple_class,
             function_name,
@@ -458,11 +370,24 @@ fn render_test_file(
             nested_types,
             nested_types_optional,
         );
-        let _ = writeln!(out);
+        if i + 1 < fixtures.len() {
+            fixtures_body.push('\n');
+        }
     }
 
-    let _ = writeln!(out, "}}");
-    out
+    // Render template
+    crate::template_env::render(
+        "java/test_file.jinja",
+        minijinja::context! {
+            header => header,
+            java_group_id => java_group_id,
+            test_class_name => test_class_name,
+            category => category,
+            imports => imports,
+            needs_object_mapper => needs_object_mapper,
+            fixtures_body => fixtures_body,
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -492,27 +417,22 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
     /// `Assumptions.assumeTrue(false, ...)` call and `render_test_close` closes
     /// the brace symmetrically.
     fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
-        let _ = writeln!(out, "    @Test");
-        if let Some(reason) = skip_reason {
-            let escaped_reason = escape_java(reason);
-            let _ = writeln!(out, "    void test{fn_name}() {{");
-            let _ = writeln!(out, "        // {description}");
-            let _ = writeln!(
-                out,
-                "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"{escaped_reason}\");"
-            );
-        } else {
-            let _ = writeln!(out, "    void test{fn_name}() throws Exception {{");
-            let _ = writeln!(out, "        // {description}");
-            // Resolve base URL once at the top of every non-skipped test.
-            let _ = writeln!(out, "        String baseUrl = System.getenv(\"MOCK_SERVER_URL\");");
-            let _ = writeln!(out, "        if (baseUrl == null) baseUrl = \"http://localhost:8080\";");
-        }
+        let escaped_reason = skip_reason.map(escape_java);
+        let rendered = crate::template_env::render(
+            "java/http_test_open.jinja",
+            minijinja::context! {
+                fn_name => fn_name,
+                description => description,
+                skip_reason => escaped_reason,
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit the closing `}` for a test method.
     fn render_test_close(&self, out: &mut String) {
-        let _ = writeln!(out, "    }}");
+        let rendered = crate::template_env::render("java/http_test_close.jinja", minijinja::context! {});
+        out.push_str(&rendered);
     }
 
     /// Emit a `java.net.http.HttpClient` request to `baseUrl + path`.
@@ -543,10 +463,6 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
                 .collect();
             format!("{}?{}", ctx.path, pairs.join("&"))
         };
-        let _ = writeln!(
-            out,
-            "        java.net.URI uri = java.net.URI.create(baseUrl + \"{path}\");"
-        );
 
         let body_publisher = if let Some(body) = ctx.body {
             let json = serde_json::to_string(body).unwrap_or_default();
@@ -556,61 +472,70 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
             "java.net.http.HttpRequest.BodyPublishers.noBody()".to_string()
         };
 
-        let _ = writeln!(out, "        var builder = java.net.http.HttpRequest.newBuilder(uri)");
-        let _ = writeln!(out, "            .method(\"{method}\", {body_publisher});");
-
         // Content-Type header — only when a body is present.
-        if ctx.body.is_some() {
-            let content_type = ctx.content_type.unwrap_or("application/json");
+        let content_type = if ctx.body.is_some() {
+            let ct = ctx.content_type.unwrap_or("application/json");
             // Only emit when not already in ctx.headers (avoid duplicate Content-Type).
             if !ctx.headers.keys().any(|k| k.to_lowercase() == "content-type") {
-                let _ = writeln!(
-                    out,
-                    "        builder = builder.header(\"Content-Type\", \"{content_type}\");"
-                );
+                Some(ct.to_string())
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
 
-        // Explicit request headers — skip Java-restricted ones.
+        // Build header lines — skip Java-restricted ones.
+        let mut headers_lines: Vec<String> = Vec::new();
         for (name, value) in ctx.headers {
             if JAVA_RESTRICTED_HEADERS.contains(&name.to_lowercase().as_str()) {
                 continue;
             }
             let escaped_name = escape_java(name);
             let escaped_value = escape_java(value);
-            let _ = writeln!(
-                out,
-                "        builder = builder.header(\"{escaped_name}\", \"{escaped_value}\");"
-            );
+            headers_lines.push(format!(
+                "builder = builder.header(\"{escaped_name}\", \"{escaped_value}\");"
+            ));
         }
 
         // Cookies as a single `Cookie` header.
-        if !ctx.cookies.is_empty() {
+        let cookies_line = if !ctx.cookies.is_empty() {
             let cookie_str: Vec<String> = ctx.cookies.iter().map(|(k, v)| format!("{k}={v}")).collect();
             let cookie_header = escape_java(&cookie_str.join("; "));
-            let _ = writeln!(
-                out,
-                "        builder = builder.header(\"Cookie\", \"{cookie_header}\");"
-            );
-        }
+            Some(format!("builder = builder.header(\"Cookie\", \"{cookie_header}\");"))
+        } else {
+            None
+        };
 
-        let response_var = ctx.response_var;
-        let _ = writeln!(
-            out,
-            "        var {response_var} = java.net.http.HttpClient.newHttpClient()"
+        let rendered = crate::template_env::render(
+            "java/http_request.jinja",
+            minijinja::context! {
+                method => method,
+                path => path,
+                body_publisher => body_publisher,
+                content_type => content_type,
+                headers_lines => headers_lines,
+                cookies_line => cookies_line,
+                response_var => ctx.response_var,
+            },
         );
-        let _ = writeln!(
-            out,
-            "            .send(builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString());"
-        );
+        out.push_str(&rendered);
     }
 
     /// Emit `assertEquals(status, response.statusCode(), ...)`.
     fn render_assert_status(&self, out: &mut String, response_var: &str, status: u16) {
-        let _ = writeln!(
-            out,
-            "        assertEquals({status}, {response_var}.statusCode(), \"status code mismatch\");"
+        let rendered = crate::template_env::render(
+            "java/http_assertions.jinja",
+            minijinja::context! {
+                response_var => response_var,
+                status_code => status,
+                headers => Vec::<std::collections::HashMap<&str, String>>::new(),
+                body_assertion => String::new(),
+                partial_body => Vec::<std::collections::HashMap<&str, String>>::new(),
+                validation_errors => Vec::<std::collections::HashMap<&str, String>>::new(),
+            },
         );
+        out.push_str(&rendered);
     }
 
     /// Emit a header assertion using `response.headers().firstValue(...)`.
@@ -618,75 +543,109 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
     /// Handles special tokens: `<<present>>`, `<<absent>>`, `<<uuid>>`.
     fn render_assert_header(&self, out: &mut String, response_var: &str, name: &str, expected: &str) {
         let escaped_name = escape_java(name);
-        match expected {
+        let assertion_code = match expected {
             "<<present>>" => {
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").isPresent(), \"header {escaped_name} should be present\");"
-                );
+                format!(
+                    "assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").isPresent(), \"header {escaped_name} should be present\");"
+                )
             }
             "<<absent>>" => {
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").isEmpty(), \"header {escaped_name} should be absent\");"
-                );
+                format!(
+                    "assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").isEmpty(), \"header {escaped_name} should be absent\");"
+                )
             }
             "<<uuid>>" => {
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").orElse(\"\").matches(\"[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}\"), \"header {escaped_name} should be a UUID\");"
-                );
+                format!(
+                    "assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").orElse(\"\").matches(\"[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}\"), \"header {escaped_name} should be a UUID\");"
+                )
             }
             literal => {
                 let escaped_value = escape_java(literal);
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").orElse(\"\").contains(\"{escaped_value}\"), \"header {escaped_name} mismatch\");"
-                );
+                format!(
+                    "assertTrue({response_var}.headers().firstValue(\"{escaped_name}\").orElse(\"\").contains(\"{escaped_value}\"), \"header {escaped_name} mismatch\");"
+                )
             }
-        }
+        };
+
+        let mut headers = vec![std::collections::HashMap::new()];
+        headers[0].insert("assertion_code", assertion_code);
+
+        let rendered = crate::template_env::render(
+            "java/http_assertions.jinja",
+            minijinja::context! {
+                response_var => response_var,
+                status_code => 0u16,
+                headers => headers,
+                body_assertion => String::new(),
+                partial_body => Vec::<std::collections::HashMap<&str, String>>::new(),
+                validation_errors => Vec::<std::collections::HashMap<&str, String>>::new(),
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit a JSON body equality assertion using Jackson's `MAPPER.readTree`.
     fn render_assert_json_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
-        match expected {
+        let body_assertion = match expected {
             serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
                 let json_str = serde_json::to_string(expected).unwrap_or_default();
                 let escaped = escape_java(&json_str);
-                let _ = writeln!(out, "        var bodyJson = MAPPER.readTree({response_var}.body());");
-                let _ = writeln!(out, "        var expectedJson = MAPPER.readTree(\"{escaped}\");");
-                let _ = writeln!(out, "        assertEquals(expectedJson, bodyJson, \"body mismatch\");");
+                format!(
+                    "var bodyJson = MAPPER.readTree({response_var}.body());\n        var expectedJson = MAPPER.readTree(\"{escaped}\");\n        assertEquals(expectedJson, bodyJson, \"body mismatch\");"
+                )
             }
             serde_json::Value::String(s) => {
                 let escaped = escape_java(s);
-                let _ = writeln!(
-                    out,
-                    "        assertEquals(\"{escaped}\", {response_var}.body().trim(), \"body mismatch\");"
-                );
+                format!("assertEquals(\"{escaped}\", {response_var}.body().trim(), \"body mismatch\");")
             }
             other => {
                 let escaped = escape_java(&other.to_string());
-                let _ = writeln!(
-                    out,
-                    "        assertEquals(\"{escaped}\", {response_var}.body().trim(), \"body mismatch\");"
-                );
+                format!("assertEquals(\"{escaped}\", {response_var}.body().trim(), \"body mismatch\");")
             }
-        }
+        };
+
+        let rendered = crate::template_env::render(
+            "java/http_assertions.jinja",
+            minijinja::context! {
+                response_var => response_var,
+                status_code => 0u16,
+                headers => Vec::<std::collections::HashMap<&str, String>>::new(),
+                body_assertion => body_assertion,
+                partial_body => Vec::<std::collections::HashMap<&str, String>>::new(),
+                validation_errors => Vec::<std::collections::HashMap<&str, String>>::new(),
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit partial JSON body assertions: parse once, then assert each expected field.
     fn render_assert_partial_body(&self, out: &mut String, response_var: &str, expected: &serde_json::Value) {
         if let Some(obj) = expected.as_object() {
-            let _ = writeln!(out, "        var partialJson = MAPPER.readTree({response_var}.body());");
+            let mut partial_body: Vec<std::collections::HashMap<&str, String>> = Vec::new();
             for (key, val) in obj {
                 let escaped_key = escape_java(key);
                 let json_str = serde_json::to_string(val).unwrap_or_default();
                 let escaped_val = escape_java(&json_str);
-                let _ = writeln!(
-                    out,
-                    "        assertEquals(MAPPER.readTree(\"{escaped_val}\"), partialJson.get(\"{escaped_key}\"), \"body field '{escaped_key}' mismatch\");"
+                let assertion_code = format!(
+                    "assertEquals(MAPPER.readTree(\"{escaped_val}\"), partialJson.get(\"{escaped_key}\"), \"body field '{escaped_key}' mismatch\");"
                 );
+                let mut entry = std::collections::HashMap::new();
+                entry.insert("assertion_code", assertion_code);
+                partial_body.push(entry);
             }
+
+            let rendered = crate::template_env::render(
+                "java/http_assertions.jinja",
+                minijinja::context! {
+                    response_var => response_var,
+                    status_code => 0u16,
+                    headers => Vec::<std::collections::HashMap<&str, String>>::new(),
+                    body_assertion => String::new(),
+                    partial_body => partial_body,
+                    validation_errors => Vec::<std::collections::HashMap<&str, String>>::new(),
+                },
+            );
+            out.push_str(&rendered);
         }
     }
 
@@ -697,14 +656,29 @@ impl client::TestClientRenderer for JavaTestClientRenderer {
         response_var: &str,
         errors: &[crate::fixture::ValidationErrorExpectation],
     ) {
-        let _ = writeln!(out, "        var veBody = {response_var}.body();");
+        let mut validation_errors: Vec<std::collections::HashMap<&str, String>> = Vec::new();
         for err in errors {
             let escaped_msg = escape_java(&err.msg);
-            let _ = writeln!(
-                out,
-                "        assertTrue(veBody.contains(\"{escaped_msg}\"), \"expected validation error message: {escaped_msg}\");"
+            let assertion_code = format!(
+                "assertTrue(veBody.contains(\"{escaped_msg}\"), \"expected validation error message: {escaped_msg}\");"
             );
+            let mut entry = std::collections::HashMap::new();
+            entry.insert("assertion_code", assertion_code);
+            validation_errors.push(entry);
         }
+
+        let rendered = crate::template_env::render(
+            "java/http_assertions.jinja",
+            minijinja::context! {
+                response_var => response_var,
+                status_code => 0u16,
+                headers => Vec::<std::collections::HashMap<&str, String>>::new(),
+                body_assertion => String::new(),
+                partial_body => Vec::<std::collections::HashMap<&str, String>>::new(),
+                validation_errors => validation_errors,
+            },
+        );
+        out.push_str(&rendered);
     }
 }
 
@@ -720,14 +694,13 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
     if http.expected_response.status_code == 101 {
         let method_name = fixture.id.to_upper_camel_case();
         let description = &fixture.description;
-        let _ = writeln!(out, "    @Test");
-        let _ = writeln!(out, "    void test{method_name}() {{");
-        let _ = writeln!(out, "        // {description}");
-        let _ = writeln!(
-            out,
-            "        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"Skipped: Java HttpClient cannot handle 101 Switching Protocols responses\");"
-        );
-        let _ = writeln!(out, "    }}");
+        out.push_str(&crate::template_env::render(
+            "java/http_test_skip_101.jinja",
+            minijinja::context! {
+                method_name => method_name,
+                description => description,
+            },
+        ));
         return;
     }
 
@@ -774,6 +747,16 @@ fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    // Emit a compilable stub for non-HTTP fixtures that have no call override.
+    if call_overrides.is_none() {
+        let skip_msg = format!("TODO: implement Java e2e test for fixture '{}'", fixture.id);
+        out.push_str(&format!(
+            "    @Test\n    void test{}() {{\n        // {}\n        org.junit.jupiter.api.Assumptions.assumeTrue(false, \"{}\");\n    }}\n",
+            method_name, description, skip_msg
+        ));
+        return;
+    }
+
     // Resolve per-fixture options_type: prefer the java call override, fall back to class-level.
     let effective_options_type: Option<String> = call_overrides
         .and_then(|o| o.options_type.clone())
@@ -786,7 +769,6 @@ fn render_test_method(
     let effective_result_is_bytes = call_overrides.is_some_and(|o| o.result_is_bytes);
 
     // Check if this test needs ObjectMapper deserialization for json_object args.
-    // Strip "input." prefix when looking up field in fixture.input.
     let needs_deser = effective_options_type.is_some()
         && args.iter().any(|arg| {
             if arg.arg_type != "json_object" {
@@ -796,14 +778,8 @@ fn render_test_method(
             fixture.input.get(field).is_some_and(|v| !v.is_null() && !v.is_array())
         });
 
-    // Always add throws Exception since the convert method may throw checked exceptions.
-    let throws_clause = " throws Exception";
-
-    let _ = writeln!(out, "    @Test");
-    let _ = writeln!(out, "    void test{method_name}(){throws_clause} {{");
-    let _ = writeln!(out, "        // {description}");
-
     // Emit builder expressions for json_object args.
+    let mut builder_expressions = String::new();
     if let (true, Some(opts_type)) = (needs_deser, effective_options_type) {
         for arg in args {
             if arg.arg_type == "json_object" {
@@ -823,7 +799,7 @@ fn render_test_method(
                                 path_fields,
                             );
                             let var_name = &arg.name;
-                            let _ = writeln!(out, "        var {var_name} = {builder_expr};");
+                            builder_expressions.push_str(&format!("        var {} = {};\n", var_name, builder_expr));
                         }
                     }
                 }
@@ -842,14 +818,9 @@ fn render_test_method(
         has_visitor_fixture = true;
     }
 
-    for line in &setup_lines {
-        let _ = writeln!(out, "        {line}");
-    }
-
     // When visitor is present, attach it to the options parameter
     let final_args = if has_visitor_fixture {
         if args_str.is_empty() {
-            // No arguments: just create ConversionOptions with visitor
             format!("new ConversionOptions().withVisitor({})", visitor_var)
         } else if args_str.contains("new ConversionOptions")
             || args_str.contains("ConversionOptionsBuilder")
@@ -858,44 +829,23 @@ fn render_test_method(
             // Options are being built (either new ConversionOptions(), builder pattern, or .builder().build())
             // append .withVisitor() call before .build() if present
             if args_str.contains(".build()") {
-                // Insert .withVisitor() before the final .build()
                 let idx = args_str.rfind(".build()").unwrap();
                 format!("{}.withVisitor({}){}", &args_str[..idx], visitor_var, &args_str[idx..])
             } else {
-                // Already a chain, just append
                 format!("{}.withVisitor({})", args_str, visitor_var)
             }
         } else if args_str.ends_with(", null") {
-            // Replace trailing null options with ConversionOptions containing visitor
             let base = &args_str[..args_str.len() - 6];
             format!("{}, new ConversionOptions().withVisitor({})", base, visitor_var)
         } else {
-            // args_str is just the html argument(s) — append new ConversionOptions with visitor
             format!("{}, new ConversionOptions().withVisitor({})", args_str, visitor_var)
         }
     } else {
         args_str
     };
 
-    if expects_error {
-        let _ = writeln!(
-            out,
-            "        assertThrows(Exception.class, () -> {class_name}.{function_name}({final_args}));"
-        );
-        let _ = writeln!(out, "    }}");
-        return;
-    }
-
-    if call_config.returns_void {
-        let _ = writeln!(out, "        {class_name}.{function_name}({final_args});");
-        let _ = writeln!(out, "    }}");
-        return;
-    }
-
-    let _ = writeln!(
-        out,
-        "        var {result_var} = {class_name}.{function_name}({final_args});"
-    );
+    // Render assertions_body
+    let mut assertions_body = String::new();
 
     // Emit a `source` variable for run_query assertions that need the raw bytes.
     let needs_source_var = fixture
@@ -903,19 +853,18 @@ fn render_test_method(
         .iter()
         .any(|a| a.assertion_type == "method_result" && a.method.as_deref() == Some("run_query"));
     if needs_source_var {
-        // Find the source_code arg to emit a `source` binding.
         if let Some(source_arg) = args.iter().find(|a| a.field == "source_code") {
             let field = source_arg.field.strip_prefix("input.").unwrap_or(&source_arg.field);
             if let Some(val) = fixture.input.get(field) {
                 let java_val = json_to_java(val);
-                let _ = writeln!(out, "        var source = {java_val}.getBytes();");
+                assertions_body.push_str(&format!("        var source = {}.getBytes();\n", java_val));
             }
         }
     }
 
     for assertion in &fixture.assertions {
         render_assertion(
-            out,
+            &mut assertions_body,
             assertion,
             result_var,
             class_name,
@@ -926,7 +875,24 @@ fn render_test_method(
         );
     }
 
-    let _ = writeln!(out, "    }}");
+    let throws_clause = " throws Exception";
+    let call_expr = format!("{class_name}.{function_name}({final_args})");
+
+    let rendered = crate::template_env::render(
+        "java/test_method.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            description => description,
+            builder_expressions => builder_expressions,
+            setup_lines => setup_lines,
+            throws_clause => throws_clause,
+            expects_error => expects_error,
+            call_expr => call_expr,
+            result_var => result_var,
+            assertions_body => assertions_body,
+        },
+    );
+    out.push_str(&rendered);
 }
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
@@ -1073,80 +1039,60 @@ fn render_assertion(
                 let pred = format!(
                     "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.content() != null && !c.content().isBlank())"
                 );
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
-                    }
-                    _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion on synthetic field '{f}'"
-                        );
-                    }
-                }
+                out.push_str(&crate::template_env::render(
+                    "java/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "chunks_content",
+                        assertion_type => assertion.assertion_type.as_str(),
+                        pred => pred,
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             "chunks_have_heading_context" => {
                 let pred = format!(
                     "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.metadata().headingContext().isPresent())"
                 );
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
-                    }
-                    _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion on synthetic field '{f}'"
-                        );
-                    }
-                }
+                out.push_str(&crate::template_env::render(
+                    "java/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "chunks_heading_context",
+                        assertion_type => assertion.assertion_type.as_str(),
+                        pred => pred,
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             "chunks_have_embeddings" => {
                 let pred = format!(
                     "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.embedding() != null && !c.embedding().isEmpty())"
                 );
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
-                    }
-                    _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion on synthetic field '{f}'"
-                        );
-                    }
-                }
+                out.push_str(&crate::template_env::render(
+                    "java/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "chunks_embeddings",
+                        assertion_type => assertion.assertion_type.as_str(),
+                        pred => pred,
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             "first_chunk_starts_with_heading" => {
                 let pred = format!(
                     "{result_var}.chunks().orElse(java.util.List.of()).stream().findFirst().map(c -> c.metadata().headingContext().isPresent()).orElse(false)"
                 );
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
-                    }
-                    _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion on synthetic field '{f}'"
-                        );
-                    }
-                }
+                out.push_str(&crate::template_env::render(
+                    "java/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "first_chunk_heading",
+                        assertion_type => assertion.assertion_type.as_str(),
+                        pred => pred,
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             // ---- EmbedResponse virtual fields ----
@@ -1160,26 +1106,17 @@ fn render_assertion(
                     format!("{result_var}.embeddings()")
                 };
                 let expr = format!("({embed_list}.isEmpty() ? 0 : {embed_list}.get(0).size())");
-                match assertion.assertion_type.as_str() {
-                    "equals" => {
-                        if let Some(val) = &assertion.value {
-                            let java_val = json_to_java(val);
-                            let _ = writeln!(out, "        assertEquals({java_val}, {expr});");
-                        }
-                    }
-                    "greater_than" => {
-                        if let Some(val) = &assertion.value {
-                            let java_val = json_to_java(val);
-                            let _ = writeln!(
-                                out,
-                                "        assertTrue({expr} > {java_val}, \"expected > {java_val}\");"
-                            );
-                        }
-                    }
-                    _ => {
-                        let _ = writeln!(out, "        // skipped: unsupported assertion on '{f}'");
-                    }
-                }
+                let java_val = assertion.value.as_ref().map(json_to_java).unwrap_or_default();
+                out.push_str(&crate::template_env::render(
+                    "java/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "embedding_dimensions",
+                        assertion_type => assertion.assertion_type.as_str(),
+                        expr => expr,
+                        java_val => java_val,
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
@@ -1204,43 +1141,42 @@ fn render_assertion(
                     ),
                     _ => unreachable!(),
                 };
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        assertTrue({pred}, \"expected true\");");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        assertFalse({pred}, \"expected false\");");
-                    }
-                    _ => {
-                        let _ = writeln!(out, "        // skipped: unsupported assertion on '{f}'");
-                    }
-                }
+                let assertion_kind = format!("embeddings_{}", f.strip_prefix("embeddings_").unwrap_or(f));
+                out.push_str(&crate::template_env::render(
+                    "java/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => assertion_kind,
+                        assertion_type => assertion.assertion_type.as_str(),
+                        pred => pred,
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             // ---- Fields not present on the Java ExtractionResult ----
             "keywords" | "keywords_count" => {
-                let _ = writeln!(
-                    out,
-                    "        // skipped: field '{f}' not available on Java ExtractionResult"
-                );
+                out.push_str(&crate::template_env::render(
+                    "java/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "keywords",
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             // ---- metadata not_empty / is_empty: Metadata is a required record, not Optional ----
             // Metadata has no .isEmpty() method; check that at least one optional field is present.
             "metadata" => {
                 match assertion.assertion_type.as_str() {
-                    "not_empty" => {
-                        let _ = writeln!(
-                            out,
-                            "        assertTrue({result_var}.metadata().title().isPresent() || {result_var}.metadata().subject().isPresent() || !{result_var}.metadata().additional().isEmpty(), \"expected non-empty value\");"
-                        );
-                        return;
-                    }
-                    "is_empty" => {
-                        let _ = writeln!(
-                            out,
-                            "        assertFalse({result_var}.metadata().title().isPresent() || {result_var}.metadata().subject().isPresent() || !{result_var}.metadata().additional().isEmpty(), \"expected empty value\");"
-                        );
+                    "not_empty" | "is_empty" => {
+                        out.push_str(&crate::template_env::render(
+                            "java/synthetic_assertion.jinja",
+                            minijinja::context! {
+                                assertion_kind => "metadata",
+                                assertion_type => assertion.assertion_type.as_str(),
+                                result_var => result_var,
+                            },
+                        ));
                         return;
                     }
                     _ => {} // fall through to normal handling
@@ -1253,7 +1189,13 @@ fn render_assertion(
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "        // skipped: field '{f}' not available on result type");
+            out.push_str(&crate::template_env::render(
+                "java/synthetic_assertion.jinja",
+                minijinja::context! {
+                    assertion_kind => "skipped",
+                    field_name => f,
+                },
+            ));
             return;
         }
     }
@@ -1343,294 +1285,81 @@ fn render_assertion(
         field_expr.clone()
     };
 
-    match assertion.assertion_type.as_str() {
-        "equals" => {
-            if let Some(expected) = &assertion.value {
-                let java_val = json_to_java(expected);
-                if expected.is_string() {
-                    let _ = writeln!(out, "        assertEquals({java_val}, {string_expr}.trim());");
-                } else if expected.is_number() && field_expr.contains(".orElse(\"\")") {
-                    // For numeric "equals" on Optional fields with string fallback,
-                    // the field must be Optional<Long/Integer>, not Optional<String>.
-                    // Replace the string fallback with a numeric one.
-                    let fixed_expr = field_expr.replace(".orElse(\"\")", ".orElse(0L)");
-                    let _ = writeln!(out, "        assertEquals({java_val}, {fixed_expr});");
-                } else {
-                    let _ = writeln!(out, "        assertEquals({java_val}, {field_expr});");
-                }
-            }
-        }
-        "contains" => {
-            if let Some(expected) = &assertion.value {
-                let java_val = json_to_java(expected);
-                // For array fields of complex objects (e.g. List<StructureItem>), use .toString()
-                // because List.contains(Object) uses equals(), which won't match a String against
-                // a record type. Java records produce toString() like "StructureItem[kind=Function, ...]".
-                let check_expr = if field_is_array {
-                    format!("{string_expr}.toString()")
-                } else {
-                    string_expr.clone()
-                };
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({check_expr}.contains({java_val}), \"expected to contain: \" + {java_val});"
-                );
-            }
-        }
-        "contains_all" => {
-            if let Some(values) = &assertion.values {
-                for val in values {
-                    let java_val = json_to_java(val);
-                    let check_expr = if field_is_array {
-                        format!("{string_expr}.toString()")
-                    } else {
-                        string_expr.clone()
-                    };
-                    let _ = writeln!(
-                        out,
-                        "        assertTrue({check_expr}.contains({java_val}), \"expected to contain: \" + {java_val});"
-                    );
-                }
-            }
-        }
-        "not_contains" => {
-            if let Some(expected) = &assertion.value {
-                let java_val = json_to_java(expected);
-                let check_expr = if field_is_array {
-                    format!("{string_expr}.toString()")
-                } else {
-                    string_expr.clone()
-                };
-                let _ = writeln!(
-                    out,
-                    "        assertFalse({check_expr}.contains({java_val}), \"expected NOT to contain: \" + {java_val});"
-                );
-            }
-        }
-        "not_empty" => {
-            let _ = writeln!(
-                out,
-                "        assertFalse({field_expr} == null || {field_expr}.isEmpty(), \"expected non-empty value\");"
-            );
-        }
-        "is_empty" => {
-            let _ = writeln!(
-                out,
-                "        assertTrue({field_expr} == null || {field_expr}.isEmpty(), \"expected empty value\");"
-            );
-        }
-        "contains_any" => {
-            if let Some(values) = &assertion.values {
-                let checks: Vec<String> = values
-                    .iter()
-                    .map(|v| {
-                        let java_val = json_to_java(v);
-                        format!("{string_expr}.contains({java_val})")
-                    })
-                    .collect();
-                let joined = checks.join(" || ");
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({joined}, \"expected to contain at least one of the specified values\");"
-                );
-            }
-        }
-        "greater_than" => {
-            if let Some(val) = &assertion.value {
-                let java_val = json_to_java(val);
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({field_expr} > {java_val}, \"expected > {java_val}\");"
-                );
-            }
-        }
-        "less_than" => {
-            if let Some(val) = &assertion.value {
-                let java_val = json_to_java(val);
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({field_expr} < {java_val}, \"expected < {java_val}\");"
-                );
-            }
-        }
-        "greater_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let java_val = json_to_java(val);
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({field_expr} >= {java_val}, \"expected >= {java_val}\");"
-                );
-            }
-        }
-        "less_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let java_val = json_to_java(val);
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({field_expr} <= {java_val}, \"expected <= {java_val}\");"
-                );
-            }
-        }
-        "starts_with" => {
-            if let Some(expected) = &assertion.value {
-                let java_val = json_to_java(expected);
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({string_expr}.startsWith({java_val}), \"expected to start with: \" + {java_val});"
-                );
-            }
-        }
-        "ends_with" => {
-            if let Some(expected) = &assertion.value {
-                let java_val = json_to_java(expected);
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({string_expr}.endsWith({java_val}), \"expected to end with: \" + {java_val});"
-                );
-            }
-        }
-        "min_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    // byte[] uses `.length` (array field), String uses `.length()` (method).
-                    let len_expr = if result_is_bytes {
-                        format!("{field_expr}.length")
-                    } else {
-                        format!("{field_expr}.length()")
-                    };
-                    let _ = writeln!(
-                        out,
-                        "        assertTrue({len_expr} >= {n}, \"expected length >= {n}\");"
-                    );
-                }
-            }
-        }
-        "max_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let len_expr = if result_is_bytes {
-                        format!("{field_expr}.length")
-                    } else {
-                        format!("{field_expr}.length()")
-                    };
-                    let _ = writeln!(
-                        out,
-                        "        assertTrue({len_expr} <= {n}, \"expected length <= {n}\");"
-                    );
-                }
-            }
-        }
-        "count_min" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        assertTrue({field_expr}.size() >= {n}, \"expected at least {n} elements\");"
-                    );
-                }
-            }
-        }
-        "count_equals" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        assertEquals({n}, {field_expr}.size(), \"expected exactly {n} elements\");"
-                    );
-                }
-            }
-        }
-        "is_true" => {
-            let _ = writeln!(out, "        assertTrue({field_expr}, \"expected true\");");
-        }
-        "is_false" => {
-            let _ = writeln!(out, "        assertFalse({field_expr}, \"expected false\");");
-        }
-        "method_result" => {
-            if let Some(method_name) = &assertion.method {
-                let call_expr = build_java_method_call(result_var, method_name, assertion.args.as_ref(), class_name);
-                let check = assertion.check.as_deref().unwrap_or("is_true");
-                // Methods that return a collection (List) rather than a scalar.
-                let method_returns_collection =
-                    matches!(method_name.as_str(), "find_nodes_by_type" | "findNodesByType");
-                match check {
-                    "equals" => {
-                        if let Some(val) = &assertion.value {
-                            if val.is_boolean() {
-                                if val.as_bool() == Some(true) {
-                                    let _ = writeln!(out, "        assertTrue({call_expr});");
-                                } else {
-                                    let _ = writeln!(out, "        assertFalse({call_expr});");
-                                }
-                            } else if method_returns_collection {
-                                let java_val = json_to_java(val);
-                                let _ = writeln!(out, "        assertEquals({java_val}, {call_expr}.size());");
-                            } else {
-                                let java_val = json_to_java(val);
-                                let _ = writeln!(out, "        assertEquals({java_val}, {call_expr});");
-                            }
-                        }
-                    }
-                    "is_true" => {
-                        let _ = writeln!(out, "        assertTrue({call_expr});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        assertFalse({call_expr});");
-                    }
-                    "greater_than_or_equal" => {
-                        if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(out, "        assertTrue({call_expr} >= {n}, \"expected >= {n}\");");
-                        }
-                    }
-                    "count_min" => {
-                        if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(
-                                out,
-                                "        assertTrue({call_expr}.size() >= {n}, \"expected at least {n} elements\");"
-                            );
-                        }
-                    }
-                    "is_error" => {
-                        let _ = writeln!(out, "        assertThrows(Exception.class, () -> {{ {call_expr}; }});");
-                    }
-                    "contains" => {
-                        if let Some(val) = &assertion.value {
-                            let java_val = json_to_java(val);
-                            let _ = writeln!(
-                                out,
-                                "        assertTrue({call_expr}.contains({java_val}), \"expected to contain: \" + {java_val});"
-                            );
-                        }
-                    }
-                    other_check => {
-                        panic!("Java e2e generator: unsupported method_result check type: {other_check}");
-                    }
-                }
-            } else {
-                panic!("Java e2e generator: method_result assertion missing 'method' field");
-            }
-        }
-        "matches_regex" => {
-            if let Some(expected) = &assertion.value {
-                let java_val = json_to_java(expected);
-                let _ = writeln!(
-                    out,
-                    "        assertTrue({string_expr}.matches({java_val}), \"expected value to match regex: \" + {java_val});"
-                );
-            }
-        }
-        "not_error" => {
-            // Already handled by the call succeeding without exception.
-        }
-        "error" => {
-            // Handled at the test method level.
-        }
-        other => {
-            panic!("Java e2e generator: unsupported assertion type: {other}");
-        }
-    }
+    // Pre-compute context for template
+    let assertion_type = assertion.assertion_type.as_str();
+    let java_val = assertion.value.as_ref().map(json_to_java).unwrap_or_default();
+    let is_string_val = assertion.value.as_ref().is_some_and(|v| v.is_string());
+    let is_numeric_val = assertion.value.as_ref().is_some_and(|v| v.is_number());
+
+    let values_java: Vec<String> = assertion
+        .values
+        .as_ref()
+        .map(|values| values.iter().map(json_to_java).collect())
+        .unwrap_or_default();
+
+    let contains_any_expr = if !values_java.is_empty() {
+        values_java
+            .iter()
+            .map(|v| format!("{string_expr}.contains({v})"))
+            .collect::<Vec<_>>()
+            .join(" || ")
+    } else {
+        String::new()
+    };
+
+    let length_expr = if result_is_bytes {
+        format!("{field_expr}.length")
+    } else {
+        format!("{field_expr}.length()")
+    };
+
+    let n = assertion.value.as_ref().and_then(|v| v.as_u64()).unwrap_or(0);
+
+    let call_expr = if let Some(method_name) = &assertion.method {
+        build_java_method_call(result_var, method_name, assertion.args.as_ref(), class_name)
+    } else {
+        String::new()
+    };
+
+    let check = assertion.check.as_deref().unwrap_or("is_true");
+
+    let java_check_val = assertion.value.as_ref().map(json_to_java).unwrap_or_default();
+
+    let check_n = assertion.value.as_ref().and_then(|v| v.as_u64()).unwrap_or(0);
+
+    let is_bool_val = assertion.value.as_ref().is_some_and(|v| v.is_boolean());
+    let bool_is_true = assertion.value.as_ref().is_some_and(|v| v.as_bool() == Some(true));
+
+    let method_returns_collection = assertion
+        .method
+        .as_ref()
+        .is_some_and(|m| matches!(m.as_str(), "find_nodes_by_type" | "findNodesByType"));
+
+    let rendered = crate::template_env::render(
+        "java/assertion.jinja",
+        minijinja::context! {
+            assertion_type,
+            java_val,
+            string_expr,
+            field_expr,
+            field_is_enum,
+            field_is_array,
+            is_string_val,
+            is_numeric_val,
+            values_java => values_java,
+            contains_any_expr,
+            length_expr,
+            n,
+            call_expr,
+            check,
+            java_check_val,
+            check_n,
+            is_bool_val,
+            bool_is_true,
+            method_returns_collection,
+        },
+    );
+    out.push_str(&rendered);
 }
 
 /// Build a Java call expression for a `method_result` assertion on a tree-sitter Tree.
@@ -2002,25 +1731,14 @@ fn emit_java_visitor_method(
         _ => "NodeContext ctx",
     };
 
-    setup_lines.push(format!("    @Override public VisitResult {camel_method}({params}) {{"));
-    match action {
-        CallbackAction::Skip => {
-            setup_lines.push("        return VisitResult.skip();".to_string());
-        }
-        CallbackAction::Continue => {
-            setup_lines.push("        return VisitResult.continue_();".to_string());
-        }
-        CallbackAction::PreserveHtml => {
-            setup_lines.push("        return VisitResult.preserveHtml();".to_string());
-        }
-        CallbackAction::Custom { output } => {
-            let escaped = escape_java(output);
-            setup_lines.push(format!("        return VisitResult.custom(\"{escaped}\");"));
-        }
+    // Determine action type and values for template
+    let (action_type, action_value, format_args) = match action {
+        CallbackAction::Skip => ("skip", String::new(), Vec::new()),
+        CallbackAction::Continue => ("continue", String::new(), Vec::new()),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new(), Vec::new()),
+        CallbackAction::Custom { output } => ("custom_literal", escape_java(output), Vec::new()),
         CallbackAction::CustomTemplate { template } => {
             // Extract {placeholder} names from the template (in order of appearance).
-            // Convert each snake_case placeholder to the camelCase Java variable name,
-            // then replace each {placeholder} with %s for String.format.
             let mut format_str = String::with_capacity(template.len());
             let mut format_args: Vec<String> = Vec::new();
             let mut chars = template.chars().peekable();
@@ -2054,16 +1772,26 @@ fn emit_java_visitor_method(
             }
             let escaped = escape_java(&format_str);
             if format_args.is_empty() {
-                setup_lines.push(format!("        return VisitResult.custom(\"{escaped}\");"));
+                ("custom_literal", escaped, Vec::new())
             } else {
-                let args_str = format_args.join(", ");
-                setup_lines.push(format!(
-                    "        return VisitResult.custom(String.format(\"{escaped}\", {args_str}));"
-                ));
+                ("custom_formatted", escaped, format_args)
             }
         }
-    }
-    setup_lines.push("    }".to_string());
+    };
+
+    let params = params.to_string();
+
+    let rendered = crate::template_env::render(
+        "java/visitor_method.jinja",
+        minijinja::context! {
+            camel_method,
+            params,
+            action_type,
+            action_value,
+            format_args => format_args,
+        },
+    );
+    setup_lines.push(rendered);
 }
 
 /// Convert snake_case method names to Java camelCase.

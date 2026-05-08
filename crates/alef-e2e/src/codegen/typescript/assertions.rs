@@ -1,8 +1,5 @@
 //! Assertion rendering for TypeScript e2e tests.
 
-use std::fmt::Write as FmtWrite;
-
-use crate::escape::escape_js;
 use crate::field_access::FieldResolver;
 use crate::fixture::Assertion;
 
@@ -26,7 +23,7 @@ pub(super) fn render_assertion(
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
+            out.push_str(&format!("    // skipped: field '{f}' not available on result type\n"));
             return;
         }
     }
@@ -89,10 +86,9 @@ fn render_synthetic_field_assertion(out: &mut String, assertion: &Assertion, res
             true
         }
         "keywords" | "keywords_count" => {
-            let _ = writeln!(
-                out,
-                "    // skipped: field '{field}' not available on Node JsExtractionResult"
-            );
+            out.push_str(&format!(
+                "    // skipped: field '{field}' not available on Node JsExtractionResult\n"
+            ));
             true
         }
         _ => false,
@@ -100,71 +96,96 @@ fn render_synthetic_field_assertion(out: &mut String, assertion: &Assertion, res
 }
 
 fn emit_bool_assertion(out: &mut String, pred: &str, assertion_type: &str, field: &str) {
-    match assertion_type {
-        "is_true" => {
-            let _ = writeln!(out, "    expect({pred}).toBe(true);");
-        }
-        "is_false" => {
-            let _ = writeln!(out, "    expect({pred}).toBe(false);");
-        }
-        _ => {
-            let _ = writeln!(
-                out,
-                "    // skipped: unsupported assertion type on synthetic field '{field}'"
-            );
-        }
-    }
+    let pred = pred.to_string();
+    let assertion_type = assertion_type.to_string();
+    let field_name = field.to_string();
+    let rendered = crate::template_env::render(
+        "typescript/synthetic_assertion.jinja",
+        minijinja::context! {
+            assertion_type,
+            pred,
+            field_name,
+        },
+    );
+    out.push_str(&rendered);
 }
 
 fn render_embeddings_assertion(out: &mut String, assertion: &Assertion, result_var: &str) {
-    match assertion.assertion_type.as_str() {
-        "count_equals" => {
+    let assertion_type = assertion.assertion_type.as_str();
+    let result_var = result_var.to_string();
+    let field_name = "embeddings".to_string();
+
+    match assertion_type {
+        "count_equals" | "count_min" => {
             if let Some(val) = &assertion.value {
                 let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({result_var}.length).toBe({js_val});");
+                let rendered = crate::template_env::render(
+                    "typescript/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_type,
+                        result_var,
+                        field_name,
+                        js_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
-        "count_min" => {
-            if let Some(val) = &assertion.value {
-                let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({result_var}.length).toBeGreaterThanOrEqual({js_val});");
-            }
-        }
-        "not_empty" => {
-            let _ = writeln!(out, "    expect({result_var}.length).toBeGreaterThan(0);");
-        }
-        "is_empty" => {
-            let _ = writeln!(out, "    expect({result_var}.length).toBe(0);");
+        "not_empty" | "is_empty" => {
+            let rendered = crate::template_env::render(
+                "typescript/synthetic_assertion.jinja",
+                minijinja::context! {
+                    assertion_type,
+                    result_var,
+                    field_name,
+                },
+            );
+            out.push_str(&rendered);
         }
         _ => {
-            let _ = writeln!(
-                out,
-                "    // skipped: unsupported assertion type on synthetic field 'embeddings'"
+            let rendered = crate::template_env::render(
+                "typescript/synthetic_assertion.jinja",
+                minijinja::context! {
+                    assertion_type,
+                    field_name,
+                },
             );
+            out.push_str(&rendered);
         }
     }
 }
 
 fn render_embedding_dimensions(out: &mut String, assertion: &Assertion, result_var: &str) {
     let expr = format!("({result_var}.length > 0 ? {result_var}[0].length : 0)");
-    match assertion.assertion_type.as_str() {
-        "equals" => {
+    let assertion_type = assertion.assertion_type.as_str();
+    let expr = expr.clone();
+    let field_name = "embedding_dimensions".to_string();
+
+    match assertion_type {
+        "equals" | "greater_than" => {
             if let Some(val) = &assertion.value {
                 let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({expr}).toBe({js_val});");
-            }
-        }
-        "greater_than" => {
-            if let Some(val) = &assertion.value {
-                let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({expr}).toBeGreaterThan({js_val});");
+                let rendered = crate::template_env::render(
+                    "typescript/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_type,
+                        expr,
+                        field_name,
+                        js_val,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         _ => {
-            let _ = writeln!(
-                out,
-                "    // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
+            let rendered = crate::template_env::render(
+                "typescript/synthetic_assertion.jinja",
+                minijinja::context! {
+                    assertion_type,
+                    field_name,
+                },
             );
+            out.push_str(&rendered);
         }
     }
 }
@@ -177,183 +198,215 @@ fn render_standard_assertion(
     field_resolver: &FieldResolver,
     field_is_array: bool,
 ) {
-    let _ = escape_js; // imported for potential future use; used by visitors module
-    match assertion.assertion_type.as_str() {
+    let assertion_type = assertion.assertion_type.as_str();
+    let resolved_field = assertion.field.as_deref().unwrap_or("");
+    let field_is_optional =
+        !resolved_field.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved_field));
+
+    // Handle different assertion types
+    match assertion_type {
         "equals" => {
             if let Some(expected) = &assertion.value {
                 let js_val = json_to_js(expected);
-                if expected.is_string() {
-                    let resolved = assertion.field.as_deref().unwrap_or("");
-                    if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
-                        let _ = writeln!(out, "    expect(({field_expr} ?? \"\").trim()).toBe({js_val});");
-                    } else {
-                        let _ = writeln!(out, "    expect({field_expr}.trim()).toBe({js_val});");
-                    }
-                } else {
-                    let _ = writeln!(out, "    expect({field_expr}).toBe({js_val});");
-                }
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion_type,
+                        field_expr => field_expr,
+                        field_is_optional => field_is_optional,
+                        is_string_val => expected.is_string(),
+                        js_val => js_val,
+                        has_js_val => true,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let js_val = json_to_js(expected);
-                let resolved = assertion.field.as_deref().unwrap_or("");
-                if field_is_array && expected.is_string() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes({js_val})))).toBe(true);"
-                    );
-                } else if !resolved.is_empty()
-                    && expected.is_string()
-                    && field_resolver.is_optional(field_resolver.resolve(resolved))
-                {
-                    let _ = writeln!(out, "    expect({field_expr} ?? \"\").toContain({js_val});");
-                } else {
-                    let _ = writeln!(out, "    expect({field_expr}).toContain({js_val});");
-                }
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion_type,
+                        field_expr => field_expr,
+                        field_is_optional => field_is_optional,
+                        field_is_array => field_is_array,
+                        is_string_val => expected.is_string(),
+                        js_val => js_val,
+                        has_js_val => true,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
-                for val in values {
-                    let js_val = json_to_js(val);
-                    if field_is_array && val.is_string() {
-                        let _ = writeln!(
-                            out,
-                            "    expect({field_expr}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes({js_val})))).toBe(true);"
-                        );
-                    } else {
-                        let _ = writeln!(out, "    expect({field_expr}).toContain({js_val});");
-                    }
-                }
+                let items: Vec<String> = values.iter().map(json_to_js).collect();
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion_type,
+                        field_expr => field_expr,
+                        field_is_optional => field_is_optional,
+                        field_is_array => field_is_array,
+                        is_string_val => values.iter().all(|v| v.is_string()),
+                        values_js => items,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "not_contains" => {
             if let Some(expected) = &assertion.value {
                 let js_val = json_to_js(expected);
-                if field_is_array && expected.is_string() {
-                    let _ = writeln!(
-                        out,
-                        "    expect({field_expr}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes({js_val})))).toBe(false);"
-                    );
-                } else {
-                    let _ = writeln!(out, "    expect({field_expr}).not.toContain({js_val});");
-                }
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion_type,
+                        field_expr => field_expr,
+                        field_is_array => field_is_array,
+                        is_string_val => expected.is_string(),
+                        js_val => js_val,
+                        has_js_val => true,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "not_empty" => {
-            let resolved = assertion.field.as_deref().unwrap_or("");
-            if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
-                let _ = writeln!(out, "    expect(({field_expr} ?? \"\").length).toBeGreaterThan(0);");
-            } else {
-                let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThan(0);");
-            }
+            let rendered = crate::template_env::render(
+                "typescript/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => assertion_type,
+                    field_expr => field_expr,
+                    field_is_optional => field_is_optional,
+                },
+            );
+            out.push_str(&rendered);
         }
         "is_empty" => {
-            let _ = writeln!(out, "    expect(({field_expr} ?? \"\").length).toBe(0);");
+            let rendered = crate::template_env::render(
+                "typescript/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => assertion_type,
+                    field_expr => field_expr,
+                },
+            );
+            out.push_str(&rendered);
         }
         "contains_any" => {
             if let Some(values) = &assertion.values {
                 let items: Vec<String> = values.iter().map(json_to_js).collect();
-                let arr_str = items.join(", ");
-                if field_is_array && values.iter().all(serde_json::Value::is_string) {
-                    let _ = writeln!(
-                        out,
-                        "    expect([{arr_str}].some((v) => {field_expr}.some((item) => _alefE2eItemTexts(item).some((text) => text.includes(v))))).toBe(true);"
-                    );
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "    expect([{arr_str}].some((v) => {field_expr}.includes(v))).toBe(true);"
-                    );
-                }
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion_type,
+                        field_expr => field_expr,
+                        field_is_array => field_is_array,
+                        is_string_val => values.iter().all(|v| v.is_string()),
+                        values_js => items,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
-        "greater_than" => {
+        "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({field_expr}).toBeGreaterThan({js_val});");
-            }
-        }
-        "less_than" => {
-            if let Some(val) = &assertion.value {
-                let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({field_expr}).toBeLessThan({js_val});");
-            }
-        }
-        "greater_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({field_expr}).toBeGreaterThanOrEqual({js_val});");
-            }
-        }
-        "less_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let js_val = json_to_js(val);
-                let _ = writeln!(out, "    expect({field_expr}).toBeLessThanOrEqual({js_val});");
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion_type,
+                        field_expr => field_expr,
+                        js_val => js_val,
+                        has_js_val => true,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "starts_with" => {
             if let Some(expected) = &assertion.value {
                 let js_val = json_to_js(expected);
-                let resolved = assertion.field.as_deref().unwrap_or("");
-                if !resolved.is_empty() && field_resolver.is_optional(field_resolver.resolve(resolved)) {
-                    let _ = writeln!(
-                        out,
-                        "    expect(({field_expr} ?? \"\").startsWith({js_val})).toBe(true);"
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion_type,
+                        field_expr => field_expr,
+                        field_is_optional => field_is_optional,
+                        js_val => js_val,
+                        has_js_val => true,
+                    },
+                );
+                out.push_str(&rendered);
+            }
+        }
+        "count_min" | "count_equals" | "min_length" | "max_length" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let rendered = crate::template_env::render(
+                        "typescript/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => assertion_type,
+                            field_expr => field_expr,
+                            n => n,
+                        },
                     );
-                } else {
-                    let _ = writeln!(out, "    expect({field_expr}.startsWith({js_val})).toBe(true);");
-                }
-            }
-        }
-        "count_min" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThanOrEqual({n});");
-                }
-            }
-        }
-        "count_equals" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).toBe({n});");
+                    out.push_str(&rendered);
                 }
             }
         }
         "is_true" => {
-            let _ = writeln!(out, "    expect({field_expr}).toBe(true);");
+            let rendered = crate::template_env::render(
+                "typescript/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => assertion_type,
+                    field_expr => field_expr,
+                },
+            );
+            out.push_str(&rendered);
         }
         "is_false" => {
-            let _ = writeln!(out, "    expect({field_expr}).toBe(false);");
+            let rendered = crate::template_env::render(
+                "typescript/assertion.jinja",
+                minijinja::context! {
+                    assertion_type => assertion_type,
+                    field_expr => field_expr,
+                },
+            );
+            out.push_str(&rendered);
         }
         "method_result" => {
             render_method_result_assertion(out, assertion, result_var);
         }
-        "min_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).toBeGreaterThanOrEqual({n});");
-                }
-            }
-        }
-        "max_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "    expect({field_expr}.length).toBeLessThanOrEqual({n});");
-                }
-            }
-        }
         "ends_with" => {
             if let Some(expected) = &assertion.value {
                 let js_val = json_to_js(expected);
-                let _ = writeln!(out, "    expect({field_expr}.endsWith({js_val})).toBe(true);");
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => assertion_type,
+                        field_expr => field_expr,
+                        js_val => js_val,
+                        has_js_val => true,
+                    },
+                );
+                out.push_str(&rendered);
             }
         }
         "matches_regex" => {
             if let Some(expected) = &assertion.value {
                 if let Some(pattern) = expected.as_str() {
-                    let _ = writeln!(out, "    expect({field_expr}).toMatch(/{pattern}/);");
+                    let rendered = crate::template_env::render(
+                        "typescript/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => assertion_type,
+                            field_expr => field_expr,
+                            expected_pattern => pattern,
+                        },
+                    );
+                    out.push_str(&rendered);
                 }
             }
         }
@@ -377,35 +430,97 @@ fn render_method_result_assertion(out: &mut String, assertion: &Assertion, resul
             "equals" => {
                 if let Some(val) = &assertion.value {
                     let js_val = json_to_js(val);
-                    let _ = writeln!(out, "    expect({call_expr}).toBe({js_val});");
+                    let rendered = crate::template_env::render(
+                        "typescript/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "method_result",
+                            check => check,
+                            call_expr => call_expr,
+                            check_js_val => js_val,
+                            has_check_js_val => true,
+                        },
+                    );
+                    out.push_str(&rendered);
                 }
             }
             "is_true" => {
-                let _ = writeln!(out, "    expect({call_expr}).toBe(true);");
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "method_result",
+                        check => check,
+                        call_expr => call_expr,
+                    },
+                );
+                out.push_str(&rendered);
             }
             "is_false" => {
-                let _ = writeln!(out, "    expect({call_expr}).toBe(false);");
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "method_result",
+                        check => check,
+                        call_expr => call_expr,
+                    },
+                );
+                out.push_str(&rendered);
             }
             "greater_than_or_equal" => {
                 if let Some(val) = &assertion.value {
                     let n = val.as_u64().unwrap_or(0);
-                    let _ = writeln!(out, "    expect({call_expr}).toBeGreaterThanOrEqual({n});");
+                    let rendered = crate::template_env::render(
+                        "typescript/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "method_result",
+                            check => check,
+                            call_expr => call_expr,
+                            check_n => n,
+                        },
+                    );
+                    out.push_str(&rendered);
                 }
             }
             "count_min" => {
                 if let Some(val) = &assertion.value {
                     let n = val.as_u64().unwrap_or(0);
-                    let _ = writeln!(out, "    expect({call_expr}.length).toBeGreaterThanOrEqual({n});");
+                    let rendered = crate::template_env::render(
+                        "typescript/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "method_result",
+                            check => check,
+                            call_expr => call_expr,
+                            check_n => n,
+                        },
+                    );
+                    out.push_str(&rendered);
                 }
             }
             "contains" => {
                 if let Some(val) = &assertion.value {
                     let js_val = json_to_js(val);
-                    let _ = writeln!(out, "    expect({call_expr}).toContain({js_val});");
+                    let rendered = crate::template_env::render(
+                        "typescript/assertion.jinja",
+                        minijinja::context! {
+                            assertion_type => "method_result",
+                            check => check,
+                            call_expr => call_expr,
+                            check_js_val => js_val,
+                            has_check_js_val => true,
+                        },
+                    );
+                    out.push_str(&rendered);
                 }
             }
             "is_error" => {
-                let _ = writeln!(out, "    expect(() => {{ {call_expr}; }}).toThrow();");
+                let rendered = crate::template_env::render(
+                    "typescript/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "method_result",
+                        check => check,
+                        call_expr => call_expr,
+                    },
+                );
+                out.push_str(&rendered);
             }
             other_check => {
                 panic!("TypeScript e2e generator: unsupported method_result check type: {other_check}");

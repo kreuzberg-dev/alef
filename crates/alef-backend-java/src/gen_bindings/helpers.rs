@@ -3,7 +3,6 @@ use alef_core::hash::{self, CommentStyle};
 use alef_core::ir::{PrimitiveType, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
-use std::fmt::Write;
 
 /// Names that conflict with methods on `java.lang.Object` and are therefore
 /// illegal as record component names or method names in generated Java code.
@@ -182,7 +181,8 @@ pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
     if transformed.is_empty() {
         return;
     }
-    writeln!(out, "{indent}/**").ok();
+    out.push_str(indent);
+    out.push_str("/**\n");
     for line in transformed.lines() {
         // trim_end() ensures lines that are whitespace-only or escape to
         // empty don't emit ` * \n` (trailing space) — that would conflict
@@ -190,13 +190,17 @@ pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
         // `alef-verify` hash on regenerate.
         let escaped = escape_javadoc_line(line);
         let trimmed = escaped.trim_end();
+        out.push_str(indent);
         if trimmed.is_empty() {
-            writeln!(out, "{indent} *").ok();
+            out.push_str(" *\n");
         } else {
-            writeln!(out, "{indent} * {trimmed}").ok();
+            out.push_str(" * ");
+            out.push_str(trimmed);
+            out.push('\n');
         }
     }
-    writeln!(out, "{indent} */").ok();
+    out.push_str(indent);
+    out.push_str(" */\n");
 }
 
 /// Maximum line length before splitting record fields across multiple lines.

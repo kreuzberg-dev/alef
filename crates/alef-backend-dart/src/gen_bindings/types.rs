@@ -4,6 +4,7 @@ use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
 use crate::ident::dart_safe_ident;
+use crate::template_env;
 use crate::type_map::DartMapper;
 
 use super::render_type::render_type;
@@ -17,10 +18,20 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
         }
     }
     if ty.fields.is_empty() {
-        out.push_str(&format!("class {} {{}}\n", ty.name));
+        out.push_str(&template_env::render(
+            "class_empty.jinja",
+            minijinja::context! {
+                name => ty.name.as_str(),
+            },
+        ));
         return;
     }
-    out.push_str(&format!("class {} {{\n", ty.name));
+    out.push_str(&template_env::render(
+        "class_open.jinja",
+        minijinja::context! {
+            name => ty.name.as_str(),
+        },
+    ));
     for field in &ty.fields {
         let ty_str = if field.optional {
             format!("{}?", render_type(&field.ty, imports))
@@ -35,7 +46,13 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
                 out.push('\n');
             }
         }
-        out.push_str(&format!("  final {ty_str} {name};\n"));
+        out.push_str(&template_env::render(
+            "final_field_decl.jinja",
+            minijinja::context! {
+                ty_str => ty_str,
+                name => name.as_str(),
+            },
+        ));
     }
     // Constructor
     if ty.fields.len() == 1 {
@@ -45,17 +62,33 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
         } else {
             render_type(&ty.fields[0].ty, imports)
         };
-        out.push_str(&format!("  {}(this.{name});\n", ty.name));
+        out.push_str(&template_env::render(
+            "single_param_constructor.jinja",
+            minijinja::context! {
+                name => ty.name.as_str(),
+                param_name => name.as_str(),
+            },
+        ));
         let _ = ty_str; // used above for field emission, constructor uses `this.`
     } else {
-        out.push_str(&format!("  {}({{\n", ty.name));
+        out.push_str(&template_env::render(
+            "multi_param_constructor_open.jinja",
+            minijinja::context! {
+                name => ty.name.as_str(),
+            },
+        ));
         for field in &ty.fields {
             let name = dart_safe_ident(&field.name.to_lower_camel_case());
-            out.push_str(&format!("    required this.{name},\n"));
+            out.push_str(&template_env::render(
+                "constructor_required_param.jinja",
+                minijinja::context! {
+                    name => name.as_str(),
+                },
+            ));
         }
-        out.push_str("  });\n");
+        out.push_str(&template_env::render("constructor_close.jinja", minijinja::context! {}));
     }
-    out.push_str("}\n");
+    out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
 }
 
 pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
@@ -68,7 +101,12 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
     }
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
     if all_unit {
-        out.push_str(&format!("enum {} {{\n", en.name));
+        out.push_str(&template_env::render(
+            "enum_header.jinja",
+            minijinja::context! {
+                name => en.name.as_str(),
+            },
+        ));
         let count = en.variants.len();
         for (idx, variant) in en.variants.iter().enumerate() {
             if !variant.doc.is_empty() {
@@ -79,12 +117,23 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                 }
             }
             let vname = dart_safe_ident(&variant.name.to_lower_camel_case());
-            let semicolon = if idx + 1 == count { ";" } else { "," };
-            out.push_str(&format!("  {vname}{semicolon}\n"));
+            let suffix = if idx + 1 == count { ";" } else { "," };
+            out.push_str(&template_env::render(
+                "enum_unit_variant.jinja",
+                minijinja::context! {
+                    vname => vname.as_str(),
+                    suffix => suffix,
+                },
+            ));
         }
-        out.push_str("}\n");
+        out.push_str(&template_env::render("enum_close.jinja", minijinja::context! {}));
     } else {
-        out.push_str(&format!("sealed class {} {{}}\n", en.name));
+        out.push_str(&template_env::render(
+            "sealed_class_header.jinja",
+            minijinja::context! {
+                name => en.name.as_str(),
+            },
+        ));
         for variant in &en.variants {
             if !variant.doc.is_empty() {
                 for line in variant.doc.lines() {
@@ -94,26 +143,60 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                 }
             }
             if variant.fields.is_empty() {
-                out.push_str(&format!("final class {} extends {} {{}}\n", variant.name, en.name));
+                out.push_str(&template_env::render(
+                    "final_class_extends.jinja",
+                    minijinja::context! {
+                        name => variant.name.as_str(),
+                        parent => en.name.as_str(),
+                    },
+                ));
             } else {
-                out.push_str(&format!("final class {} extends {} {{\n", variant.name, en.name));
+                out.push_str(&template_env::render(
+                    "final_class_header.jinja",
+                    minijinja::context! {
+                        name => variant.name.as_str(),
+                        parent => en.name.as_str(),
+                    },
+                ));
                 for f in variant.fields.iter() {
                     let ty_str = DartMapper.map_type(&f.ty);
                     let fname = dart_safe_ident(&f.name.to_lower_camel_case());
-                    out.push_str(&format!("  final {ty_str} {fname};\n"));
+                    out.push_str(&template_env::render(
+                        "final_field_decl.jinja",
+                        minijinja::context! {
+                            ty_str => ty_str,
+                            name => fname.as_str(),
+                        },
+                    ));
                 }
                 if variant.fields.len() == 1 {
                     let fname = dart_safe_ident(&variant.fields[0].name.to_lower_camel_case());
-                    out.push_str(&format!("  {}(this.{fname});\n", variant.name));
+                    out.push_str(&template_env::render(
+                        "single_param_constructor.jinja",
+                        minijinja::context! {
+                            name => variant.name.as_str(),
+                            param_name => fname.as_str(),
+                        },
+                    ));
                 } else {
-                    out.push_str(&format!("  {}({{\n", variant.name));
+                    out.push_str(&template_env::render(
+                        "multi_param_constructor_open.jinja",
+                        minijinja::context! {
+                            name => variant.name.as_str(),
+                        },
+                    ));
                     for f in variant.fields.iter() {
                         let fname = dart_safe_ident(&f.name.to_lower_camel_case());
-                        out.push_str(&format!("    required this.{fname},\n"));
+                        out.push_str(&template_env::render(
+                            "constructor_required_param.jinja",
+                            minijinja::context! {
+                                name => fname.as_str(),
+                            },
+                        ));
                     }
-                    out.push_str("  });\n");
+                    out.push_str(&template_env::render("constructor_close.jinja", minijinja::context! {}));
                 }
-                out.push_str("}\n");
+                out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
             }
         }
     }

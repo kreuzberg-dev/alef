@@ -1,5 +1,4 @@
 use alef_core::ir::{CoreWrapper, PrimitiveType, TypeDef, TypeRef};
-use std::fmt::Write;
 
 use super::ConversionConfig;
 use super::helpers::{
@@ -18,16 +17,33 @@ pub fn gen_from_binding_to_core(typ: &TypeDef, core_import: &str) -> String {
 pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &ConversionConfig) -> String {
     let core_path = core_type_path_remapped(typ, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, typ.name);
-    let mut out = String::with_capacity(256);
-    // When cfg-gated fields exist, ..Default::default() fills them when the feature is enabled.
-    // When disabled, all fields are already specified and the update has no effect — suppress lint.
-    if typ.has_stripped_cfg_fields {
-        writeln!(out, "#[allow(clippy::needless_update)]").ok();
+
+    // Newtype structs: generate tuple constructor Self(val._0)
+    if is_newtype(typ) {
+        let field = &typ.fields[0];
+        let newtype_inner_expr = match &field.ty {
+            TypeRef::Named(_) => "val._0.into()".to_string(),
+            TypeRef::Path => "val._0.into()".to_string(),
+            TypeRef::Duration => "std::time::Duration::from_millis(val._0)".to_string(),
+            _ => "val._0".to_string(),
+        };
+        return crate::template_env::render(
+            "conversions/binding_to_core_impl",
+            minijinja::context! {
+                core_path => core_path,
+                binding_name => binding_name,
+                is_newtype => true,
+                newtype_inner_expr => newtype_inner_expr,
+                builder_mode => false,
+                uses_builder_pattern => false,
+                has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+                statements => vec![] as Vec<String>,
+                fields => vec![] as Vec<String>,
+            },
+        );
     }
-    // Suppress clippy when we use the builder pattern (Default + field reassignment).
-    // Two paths use this pattern:
-    //   1. option_duration_on_defaults: non-optional Duration fields stored as Option<u64>
-    //   2. optionalize_defaults: all fields of has_default types wrapped in Option<T>
+
+    // Determine if we're using the builder pattern
     let uses_builder_pattern = (config.option_duration_on_defaults
         && typ.has_default
         && typ
@@ -35,31 +51,6 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             .iter()
             .any(|f| !f.optional && matches!(f.ty, TypeRef::Duration)))
         || (config.optionalize_defaults && typ.has_default);
-    if uses_builder_pattern {
-        writeln!(
-            out,
-            "#[allow(clippy::field_reassign_with_default, clippy::let_and_return)]"
-        )
-        .ok();
-    }
-    writeln!(out, "#[allow(clippy::redundant_closure, clippy::useless_conversion)]").ok();
-    writeln!(out, "impl From<{binding_name}> for {core_path} {{").ok();
-    writeln!(out, "    fn from(val: {binding_name}) -> Self {{").ok();
-
-    // Newtype structs: generate tuple constructor Self(val._0)
-    if is_newtype(typ) {
-        let field = &typ.fields[0];
-        let inner_expr = match &field.ty {
-            TypeRef::Named(_) => "val._0.into()".to_string(),
-            TypeRef::Path => "val._0.into()".to_string(),
-            TypeRef::Duration => "std::time::Duration::from_millis(val._0)".to_string(),
-            _ => "val._0".to_string(),
-        };
-        writeln!(out, "        Self({inner_expr})").ok();
-        writeln!(out, "    }}").ok();
-        write!(out, "}}").ok();
-        return out;
-    }
 
     // When option_duration_on_defaults is set for a has_default type, non-optional Duration
     // fields are stored as Option<u64> in the binding struct.  We use the builder pattern
@@ -74,8 +65,8 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
 
     if has_optionalized_duration {
         // Builder pattern: start from core default, override explicitly-set fields.
-        writeln!(out, "        let mut __result = {core_path}::default();").ok();
         let optionalized = config.optionalize_defaults && typ.has_default;
+        let mut statements = Vec::new();
         for field in &typ.fields {
             // Skip cfg-gated fields — they don't exist in the binding struct.
             if field.cfg.is_some() {
@@ -92,15 +83,13 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 continue;
             }
             // Duration field stored as Option<u64/i64>: only override when Some
-            let binding_name = config.binding_field_name_owned(&typ.name, &field.name);
+            let binding_name_field = config.binding_field_name_owned(&typ.name, &field.name);
             if !field.optional && matches!(field.ty, TypeRef::Duration) {
                 let cast = if config.cast_large_ints_to_i64 { " as u64" } else { "" };
-                writeln!(
-                    out,
-                    "        if let Some(__v) = val.{binding_name} {{ __result.{} = std::time::Duration::from_millis(__v{cast}); }}",
+                statements.push(format!(
+                    "if let Some(__v) = val.{binding_name_field} {{ __result.{} = std::time::Duration::from_millis(__v{cast}); }}",
                     field.name
-                )
-                .ok();
+                ));
                 continue;
             }
             let conversion = if optionalized && !field.optional {
@@ -109,28 +98,39 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                 field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
             };
             // Apply binding field name substitution for keyword-escaped fields.
-            let conversion = if binding_name != field.name {
-                conversion.replace(&format!("val.{}", field.name), &format!("val.{binding_name}"))
+            let conversion = if binding_name_field != field.name {
+                conversion.replace(&format!("val.{}", field.name), &format!("val.{binding_name_field}"))
             } else {
                 conversion
             };
             // Strip the "name: " prefix to get just the expression, then assign
             if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
-                writeln!(out, "        __result.{} = {};", field.name, expr).ok();
+                statements.push(format!("__result.{} = {};", field.name, expr));
             }
         }
-        writeln!(out, "        __result").ok();
-        writeln!(out, "    }}").ok();
-        write!(out, "}}").ok();
-        return out;
+
+        return crate::template_env::render(
+            "conversions/binding_to_core_impl",
+            minijinja::context! {
+                core_path => core_path,
+                binding_name => binding_name,
+                is_newtype => false,
+                newtype_inner_expr => "",
+                builder_mode => true,
+                uses_builder_pattern => uses_builder_pattern,
+                has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+                statements => statements,
+                fields => vec![] as Vec<String>,
+            },
+        );
     }
 
     let optionalized = config.optionalize_defaults && typ.has_default;
-    if optionalized {
-        writeln!(out, "        let mut __result = {core_path}::default();").ok();
-    } else {
-        writeln!(out, "        Self {{").ok();
-    }
+
+    // Pre-compute all fields
+    let mut fields = Vec::new();
+    let mut statements = Vec::new();
+
     for field in &typ.fields {
         // Skip cfg-gated fields — they don't exist in the binding struct.
         // When the binding is compiled, these fields are absent, and accessing them would fail.
@@ -251,42 +251,48 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         // When the binding struct uses a keyword-escaped field name (e.g. `class_` for `class`),
         // replace `val.{field.name}` access patterns in the conversion expression with
         // `val.{binding_name}` so the generated From impl compiles.
-        let binding_name = config.binding_field_name_owned(&typ.name, &field.name);
-        let conversion = if binding_name != field.name {
-            conversion.replace(&format!("val.{}", field.name), &format!("val.{binding_name}"))
+        let binding_name_field = config.binding_field_name_owned(&typ.name, &field.name);
+        let conversion = if binding_name_field != field.name {
+            conversion.replace(&format!("val.{}", field.name), &format!("val.{binding_name_field}"))
         } else {
             conversion
         };
         if optionalized {
             if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
                 if field_was_optionalized {
-                    writeln!(
-                        out,
-                        "        if let Some(__v) = val.{binding_name} {{ __result.{} = {}; }}",
+                    statements.push(format!(
+                        "if let Some(__v) = val.{binding_name_field} {{ __result.{} = {}; }}",
                         field.name,
-                        expr.replace(&format!("val.{binding_name}"), "__v")
-                    )
-                    .ok();
+                        expr.replace(&format!("val.{binding_name_field}"), "__v")
+                    ));
                 } else {
-                    writeln!(out, "        __result.{} = {};", field.name, expr).ok();
+                    statements.push(format!("__result.{} = {};", field.name, expr));
                 }
             }
         } else {
-            writeln!(out, "            {conversion},").ok();
+            fields.push(conversion);
         }
     }
+
     // Use ..Default::default() to fill cfg-gated fields stripped from the IR
     if typ.has_stripped_cfg_fields && !optionalized {
-        writeln!(out, "            ..Default::default()").ok();
+        fields.push("..Default::default()".to_string());
     }
-    if optionalized {
-        writeln!(out, "        __result").ok();
-    } else {
-        writeln!(out, "        }}").ok();
-    }
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    out
+
+    crate::template_env::render(
+        "conversions/binding_to_core_impl",
+        minijinja::context! {
+            core_path => core_path,
+            binding_name => binding_name,
+            is_newtype => false,
+            newtype_inner_expr => "",
+            builder_mode => optionalized,
+            uses_builder_pattern => uses_builder_pattern,
+            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+            statements => statements,
+            fields => fields,
+        },
+    )
 }
 
 /// Generate field conversion for a field that was optionalized (wrapped in `Option<T>`) in the

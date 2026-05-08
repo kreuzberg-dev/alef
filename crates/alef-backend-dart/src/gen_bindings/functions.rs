@@ -3,6 +3,7 @@ use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
 use crate::ident::dart_safe_ident;
+use crate::template_env;
 
 use super::render_type::{format_param, render_type};
 
@@ -15,7 +16,12 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         }
     }
     if let Some(ref error_ty) = f.error_type {
-        out.push_str(&format!("  /// throws {error_ty} on failure\n"));
+        out.push_str(&template_env::render(
+            "function_throws_annotation.jinja",
+            minijinja::context! {
+                error_ty => error_ty.as_str(),
+            },
+        ));
     }
 
     let fn_name = dart_safe_ident(&f.name.to_lower_camel_case());
@@ -33,16 +39,39 @@ pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTr
         } else {
             format!("Future<{}>", render_type(&f.return_type, imports))
         };
-        out.push_str(&format!(
-            "  static {return_ty} {fn_name}({}) async {{\n",
-            params.join(", ")
+        out.push_str(&template_env::render(
+            "function_signature_async.jinja",
+            minijinja::context! {
+                return_ty => return_ty,
+                fn_name => fn_name.as_str(),
+                params => params.join(", "),
+            },
         ));
-        out.push_str(&format!("    return await rust_bridge.{fn_name}({call_args_str});\n"));
+        out.push_str(&template_env::render(
+            "function_await_return.jinja",
+            minijinja::context! {
+                fn_name => fn_name.as_str(),
+                call_args_str => call_args_str.as_str(),
+            },
+        ));
         out.push_str("  }\n");
     } else {
         let return_ty = render_type(&f.return_type, imports);
-        out.push_str(&format!("  static {return_ty} {fn_name}({}) {{\n", params.join(", ")));
-        out.push_str(&format!("    return rust_bridge.{fn_name}({call_args_str});\n"));
+        out.push_str(&template_env::render(
+            "function_signature_sync.jinja",
+            minijinja::context! {
+                return_ty => return_ty,
+                fn_name => fn_name.as_str(),
+                params => params.join(", "),
+            },
+        ));
+        out.push_str(&template_env::render(
+            "function_sync_return.jinja",
+            minijinja::context! {
+                fn_name => fn_name.as_str(),
+                call_args_str => call_args_str.as_str(),
+            },
+        ));
         out.push_str("  }\n");
     }
 }

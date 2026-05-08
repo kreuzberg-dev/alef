@@ -9,7 +9,6 @@ use alef_core::config::{BridgeBinding, TraitBridgeConfig};
 use alef_core::ir::{FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashMap;
-use std::fmt::Write;
 
 /// Everything needed to generate a trait bridge for one trait.
 pub struct TraitBridgeSpec<'a> {
@@ -156,20 +155,16 @@ pub trait TraitBridgeGenerator {
 pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let wrapper = spec.wrapper_name();
     let foreign_type = generator.foreign_object_type();
-    let mut out = String::with_capacity(512);
 
-    writeln!(
-        out,
-        "/// Wrapper that bridges a foreign {prefix} object to the `{trait_name}` trait.",
-        prefix = spec.wrapper_prefix,
-        trait_name = spec.trait_def.name,
+    crate::template_env::render(
+        "generators/trait_bridge/wrapper_struct.jinja",
+        minijinja::context! {
+            wrapper_prefix => spec.wrapper_prefix,
+            trait_name => &spec.trait_def.name,
+            wrapper_name => wrapper,
+            foreign_type => foreign_type,
+        },
     )
-    .ok();
-    writeln!(out, "pub struct {wrapper} {{").ok();
-    writeln!(out, "    inner: {foreign_type},").ok();
-    writeln!(out, "    cached_name: String,").ok();
-    write!(out, "}}").ok();
-    out
 }
 
 /// Generate `impl SuperTrait for Wrapper` when the bridge config specifies a super-trait.
@@ -195,19 +190,9 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     // Build synthetic MethodDefs for the Plugin methods and delegate to the generator
     // for the actual call bodies. The Plugin trait interface is well-known: name(),
     // version(), initialize(), shutdown().
-    let mut out = String::with_capacity(1024);
-    writeln!(out, "impl {super_trait_path} for {wrapper} {{").ok();
-
-    // name() -> &str — uses cached field
-    writeln!(out, "    fn name(&self) -> &str {{").ok();
-    writeln!(out, "        &self.cached_name").ok();
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
-
     let error_path = spec.error_path();
 
     // version() -> String — delegate to foreign object
-    writeln!(out, "    fn version(&self) -> String {{").ok();
     let version_method = MethodDef {
         name: "version".to_string(),
         params: vec![],
@@ -225,18 +210,8 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         has_default_impl: false,
     };
     let version_body = generator.gen_sync_method_body(&version_method, spec);
-    for line in version_body.lines() {
-        writeln!(out, "        {}", line.trim_start()).ok();
-    }
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
 
     // initialize() -> Result<(), ErrorType>
-    writeln!(
-        out,
-        "    fn initialize(&self) -> std::result::Result<(), {error_path}> {{"
-    )
-    .ok();
     let init_method = MethodDef {
         name: "initialize".to_string(),
         params: vec![],
@@ -254,18 +229,8 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         has_default_impl: true,
     };
     let init_body = generator.gen_sync_method_body(&init_method, spec);
-    for line in init_body.lines() {
-        writeln!(out, "        {}", line.trim_start()).ok();
-    }
-    writeln!(out, "    }}").ok();
-    writeln!(out).ok();
 
     // shutdown() -> Result<(), ErrorType>
-    writeln!(
-        out,
-        "    fn shutdown(&self) -> std::result::Result<(), {error_path}> {{"
-    )
-    .ok();
     let shutdown_method = MethodDef {
         name: "shutdown".to_string(),
         params: vec![],
@@ -283,12 +248,18 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         has_default_impl: true,
     };
     let shutdown_body = generator.gen_sync_method_body(&shutdown_method, spec);
-    for line in shutdown_body.lines() {
-        writeln!(out, "        {}", line.trim_start()).ok();
-    }
-    writeln!(out, "    }}").ok();
-    write!(out, "}}").ok();
-    Some(out)
+
+    Some(crate::template_env::render(
+        "generators/trait_bridge/plugin_impl.jinja",
+        minijinja::context! {
+            super_trait_path => super_trait_path,
+            wrapper_name => wrapper,
+            error_path => error_path,
+            version_body => version_body,
+            init_body => init_body,
+            shutdown_body => shutdown_body,
+        },
+    ))
 }
 
 /// Generate `impl Trait for Wrapper` dispatching each method through the generator.
@@ -298,23 +269,14 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
 pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let wrapper = spec.wrapper_name();
     let trait_path = spec.trait_path();
-    let mut out = String::with_capacity(2048);
 
-    // Add #[async_trait] when the trait has async methods (needed for async_trait macro compatibility).
-    // On non-Send targets (e.g. WASM), use `(?Send)` to drop the `Send` bound on futures.
+    // Check if the trait has async methods (needed for async_trait macro compatibility).
     let has_async_methods = spec
         .trait_def
         .methods
         .iter()
         .any(|m| m.is_async && m.trait_source.is_none());
-    if has_async_methods {
-        if generator.async_trait_is_send() {
-            writeln!(out, "#[async_trait::async_trait]").ok();
-        } else {
-            writeln!(out, "#[async_trait::async_trait(?Send)]").ok();
-        }
-    }
-    writeln!(out, "impl {trait_path} for {wrapper} {{").ok();
+    let async_trait_is_send = generator.async_trait_is_send();
 
     // Filter out methods inherited from super-traits (they're handled by gen_bridge_plugin_impl)
     let own_methods: Vec<_> = spec
@@ -324,9 +286,11 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
         .filter(|m| m.trait_source.is_none())
         .collect();
 
+    // Build method code with proper indentation
+    let mut methods_code = String::with_capacity(1024);
     for (i, method) in own_methods.iter().enumerate() {
         if i > 0 {
-            writeln!(out).ok();
+            methods_code.push_str("\n\n");
         }
 
         // Build the method signature
@@ -359,8 +323,6 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
         let error_override = method.error_type.as_ref().map(|_| spec.error_path());
         let ret = format_return_type(&method.return_type, error_override.as_deref(), &spec.type_paths);
 
-        writeln!(out, "    {async_kw}fn {}({all_params}) -> {ret} {{", method.name).ok();
-
         // Generate body: async methods use Box::pin, sync methods call directly
         let body = if method.is_async {
             generator.gen_async_method_body(method, spec)
@@ -368,14 +330,35 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
             generator.gen_sync_method_body(method, spec)
         };
 
-        for line in body.lines() {
-            writeln!(out, "        {line}").ok();
-        }
-        writeln!(out, "    }}").ok();
+        // Indent body lines
+        let indented_body = body
+            .lines()
+            .map(|line| format!("        {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        methods_code.push_str(&crate::template_env::render(
+            "generators/trait_bridge/trait_method.jinja",
+            minijinja::context! {
+                async_kw => async_kw,
+                method_name => &method.name,
+                all_params => all_params,
+                ret => ret,
+                indented_body => &indented_body,
+            },
+        ));
     }
 
-    write!(out, "}}").ok();
-    out
+    crate::template_env::render(
+        "generators/trait_bridge/trait_impl.jinja",
+        minijinja::context! {
+            has_async_methods => has_async_methods,
+            async_trait_is_send => async_trait_is_send,
+            trait_path => trait_path,
+            wrapper_name => wrapper,
+            methods_code => methods_code,
+        },
+    )
 }
 
 /// Generate the `register_xxx()` function that wraps a foreign object and
@@ -463,19 +446,16 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 
     // Wrapper struct
     out.push_str(&gen_bridge_wrapper_struct(spec, generator));
-    writeln!(out).ok();
-    writeln!(out).ok();
+    out.push_str("\n\n");
 
     // Constructor (impl block with new())
     out.push_str(&generator.gen_constructor(spec));
-    writeln!(out).ok();
-    writeln!(out).ok();
+    out.push_str("\n\n");
 
     // Plugin super-trait impl (if applicable)
     if let Some(plugin_impl) = gen_bridge_plugin_impl(spec, generator) {
         out.push_str(&plugin_impl);
-        writeln!(out).ok();
-        writeln!(out).ok();
+        out.push_str("\n\n");
     }
 
     // Trait impl
@@ -483,24 +463,21 @@ pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerat
 
     // Registration function — only when register_fn is configured
     if let Some(reg_fn_code) = gen_bridge_registration_fn(spec, generator) {
-        writeln!(out).ok();
-        writeln!(out).ok();
+        out.push_str("\n\n");
         out.push_str(&reg_fn_code);
     }
 
     // Unregistration function — only when unregister_fn is configured AND
     // the backend has opted in (non-empty body).
     if let Some(unreg_fn_code) = gen_bridge_unregistration_fn(spec, generator) {
-        writeln!(out).ok();
-        writeln!(out).ok();
+        out.push_str("\n\n");
         out.push_str(&unreg_fn_code);
     }
 
     // Clear-all function — only when clear_fn is configured AND the backend
     // has opted in (non-empty body).
     if let Some(clear_fn_code) = gen_bridge_clear_fn(spec, generator) {
-        writeln!(out).ok();
-        writeln!(out).ok();
+        out.push_str("\n\n");
         out.push_str(&clear_fn_code);
     }
 

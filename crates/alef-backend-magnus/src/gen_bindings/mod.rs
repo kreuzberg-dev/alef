@@ -430,20 +430,33 @@ impl Backend for MagnusBackend {
 
         // Generate the main Ruby wrapper module file
         let mut content = hash::header(CommentStyle::Hash);
-        content.push_str("# frozen_string_literal: true\n\n");
-        content.push_str(&format!("require_relative '{gem_name_snake}/version'\n"));
-        content.push_str(&format!("require_relative '{gem_name_snake}/native'\n\n"));
-        content.push_str(&format!("module {module_name}\n"));
-        content.push_str("  # Re-export all types and functions from native extension\n");
-        content.push_str("end\n");
+        content.push_str(
+            &crate::template_env::render(
+                "main_rb_wrapper.rb.jinja",
+                minijinja::context! {
+                    gem_name_snake => gem_name_snake,
+                    module_name => module_name,
+                },
+            )
+            .trim_end_matches('\n'),
+        );
+        content.push_str("\n");
 
-        // Generate the native.rb file that requires the extension.
-        // The native extension automatically defines all module functions and constants
-        // when it is loaded, so we only need to require it.
+        // Generate the native.rb file that requires the extension and re-exports its symbols
+        let native_module_name = get_module_name(&api.crate_name);
         let mut native_content = hash::header(CommentStyle::Hash);
-        native_content.push_str("# frozen_string_literal: true\n\n");
-        native_content.push_str("require 'json'\n");
-        native_content.push_str(&format!("require '{ext_name}'\n"));
+        native_content.push_str(
+            &crate::template_env::render(
+                "native_rb_wrapper.rb.jinja",
+                minijinja::context! {
+                    ext_name => ext_name,
+                    module_name => module_name,
+                    native_module_name => native_module_name,
+                },
+            )
+            .trim_end_matches('\n'),
+        );
+        native_content.push_str("\n");
 
         // Generate the version file. RubyGems rejects cargo's dash-form prerelease
         // syntax (e.g. `Gem::Version.new("1.8.0-rc.2")` raises), so write the
@@ -457,10 +470,17 @@ impl Backend for MagnusBackend {
         let version = alef_core::version::to_rubygems_prerelease(&cargo_version);
 
         let mut version_content = hash::header(CommentStyle::Hash);
-        version_content.push_str("# frozen_string_literal: true\n\n");
-        version_content.push_str(&format!("module {module_name}\n"));
-        version_content.push_str(&format!("  VERSION = '{version}'\n"));
-        version_content.push_str("end\n");
+        version_content.push_str(
+            &crate::template_env::render(
+                "version_rb_wrapper.rb.jinja",
+                minijinja::context! {
+                    module_name => module_name,
+                    version => version,
+                },
+            )
+            .trim_end_matches('\n'),
+        );
+        version_content.push_str("\n");
 
         let output_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
 
