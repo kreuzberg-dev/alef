@@ -299,8 +299,12 @@ fn render_test_file(
             visitor_classes_str.push('\n');
         }
         visitor_classes_str.push('\n');
-        visitor_classes_str.push_str(decl);
-        visitor_classes_str.push('\n');
+        // Indent each line by 4 spaces to nest inside the test class
+        for line in decl.lines() {
+            visitor_classes_str.push_str("    ");
+            visitor_classes_str.push_str(line);
+            visitor_classes_str.push('\n');
+        }
     }
 
     let ctx = minijinja::context! {
@@ -772,7 +776,12 @@ fn render_test_method(
     };
 
     let rendered = crate::template_env::render("csharp/test_method.jinja", ctx);
-    out.push_str(&rendered);
+    // Indent each line by 4 spaces to nest inside the test class
+    for line in rendered.lines() {
+        out.push_str("    ");
+        out.push_str(line);
+        out.push('\n');
+    }
 }
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
