@@ -119,6 +119,13 @@ pub(super) fn gen_method_wrapper(
 
     let mut out = String::with_capacity(2048);
 
+    let has_error = method.error_type.is_some();
+
+    // Detect Result<Vec<u8>> returns — these use the out-param convention instead of
+    // a direct *mut u8 return, because the caller must also receive len and cap to
+    // be able to call {prefix}_free_bytes later.
+    let is_bytes_result = has_error && matches!(method.return_type, TypeRef::Bytes);
+
     if !method.doc.is_empty() {
         for line in method.doc.lines() {
             writeln!(out, "/// {}", line).ok();
@@ -131,10 +138,28 @@ pub(super) fn gen_method_wrapper(
         "/// Returned pointers must be freed with the appropriate free function."
     )
     .ok();
-    // Count total FFI params: this + params + extra _len for Bytes params
+    if is_bytes_result {
+        writeln!(
+            out,
+            "/// On success writes the buffer pointer, length, and capacity into the out-params and returns 0."
+        )
+        .ok();
+        writeln!(
+            out,
+            "/// The buffer must be freed with `{prefix}_free_bytes(out_ptr, out_len, out_cap)`."
+        )
+        .ok();
+        writeln!(
+            out,
+            "/// On error returns a non-zero code and sets the last-error context."
+        )
+        .ok();
+    }
+    // Count total FFI params: this + params + extra _len for Bytes params + 3 for bytes out-params
     let ffi_param_count = (if method.is_static { 0 } else { 1 })
         + method.params.len()
-        + method.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
+        + method.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count()
+        + if is_bytes_result { 3 } else { 0 };
     if ffi_param_count > 7 {
         writeln!(out, "#[allow(clippy::too_many_arguments)]").ok();
     }
@@ -143,8 +168,10 @@ pub(super) fn gen_method_wrapper(
     let qualified = core_type_path(typ, core_import);
 
     // Return type
-    let has_error = method.error_type.is_some();
-    let mut ret_type = if has_error && is_void_return(&method.return_type) {
+    let mut ret_type = if is_bytes_result {
+        // Out-param convention — always returns i32 (0 = success, non-zero = error)
+        "i32".to_string()
+    } else if has_error && is_void_return(&method.return_type) {
         "i32".to_string() // 0 = success, nonzero = error
     } else if has_error {
         // Fallible + non-void: return nullable pointer
@@ -197,6 +224,13 @@ pub(super) fn gen_method_wrapper(
             params.push(format!("    {}: usize", len_param_name));
         }
     }
+    // Result<Vec<u8>> returns use three out-params instead of a direct pointer return
+    if is_bytes_result {
+        let pfx = if will_be_unimplemented { "_" } else { "" };
+        params.push(format!("    {pfx}out_ptr: *mut *mut u8"));
+        params.push(format!("    {pfx}out_len: *mut usize"));
+        params.push(format!("    {pfx}out_cap: *mut usize"));
+    }
 
     if is_void_return(&method.return_type) && !has_error {
         writeln!(out, "pub unsafe extern \"C\" fn {fn_name}(").ok();
@@ -215,18 +249,42 @@ pub(super) fn gen_method_wrapper(
         writeln!(
             out,
             "{}",
-            gen_ffi_unimplemented_body(&method.return_type, &format!("{type_name}::{method_name}"), has_error)
+            gen_ffi_unimplemented_body(
+                if is_bytes_result {
+                    &TypeRef::Unit
+                } else {
+                    &method.return_type
+                },
+                &format!("{type_name}::{method_name}"),
+                has_error || is_bytes_result
+            )
         )
         .ok();
         write!(out, "}}").ok();
         return out;
     }
 
+    // Null-check the out-params for byte-buffer returns
+    if is_bytes_result {
+        writeln!(
+            out,
+            "    if out_ptr.is_null() || out_len.is_null() || out_cap.is_null() {{"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        set_last_error(1, \"Null out-param pointer for byte buffer return\");"
+        )
+        .ok();
+        writeln!(out, "        return -1;").ok();
+        writeln!(out, "    }}").ok();
+    }
+
     // Null-check self
     if !method.is_static {
         writeln!(out, "    if this.is_null() {{").ok();
         writeln!(out, "        set_last_error(1, \"Null pointer passed for self\");").ok();
-        let fail_ret = if has_error && is_void_return(&method.return_type) {
+        let fail_ret = if is_bytes_result || (has_error && is_void_return(&method.return_type)) {
             "return -1;".to_string()
         } else if is_void_return(&method.return_type) {
             "return;".to_string()
@@ -418,95 +476,129 @@ pub(super) fn gen_method_wrapper(
     }
 
     // Handle return
-    // When return_newtype_wrapper is set, the core function returns a newtype (e.g. NodeIndex)
-    // but the IR has already resolved it to the inner type (e.g. u32). Unwrap with `.0`.
-    let result_expr = if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_))
-    {
-        "result.0"
-    } else {
-        "result"
-    };
-    // When returns_ref=true, the core returns a reference (&T or &[T]).
-    // We need to convert it to an owned value for C FFI:
-    // - For String/&str: clone to owned String
-    // - For Named/&T: clone to owned T
-    // - For Vec/&[T]: clone to owned Vec
-    // This must happen before passing to gen_owned_value_to_c.
-    if method.returns_ref && !has_error {
-        match &method.return_type {
-            // &str -> owned String. `.clone()` on &str is a no-op (str: !Sized
-            // doesn't impl Clone) and triggers `noop_method_call`. Use to_owned.
-            TypeRef::String => {
-                writeln!(out, "    let result = result.to_owned();").ok();
-            }
-            TypeRef::Char => {
-                writeln!(out, "    let result = result.clone();").ok();
-            }
-            TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                writeln!(out, "    let result = result.clone();").ok();
-            }
-            TypeRef::Named(_) => {
-                writeln!(out, "    let result = result.clone();").ok();
-            }
-            TypeRef::Optional(inner) => match inner.as_ref() {
-                // Option<&str>::cloned() doesn't compile because `str: !Sized`. Use
-                // .map(str::to_owned) to convert Option<&str> -> Option<String>.
-                TypeRef::String => {
-                    writeln!(out, "    let result = result.map(str::to_owned);").ok();
-                }
-                TypeRef::Named(_) | TypeRef::Char | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                    writeln!(out, "    let result = result.cloned();").ok();
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-    }
-    // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
-    // Convert to owned by calling .into_owned().
-    if method.returns_cow && !has_error {
-        writeln!(out, "    let result = result.into_owned();").ok();
-    }
-    if has_error {
+    if is_bytes_result {
+        // Result<Vec<u8>> — decompose the Vec and write to out-params.
         writeln!(out, "    match result {{").ok();
-        if is_void_return(&method.return_type) {
-            writeln!(out, "        Ok(()) => 0,").ok();
+        writeln!(out, "        Ok(val) => {{").ok();
+        writeln!(out, "            let (ptr, len, cap) = val.into_raw_parts();").ok();
+        writeln!(
+            out,
+            "            // SAFETY: out_ptr/out_len/out_cap were null-checked above."
+        )
+        .ok();
+        writeln!(
+            out,
+            "            unsafe {{ *out_ptr = ptr; *out_len = len; *out_cap = cap; }}"
+        )
+        .ok();
+        writeln!(out, "            0").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "        Err(e) => {{").ok();
+        writeln!(out, "            set_last_error(2, &e.to_string());").ok();
+        writeln!(
+            out,
+            "            // SAFETY: out_ptr/out_len/out_cap were null-checked above."
+        )
+        .ok();
+        writeln!(
+            out,
+            "            unsafe {{ *out_ptr = std::ptr::null_mut(); *out_len = 0; *out_cap = 0; }}"
+        )
+        .ok();
+        writeln!(out, "            -1").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+    } else {
+        // When return_newtype_wrapper is set, the core function returns a newtype (e.g. NodeIndex)
+        // but the IR has already resolved it to the inner type (e.g. u32). Unwrap with `.0`.
+        let result_expr =
+            if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
+                "result.0"
+            } else {
+                "result"
+            };
+        // When returns_ref=true, the core returns a reference (&T or &[T]).
+        // We need to convert it to an owned value for C FFI:
+        // - For String/&str: clone to owned String
+        // - For Named/&T: clone to owned T
+        // - For Vec/&[T]: clone to owned Vec
+        // This must happen before passing to gen_owned_value_to_c.
+        if method.returns_ref && !has_error {
+            match &method.return_type {
+                // &str -> owned String. `.clone()` on &str is a no-op (str: !Sized
+                // doesn't impl Clone) and triggers `noop_method_call`. Use to_owned.
+                TypeRef::String => {
+                    writeln!(out, "    let result = result.to_owned();").ok();
+                }
+                TypeRef::Char => {
+                    writeln!(out, "    let result = result.clone();").ok();
+                }
+                TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                    writeln!(out, "    let result = result.clone();").ok();
+                }
+                TypeRef::Named(_) => {
+                    writeln!(out, "    let result = result.clone();").ok();
+                }
+                TypeRef::Optional(inner) => match inner.as_ref() {
+                    // Option<&str>::cloned() doesn't compile because `str: !Sized`. Use
+                    // .map(str::to_owned) to convert Option<&str> -> Option<String>.
+                    TypeRef::String => {
+                        writeln!(out, "    let result = result.map(str::to_owned);").ok();
+                    }
+                    TypeRef::Named(_) | TypeRef::Char | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+                        writeln!(out, "    let result = result.cloned();").ok();
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+        // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
+        // Convert to owned by calling .into_owned().
+        if method.returns_cow && !has_error {
+            writeln!(out, "    let result = result.into_owned();").ok();
+        }
+        if has_error {
+            writeln!(out, "    match result {{").ok();
+            if is_void_return(&method.return_type) {
+                writeln!(out, "        Ok(()) => 0,").ok();
+            } else {
+                writeln!(out, "        Ok(val) => {{").ok();
+                let val_expr =
+                    if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
+                        "val.0"
+                    } else {
+                        "val"
+                    };
+                write!(
+                    out,
+                    "{}",
+                    gen_owned_value_to_c(val_expr, &method.return_type, "            ", enum_names)
+                )
+                .ok();
+                writeln!(out, "        }}").ok();
+            }
+            writeln!(out, "        Err(e) => {{").ok();
+            writeln!(out, "            set_last_error(2, &e.to_string());").ok();
+            if is_void_return(&method.return_type) {
+                writeln!(out, "            -1").ok();
+            } else {
+                writeln!(out, "            {}", null_return_value(&method.return_type)).ok();
+            }
+            writeln!(out, "        }}").ok();
+            writeln!(out, "    }}").ok();
+        } else if is_void_return(&method.return_type) {
+            // void, no error — result is already ()
+        } else if can_inline {
+            // Passthrough primitive: call was already emitted as tail expression
         } else {
-            writeln!(out, "        Ok(val) => {{").ok();
-            let val_expr =
-                if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
-                    "val.0"
-                } else {
-                    "val"
-                };
             write!(
                 out,
                 "{}",
-                gen_owned_value_to_c(val_expr, &method.return_type, "            ", enum_names)
+                gen_owned_value_to_c(result_expr, &method.return_type, "    ", enum_names)
             )
             .ok();
-            writeln!(out, "        }}").ok();
         }
-        writeln!(out, "        Err(e) => {{").ok();
-        writeln!(out, "            set_last_error(2, &e.to_string());").ok();
-        if is_void_return(&method.return_type) {
-            writeln!(out, "            -1").ok();
-        } else {
-            writeln!(out, "            {}", null_return_value(&method.return_type)).ok();
-        }
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-    } else if is_void_return(&method.return_type) {
-        // void, no error — result is already ()
-    } else if can_inline {
-        // Passthrough primitive: call was already emitted as tail expression
-    } else {
-        write!(
-            out,
-            "{}",
-            gen_owned_value_to_c(result_expr, &method.return_type, "    ", enum_names)
-        )
-        .ok();
     }
 
     write!(out, "}}").ok();
@@ -539,6 +631,13 @@ pub(super) fn gen_free_function(
 
     let mut out = String::with_capacity(2048);
 
+    let has_error = func.error_type.is_some();
+
+    // Detect Result<Vec<u8>> returns — these use the out-param convention instead of
+    // a direct *mut u8 return, because the caller must also receive len and cap to
+    // be able to call {prefix}_free_bytes later.
+    let is_bytes_result = has_error && matches!(func.return_type, TypeRef::Bytes);
+
     if !func.doc.is_empty() {
         for line in func.doc.lines() {
             writeln!(out, "/// {}", line).ok();
@@ -551,15 +650,36 @@ pub(super) fn gen_free_function(
         "/// Returned pointers must be freed with the appropriate free function."
     )
     .ok();
-    // Count total FFI params: params + extra _len for Bytes params
-    let ffi_param_count = func.params.len() + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
+    if is_bytes_result {
+        writeln!(
+            out,
+            "/// On success writes the buffer pointer, length, and capacity into the out-params and returns 0."
+        )
+        .ok();
+        writeln!(
+            out,
+            "/// The buffer must be freed with `{prefix}_free_bytes(out_ptr, out_len, out_cap)`."
+        )
+        .ok();
+        writeln!(
+            out,
+            "/// On error returns a non-zero code and sets the last-error context."
+        )
+        .ok();
+    }
+    // Count total FFI params: params + extra _len for Bytes params + 3 for bytes out-params
+    let ffi_param_count = func.params.len()
+        + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count()
+        + if is_bytes_result { 3 } else { 0 };
     if ffi_param_count > 7 {
         writeln!(out, "#[allow(clippy::too_many_arguments)]").ok();
     }
     writeln!(out, "#[unsafe(no_mangle)]").ok();
 
-    let has_error = func.error_type.is_some();
-    let ret_type = if has_error && is_void_return(&func.return_type) {
+    let ret_type = if is_bytes_result {
+        // Out-param convention — always returns i32 (0 = success, non-zero = error)
+        "i32".to_string()
+    } else if has_error && is_void_return(&func.return_type) {
         "i32".to_string()
     } else {
         c_return_type_with_paths(&func.return_type, core_import, path_map).into_owned()
@@ -593,6 +713,13 @@ pub(super) fn gen_free_function(
             params.push(format!("    {}: usize", len_param_name));
         }
     }
+    // Result<Vec<u8>> returns use three out-params instead of a direct pointer return
+    if is_bytes_result {
+        let pfx = if will_be_unimplemented { "_" } else { "" };
+        params.push(format!("    {pfx}out_ptr: *mut *mut u8"));
+        params.push(format!("    {pfx}out_len: *mut usize"));
+        params.push(format!("    {pfx}out_cap: *mut usize"));
+    }
 
     if is_void_return(&func.return_type) && !has_error {
         writeln!(out, "pub unsafe extern \"C\" fn {ffi_name}(").ok();
@@ -611,11 +738,35 @@ pub(super) fn gen_free_function(
         writeln!(
             out,
             "{}",
-            gen_ffi_unimplemented_body(&func.return_type, func_name, has_error)
+            gen_ffi_unimplemented_body(
+                if is_bytes_result {
+                    &TypeRef::Unit
+                } else {
+                    &func.return_type
+                },
+                func_name,
+                has_error || is_bytes_result
+            )
         )
         .ok();
         write!(out, "}}").ok();
         return out;
+    }
+
+    // Null-check the out-params for byte-buffer returns
+    if is_bytes_result {
+        writeln!(
+            out,
+            "    if out_ptr.is_null() || out_len.is_null() || out_cap.is_null() {{"
+        )
+        .ok();
+        writeln!(
+            out,
+            "        set_last_error(1, \"Null out-param pointer for byte buffer return\");"
+        )
+        .ok();
+        writeln!(out, "        return -1;").ok();
+        writeln!(out, "    }}").ok();
     }
 
     // Convert parameters
@@ -762,65 +913,100 @@ pub(super) fn gen_free_function(
     }
 
     // Handle return
-    // When return_newtype_wrapper is set, the core function returns a newtype but IR has the inner type.
-    let result_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_)) {
-        "result.0"
-    } else {
-        "result"
-    };
-    // When returns_ref=true and return type is Option<NamedType>, the core returns Option<&T>.
-    // Clone to get owned Option<T> before boxing.
-    if func.returns_ref
-        && !has_error
-        && matches!(&func.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
-    {
-        writeln!(out, "    let result = result.cloned();").ok();
-    }
-    // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
-    // Convert to owned by calling .into_owned().
-    if func.returns_cow && !has_error {
-        writeln!(out, "    let result = result.into_owned();").ok();
-    }
-    if has_error {
+    if is_bytes_result {
+        // Result<Vec<u8>> — decompose the Vec and write to out-params.
         writeln!(out, "    match result {{").ok();
-        if is_void_return(&func.return_type) {
-            writeln!(out, "        Ok(()) => 0,").ok();
+        writeln!(out, "        Ok(val) => {{").ok();
+        writeln!(out, "            let (ptr, len, cap) = val.into_raw_parts();").ok();
+        writeln!(
+            out,
+            "            // SAFETY: out_ptr/out_len/out_cap were null-checked above."
+        )
+        .ok();
+        writeln!(
+            out,
+            "            unsafe {{ *out_ptr = ptr; *out_len = len; *out_cap = cap; }}"
+        )
+        .ok();
+        writeln!(out, "            0").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "        Err(e) => {{").ok();
+        writeln!(out, "            set_last_error(2, &e.to_string());").ok();
+        writeln!(
+            out,
+            "            // SAFETY: out_ptr/out_len/out_cap were null-checked above."
+        )
+        .ok();
+        writeln!(
+            out,
+            "            unsafe {{ *out_ptr = std::ptr::null_mut(); *out_len = 0; *out_cap = 0; }}"
+        )
+        .ok();
+        writeln!(out, "            -1").ok();
+        writeln!(out, "        }}").ok();
+        writeln!(out, "    }}").ok();
+    } else {
+        // When return_newtype_wrapper is set, the core function returns a newtype but IR has the inner type.
+        let result_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_))
+        {
+            "result.0"
         } else {
-            writeln!(out, "        Ok(val) => {{").ok();
-            let val_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_))
-            {
-                "val.0"
+            "result"
+        };
+        // When returns_ref=true and return type is Option<NamedType>, the core returns Option<&T>.
+        // Clone to get owned Option<T> before boxing.
+        if func.returns_ref
+            && !has_error
+            && matches!(&func.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
+        {
+            writeln!(out, "    let result = result.cloned();").ok();
+        }
+        // When returns_cow=true, the core returns Cow<'_, T> but FFI needs owned T.
+        // Convert to owned by calling .into_owned().
+        if func.returns_cow && !has_error {
+            writeln!(out, "    let result = result.into_owned();").ok();
+        }
+        if has_error {
+            writeln!(out, "    match result {{").ok();
+            if is_void_return(&func.return_type) {
+                writeln!(out, "        Ok(()) => 0,").ok();
             } else {
-                "val"
-            };
+                writeln!(out, "        Ok(val) => {{").ok();
+                let val_expr =
+                    if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_)) {
+                        "val.0"
+                    } else {
+                        "val"
+                    };
+                write!(
+                    out,
+                    "{}",
+                    gen_owned_value_to_c(val_expr, &func.return_type, "            ", enum_names)
+                )
+                .ok();
+                writeln!(out, "        }}").ok();
+            }
+            writeln!(out, "        Err(e) => {{").ok();
+            writeln!(out, "            set_last_error(2, &e.to_string());").ok();
+            if is_void_return(&func.return_type) {
+                writeln!(out, "            -1").ok();
+            } else {
+                writeln!(out, "            {}", null_return_value(&func.return_type)).ok();
+            }
+            writeln!(out, "        }}").ok();
+            writeln!(out, "    }}").ok();
+        } else if is_void_return(&func.return_type) {
+            // nothing
+        } else if can_inline_fn {
+            // Passthrough primitive: call was already emitted as tail expression
+        } else {
             write!(
                 out,
                 "{}",
-                gen_owned_value_to_c(val_expr, &func.return_type, "            ", enum_names)
+                gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names)
             )
             .ok();
-            writeln!(out, "        }}").ok();
         }
-        writeln!(out, "        Err(e) => {{").ok();
-        writeln!(out, "            set_last_error(2, &e.to_string());").ok();
-        if is_void_return(&func.return_type) {
-            writeln!(out, "            -1").ok();
-        } else {
-            writeln!(out, "            {}", null_return_value(&func.return_type)).ok();
-        }
-        writeln!(out, "        }}").ok();
-        writeln!(out, "    }}").ok();
-    } else if is_void_return(&func.return_type) {
-        // nothing
-    } else if can_inline_fn {
-        // Passthrough primitive: call was already emitted as tail expression
-    } else {
-        write!(
-            out,
-            "{}",
-            gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names)
-        )
-        .ok();
     }
 
     write!(out, "}}").ok();
@@ -837,7 +1023,12 @@ pub(super) fn gen_free_function(
 /// Using `_` in these positions causes type-inference failures when the deserialized
 /// value is immediately coerced (e.g. `Vec<String>` converted to `Vec<&str>`).
 /// Concrete types let the compiler resolve the full chain without ambiguity.
-fn type_ref_to_rust_type(ty: &TypeRef) -> String {
+///
+/// `core_import` is the Rust path for the core crate (e.g. `"kreuzberg"` or `"my_lib"`),
+/// used to qualify [`TypeRef::Named`] variants.  Other backends plumb this through
+/// `BackendContext::core_import`; here it is passed explicitly so the function is not
+/// tied to a single hard-coded crate name.
+fn type_ref_to_rust_type(ty: &TypeRef, core_import: &str) -> String {
     match ty {
         TypeRef::String | TypeRef::Char => "String".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
@@ -856,14 +1047,14 @@ fn type_ref_to_rust_type(ty: &TypeRef) -> String {
             alef_core::ir::PrimitiveType::Usize => "usize".to_string(),
             alef_core::ir::PrimitiveType::Isize => "isize".to_string(),
         },
-        TypeRef::Named(name) => format!("kreuzberg::{name}"),
-        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_rust_type(inner)),
+        TypeRef::Named(name) => format!("{core_import}::{name}"),
+        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_rust_type(inner, core_import)),
         TypeRef::Map(key, val) => format!(
             "std::collections::HashMap<{}, {}>",
-            type_ref_to_rust_type(key),
-            type_ref_to_rust_type(val)
+            type_ref_to_rust_type(key, core_import),
+            type_ref_to_rust_type(val, core_import)
         ),
-        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_rust_type(inner)),
+        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_rust_type(inner, core_import)),
         TypeRef::Path => "std::path::PathBuf".to_string(),
         TypeRef::Json => "serde_json::Value".to_string(),
         TypeRef::Duration => "std::time::Duration".to_string(),
@@ -879,7 +1070,7 @@ pub(super) fn gen_param_conversion(
     param: &ParamDef,
     has_error: bool,
     return_type: &TypeRef,
-    _core_import: &str,
+    core_import: &str,
 ) -> String {
     let name = &param.name;
     let rs_name = format!("{name}_rs");
@@ -1039,7 +1230,7 @@ pub(super) fn gen_param_conversion(
                 writeln!(out, "            Ok(s) => {{").ok();
                 let type_hint = match &param.ty {
                     TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                        format!("::<{}>", type_ref_to_rust_type(&param.ty))
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     _ => String::new(),
                 };
@@ -1279,7 +1470,7 @@ pub(super) fn gen_param_conversion(
                 let mut_keyword = if param.is_mut { "mut " } else { "" };
                 let type_hint = match &param.ty {
                     TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                        format!("::<{}>", type_ref_to_rust_type(&param.ty))
+                        format!("::<{}>", type_ref_to_rust_type(&param.ty, core_import))
                     }
                     _ => String::new(),
                 };
