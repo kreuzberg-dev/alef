@@ -49,48 +49,22 @@ unsafe impl IntoValueFromNative for {{ enum_name }} {}
 unsafe impl TryConvertOwned for {{ enum_name }} {}
 
 {%- if has_data %}
-{# Variant accessor methods for data enums #}
+{# Variant accessor methods for internally-tagged data enums #}
+{%- if serde_tag %}
 impl {{ enum_name }} {
 {%- for variant in variants %}
-{%- if variant.fields | length == 1 %}
-{%- if variant.is_tuple %}
-    {# Tuple variant: just one unnamed field #}
-    pub fn {{ variant.snake_name }}(&self) -> Option<{{ variant.fields[0].field_type }}> {
-        match self {
-            Self::{{ variant.name }}(inner) => Some(inner.clone()),
-            _ => None,
-        }
-    }
-{%- else %}
-    {# Struct variant: one named field #}
-    pub fn {{ variant.snake_name }}(&self) -> Option<{{ variant.fields[0].field_type }}> {
-        match self {
-            Self::{{ variant.name }} { {{ variant.fields[0].name }} } => Some({{ variant.fields[0].name }}.clone()),
-            _ => None,
-        }
-    }
-{%- endif %}
-{%- elif serde_tag and variant.fields %}
-{%- if variant.is_tuple %}
-    {# Internally-tagged tuple variant with multiple fields or no fields: return reference #}
+{%- if variant.fields | length == 1 and variant.fields[0].name == "_0" %}
+    {# Internally-tagged tuple variant converted to struct variant with _0 field #}
     pub fn {{ variant.snake_name }}(&self) -> Option<&{{ variant.fields[0].field_type }}> {
         match self {
-            Self::{{ variant.name }}(inner) => Some(inner),
+            Self::{{ variant.name }} { _0 } => Some(_0),
             _ => None,
         }
     }
-{%- else %}
-    {# Internally-tagged struct variant: return all fields as a reference #}
-    pub fn {{ variant.snake_name }}(&self) -> Option<&Self> {
-        match self {
-            Self::{{ variant.name }} { .. } => Some(self),
-            _ => None,
-        }
-    }
-{%- endif %}
 {%- endif %}
 {%- endfor %}
 }
+{%- endif %}
 {%- endif %}
 
 {# Unit enum definition with Symbol-based conversion #}
