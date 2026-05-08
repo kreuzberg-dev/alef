@@ -66,8 +66,10 @@ public final class {{ bridge_class }} implements AutoCloseable {
 {% for method in lifecycle_methods %}
     private {{ method.signature }} {
         try {
-            return {{ method.body }};
-        } catch (Throwable e) { return {{ method.error_return }}; }
+{% if method.void_call %}            {{ method.body }};
+            return {{ method.success_return }};
+{% else %}            return {{ method.body }};
+{% endif %}        } catch (Throwable e) { return {{ method.error_return }}; }
     }
 
 {% endfor %}{% endif %}

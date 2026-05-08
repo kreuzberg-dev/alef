@@ -122,21 +122,29 @@ fn gen_bridge_file(trait_def: &TypeDef, prefix: &str, package: &str, has_super_t
                 signature => "MemorySegment handleName(MemorySegment userData)",
                 body => "arena.allocateFrom(impl.name())",
                 error_return => "MemorySegment.NULL",
+                void_call => false,
+                success_return => "",
             },
             minijinja::context! {
                 signature => "MemorySegment handleVersion(MemorySegment userData)",
                 body => "arena.allocateFrom(impl.version())",
                 error_return => "MemorySegment.NULL",
+                void_call => false,
+                success_return => "",
             },
             minijinja::context! {
                 signature => "int handleInitialize(MemorySegment userData, MemorySegment outError)",
-                body => "impl.initialize(); return 0",
+                body => "impl.initialize()",
                 error_return => "1",
+                void_call => true,
+                success_return => "0",
             },
             minijinja::context! {
                 signature => "int handleShutdown(MemorySegment userData, MemorySegment outError)",
-                body => "impl.shutdown(); return 0",
+                body => "impl.shutdown()",
                 error_return => "1",
+                void_call => true,
+                success_return => "0",
             },
         ]
     } else {

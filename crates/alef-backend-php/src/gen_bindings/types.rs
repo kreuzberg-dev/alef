@@ -166,7 +166,11 @@ pub(crate) fn gen_php_struct(
         extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
         let mut serde_struct_attrs: Vec<&str> = effective_struct_attrs.to_vec();
-        serde_struct_attrs.push("serde(default, rename_all = \"camelCase\")");
+        // No rename_all here: PHP class fields keep their core snake_case names so
+        // serde round-trips losslessly through `kreuzberg::Foo` (which is also snake_case).
+        // This lets us serialize the PHP-side config to JSON and deserialize it as the
+        // core config without any field-name translation.
+        serde_struct_attrs.push("serde(default)");
         let modified_cfg = RustBindingConfig {
             struct_attrs: &serde_struct_attrs,
             field_attrs: cfg.field_attrs,

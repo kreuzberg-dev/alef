@@ -552,7 +552,7 @@ pub(crate) fn gen_async_wrapper_method(
 
     let sync_method_name = to_java_name(&func.name);
     let async_method_name = format!("{}Async", sync_method_name);
-    let _param_names: Vec<String> = func
+    let param_names: Vec<String> = func
         .params
         .iter()
         .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
@@ -568,6 +568,25 @@ pub(crate) fn gen_async_wrapper_method(
         },
     ));
     out.push_str("        return CompletableFuture.supplyAsync(() -> {\n");
+    out.push_str("            try {\n");
+    if matches!(func.return_type, TypeRef::Unit) {
+        out.push_str("                ");
+        out.push_str(&sync_method_name);
+        out.push('(');
+        out.push_str(&param_names.join(", "));
+        out.push_str(");\n");
+        out.push_str("                return null;\n");
+    } else {
+        out.push_str("                return ");
+        out.push_str(&sync_method_name);
+        out.push('(');
+        out.push_str(&param_names.join(", "));
+        out.push_str(");\n");
+    }
+    out.push_str("            } catch (Throwable e) {\n");
+    out.push_str("                throw new CompletionException(e);\n");
+    out.push_str("            }\n");
+    out.push_str("        });\n");
     out.push_str("    }\n");
 }
 
