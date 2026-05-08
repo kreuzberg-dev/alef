@@ -5,9 +5,12 @@
 {% endif %}pub enum {{ enum_name }} {
 {% for variant in variants %}
 {% if variant.serde_rename %}    #[serde(rename = "{{ variant.serde_rename }}")]
-{% endif %}{% if variant.fields %}    {{ variant.name }} { {% for field in variant.fields %}{{ field.name }}: {{ field.field_type }}{{ ", " if not loop.last }}{% endfor %} },
+{% endif %}{% if variant.fields %}
+{%- if variant.is_tuple %}    {{ variant.name }}({% for field in variant.fields %}{{ field.field_type }}{{ ", " if not loop.last }}{% endfor %}{%- if variant.fields | length == 1 %}{%- endif %}),
+{%- else %}    {{ variant.name }} { {% for field in variant.fields %}{{ field.name }}: {{ field.field_type }}{{ ", " if not loop.last }}{% endfor %} },
+{%- endif %}
 {% else %}    {{ variant.name }},
-{% endif %}{% endfor %}}
+{% endif %}{% endfor %}
 
 impl Default for {{ enum_name }} {
     fn default() -> Self { Self::{{ first_variant }}{{ first_variant_default }} }
@@ -37,12 +40,23 @@ unsafe impl TryConvertOwned for {{ enum_name }} {}
 impl {{ enum_name }} {
 {%- for variant in variants %}
 {%- if variant.fields | length == 1 %}
+{%- if variant.is_tuple %}
+    {# Tuple variant: just one unnamed field #}
+    fn {{ variant.snake_name }}(&self) -> Option<{{ variant.fields[0].field_type }}> {
+        match self {
+            Self::{{ variant.name }}(inner) => Some(inner.clone()),
+            _ => None,
+        }
+    }
+{%- else %}
+    {# Struct variant: one named field #}
     fn {{ variant.snake_name }}(&self) -> Option<{{ variant.fields[0].field_type }}> {
         match self {
             Self::{{ variant.name }} { {{ variant.fields[0].name }} } => Some({{ variant.fields[0].name }}.clone()),
             _ => None,
         }
     }
+{%- endif %}
 {%- endif %}
 {%- endfor %}
 }
