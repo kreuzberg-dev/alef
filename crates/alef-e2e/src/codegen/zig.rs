@@ -503,7 +503,7 @@ fn render_test_fn(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
-    let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id);
+    let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id, module_name);
 
     let _ = writeln!(out, "test \"{test_name}\" {{");
     let _ = writeln!(out, "    // {description}");
@@ -531,16 +531,28 @@ fn render_test_fn(
         }
         let _ = writeln!(
             out,
-            "    const result = {module_name}.{function_name}({args_str}) catch |err| {{"
+            "    const result = {module_name}.{function_name}({args_str}) catch {{"
         );
         let _ = writeln!(out, "        try testing.expect(true); // Error occurred as expected");
         let _ = writeln!(out, "        return;");
         let _ = writeln!(out, "    }};");
-        let _ = writeln!(out, "    // Perform success assertions if any");
-        for assertion in &fixture.assertions {
-            if assertion.assertion_type != "error" {
-                render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+        // Whether any non-error assertion will emit code that references `result`.
+        // If not, we must explicitly discard `result` to satisfy Zig's
+        // strict-unused-locals rule.
+        let any_emits_code = fixture
+            .assertions
+            .iter()
+            .filter(|a| a.assertion_type != "error")
+            .any(|a| assertion_emits_code(a, field_resolver));
+        if any_emits_code {
+            let _ = writeln!(out, "    // Perform success assertions if any");
+            for assertion in &fixture.assertions {
+                if assertion.assertion_type != "error" {
+                    render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+                }
             }
+        } else {
+            let _ = writeln!(out, "    _ = result;");
         }
     } else if fixture.assertions.is_empty() {
         // No assertions: emit a call to verify compilation.
@@ -550,25 +562,67 @@ fn render_test_fn(
                 "    // Note: async functions not yet fully supported; treating as sync"
             );
         }
-        let _ = writeln!(out, "    const _ = {module_name}.{function_name}({args_str});");
+        let _ = writeln!(out, "    _ = try {module_name}.{function_name}({args_str});");
     } else {
-        // Happy path: call and assert.
+        // Happy path: call and assert. Detect whether any assertion actually
+        // emits code that references `result` (some — like `not_error` — emit
+        // nothing) so we don't leave an unused local, which Zig 0.16 rejects.
         if is_async {
             let _ = writeln!(
                 out,
                 "    // Note: async functions not yet fully supported; treating as sync"
             );
         }
-        let _ = writeln!(
-            out,
-            "    const {result_var} = {module_name}.{function_name}({args_str});"
-        );
-        for assertion in &fixture.assertions {
-            render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+        let any_emits_code = fixture
+            .assertions
+            .iter()
+            .any(|a| assertion_emits_code(a, field_resolver));
+        if any_emits_code {
+            let _ = writeln!(
+                out,
+                "    const {result_var} = try {module_name}.{function_name}({args_str});"
+            );
+            for assertion in &fixture.assertions {
+                render_assertion(out, assertion, result_var, field_resolver, enum_fields);
+            }
+        } else {
+            let _ = writeln!(out, "    _ = try {module_name}.{function_name}({args_str});");
         }
     }
 
     let _ = writeln!(out, "}}");
+}
+
+/// Predicate matching `render_assertion`: returns true when the assertion
+/// would emit at least one statement that references the result variable.
+fn assertion_emits_code(assertion: &Assertion, field_resolver: &FieldResolver) -> bool {
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+            return false;
+        }
+    }
+    matches!(
+        assertion.assertion_type.as_str(),
+        "equals"
+            | "contains"
+            | "contains_all"
+            | "not_contains"
+            | "not_empty"
+            | "is_empty"
+            | "starts_with"
+            | "ends_with"
+            | "min_length"
+            | "max_length"
+            | "count_min"
+            | "count_equals"
+            | "is_true"
+            | "is_false"
+            | "greater_than"
+            | "less_than"
+            | "greater_than_or_equal"
+            | "less_than_or_equal"
+            | "contains_any"
+    )
 }
 
 /// Build setup lines and the argument list for the function call.
@@ -576,6 +630,7 @@ fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     fixture_id: &str,
+    module_name: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -594,11 +649,31 @@ fn build_args_and_setup(
             continue;
         }
 
+        // The Zig binding's `ExtractionConfig` mirror is a pure-data struct
+        // and the binding does not expose a JSON-loading helper. Emit a
+        // default-initialized literal for the `config` parameter so the
+        // generated test compiles and exercises the call path. Fixture
+        // configuration content is not applied — the alternative would be a
+        // bespoke JSON parser, which is out of scope for the codegen.
+        //
+        // `std.mem.zeroes` rejects tagged unions whose first payload type
+        // cannot be zeroed (e.g. `OutputFormat` containing string variants);
+        // `std.mem.zeroInit` zeroes the majority of fields and accepts an
+        // override map for the ones that can't be safely zeroed.
+        if arg.name == "config" && arg.arg_type == "json_object" {
+            parts.push(format!(
+                "std.mem.zeroInit({module_name}.ExtractionConfig, .{{ .output_format = {module_name}.OutputFormat{{ .plain = {{}} }} }})"
+            ));
+            continue;
+        }
+
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
         let val = input.get(field);
         match val {
             None | Some(serde_json::Value::Null) if arg.optional => {
-                continue;
+                // Zig functions don't have default arguments, so we must
+                // pass `null` explicitly for every optional parameter.
+                parts.push("null".to_string());
             }
             None | Some(serde_json::Value::Null) => {
                 let default_val = match arg.arg_type.as_str() {
