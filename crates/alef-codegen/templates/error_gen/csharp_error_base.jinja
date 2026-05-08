@@ -5,13 +5,13 @@ using System;
 
 namespace {{ namespace }};
 
-{%- if doc %}
+{% if doc %}
 /// <summary>
-{%- for line in doc_lines %}
+{% for line in doc_lines %}
 /// {{ line }}
-{%- endfor %}
+{% endfor %}
 /// </summary>
-{%- endif %}
+{% endif %}
 public class {{ base_name }} : {{ base_parent }}
 {
     public {{ base_name }}(string message) : base(message) { }
