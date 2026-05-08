@@ -75,11 +75,11 @@ pub(crate) fn marshal_param_to_ffi(
         }
         TypeRef::Bytes => {
             // byte[] → convert to MemorySegment pointer for FFI
-            // Must allocate off-heap via Arena for Panama FFM compatibility
+            // Use allocateFrom to copy on-heap array into off-heap arena memory (JDK 22+ Panama FFM idiom)
             let cname = "c".to_string() + name;
             writeln!(
                 out,
-                "            var {} = arena.allocateArray(ValueLayout.JAVA_BYTE, {});",
+                "            var {} = arena.allocateFrom(ValueLayout.JAVA_BYTE, {});",
                 cname, name
             )
             .ok();
