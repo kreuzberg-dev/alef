@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.14.34] - 2026-05-08
+## [0.14.35] - 2026-05-08
+
+Re-roll of 0.14.34: the v0.14.34 tag captured an early commit, missing the long fix list
+below. Bumped to 0.14.35 to ship them on crates.io.
 
 ### Fixed
 
