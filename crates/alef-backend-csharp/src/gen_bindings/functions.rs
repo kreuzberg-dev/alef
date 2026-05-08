@@ -115,7 +115,7 @@ pub(super) fn gen_native_methods(
                     "    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{from_json_entry}\")]\n"
                 ));
                 out.push_str(&format!(
-                    "    internal static extern IntPtr {from_json_cs}([MarshalAs(UnmanagedType.LPStr)] string json);\n\n"
+                    "    internal static extern IntPtr {from_json_cs}([MarshalAs(UnmanagedType.LPUTF8Str)] string json);\n\n"
                 ));
             }
         }
@@ -286,7 +286,7 @@ pub(super) fn gen_pinvoke_for_func(
             out.push_str("        ");
             let pinvoke_ty = pinvoke_param_type(&param.ty);
             if pinvoke_ty == "string" {
-                out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
+                out.push_str("[MarshalAs(UnmanagedType.LPUTF8Str)] ");
             }
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&format!("{pinvoke_ty} {param_name}"));
@@ -341,7 +341,7 @@ pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &Metho
             out.push_str("        ");
             let pinvoke_ty = pinvoke_param_type(&param.ty);
             if pinvoke_ty == "string" {
-                out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
+                out.push_str("[MarshalAs(UnmanagedType.LPUTF8Str)] ");
             }
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&format!("{pinvoke_ty} {param_name}"));
