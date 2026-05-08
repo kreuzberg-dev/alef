@@ -471,6 +471,36 @@ impl Backend for MagnusBackend {
             )
             .trim_end_matches('\n'),
         );
+
+        // Add Hash monkey-patch for internally-tagged enum accessors and field access
+        native_content.push_str("\n\n# Add accessor methods to Hash-based internally-tagged enum instances\nclass Hash\n");
+        native_content.push_str("  # Support internally-tagged enum accessors like format.excel, format.email, etc.\n");
+        native_content.push_str("  # Also support direct field access like format.sheet_count\n");
+        native_content.push_str("  def method_missing(method_name, *args, &block)\n");
+        native_content.push_str("    # Try symbol key first (how Magnus converts JSON keys)\n");
+        native_content.push_str("    return self[method_name] if key?(method_name)\n\n");
+        native_content.push_str("    # Try string key\n");
+        native_content.push_str("    return self[method_name.to_s] if key?(method_name.to_s)\n\n");
+        native_content.push_str("    # Check if this hash has a 'format_type' field (indicating an internally-tagged enum)\n");
+        native_content.push_str("    format_type = self[:'format_type']\n");
+        native_content.push_str("    return super unless format_type\n\n");
+        native_content.push_str("    # If the method name matches the format_type (snake_case), return self\n");
+        native_content.push_str("    # This allows format.excel to work when format_type == 'excel'\n");
+        native_content.push_str("    snake_case_method = method_name.to_s.downcase\n");
+        native_content.push_str("    if snake_case_method == format_type.to_s.downcase\n");
+        native_content.push_str("      return self\n");
+        native_content.push_str("    end\n\n");
+        native_content.push_str("    super\n");
+        native_content.push_str("  end\n\n");
+        native_content.push_str("  def respond_to_missing?(method_name, include_private = false)\n");
+        native_content.push_str("    return true if key?(method_name) || key?(method_name.to_s)\n\n");
+        native_content.push_str("    format_type = self[:'format_type']\n");
+        native_content.push_str("    return false unless format_type\n\n");
+        native_content.push_str("    snake_case_method = method_name.to_s.downcase\n");
+        native_content.push_str("    snake_case_method == format_type.to_s.downcase || super\n");
+        native_content.push_str("  end\n");
+        native_content.push_str("end\n");
+
         native_content.push('\n');
 
         // Generate the version file. RubyGems rejects cargo's dash-form prerelease
