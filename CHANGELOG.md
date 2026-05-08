@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e/gleam): `contains_any` assertion now compiles to OR logic via
+  `gleam/list.any` + `string.contains`, instead of N independent
+  `string.contains` calls AND-ed together. Adds `gleam/list` to required
+  imports for any test using `contains_any`. Without this, fixtures with
+  alternative expected substrings (e.g. error-message variants) emitted
+  always-false assertions.
+- fix(e2e/zig): `setCwd` for test runs, `json_path_expr` skips
+  `FormatMetadata` variant-name segments (internally-tagged enum),
+  `contains_any` uses OR logic, bytes arg uses `std.Io.Dir.cwd()` /
+  `std.testing.io` / `.unlimited` (Zig 0.16 API).
+- fix(e2e/swift): `doc_lazy_continuation` now handled correctly in
+  field-access codegen; `render_swift_with_optionals` added.
+- fix(dart-backend): `#[allow(dead_code)]` on in-progress dart binding
+  errors/types/idents; clippy fixes for `gen_rust_crate`.
+
 - fix(rustler-backend): emit `From<Local> for core::Enum` for flat data
   enums when they appear in input position. Flat data enums (data variants
   that are all single-tuple) are encoded as a flat NifStruct on the Elixir
