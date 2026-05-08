@@ -67,7 +67,12 @@ impl Backend for SwiftBackend {
             .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()))
         {
             emit_doc_comment(&ty.doc, "", &mut body);
-            body.push_str(&format!("public typealias {} = RustBridge.{}\n", ty.name, ty.name));
+            body.push_str(&crate::template_env::render(
+                "typealias.jinja",
+                minijinja::context! {
+                    name => &ty.name,
+                },
+            ));
             body.push('\n');
         }
 
@@ -144,23 +149,49 @@ impl Backend for SwiftBackend {
     }
 }
 
-/// Emits a Swift `public enum` for the given `EnumDef`.
-/// All enums are emitted as native Swift enums with unit variants only.
+/// Emits a Swift enum or typealias for the given `EnumDef`.
+/// Non-Codable enums (`has_serde: false`) become typealiases to RustBridge.X.
+/// Codable enums (`has_serde: true`) are emitted as native Swift enums.
 fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     emit_doc_comment(&en.doc, "", out);
+
+    if !en.has_serde {
+        out.push_str(&crate::template_env::render(
+            "typealias.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
+        return;
+    }
 
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
 
     if all_unit {
-        out.push_str(&format!("public enum {} {{\n", en.name));
+        out.push_str(&crate::template_env::render(
+            "swift_enum_header.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
             let case_name = swift_ident(&variant.name.to_lower_camel_case());
-            out.push_str(&format!("    case {case_name}\n"));
+            out.push_str(&crate::template_env::render(
+                "enum_case_unit.jinja",
+                minijinja::context! {
+                    case_name => &case_name,
+                },
+            ));
         }
         out.push_str("}\n");
     } else {
-        out.push_str(&format!("public enum {} {{\n", en.name));
+        out.push_str(&crate::template_env::render(
+            "swift_enum_header.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
         for variant in &en.variants {
             emit_variant_with_data(variant, out, mapper);
         }
@@ -173,7 +204,12 @@ fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, mapper: &Swif
     emit_doc_comment(&variant.doc, "    ", out);
     let case_name = swift_ident(&variant.name.to_lower_camel_case());
     if variant.fields.is_empty() {
-        out.push_str(&format!("    case {case_name}\n"));
+        out.push_str(&crate::template_env::render(
+            "enum_case_unit.jinja",
+            minijinja::context! {
+                case_name => &case_name,
+            },
+        ));
     } else {
         let assoc: Vec<String> = variant
             .fields
@@ -185,7 +221,13 @@ fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, mapper: &Swif
                 format!("{label}: {ty_str}")
             })
             .collect();
-        out.push_str(&format!("    case {case_name}({})\n", assoc.join(", ")));
+        out.push_str(&crate::template_env::render(
+            "enum_case_with_data.jinja",
+            minijinja::context! {
+                case_name => &case_name,
+                associated_values => assoc.join(", "),
+            },
+        ));
     }
 }
 
@@ -205,12 +247,22 @@ fn swift_associated_label(name: &str, idx: usize) -> String {
 /// Emits a Swift `Error`-conforming `public enum` for the given `ErrorDef`.
 fn emit_error(error: &ErrorDef, out: &mut String, mapper: &SwiftMapper) {
     emit_doc_comment(&error.doc, "", out);
-    out.push_str(&format!("public enum {}: Error {{\n", error.name));
+    out.push_str(&crate::template_env::render(
+        "error_enum_header.jinja",
+        minijinja::context! {
+            name => &error.name,
+        },
+    ));
     for variant in &error.variants {
         emit_doc_comment(&variant.doc, "    ", out);
         let case_name = swift_ident(&variant.name.to_lower_camel_case());
         if variant.is_unit || variant.fields.is_empty() {
-            out.push_str(&format!("    case {case_name}(message: String)\n"));
+            out.push_str(&crate::template_env::render(
+                "error_case.jinja",
+                minijinja::context! {
+                    case_name => &case_name,
+                },
+            ));
         } else {
             let mut assoc: Vec<String> = Vec::with_capacity(variant.fields.len() + 1);
             let mut seen_message = false;
@@ -231,7 +283,13 @@ fn emit_error(error: &ErrorDef, out: &mut String, mapper: &SwiftMapper) {
             if !seen_message {
                 assoc.insert(0, "message: String".to_string());
             }
-            out.push_str(&format!("    case {case_name}({})\n", assoc.join(", ")));
+            out.push_str(&crate::template_env::render(
+                "error_case_with_data.jinja",
+                minijinja::context! {
+                    case_name => &case_name,
+                    associated_values => assoc.join(", "),
+                },
+            ));
         }
     }
     out.push_str("}\n");

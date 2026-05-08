@@ -51,7 +51,12 @@ pub(crate) fn emit_trait_bridge(
     out.push_str("/// FRB opaque handle holding Dart callbacks for each trait method.\n");
     out.push_str("/// Dart-side: register callbacks via `create_{snake}_dart_impl(...)` factory.\n");
     out.push_str("#[frb(opaque)]\n");
-    out.push_str(&format!("pub struct {struct_name} {{\n"));
+    out.push_str(&crate::template_env::render(
+        "rust_mirror_struct_open.jinja",
+        minijinja::context! {
+            name => struct_name.as_str(),
+        },
+    ));
     // Plugin fields for name/version (required by Plugin super-trait).
     if has_plugin_super {
         out.push_str("    /// Plugin name used by the Plugin super-trait impl.\n");
@@ -62,9 +67,18 @@ pub(crate) fn emit_trait_bridge(
     for method in &own_methods {
         let field_name = &method.name;
         let callback_ty = dart_fn_future_callback_type(method, source_crate_name, type_paths);
-        out.push_str(&format!("    {field_name}: {callback_ty},\n"));
+        out.push_str(&crate::template_env::render(
+            "rust_trait_struct_field.jinja",
+            minijinja::context! {
+                field_name => field_name.as_str(),
+                callback_ty => callback_ty,
+            },
+        ));
     }
-    out.push_str("}\n");
+    out.push_str(&crate::template_env::render(
+        "rust_mirror_struct_close.jinja",
+        minijinja::context! {},
+    ));
     out.push('\n');
 
     // --- 2. impl Plugin for Struct (super-trait) ---
@@ -77,7 +91,13 @@ pub(crate) fn emit_trait_bridge(
             .map(|t| t.rust_path.replace('-', "_"))
             .unwrap_or_else(|| format!("{source_crate_name}::plugins::Plugin"));
 
-        out.push_str(&format!("impl {plugin_path} for {struct_name} {{\n"));
+        out.push_str(&crate::template_env::render(
+            "rust_plugin_impl_open.jinja",
+            minijinja::context! {
+                plugin_path => plugin_path.as_str(),
+                struct_name => struct_name.as_str(),
+            },
+        ));
         out.push_str("    fn name(&self) -> &str {\n");
         out.push_str("        &self.plugin_name\n");
         out.push_str("    }\n");
@@ -86,14 +106,20 @@ pub(crate) fn emit_trait_bridge(
         out.push_str("        self.plugin_version.clone()\n");
         out.push_str("    }\n");
         out.push('\n');
-        out.push_str(&format!(
-            "    fn initialize(&self) -> {source_crate_name}::Result<()> {{\n"
+        out.push_str(&crate::template_env::render(
+            "rust_plugin_initialize.jinja",
+            minijinja::context! {
+                source_crate => source_crate_name,
+            },
         ));
         out.push_str("        Ok(())\n");
         out.push_str("    }\n");
         out.push('\n');
-        out.push_str(&format!(
-            "    fn shutdown(&self) -> {source_crate_name}::Result<()> {{\n"
+        out.push_str(&crate::template_env::render(
+            "rust_plugin_shutdown.jinja",
+            minijinja::context! {
+                source_crate => source_crate_name,
+            },
         ));
         out.push_str("        Ok(())\n");
         out.push_str("    }\n");
@@ -107,7 +133,13 @@ pub(crate) fn emit_trait_bridge(
     if has_async {
         out.push_str("#[async_trait::async_trait]\n");
     }
-    out.push_str(&format!("impl {trait_path} for {struct_name} {{\n"));
+    out.push_str(&crate::template_env::render(
+        "rust_trait_impl_open.jinja",
+        minijinja::context! {
+            trait_path => trait_path.as_str(),
+            struct_name => struct_name.as_str(),
+        },
+    ));
     for method in &own_methods {
         emit_trait_bridge_method(out, method, source_crate_name, type_paths);
         out.push('\n');
@@ -116,12 +148,21 @@ pub(crate) fn emit_trait_bridge(
     out.push('\n');
 
     // --- 4. Factory function ---
-    out.push_str(&format!("/// Create a `{struct_name}` from Dart callback closures.\n"));
-    out.push_str("/// Each method parameter is a `DartFnFuture`-returning closure.\n");
+    out.push_str(&crate::template_env::render(
+        "rust_trait_factory_doc.jinja",
+        minijinja::context! {
+            struct_name => struct_name.as_str(),
+        },
+    ));
     if has_plugin_super {
         out.push_str("/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n");
     }
-    out.push_str(&format!("pub fn create_{trait_snake}_dart_impl(\n"));
+    out.push_str(&crate::template_env::render(
+        "rust_trait_factory_fn.jinja",
+        minijinja::context! {
+            trait_snake => trait_snake.as_str(),
+        },
+    ));
     if has_plugin_super {
         out.push_str("    plugin_name: String,\n");
         out.push_str("    plugin_version: String,\n");
@@ -129,16 +170,37 @@ pub(crate) fn emit_trait_bridge(
     for method in &own_methods {
         let param_name = &method.name;
         let callback_ty = dart_fn_future_callback_type(method, source_crate_name, type_paths);
-        out.push_str(&format!("    {param_name}: {callback_ty},\n"));
+        out.push_str(&crate::template_env::render(
+            "rust_trait_factory_param.jinja",
+            minijinja::context! {
+                param_name => param_name.as_str(),
+                callback_ty => callback_ty,
+            },
+        ));
     }
-    out.push_str(&format!(") -> {struct_name} {{\n"));
-    out.push_str(&format!("    {struct_name} {{\n"));
+    out.push_str(&crate::template_env::render(
+        "rust_trait_factory_return.jinja",
+        minijinja::context! {
+            struct_name => struct_name.as_str(),
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "rust_trait_factory_struct_init.jinja",
+        minijinja::context! {
+            struct_name => struct_name.as_str(),
+        },
+    ));
     if has_plugin_super {
         out.push_str("        plugin_name,\n");
         out.push_str("        plugin_version,\n");
     }
     for method in &own_methods {
-        out.push_str(&format!("        {},\n", method.name));
+        out.push_str(&crate::template_env::render(
+            "rust_trait_factory_method_init.jinja",
+            minijinja::context! {
+                param_name => method.name.as_str(),
+            },
+        ));
     }
     out.push_str("    }\n");
     out.push_str("}\n");
@@ -212,19 +274,27 @@ fn emit_trait_bridge_method(
     };
 
     let async_kw = if method.is_async { "async " } else { "" };
-    let sig_line = format!(
-        "    {async_kw}fn {method_name}({}) -> {return_sig} {{",
-        params_sig.join(", ")
-    );
-    out.push_str(&sig_line);
-    out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "rust_method_signature.jinja",
+        minijinja::context! {
+            async_kw => async_kw,
+            method_name => method_name.as_str(),
+            params => params_sig.join(", "),
+            return_sig => return_sig.as_str(),
+        },
+    ));
 
     // Emit owned-conversion let-bindings for each parameter before calling the closure.
     // References become owned; primitives may be widened; mut refs are copied for the callback.
     for p in &method.params {
         let conv = trait_impl_param_conversion(p);
         if !conv.is_empty() {
-            out.push_str(&format!("        {conv}\n"));
+            out.push_str(&crate::template_env::render(
+                "rust_trait_method_param_conversion.jinja",
+                minijinja::context! {
+                    conversion => conv,
+                },
+            ));
         }
     }
 
@@ -239,32 +309,77 @@ fn emit_trait_bridge_method(
         // DartFnFuture never fails: wrap the awaited value in Ok(...).
         if method.is_async {
             if ret_conv.is_empty() {
-                out.push_str(&format!("        Ok({call_expr}.await)\n"));
+                out.push_str(&crate::template_env::render(
+                    "rust_trait_method_ok_await.jinja",
+                    minijinja::context! {
+                        call_expr => call_expr.as_str(),
+                    },
+                ));
             } else {
-                out.push_str(&format!("        Ok({call_expr}.await{ret_conv})\n"));
+                out.push_str(&crate::template_env::render(
+                    "rust_trait_method_await_result.jinja",
+                    minijinja::context! {
+                        call_expr => call_expr.as_str(),
+                        ret_conv => ret_conv.as_str(),
+                    },
+                ));
             }
         } else {
             out.push_str("        let __result = tokio::runtime::Handle::current()\n");
-            out.push_str(&format!("            .block_on(async {{ {call_expr}.await }});\n"));
+            out.push_str(&crate::template_env::render(
+                "rust_trait_method_block_on.jinja",
+                minijinja::context! {
+                    call_expr => call_expr.as_str(),
+                },
+            ));
             if ret_conv.is_empty() {
-                out.push_str("        Ok(__result)\n");
+                out.push_str(&crate::template_env::render(
+                    "rust_trait_method_plain_result.jinja",
+                    minijinja::context! {},
+                ));
             } else {
-                out.push_str(&format!("        Ok(__result{ret_conv})\n"));
+                out.push_str(&crate::template_env::render(
+                    "rust_trait_method_ok_block_on.jinja",
+                    minijinja::context! {
+                        ret_conv => ret_conv.as_str(),
+                    },
+                ));
             }
         }
     } else if method.is_async {
         if ret_conv.is_empty() {
-            out.push_str(&format!("        {call_expr}.await\n"));
+            out.push_str(&crate::template_env::render(
+                "rust_trait_method_await_plain.jinja",
+                minijinja::context! {
+                    call_expr => call_expr.as_str(),
+                },
+            ));
         } else {
-            out.push_str(&format!("        ({call_expr}.await){ret_conv}\n"));
+            out.push_str(&crate::template_env::render(
+                "rust_trait_method_await_result.jinja",
+                minijinja::context! {
+                    call_expr => call_expr.as_str(),
+                    ret_conv => ret_conv.as_str(),
+                },
+            ));
         }
     } else {
         out.push_str("        let __result = tokio::runtime::Handle::current()\n");
-        out.push_str(&format!("            .block_on(async {{ {call_expr}.await }});\n"));
+        out.push_str(&crate::template_env::render(
+            "rust_trait_method_block_on.jinja",
+            minijinja::context! {
+                call_expr => call_expr.as_str(),
+            },
+        ));
         if ret_conv.is_empty() {
             out.push_str("        __result\n");
         } else {
-            out.push_str(&format!("        __result{ret_conv}\n"));
+            out.push_str(&crate::template_env::render(
+                "rust_trait_method_ok_block_on.jinja",
+                minijinja::context! {
+                    ret_conv => ret_conv.as_str(),
+                },
+            ));
         }
     }
     out.push_str("    }\n");

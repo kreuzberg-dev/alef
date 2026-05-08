@@ -62,20 +62,13 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
         _ => "ctx: any",
     };
 
-    let _ = writeln!(out, "    {camel_method}({params}): string | {{ custom: string }} {{");
-    match action {
-        CallbackAction::Skip => {
-            let _ = writeln!(out, "        return \"skip\";");
-        }
-        CallbackAction::Continue => {
-            let _ = writeln!(out, "        return \"continue\";");
-        }
-        CallbackAction::PreserveHtml => {
-            let _ = writeln!(out, "        return \"preserve_html\";");
-        }
+    let (action_type, action_value, action_template) = match action {
+        CallbackAction::Skip => ("skip", String::new(), String::new()),
+        CallbackAction::Continue => ("continue", String::new(), String::new()),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new(), String::new()),
         CallbackAction::Custom { output } => {
             let escaped = escape_js(output);
-            let _ = writeln!(out, "        return {{ custom: \"{escaped}\" }};");
+            ("custom", escaped, String::new())
         }
         CallbackAction::CustomTemplate { template } => {
             // Convert {placeholder} to ${placeholder} for JavaScript template literals
@@ -87,10 +80,21 @@ pub(super) fn emit_typescript_visitor_method(out: &mut String, method_name: &str
                     _ => processed.push(ch),
                 }
             }
-            let _ = writeln!(out, "        return {{ custom: `{processed}` }};");
+            ("custom_template", String::new(), processed)
         }
-    }
-    let _ = writeln!(out, "    }},");
+    };
+
+    let rendered = crate::template_env::render(
+        "typescript/visitor_method.jinja",
+        minijinja::context! {
+            camel_method => camel_method,
+            params => params,
+            action_type => action_type,
+            action_value => action_value,
+            action_template => action_template,
+        },
+    );
+    let _ = writeln!(out, "{rendered}");
 }
 
 #[cfg(test)]

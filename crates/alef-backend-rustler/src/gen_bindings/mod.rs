@@ -2,6 +2,7 @@ mod functions;
 mod helpers;
 mod types;
 
+use crate::template_env;
 use crate::type_map::RustlerMapper;
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
@@ -581,8 +582,13 @@ impl Backend for RustlerBackend {
 
         // ── 4. Main wrapper module ────────────────────────────────────────────
         let mut content = alef_core::hash::header(alef_core::hash::CommentStyle::Hash);
-        content.push_str(&format!("defmodule {app_module} do\n"));
-        content.push_str(&format!("  @moduledoc \"High-level API for {app_name}.\"\n\n"));
+        content.push_str(&template_env::render(
+            "elixir_module_header.jinja",
+            minijinja::context! {
+                app_module => &app_module,
+                moduledoc => &format!("High-level API for {app_name}"),
+            },
+        ));
 
         // Wrapper functions for top-level API functions
         for func in api
@@ -682,7 +688,12 @@ impl Backend for RustlerBackend {
                 let arity_params = &all_params[..*arity];
                 let arity_types = &param_types[..*arity];
 
-                content.push_str(&format!("  @doc \"{doc_line}\"\n"));
+                content.push_str(&template_env::render(
+                    "elixir_doc_line.jinja",
+                    minijinja::context! {
+                        doc_line => doc_line,
+                    },
+                ));
                 let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
                 if spec_inline.len() > 98 {
                     let spec_broken = format!(
@@ -693,16 +704,14 @@ impl Backend for RustlerBackend {
                         content.push_str(&spec_broken);
                         content.push('\n');
                     } else {
-                        content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                        let len = arity_types.len();
-                        for (i, t) in arity_types.iter().enumerate() {
-                            if i + 1 < len {
-                                content.push_str(&format!("          {t},\n"));
-                            } else {
-                                content.push_str(&format!("          {t}\n"));
-                            }
-                        }
-                        content.push_str(&format!("        ) :: {return_spec}\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_spec_multiline.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                param_types => &arity_types,
+                                return_spec => &return_spec,
+                            },
+                        ));
                     }
                 } else {
                     content.push_str(&spec_inline);
@@ -722,12 +731,20 @@ impl Backend for RustlerBackend {
                     if *arity > opts_idx {
                         let opts_param = &all_params[opts_idx];
                         // Single clause handles both visitor and no-visitor by inspecting the map.
-                        content.push_str(&format!(
-                            "  def {nif_fn_name}({p}) when is_map({opts_param}) do\n",
-                            p = arity_params.join(", ")
+                        content.push_str(&template_env::render(
+                            "elixir_def_with_guard.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                params => &arity_params.join(", "),
+                                guard_param => opts_param,
+                            },
                         ));
-                        content.push_str(&format!(
-                            "    {{visitor, clean_opts}} = Map.pop({opts_param}, :{field_name})\n"
+                        content.push_str(&template_env::render(
+                            "elixir_map_pop_unpack.jinja",
+                            minijinja::context! {
+                                opts_param => opts_param,
+                                field_name => field_name,
+                            },
                         ));
                         content.push_str("    if is_map(visitor) do\n");
                         // Build NIF args: replace opts param with JSON-encoded clean opts, append visitor.
@@ -744,10 +761,20 @@ impl Backend for RustlerBackend {
                             })
                             .collect();
                         let with_visitor_args_str = with_visitor_args.join(", ");
-                        content.push_str(&format!(
-                            "      {{:ok, _}} = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args_str}, visitor)\n"
+                        content.push_str(&template_env::render(
+                            "elixir_visitor_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &with_visitor_args_str,
+                            },
                         ));
-                        content.push_str("      do_visitor_receive_loop(visitor)\n");
+                        content.push_str(&template_env::render(
+                            "elixir_visitor_receive.jinja",
+                            minijinja::context! {
+                                visitor_param => "visitor",
+                            },
+                        ));
                         content.push_str("    else\n");
                         // No visitor: call regular NIF with options as JSON.
                         let plain_args: Vec<String> = nif_call_args
@@ -764,7 +791,14 @@ impl Backend for RustlerBackend {
                             })
                             .collect();
                         let plain_args_str = plain_args.join(", ");
-                        content.push_str(&format!("      {native_mod}.{nif_fn_name}({plain_args_str})\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_def_nif_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &plain_args_str,
+                            },
+                        ));
                         content.push_str("    end\n");
                         content.push_str("  end\n\n");
 
@@ -779,10 +813,20 @@ impl Backend for RustlerBackend {
                             .enumerate()
                             .map(|(i, a)| if i == opts_idx { "nil".to_string() } else { a.clone() })
                             .collect();
-                        content.push_str(&format!("  def {nif_fn_name}({}) do\n", nil_clause_params.join(", ")));
-                        content.push_str(&format!(
-                            "    {native_mod}.{nif_fn_name}({})\n",
-                            nil_nif_args.join(", ")
+                        content.push_str(&template_env::render(
+                            "elixir_def_simple.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                params => &nil_clause_params.join(", "),
+                            },
+                        ));
+                        content.push_str(&template_env::render(
+                            "elixir_def_nif_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &nil_nif_args.join(", "),
+                            },
                         ));
                         content.push_str("  end\n\n");
                         continue;
@@ -797,18 +841,37 @@ impl Backend for RustlerBackend {
                         // Full-arity def: visitor param is present in signature.
                         let vis_param = &all_params[vis_idx];
                         // Emit a two-clause definition: visitor map → receive loop, nil → direct.
-                        content.push_str(&format!(
-                            "  def {nif_fn_name}({}) when is_map({vis_param}) do\n",
-                            arity_params.join(", ")
+                        content.push_str(&template_env::render(
+                            "elixir_def_with_guard.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                params => &arity_params.join(", "),
+                                guard_param => vis_param,
+                            },
                         ));
                         let with_visitor_args = nif_call_args.join(", ");
-                        content.push_str(&format!(
-                            "    {{:ok, _}} = {native_mod}.{nif_fn_name}_with_visitor({with_visitor_args})\n"
+                        content.push_str(&template_env::render(
+                            "elixir_visitor_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &with_visitor_args,
+                            },
                         ));
-                        content.push_str(&format!("    do_visitor_receive_loop({vis_param})\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_visitor_receive.jinja",
+                            minijinja::context! {
+                                visitor_param => vis_param,
+                            },
+                        ));
                         content.push_str("  end\n\n");
                         // Nil/no-visitor clause
-                        content.push_str(&format!("  @doc \"{doc_line}\"\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_doc_line.jinja",
+                            minijinja::context! {
+                                doc_line => &doc_line,
+                            },
+                        ));
                         let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
                         if spec_inline.len() > 98 {
                             let spec_broken = format!(
@@ -818,25 +881,33 @@ impl Backend for RustlerBackend {
                             if spec_broken.lines().all(|l| l.len() <= 98) {
                                 content.push_str(&spec_broken);
                             } else {
-                                content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                                let len = arity_types.len();
-                                for (i, t) in arity_types.iter().enumerate() {
-                                    if i + 1 < len {
-                                        content.push_str(&format!("          {t},\n"));
-                                    } else {
-                                        content.push_str(&format!("          {t}\n"));
-                                    }
-                                }
-                                content.push_str(&format!("        ) :: {return_spec}"));
+                                content.push_str(&template_env::render(
+                                    "elixir_spec_multiline.jinja",
+                                    minijinja::context! {
+                                        func_name => &nif_fn_name,
+                                        param_types => &arity_types,
+                                        return_spec => &return_spec,
+                                    },
+                                ));
                             }
                         } else {
                             content.push_str(&spec_inline);
                         }
                         content.push('\n');
-                        content.push_str(&format!("  def {nif_fn_name}({}) do\n", arity_params.join(", ")));
-                        content.push_str(&format!(
-                            "    {native_mod}.{nif_fn_name}({})\n",
-                            nif_call_args.join(", ")
+                        content.push_str(&template_env::render(
+                            "elixir_def_simple.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                params => &arity_params.join(", "),
+                            },
+                        ));
+                        content.push_str(&template_env::render(
+                            "elixir_def_nif_call.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &nif_call_args.join(", "),
+                            },
                         ));
                         content.push_str("  end\n\n");
                         continue;
@@ -844,17 +915,32 @@ impl Backend for RustlerBackend {
                 }
 
                 if arity_params.is_empty() {
-                    content.push_str(&format!("  def {nif_fn_name} do\n"));
-                    content.push_str(&format!(
-                        "    {native_mod}.{nif_fn_name}({})\n",
-                        nif_call_args.join(", ")
+                    content.push_str("  def ");
+                    content.push_str(&nif_fn_name);
+                    content.push_str(" do\n");
+                    content.push_str(&template_env::render(
+                        "elixir_def_nif_call.jinja",
+                        minijinja::context! {
+                            native_mod => &native_mod,
+                            func_name => &nif_fn_name,
+                            args => &nif_call_args.join(", "),
+                        },
                     ));
                 } else {
-                    content.push_str(&format!("  def {nif_fn_name}({})", arity_params.join(", ")));
-                    content.push_str(" do\n");
-                    content.push_str(&format!(
-                        "    {native_mod}.{nif_fn_name}({})\n",
-                        nif_call_args.join(", ")
+                    content.push_str(&template_env::render(
+                        "elixir_def_simple.jinja",
+                        minijinja::context! {
+                            func_name => &nif_fn_name,
+                            params => &arity_params.join(", "),
+                        },
+                    ));
+                    content.push_str(&template_env::render(
+                        "elixir_def_nif_call.jinja",
+                        minijinja::context! {
+                            native_mod => &native_mod,
+                            func_name => &nif_fn_name,
+                            args => &nif_call_args.join(", "),
+                        },
                     ));
                 }
                 content.push_str("  end\n\n");
@@ -889,46 +975,11 @@ impl Backend for RustlerBackend {
         });
 
         if has_visitor_bridges {
-            content.push_str(&format!(
-                r#"  @doc false
-  defp do_visitor_receive_loop(visitor) do
-    receive do
-      {{:visitor_callback, ref_id, callback_name, args_json}} ->
-        result =
-          case Map.get(visitor, callback_name) do
-            nil -> "continue"
-            fun -> apply_visitor_callback(fun, args_json)
-          end
-
-        {native_mod}.visitor_reply(ref_id, result)
-        do_visitor_receive_loop(visitor)
-
-      {{:ok, result}} ->
-        {{:ok, result}}
-
-      {{:error, reason}} ->
-        {{:error, reason}}
-    after
-      30_000 ->
-        {{:error, "visitor callback timeout after 30s"}}
-    end
-  end
-
-  @doc false
-  defp apply_visitor_callback(fun, args_json) do
-    args = Jason.decode!(args_json)
-    result = fun.(args)
-    case result do
-      :continue -> "continue"
-      :skip -> "skip"
-      :preserve_html -> "preserve_html"
-      {{:custom, value}} -> to_string(value)
-      binary when is_binary(binary) -> binary
-      _ -> "continue"
-    end
-  end
-
-"#
+            content.push_str(&template_env::render(
+                "elixir_visitor_helper_functions.jinja",
+                minijinja::context! {
+                    native_mod => &native_mod,
+                },
             ));
         }
 
@@ -947,7 +998,12 @@ impl Backend for RustlerBackend {
 
                 let doc_line_raw = method.doc.lines().next().unwrap_or("Method");
                 let doc_line_escaped = doc_line_raw.replace('"', "\\\"");
-                content.push_str(&format!("  @doc \"{doc_line_escaped}\"\n"));
+                content.push_str(&template_env::render(
+                    "elixir_doc_line.jinja",
+                    minijinja::context! {
+                        doc_line => &doc_line_escaped,
+                    },
+                ));
 
                 // Params: receiver (if any) + method params
                 let mut param_names: Vec<String> = Vec::new();
@@ -990,16 +1046,14 @@ impl Backend for RustlerBackend {
                         content.push_str(&spec_broken);
                         content.push('\n');
                     } else {
-                        content.push_str(&format!("  @spec {nif_fn_name}(\n"));
-                        let len = type_specs.len();
-                        for (i, t) in type_specs.iter().enumerate() {
-                            if i + 1 < len {
-                                content.push_str(&format!("          {t},\n"));
-                            } else {
-                                content.push_str(&format!("          {t}\n"));
-                            }
-                        }
-                        content.push_str(&format!("        ) :: {return_spec}\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_spec_multiline.jinja",
+                            minijinja::context! {
+                                func_name => &nif_fn_name,
+                                param_types => &type_specs,
+                                return_spec => &return_spec,
+                            },
+                        ));
                     }
                 } else {
                     content.push_str(&spec_inline);
@@ -1007,12 +1061,33 @@ impl Backend for RustlerBackend {
                 }
 
                 if param_names.is_empty() {
-                    content.push_str(&format!("  def {nif_fn_name} do\n"));
-                    content.push_str(&format!("    {native_mod}.{nif_fn_name}()\n"));
-                } else {
-                    content.push_str(&format!("  def {nif_fn_name}({})", param_names.join(", ")));
+                    content.push_str("  def ");
+                    content.push_str(&nif_fn_name);
                     content.push_str(" do\n");
-                    content.push_str(&format!("    {native_mod}.{nif_fn_name}({})\n", param_names.join(", ")));
+                    content.push_str(&template_env::render(
+                        "elixir_def_nif_call.jinja",
+                        minijinja::context! {
+                            native_mod => &native_mod,
+                            func_name => &nif_fn_name,
+                            args => "",
+                        },
+                    ));
+                } else {
+                    content.push_str(&template_env::render(
+                        "elixir_def_simple.jinja",
+                        minijinja::context! {
+                            func_name => &nif_fn_name,
+                            params => &param_names.join(", "),
+                        },
+                    ));
+                    content.push_str(&template_env::render(
+                        "elixir_def_nif_call.jinja",
+                        minijinja::context! {
+                            native_mod => &native_mod,
+                            func_name => &nif_fn_name,
+                            args => &param_names.join(", "),
+                        },
+                    ));
                 }
                 content.push_str("  end\n\n");
             }

@@ -11,14 +11,31 @@ pub(crate) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<&
     emit_cleaned_gleam_doc(out, &ty.doc, "");
     if ty.fields.is_empty() {
         // Opaque or unit-like — emit a phantom external type
-        out.push_str(&format!("pub type {} {{\n  {}\n}}\n", ty.name, ty.name));
+        out.push_str(&crate::template_env::render(
+            "type_opaque.jinja",
+            minijinja::context! {
+                name => &ty.name,
+            },
+        ));
         return;
     }
-    out.push_str(&format!("pub type {} {{\n  {}(\n", ty.name, ty.name));
+    out.push_str(&crate::template_env::render(
+        "type_header.jinja",
+        minijinja::context! {
+            name => &ty.name,
+        },
+    ));
     for (idx, field) in ty.fields.iter().enumerate() {
         let ty_str = gleam_type(&field.ty, field.optional, imports);
         let comma = if idx + 1 == ty.fields.len() { "" } else { "," };
-        out.push_str(&format!("    {}: {}{}\n", field.name, ty_str, comma));
+        out.push_str(&crate::template_env::render(
+            "field_labeled.jinja",
+            minijinja::context! {
+                name => &field.name,
+                ty => &ty_str,
+                comma => comma,
+            },
+        ));
     }
     out.push_str("  )\n}\n");
 }
@@ -36,9 +53,22 @@ pub(crate) fn emit_variant_fields(fields: &[FieldDef], out: &mut String, imports
         let comma = if idx + 1 == fields.len() { "" } else { "," };
         if is_positional_field(&field.name) || field.name.is_empty() {
             // Tuple/positional field: emit as unlabeled argument (e.g. `String`)
-            out.push_str(&format!("    {ty_str}{comma}\n"));
+            out.push_str(&crate::template_env::render(
+                "field_positional.jinja",
+                minijinja::context! {
+                    ty => &ty_str,
+                    comma => comma,
+                },
+            ));
         } else {
-            out.push_str(&format!("    {}: {ty_str}{comma}\n", field.name));
+            out.push_str(&crate::template_env::render(
+                "field_labeled.jinja",
+                minijinja::context! {
+                    name => &field.name,
+                    ty => &ty_str,
+                    comma => comma,
+                },
+            ));
         }
     }
 }
@@ -50,13 +80,28 @@ pub(crate) fn emit_enum(
     imports: &mut BTreeSet<&'static str>,
 ) {
     emit_cleaned_gleam_doc(out, &en.doc, "");
-    out.push_str(&format!("pub type {} {{\n", en.name));
+    out.push_str(&crate::template_env::render(
+        "enum_header.jinja",
+        minijinja::context! {
+            name => &en.name,
+        },
+    ));
     for variant in &en.variants {
         let ctor = variant_constructor_name(&en.name, &variant.name, collisions);
         if variant.fields.is_empty() {
-            out.push_str(&format!("  {ctor}\n"));
+            out.push_str(&crate::template_env::render(
+                "variant_simple.jinja",
+                minijinja::context! {
+                    ctor => &ctor,
+                },
+            ));
         } else {
-            out.push_str(&format!("  {ctor}(\n"));
+            out.push_str(&crate::template_env::render(
+                "variant_with_fields.jinja",
+                minijinja::context! {
+                    ctor => &ctor,
+                },
+            ));
             emit_variant_fields(&variant.fields, out, imports);
             out.push_str("  )\n");
         }
@@ -71,13 +116,28 @@ pub(crate) fn emit_error_type(
     imports: &mut BTreeSet<&'static str>,
 ) {
     emit_cleaned_gleam_doc(out, &err.doc, "");
-    out.push_str(&format!("pub type {} {{\n", err.name));
+    out.push_str(&crate::template_env::render(
+        "error_header.jinja",
+        minijinja::context! {
+            name => &err.name,
+        },
+    ));
     for variant in &err.variants {
         let ctor = variant_constructor_name(&err.name, &variant.name, collisions);
         if variant.fields.is_empty() {
-            out.push_str(&format!("  {ctor}\n"));
+            out.push_str(&crate::template_env::render(
+                "variant_simple.jinja",
+                minijinja::context! {
+                    ctor => &ctor,
+                },
+            ));
         } else {
-            out.push_str(&format!("  {ctor}(\n"));
+            out.push_str(&crate::template_env::render(
+                "variant_with_fields.jinja",
+                minijinja::context! {
+                    ctor => &ctor,
+                },
+            ));
             emit_variant_fields(&variant.fields, out, imports);
             out.push_str("  )\n");
         }
@@ -94,12 +154,14 @@ pub(crate) fn emit_function(
 ) {
     emit_cleaned_gleam_doc(out, &f.doc, "");
     use heck::ToSnakeCase;
-    out.push_str(&format!("@external(erlang, \"{nif_module}\", \"{}\")\n", f.name));
-    out.push_str(&format!("pub fn {}(", f.name.to_snake_case()));
-    let params: Vec<String> = f.params.iter().map(|p| format_param(p, imports)).collect();
-    out.push_str(&params.join(", "));
-    out.push(')');
-
+    out.push_str(&crate::template_env::render(
+        "function_external.jinja",
+        minijinja::context! {
+            nif_module => nif_module,
+            name => &f.name,
+        },
+    ));
+    let snake_name = f.name.to_snake_case();
     let return_ty = gleam_type(&f.return_type, false, imports);
     let return_str = if let Some(err_ty) = &f.error_type {
         let resolved = resolve_gleam_error_type(err_ty, declared_errors);
@@ -107,7 +169,19 @@ pub(crate) fn emit_function(
     } else {
         return_ty
     };
-    out.push_str(&format!(" -> {return_str}\n"));
+    out.push_str(&crate::template_env::render(
+        "function_signature.jinja",
+        minijinja::context! {
+            name => &snake_name,
+            params => &params_string(f, imports),
+            return_type => &return_str,
+        },
+    ));
+}
+
+fn params_string(f: &FunctionDef, imports: &mut BTreeSet<&'static str>) -> String {
+    let params: Vec<String> = f.params.iter().map(|p| format_param(p, imports)).collect();
+    params.join(", ")
 }
 
 /// Map a Rust error type string (e.g. `"anyhow::Error"`, `"KreuzbergError"`)

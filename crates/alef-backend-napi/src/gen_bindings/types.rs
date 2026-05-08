@@ -115,8 +115,11 @@ pub(super) fn gen_struct(
     if has_bytes_field {
         let struct_name = format!("{prefix}{}", typ.name);
         out.push('\n');
-        out.push_str(&format!(
-            "\nimpl Clone for {struct_name} {{\n    fn clone(&self) -> Self {{\n        Self {{\n"
+        out.push_str(&crate::template_env::render(
+            "clone_impl_header.jinja",
+            minijinja::context! {
+                struct_name => struct_name,
+            },
         ));
         for field in &typ.fields {
             let is_bytes_field = matches!(&field.ty, TypeRef::Bytes);
@@ -144,7 +147,13 @@ pub(super) fn gen_struct(
             } else {
                 format!("self.{}.clone()", field.name)
             };
-            out.push_str(&format!("            {}: {},\n", field.name, expr));
+            out.push_str(&crate::template_env::render(
+                "clone_impl_field.jinja",
+                minijinja::context! {
+                    field_name => &field.name,
+                    expr => expr,
+                },
+            ));
         }
         out.push_str("        }\n    }\n}\n");
     }

@@ -18,7 +18,12 @@ pub(crate) fn emit_extern_block_for_type(
 ) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
-    block.push_str(&format!("        type {};\n", ty.name));
+    block.push_str(&crate::template_env::render(
+        "extern_type_decl.jinja",
+        minijinja::context! {
+            name => &ty.name,
+        },
+    ));
 
     // Constructor — use bridge_type to avoid nested generics that swift-bridge 0.1.59
     // cannot parse (Vec<Vec<T>>, HashMap<K,V>); those become String (JSON).
@@ -67,8 +72,17 @@ pub(crate) fn emit_extern_block_for_type(
                 format!("{name}: {bridge_ty}")
             })
             .collect();
-        block.push_str("        #[swift_bridge(init)]\n");
-        block.push_str(&format!("        fn new({}) -> {};\n", params.join(", "), ty.name));
+        block.push_str(&crate::template_env::render(
+            "extern_init_attr.jinja",
+            minijinja::context! {},
+        ));
+        block.push_str(&crate::template_env::render(
+            "extern_fn_new.jinja",
+            minijinja::context! {
+                params => params.join(", "),
+                return_type => &ty.name,
+            },
+        ));
     }
 
     // Getters — skip declaration entirely for fields whose impl would have to be
@@ -90,7 +104,13 @@ pub(crate) fn emit_extern_block_for_type(
             bridge_ty
         };
         let name = swift_ident(&field.name.to_snake_case());
-        block.push_str(&format!("        fn {name}(&self) -> {bridge_ty};\n"));
+        block.push_str(&crate::template_env::render(
+            "extern_fn_getter.jinja",
+            minijinja::context! {
+                name => &name,
+                return_type => &bridge_ty,
+            },
+        ));
     }
 
     block.push_str("    }\n\n");
@@ -100,7 +120,12 @@ pub(crate) fn emit_extern_block_for_type(
 pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
-    block.push_str(&format!("        type {};\n", en.name));
+    block.push_str(&crate::template_env::render(
+        "extern_enum_type.jinja",
+        minijinja::context! {
+            name => &en.name,
+        },
+    ));
     block.push_str("    }\n\n");
     block
 }
@@ -152,9 +177,21 @@ pub(crate) fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> Stri
         // identifier — which is what the wrapper emits for idiomatic Swift.
         let swift_name = swift_ident(&f.name.to_lower_camel_case());
         if swift_name != fn_name {
-            block.push_str(&format!("        #[swift_bridge(swift_name = \"{swift_name}\")]\n"));
+            block.push_str(&crate::template_env::render(
+                "extern_swift_name_attr.jinja",
+                minijinja::context! {
+                    swift_name => &swift_name,
+                },
+            ));
         }
-        block.push_str(&format!("        fn {fn_name}({params_str}) -> {return_ty};\n"));
+        block.push_str(&crate::template_env::render(
+            "extern_fn_decl.jinja",
+            minijinja::context! {
+                fn_name => &fn_name,
+                params => &params_str,
+                return_type => &return_ty,
+            },
+        ));
     }
 
     block.push_str("    }\n\n");

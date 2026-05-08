@@ -1,0 +1,9 @@
+            if ({{ var }}.equals(MemorySegment.NULL)) {
+                checkLastError();
+{%- if optional %}
+                return Optional.empty();
+{%- else %}
+                return null;
+{%- endif %}
+            }
+

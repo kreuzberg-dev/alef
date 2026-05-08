@@ -22,10 +22,6 @@ use crate::field_access::FieldResolver;
 
 /// Render a complete Python test file for a single fixture category.
 pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfig) -> String {
-    let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Hash));
-    let _ = writeln!(out, "\"\"\"E2e tests for category: {category}.\"\"\"");
-
     let module = resolve_module(e2e_config);
     let function_name = resolve_function_name(e2e_config);
     let options_type = resolve_options_type(e2e_config);
@@ -207,30 +203,20 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     thirdparty_bare.sort();
     thirdparty_from.sort();
 
-    if !stdlib_imports.is_empty() {
-        for imp in &stdlib_imports {
-            let _ = writeln!(out, "{imp}");
-        }
-        let _ = writeln!(out);
-    }
-    for imp in &thirdparty_bare {
-        let _ = writeln!(out, "{imp}");
-    }
-    for imp in &thirdparty_from {
-        let _ = writeln!(out, "{imp}");
-    }
-    let _ = writeln!(out);
-    let _ = writeln!(out);
-    render_item_text_helper(&mut out);
+    // Render helper functions
+    let mut helper_functions = String::new();
+    render_item_text_helper(&mut helper_functions);
 
+    // Render all fixtures
+    let mut fixtures_body = String::new();
     for fixture in fixtures {
         if fixture.is_http_test() {
-            render_http_test_function(&mut out, fixture);
+            render_http_test_function(&mut fixtures_body, fixture);
         } else if !is_skipped(fixture, "python") && fixture.assertions.is_empty() {
-            emit_skipped_placeholder(&mut out, fixture);
+            emit_skipped_placeholder(&mut fixtures_body, fixture);
         } else {
             render_test_function(
-                &mut out,
+                &mut fixtures_body,
                 fixture,
                 e2e_config,
                 effective_options_type.as_deref(),
@@ -241,10 +227,20 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
                 &field_resolver,
             );
         }
-        let _ = writeln!(out);
+        let _ = writeln!(fixtures_body);
     }
 
-    out
+    // Render using template
+    let ctx = minijinja::context! {
+        header => hash::header(CommentStyle::Hash),
+        docstring => format!("E2e tests for category: {category}."),
+        stdlib_imports => stdlib_imports,
+        thirdparty_bare => thirdparty_bare,
+        thirdparty_from => thirdparty_from,
+        helper_functions => helper_functions,
+        fixtures_body => fixtures_body,
+    };
+    crate::template_env::render("python/test_file.jinja", ctx)
 }
 
 fn render_item_text_helper(out: &mut String) {

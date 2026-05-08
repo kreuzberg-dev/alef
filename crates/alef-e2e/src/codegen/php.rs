@@ -257,93 +257,30 @@ fn render_composer_json(
         }
     };
 
-    format!(
-        r#"{{
-  "name": "{e2e_pkg_name}",
-  "description": "E2e tests for PHP bindings",
-  "type": "project",
-{require_section}{autoload_section}
-  "autoload-dev": {{
-    "psr-4": {{
-      "{e2e_autoload_ns}": "tests/"
-    }}
-  }},
-  "scripts": {{
-    "test": "php run_tests.php"
-  }}
-}}
-"#
+    crate::template_env::render(
+        "php/composer.json.jinja",
+        minijinja::context! {
+            e2e_pkg_name => e2e_pkg_name,
+            e2e_autoload_ns => e2e_autoload_ns,
+            require_section => require_section,
+            autoload_section => autoload_section,
+        },
     )
 }
 
 fn render_phpunit_xml() -> String {
-    r#"<?xml version="1.0" encoding="UTF-8"?>
-<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/13.1/phpunit.xsd"
-         bootstrap="bootstrap.php"
-         colors="true"
-         failOnRisky="true"
-         failOnWarning="true">
-    <testsuites>
-        <testsuite name="e2e">
-            <directory>tests</directory>
-        </testsuite>
-    </testsuites>
-</phpunit>
-"#
-    .to_string()
+    crate::template_env::render("php/phpunit.xml.jinja", minijinja::context! {})
 }
 
 fn render_bootstrap(pkg_path: &str, has_http_fixtures: bool) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
-    let mock_server_block = if has_http_fixtures {
-        r#"
-// Spawn the mock HTTP server binary for HTTP fixture tests.
-$mockServerBin = __DIR__ . '/../rust/target/release/mock-server';
-$fixturesDir = __DIR__ . '/../../fixtures';
-if (file_exists($mockServerBin)) {
-    $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR];
-    $proc = proc_open([$mockServerBin, $fixturesDir], $descriptors, $pipes);
-    if (is_resource($proc)) {
-        $line = fgets($pipes[1]);
-        if ($line !== false && str_starts_with($line, 'MOCK_SERVER_URL=')) {
-            putenv(trim($line));
-            $_ENV['MOCK_SERVER_URL'] = trim(substr(trim($line), strlen('MOCK_SERVER_URL=')));
-        }
-        // Drain stdout in background thread is not possible in PHP; keep pipe open.
-        register_shutdown_function(static function () use ($proc, $pipes): void {
-            fclose($pipes[0]);
-            proc_close($proc);
-        });
-    }
-}
-"#
-    } else {
-        ""
-    };
-    format!(
-        r#"<?php
-{header}
-declare(strict_types=1);
-
-// Load the e2e project autoloader (PHPUnit, test helpers).
-require_once __DIR__ . '/vendor/autoload.php';
-
-// Load the PHP binding package classes via its Composer autoloader.
-// The package's autoloader is separate from the e2e project's autoloader
-// since the php-ext type prevents direct composer path dependency.
-$pkgAutoloader = __DIR__ . '/{pkg_path}/vendor/autoload.php';
-if (file_exists($pkgAutoloader)) {{
-    require_once $pkgAutoloader;
-}}
-
-// Change to the test_documents directory so that fixture file paths like
-// "pdf/fake_memo.pdf" resolve correctly when running phpunit from e2e/php/.
-$testDocuments = __DIR__ . '/../../test_documents';
-if (is_dir($testDocuments)) {{
-    chdir($testDocuments);
-}}{mock_server_block}
-"#
+    crate::template_env::render(
+        "php/bootstrap.php.jinja",
+        minijinja::context! {
+            header => header,
+            pkg_path => pkg_path,
+            has_http_fixtures => has_http_fixtures,
+        },
     )
 }
 
@@ -415,14 +352,7 @@ fn render_test_file(
     php_client_factory: Option<&str>,
     options_via: &str,
 ) -> String {
-    let mut out = String::new();
-    let _ = writeln!(out, "<?php");
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    let _ = writeln!(out);
-    let _ = writeln!(out, "declare(strict_types=1);");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "namespace {namespace}\\E2e;");
-    let _ = writeln!(out);
+    let header = hash::header(CommentStyle::DoubleSlash);
 
     // Determine if any handle arg has a non-null config (needs CrawlConfig import).
     let needs_crawl_config_import = fixtures.iter().any(|f| {
@@ -437,8 +367,6 @@ fn render_test_file(
     let has_http_tests = fixtures.iter().any(|f| f.is_http_test());
 
     // Collect options_type class names that need `use` imports (one import per unique name).
-    // Also pulls in `element_type` declarations from any call's args (e.g. `BatchBytesItem`,
-    // `BatchFileItem` for batch fns) so the test file can reference them by short name.
     let mut options_type_imports: Vec<String> = fixtures
         .iter()
         .flat_map(|f| {
@@ -464,49 +392,25 @@ fn render_test_file(
         .collect();
     options_type_imports.sort();
 
-    let _ = writeln!(out, "use PHPUnit\\Framework\\TestCase;");
-    let _ = writeln!(out, "use {namespace}\\{class_name};");
+    // Build imports_use list
+    let mut imports_use: Vec<String> = Vec::new();
     if needs_crawl_config_import {
-        let _ = writeln!(out, "use {namespace}\\CrawlConfig;");
+        imports_use.push(format!("use {namespace}\\CrawlConfig;"));
     }
     for type_name in &options_type_imports {
         if type_name != class_name {
-            let _ = writeln!(out, "use {namespace}\\{type_name};");
+            imports_use.push(format!("use {namespace}\\{type_name};"));
         }
     }
-    if has_http_tests {
-        let _ = writeln!(out, "use GuzzleHttp\\Client;");
-    }
-    let _ = writeln!(out);
-    let _ = writeln!(out, "/** E2e tests for category: {category}. */");
-    let _ = writeln!(out, "final class {test_class} extends TestCase");
-    let _ = writeln!(out, "{{");
 
-    // Emit a shared HTTP client property when there are HTTP tests.
-    if has_http_tests {
-        let _ = writeln!(out, "    private Client $httpClient;");
-        let _ = writeln!(out);
-        let _ = writeln!(out, "    protected function setUp(): void");
-        let _ = writeln!(out, "    {{");
-        let _ = writeln!(out, "        parent::setUp();");
-        let _ = writeln!(
-            out,
-            "        $baseUrl = (string)(getenv('MOCK_SERVER_URL') ?: 'http://localhost:8080');"
-        );
-        let _ = writeln!(
-            out,
-            "        $this->httpClient = new Client(['base_uri' => $baseUrl, 'http_errors' => false, 'decode_content' => false, 'allow_redirects' => false]);"
-        );
-        let _ = writeln!(out, "    }}");
-        let _ = writeln!(out);
-    }
-
+    // Render all test methods
+    let mut fixtures_body = String::new();
     for (i, fixture) in fixtures.iter().enumerate() {
         if fixture.is_http_test() {
-            render_http_test_method(&mut out, fixture, fixture.http.as_ref().unwrap());
+            render_http_test_method(&mut fixtures_body, fixture, fixture.http.as_ref().unwrap());
         } else {
             render_test_method(
-                &mut out,
+                &mut fixtures_body,
                 fixture,
                 e2e_config,
                 lang,
@@ -520,12 +424,23 @@ fn render_test_file(
             );
         }
         if i + 1 < fixtures.len() {
-            let _ = writeln!(out);
+            fixtures_body.push('\n');
         }
     }
 
-    let _ = writeln!(out, "}}");
-    out
+    crate::template_env::render(
+        "php/test_file.jinja",
+        minijinja::context! {
+            header => header,
+            namespace => namespace,
+            class_name => class_name,
+            test_class => test_class,
+            category => category,
+            imports_use => imports_use,
+            has_http_tests => has_http_tests,
+            fixtures_body => fixtures_body,
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -553,18 +468,22 @@ impl client::TestClientRenderer for PhpTestClientRenderer {
     /// shared driver calls `render_test_close` immediately after, so the closing
     /// brace is emitted symmetrically.
     fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
-        let _ = writeln!(out, "    /** {description} */");
-        let _ = writeln!(out, "    public function test_{fn_name}(): void");
-        let _ = writeln!(out, "    {{");
-        if let Some(reason) = skip_reason {
-            let reason_lit = format!("\"{}\"", escape_php(reason));
-            let _ = writeln!(out, "        $this->markTestSkipped({reason_lit});");
-        }
+        let escaped_reason = skip_reason.map(escape_php);
+        let rendered = crate::template_env::render(
+            "php/http_test_open.jinja",
+            minijinja::context! {
+                fn_name => fn_name,
+                description => description,
+                skip_reason => escaped_reason,
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit the closing `}` for a test method.
     fn render_test_close(&self, out: &mut String) {
-        let _ = writeln!(out, "    }}");
+        let rendered = crate::template_env::render("php/http_test_close.jinja", minijinja::context! {});
+        out.push_str(&rendered);
     }
 
     /// Emit a Guzzle request to the mock server's `/fixtures/<fixture_id>` endpoint.
@@ -623,31 +542,33 @@ impl client::TestClientRenderer for PhpTestClientRenderer {
         }
 
         let path_lit = format!("\"{}\"", escape_php(ctx.path));
-        if opts.is_empty() {
-            let _ = writeln!(
-                out,
-                "        ${} = $this->httpClient->request('{method}', {path_lit});",
-                ctx.response_var,
-            );
-        } else {
-            let _ = writeln!(
-                out,
-                "        ${} = $this->httpClient->request('{method}', {path_lit}, [",
-                ctx.response_var,
-            );
-            for opt in &opts {
-                let _ = writeln!(out, "            {opt},");
-            }
-            let _ = writeln!(out, "        ]);");
-        }
+
+        let rendered = crate::template_env::render(
+            "php/http_request.jinja",
+            minijinja::context! {
+                method => method,
+                path => path_lit,
+                opts => opts,
+                response_var => ctx.response_var,
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit `$this->assertEquals(status, $response->getStatusCode())`.
     fn render_assert_status(&self, out: &mut String, _response_var: &str, status: u16) {
-        let _ = writeln!(
-            out,
-            "        $this->assertEquals({status}, $response->getStatusCode());"
+        let rendered = crate::template_env::render(
+            "php/http_assertions.jinja",
+            minijinja::context! {
+                response_var => "",
+                status_code => status,
+                headers => Vec::<std::collections::HashMap<&str, String>>::new(),
+                body_assertion => String::new(),
+                partial_body => Vec::<std::collections::HashMap<&str, String>>::new(),
+                validation_errors => Vec::<std::collections::HashMap<&str, String>>::new(),
+            },
         );
+        out.push_str(&rendered);
     }
 
     /// Emit a header assertion using `$response->getHeaderLine(...)` or
@@ -657,33 +578,39 @@ impl client::TestClientRenderer for PhpTestClientRenderer {
     fn render_assert_header(&self, out: &mut String, _response_var: &str, name: &str, expected: &str) {
         let header_key = name.to_lowercase();
         let header_key_lit = format!("\"{}\"", escape_php(&header_key));
-        match expected {
+        let assertion_code = match expected {
             "<<present>>" => {
-                let _ = writeln!(
-                    out,
-                    "        $this->assertTrue($response->hasHeader({header_key_lit}));"
-                );
+                format!("$this->assertTrue($response->hasHeader({header_key_lit}));")
             }
             "<<absent>>" => {
-                let _ = writeln!(
-                    out,
-                    "        $this->assertFalse($response->hasHeader({header_key_lit}));"
-                );
+                format!("$this->assertFalse($response->hasHeader({header_key_lit}));")
             }
             "<<uuid>>" => {
-                let _ = writeln!(
-                    out,
-                    "        $this->assertMatchesRegularExpression('/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/i', $response->getHeaderLine({header_key_lit}));"
-                );
+                format!(
+                    "$this->assertMatchesRegularExpression('/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/i', $response->getHeaderLine({header_key_lit}));"
+                )
             }
             literal => {
                 let val_lit = format!("\"{}\"", escape_php(literal));
-                let _ = writeln!(
-                    out,
-                    "        $this->assertEquals({val_lit}, $response->getHeaderLine({header_key_lit}));"
-                );
+                format!("$this->assertEquals({val_lit}, $response->getHeaderLine({header_key_lit}));")
             }
-        }
+        };
+
+        let mut headers = vec![std::collections::HashMap::new()];
+        headers[0].insert("assertion_code", assertion_code);
+
+        let rendered = crate::template_env::render(
+            "php/http_assertions.jinja",
+            minijinja::context! {
+                response_var => "",
+                status_code => 0u16,
+                headers => headers,
+                body_assertion => String::new(),
+                partial_body => Vec::<std::collections::HashMap<&str, String>>::new(),
+                validation_errors => Vec::<std::collections::HashMap<&str, String>>::new(),
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit a JSON body equality assertion.
@@ -692,37 +619,58 @@ impl client::TestClientRenderer for PhpTestClientRenderer {
     /// structured bodies (objects, arrays, booleans, numbers) are decoded via `json_decode`
     /// and compared with `assertEquals`.
     fn render_assert_json_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
-        match expected {
+        let body_assertion = match expected {
             serde_json::Value::String(s) if !s.is_empty() => {
                 let php_val = format!("\"{}\"", escape_php(s));
-                let _ = writeln!(
-                    out,
-                    "        $this->assertEquals({php_val}, (string) $response->getBody());"
-                );
+                format!("$this->assertEquals({php_val}, (string) $response->getBody());")
             }
             _ => {
                 let php_val = json_to_php(expected);
-                let _ = writeln!(
-                    out,
-                    "        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);"
-                );
-                let _ = writeln!(out, "        $this->assertEquals({php_val}, $body);");
+                format!(
+                    "$body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);\n        $this->assertEquals({php_val}, $body);"
+                )
             }
-        }
+        };
+
+        let rendered = crate::template_env::render(
+            "php/http_assertions.jinja",
+            minijinja::context! {
+                response_var => "",
+                status_code => 0u16,
+                headers => Vec::<std::collections::HashMap<&str, String>>::new(),
+                body_assertion => body_assertion,
+                partial_body => Vec::<std::collections::HashMap<&str, String>>::new(),
+                validation_errors => Vec::<std::collections::HashMap<&str, String>>::new(),
+            },
+        );
+        out.push_str(&rendered);
     }
 
     /// Emit partial body assertions: one `assertEquals` per field in `expected`.
     fn render_assert_partial_body(&self, out: &mut String, _response_var: &str, expected: &serde_json::Value) {
         if let Some(obj) = expected.as_object() {
-            let _ = writeln!(
-                out,
-                "        $body = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);"
-            );
+            let mut partial_body: Vec<std::collections::HashMap<&str, String>> = Vec::new();
             for (key, val) in obj {
                 let php_key = format!("\"{}\"", escape_php(key));
                 let php_val = json_to_php(val);
-                let _ = writeln!(out, "        $this->assertEquals({php_val}, $body[{php_key}]);");
+                let assertion_code = format!("$this->assertEquals({php_val}, $body[{php_key}]);");
+                let mut entry = std::collections::HashMap::new();
+                entry.insert("assertion_code", assertion_code);
+                partial_body.push(entry);
             }
+
+            let rendered = crate::template_env::render(
+                "php/http_assertions.jinja",
+                minijinja::context! {
+                    response_var => "",
+                    status_code => 0u16,
+                    headers => Vec::<std::collections::HashMap<&str, String>>::new(),
+                    body_assertion => String::new(),
+                    partial_body => partial_body,
+                    validation_errors => Vec::<std::collections::HashMap<&str, String>>::new(),
+                },
+            );
+            out.push_str(&rendered);
         }
     }
 
@@ -734,14 +682,28 @@ impl client::TestClientRenderer for PhpTestClientRenderer {
         _response_var: &str,
         errors: &[ValidationErrorExpectation],
     ) {
-        let _ = writeln!(out, "        $body = json_decode((string) $response->getBody(), true);");
+        let mut validation_errors: Vec<std::collections::HashMap<&str, String>> = Vec::new();
         for err in errors {
             let msg_lit = format!("\"{}\"", escape_php(&err.msg));
-            let _ = writeln!(
-                out,
-                "        $this->assertStringContainsString({msg_lit}, json_encode($body, JSON_UNESCAPED_SLASHES));"
-            );
+            let assertion_code =
+                format!("$this->assertStringContainsString({msg_lit}, json_encode($body, JSON_UNESCAPED_SLASHES));");
+            let mut entry = std::collections::HashMap::new();
+            entry.insert("assertion_code", assertion_code);
+            validation_errors.push(entry);
         }
+
+        let rendered = crate::template_env::render(
+            "php/http_assertions.jinja",
+            minijinja::context! {
+                response_var => "",
+                status_code => 0u16,
+                headers => Vec::<std::collections::HashMap<&str, String>>::new(),
+                body_assertion => String::new(),
+                partial_body => Vec::<std::collections::HashMap<&str, String>>::new(),
+                validation_errors => validation_errors,
+            },
+        );
+        out.push_str(&rendered);
     }
 }
 
@@ -756,14 +718,13 @@ fn render_http_test_method(out: &mut String, fixture: &Fixture, http: &HttpFixtu
     if http.expected_response.status_code == 101 {
         let method_name = sanitize_filename(&fixture.id);
         let description = &fixture.description;
-        let _ = writeln!(out, "    /** {description} */");
-        let _ = writeln!(out, "    public function test_{method_name}(): void");
-        let _ = writeln!(out, "    {{");
-        let _ = writeln!(
-            out,
-            "        $this->markTestSkipped('HTTP 101 WebSocket upgrade cannot be tested via Guzzle HTTP client');"
-        );
-        let _ = writeln!(out, "    }}");
+        out.push_str(&crate::template_env::render(
+            "php/http_test_skip_101.jinja",
+            minijinja::context! {
+                method_name => method_name,
+                description => description,
+            },
+        ));
         return;
     }
 
@@ -796,14 +757,6 @@ fn render_test_method(
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
-    // The internal `KreuzbergApi` class exposes async methods with an `_async` suffix
-    // (`extractBytesAsync`, etc.), but the user-facing `Kreuzberg` facade exposes them
-    // under the bare async-named methods (`extractBytes` is the async one — the sync
-    // version is `extractBytesSync`). The e2e tests target the facade, so don't append
-    // `_async`. (When a language-specific override provides a function name, use it
-    // as-is.)
-    // PHP wrapper classes use lowerCamelCase method names (e.g. getLanguage, downloadAll).
-    // Convert the Rust snake_case name only when no explicit override is provided.
     if !has_override {
         function_name = function_name.to_lower_camel_case();
     }
@@ -833,15 +786,33 @@ fn render_test_method(
         call_options_type,
     );
 
+    // Check for skip_languages early
+    let skip_test = call_config.skip_languages.iter().any(|l| l == "php");
+    if skip_test {
+        let rendered = crate::template_env::render(
+            "php/test_method.jinja",
+            minijinja::context! {
+                method_name => method_name,
+                description => description,
+                client_factory => String::new(),
+                setup_lines => Vec::<String>::new(),
+                expects_error => false,
+                skip_test => true,
+                has_usable_assertions => false,
+                call_expr => String::new(),
+                result_var => result_var,
+                assertions_body => String::new(),
+            },
+        );
+        out.push_str(&rendered);
+        return;
+    }
+
     // Build visitor if present and add to setup
     let mut options_already_created = !args_str.is_empty() && args_str == "$options";
     if let Some(visitor_spec) = &fixture.visitor {
         build_php_visitor(&mut setup_lines, visitor_spec);
         if !options_already_created {
-            // Create options via builder with visitor.
-            // Note: PHP ext-php-rs bridge limitations mean the visitor() method ignores
-            // its parameter and passes None to the inner builder. This is a known limitation
-            // in the PHP backend that needs a proper visitor bridge implementation.
             setup_lines.push("$builder = \\HtmlToMarkdown\\ConversionOptions::builder();".to_string());
             setup_lines.push("$options = $builder->visitor($visitor)->build();".to_string());
             options_already_created = true;
@@ -864,57 +835,14 @@ fn render_test_method(
         format!("{class_name}::{function_name}({final_args})")
     };
 
-    let _ = writeln!(out, "    /** {description} */");
-    let _ = writeln!(out, "    public function test_{method_name}(): void");
-    let _ = writeln!(out, "    {{");
+    let client_factory = if let Some(factory) = php_client_factory {
+        format!("$client = \\{namespace}\\{class_name}::{factory}('test-key');")
+    } else {
+        String::new()
+    };
 
-    // Honor per-call `skip_languages`: when the call's `skip_languages` includes "php",
-    // the binding doesn't expose the function (e.g. ext-php-rs lacks Vec<#[php_class]>
-    // FromZval support, so batch_extract_* are excluded). Emit a `markTestSkipped`
-    // stub so the test still appears in the report but doesn't try to call.
-    if call_config.skip_languages.iter().any(|l| l == "php") {
-        let _ = writeln!(
-            out,
-            "        $this->markTestSkipped('call {} is skipped for php (skip_languages)');",
-            call_config.function
-        );
-        let _ = writeln!(out, "    }}");
-        let _ = writeln!(out);
-        return;
-    }
-
-    if let Some(factory) = php_client_factory {
-        let _ = writeln!(
-            out,
-            "        $client = \\{namespace}\\{class_name}::{factory}('test-key');"
-        );
-    }
-
-    for line in &setup_lines {
-        let _ = writeln!(out, "        {line}");
-    }
-
-    if expects_error {
-        let _ = writeln!(out, "        $this->expectException(\\Exception::class);");
-        let _ = writeln!(out, "        {call_expr};");
-        let _ = writeln!(out, "    }}");
-        return;
-    }
-
-    // Non-HTTP fixture with no assertions: generate a skipped placeholder so
-    // PHPUnit does not try to call a method that may not exist on the binding.
-    if fixture.assertions.is_empty() {
-        let _ = writeln!(
-            out,
-            "        $this->markTestSkipped('no assertions configured for this fixture in php e2e');"
-        );
-        let _ = writeln!(out, "    }}");
-        return;
-    }
-
-    // If no assertion will actually produce a PHPUnit assert call, mark the test
-    // as intentionally assertion-free so PHPUnit does not flag it as risky.
-    let has_usable = fixture.assertions.iter().any(|a| {
+    // Determine if there are usable assertions
+    let has_usable_assertions = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "error" || a.assertion_type == "not_error" {
             return false;
         }
@@ -923,25 +851,36 @@ fn render_test_method(
             _ => true,
         }
     });
-    if !has_usable {
-        let _ = writeln!(out, "        $this->expectNotToPerformAssertions();");
-    }
 
-    let _ = writeln!(out, "        ${result_var} = {call_expr};");
-
-    let result_is_array = call_config.result_is_array;
+    // Render assertions_body
+    let mut assertions_body = String::new();
     for assertion in &fixture.assertions {
         render_assertion(
-            out,
+            &mut assertions_body,
             assertion,
             result_var,
             field_resolver,
             result_is_simple,
-            result_is_array,
+            call_config.result_is_array,
         );
     }
 
-    let _ = writeln!(out, "    }}");
+    let rendered = crate::template_env::render(
+        "php/test_method.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            description => description,
+            client_factory => client_factory,
+            setup_lines => setup_lines,
+            expects_error => expects_error,
+            skip_test => fixture.assertions.is_empty(),
+            has_usable_assertions => has_usable_assertions,
+            call_expr => call_expr,
+            result_var => result_var,
+            assertions_body => assertions_body,
+        },
+    );
+    out.push_str(&rendered);
 }
 
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
@@ -1218,18 +1157,6 @@ fn build_args_and_setup(
                         }
                     }
                 }
-                // For extract_bytes operations, when "data" or "content" field is a string file path,
-                // wrap it in file_get_contents() to read the actual bytes.
-                let field_name = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                if (field_name == "data" || field_name == "content") && v.is_string() {
-                    let file_path = v.as_str().unwrap_or("");
-                    // Check if this looks like a file path (contains / or ends with an extension)
-                    if file_path.contains('/') || file_path.contains('.') {
-                        let escaped_path = escape_php(file_path);
-                        parts.push(format!("file_get_contents(\"{escaped_path}\")"));
-                        continue;
-                    }
-                }
                 parts.push(json_to_php(v));
             }
         }
@@ -1244,7 +1171,7 @@ fn render_assertion(
     result_var: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
-    result_is_array: bool,
+    _result_is_array: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
@@ -1254,99 +1181,60 @@ fn render_assertion(
                 let pred = format!(
                     "array_reduce(${result_var}->chunks ?? [], fn($carry, $c) => $carry && !empty($c->content), true)"
                 );
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        $this->assertTrue({pred});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        $this->assertFalse({pred});");
-                    }
-                    _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
-                    }
-                }
+                out.push_str(&crate::template_env::render(
+                    "php/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "chunks_content",
+                        assertion_type => assertion.assertion_type.as_str(),
+                        pred => pred,
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             "chunks_have_embeddings" => {
                 let pred = format!(
                     "array_reduce(${result_var}->chunks ?? [], fn($carry, $c) => $carry && !empty($c->embedding), true)"
                 );
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        $this->assertTrue({pred});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        $this->assertFalse({pred});");
-                    }
-                    _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
-                    }
-                }
+                out.push_str(&crate::template_env::render(
+                    "php/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "chunks_embeddings",
+                        assertion_type => assertion.assertion_type.as_str(),
+                        pred => pred,
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             // ---- EmbedResponse virtual fields ----
             // embed_texts returns array<array<float>> in PHP — no wrapper object.
             // $result_var is the embedding matrix; use it directly.
             "embeddings" => {
-                match assertion.assertion_type.as_str() {
-                    "count_equals" => {
-                        if let Some(val) = &assertion.value {
-                            let php_val = json_to_php(val);
-                            let _ = writeln!(out, "        $this->assertCount({php_val}, ${result_var});");
-                        }
-                    }
-                    "count_min" => {
-                        if let Some(val) = &assertion.value {
-                            let php_val = json_to_php(val);
-                            let _ = writeln!(
-                                out,
-                                "        $this->assertGreaterThanOrEqual({php_val}, count(${result_var}));"
-                            );
-                        }
-                    }
-                    "not_empty" => {
-                        let _ = writeln!(out, "        $this->assertNotEmpty(${result_var});");
-                    }
-                    "is_empty" => {
-                        let _ = writeln!(out, "        $this->assertEmpty(${result_var});");
-                    }
-                    _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field 'embeddings'"
-                        );
-                    }
-                }
+                let php_val = assertion.value.as_ref().map(json_to_php).unwrap_or_default();
+                out.push_str(&crate::template_env::render(
+                    "php/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "embeddings",
+                        assertion_type => assertion.assertion_type.as_str(),
+                        php_val => php_val,
+                        result_var => result_var,
+                    },
+                ));
                 return;
             }
             "embedding_dimensions" => {
                 let expr = format!("(empty(${result_var}) ? 0 : count(${result_var}[0]))");
-                match assertion.assertion_type.as_str() {
-                    "equals" => {
-                        if let Some(val) = &assertion.value {
-                            let php_val = json_to_php(val);
-                            let _ = writeln!(out, "        $this->assertEquals({php_val}, {expr});");
-                        }
-                    }
-                    "greater_than" => {
-                        if let Some(val) = &assertion.value {
-                            let php_val = json_to_php(val);
-                            let _ = writeln!(out, "        $this->assertGreaterThan({php_val}, {expr});");
-                        }
-                    }
-                    _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field 'embedding_dimensions'"
-                        );
-                    }
-                }
+                let php_val = assertion.value.as_ref().map(json_to_php).unwrap_or_default();
+                out.push_str(&crate::template_env::render(
+                    "php/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "embedding_dimensions",
+                        assertion_type => assertion.assertion_type.as_str(),
+                        expr => expr,
+                        php_val => php_val,
+                    },
+                ));
                 return;
             }
             "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized" => {
@@ -1371,29 +1259,28 @@ fn render_assertion(
                     }
                     _ => unreachable!(),
                 };
-                match assertion.assertion_type.as_str() {
-                    "is_true" => {
-                        let _ = writeln!(out, "        $this->assertTrue({pred});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        $this->assertFalse({pred});");
-                    }
-                    _ => {
-                        let _ = writeln!(
-                            out,
-                            "        // skipped: unsupported assertion type on synthetic field '{f}'"
-                        );
-                    }
-                }
+                let assertion_kind = format!("embeddings_{}", f.strip_prefix("embeddings_").unwrap_or(f));
+                out.push_str(&crate::template_env::render(
+                    "php/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => assertion_kind,
+                        assertion_type => assertion.assertion_type.as_str(),
+                        pred => pred,
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             // ---- keywords / keywords_count ----
             // PHP ExtractionResult does not expose extracted_keywords; skip.
             "keywords" | "keywords_count" => {
-                let _ = writeln!(
-                    out,
-                    "        // skipped: field '{f}' not available on PHP ExtractionResult"
-                );
+                out.push_str(&crate::template_env::render(
+                    "php/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "keywords",
+                        field_name => f,
+                    },
+                ));
                 return;
             }
             _ => {}
@@ -1403,7 +1290,13 @@ fn render_assertion(
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
-            let _ = writeln!(out, "        // skipped: field '{f}' not available on result type");
+            out.push_str(&crate::template_env::render(
+                "php/synthetic_assertion.jinja",
+                minijinja::context! {
+                    assertion_kind => "skipped",
+                    field_name => f,
+                },
+            ));
             return;
         }
     }
@@ -1419,10 +1312,13 @@ fn render_assertion(
                     || f_lower.starts_with("document")
                     || f_lower.starts_with("structure"))
             {
-                let _ = writeln!(
-                    out,
-                    "        // skipped: result_is_simple, field '{f}' not on simple result type"
-                );
+                out.push_str(&crate::template_env::render(
+                    "php/synthetic_assertion.jinja",
+                    minijinja::context! {
+                        assertion_kind => "result_is_simple",
+                        field_name => f,
+                    },
+                ));
                 return;
             }
         }
@@ -1448,242 +1344,70 @@ fn render_assertion(
         }
     };
 
-    match assertion.assertion_type.as_str() {
-        "equals" => {
-            if let Some(expected) = &assertion.value {
-                let php_val = json_to_php(expected);
-                let effective_expr = trimmed_field_expr_for(expected);
-                let _ = writeln!(out, "        $this->assertEquals({php_val}, {effective_expr});");
-            }
-        }
-        "contains" => {
-            if let Some(expected) = &assertion.value {
-                let php_val = json_to_php(expected);
-                let field_is_array = assertion
-                    .field
-                    .as_deref()
-                    .is_some_and(|f| !f.is_empty() && field_resolver.is_array(f));
-                if result_is_array && assertion.field.is_none() {
-                    // Top-level result is an array; use in_array check.
-                    let _ = writeln!(out, "        $this->assertContains({php_val}, {field_expr});");
-                } else if field_is_array {
-                    // Field is an array of objects; check JSON serialization for substring.
-                    let _ = writeln!(
-                        out,
-                        "        $this->assertStringContainsString({php_val}, json_encode({field_expr}));"
-                    );
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "        $this->assertStringContainsString({php_val}, {field_expr});"
-                    );
-                }
-            }
-        }
-        "contains_all" => {
-            if let Some(values) = &assertion.values {
-                let field_is_array = assertion
-                    .field
-                    .as_deref()
-                    .is_some_and(|f| !f.is_empty() && field_resolver.is_array(f));
-                let effective_expr = if field_is_array {
-                    format!("json_encode({field_expr})")
-                } else {
-                    field_expr.clone()
-                };
-                for val in values {
-                    let php_val = json_to_php(val);
-                    let _ = writeln!(
-                        out,
-                        "        $this->assertStringContainsString({php_val}, {effective_expr});"
-                    );
-                }
-            }
-        }
-        "not_contains" => {
-            if let Some(expected) = &assertion.value {
-                let php_val = json_to_php(expected);
-                let _ = writeln!(
-                    out,
-                    "        $this->assertStringNotContainsString({php_val}, {field_expr});"
-                );
-            }
-        }
-        "not_empty" => {
-            let _ = writeln!(out, "        $this->assertNotEmpty({field_expr});");
-        }
-        "is_empty" => {
-            let _ = writeln!(out, "        $this->assertEmpty({field_expr});");
-        }
-        "contains_any" => {
-            if let Some(values) = &assertion.values {
-                let _ = writeln!(out, "        $found = false;");
-                for val in values {
-                    let php_val = json_to_php(val);
-                    let _ = writeln!(
-                        out,
-                        "        if (str_contains({field_expr}, {php_val})) {{ $found = true; }}"
-                    );
-                }
-                let _ = writeln!(
-                    out,
-                    "        $this->assertTrue($found, 'expected to contain at least one of the specified values');"
-                );
-            }
-        }
-        "greater_than" => {
-            if let Some(val) = &assertion.value {
-                let php_val = json_to_php(val);
-                let _ = writeln!(out, "        $this->assertGreaterThan({php_val}, {field_expr});");
-            }
-        }
-        "less_than" => {
-            if let Some(val) = &assertion.value {
-                let php_val = json_to_php(val);
-                let _ = writeln!(out, "        $this->assertLessThan({php_val}, {field_expr});");
-            }
-        }
-        "greater_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let php_val = json_to_php(val);
-                let _ = writeln!(out, "        $this->assertGreaterThanOrEqual({php_val}, {field_expr});");
-            }
-        }
-        "less_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let php_val = json_to_php(val);
-                let _ = writeln!(out, "        $this->assertLessThanOrEqual({php_val}, {field_expr});");
-            }
-        }
-        "starts_with" => {
-            if let Some(expected) = &assertion.value {
-                let php_val = json_to_php(expected);
-                let _ = writeln!(out, "        $this->assertStringStartsWith({php_val}, {field_expr});");
-            }
-        }
-        "ends_with" => {
-            if let Some(expected) = &assertion.value {
-                let php_val = json_to_php(expected);
-                let _ = writeln!(out, "        $this->assertStringEndsWith({php_val}, {field_expr});");
-            }
-        }
-        "min_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        $this->assertGreaterThanOrEqual({n}, strlen({field_expr}));"
-                    );
-                }
-            }
-        }
-        "max_length" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "        $this->assertLessThanOrEqual({n}, strlen({field_expr}));");
-                }
-            }
-        }
-        "count_min" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(
-                        out,
-                        "        $this->assertGreaterThanOrEqual({n}, count({field_expr}));"
-                    );
-                }
-            }
-        }
-        "count_equals" => {
-            if let Some(val) = &assertion.value {
-                if let Some(n) = val.as_u64() {
-                    let _ = writeln!(out, "        $this->assertCount({n}, {field_expr});");
-                }
-            }
-        }
-        "is_true" => {
-            let _ = writeln!(out, "        $this->assertTrue({field_expr});");
-        }
-        "is_false" => {
-            let _ = writeln!(out, "        $this->assertFalse({field_expr});");
-        }
-        "method_result" => {
-            if let Some(method_name) = &assertion.method {
-                let call_expr = build_php_method_call(result_var, method_name, assertion.args.as_ref());
-                let check = assertion.check.as_deref().unwrap_or("is_true");
-                match check {
-                    "equals" => {
-                        if let Some(val) = &assertion.value {
-                            if val.is_boolean() {
-                                if val.as_bool() == Some(true) {
-                                    let _ = writeln!(out, "        $this->assertTrue({call_expr});");
-                                } else {
-                                    let _ = writeln!(out, "        $this->assertFalse({call_expr});");
-                                }
-                            } else {
-                                let expected = json_to_php(val);
-                                let _ = writeln!(out, "        $this->assertEquals({expected}, {call_expr});");
-                            }
-                        }
-                    }
-                    "is_true" => {
-                        let _ = writeln!(out, "        $this->assertTrue({call_expr});");
-                    }
-                    "is_false" => {
-                        let _ = writeln!(out, "        $this->assertFalse({call_expr});");
-                    }
-                    "greater_than_or_equal" => {
-                        if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(out, "        $this->assertGreaterThanOrEqual({n}, {call_expr});");
-                        }
-                    }
-                    "count_min" => {
-                        if let Some(val) = &assertion.value {
-                            let n = val.as_u64().unwrap_or(0);
-                            let _ = writeln!(out, "        $this->assertGreaterThanOrEqual({n}, count({call_expr}));");
-                        }
-                    }
-                    "is_error" => {
-                        let _ = writeln!(out, "        $this->expectException(\\Exception::class);");
-                        let _ = writeln!(out, "        {call_expr};");
-                    }
-                    "contains" => {
-                        if let Some(val) = &assertion.value {
-                            let expected = json_to_php(val);
-                            let _ = writeln!(
-                                out,
-                                "        $this->assertStringContainsString({expected}, {call_expr});"
-                            );
-                        }
-                    }
-                    other_check => {
-                        panic!("PHP e2e generator: unsupported method_result check type: {other_check}");
-                    }
-                }
-            } else {
-                panic!("PHP e2e generator: method_result assertion missing 'method' field");
-            }
-        }
-        "matches_regex" => {
-            if let Some(expected) = &assertion.value {
-                let php_val = json_to_php(expected);
-                let _ = writeln!(
-                    out,
-                    "        $this->assertMatchesRegularExpression({php_val}, {field_expr});"
-                );
-            }
-        }
-        "not_error" => {
+    // Prepare template context.
+    let assertion_type = assertion.assertion_type.as_str();
+    let has_php_val = assertion.value.is_some();
+    let php_val = assertion.value.as_ref().map(json_to_php).unwrap_or_default();
+    let trimmed_field_expr = trimmed_field_expr_for(assertion.value.as_ref().unwrap_or(&serde_json::Value::Null));
+    let is_string_val = assertion.value.as_ref().is_some_and(|v| v.is_string());
+    let values_php: Vec<String> = assertion
+        .values
+        .as_ref()
+        .map_or(Vec::new(), |vals| vals.iter().map(json_to_php).collect());
+    let contains_any_checks: Vec<String> = assertion
+        .values
+        .as_ref()
+        .map_or(Vec::new(), |vals| vals.iter().map(json_to_php).collect());
+    let n = assertion.value.as_ref().and_then(|v| v.as_u64()).unwrap_or(0);
+
+    // For method_result assertions.
+    let call_expr = if let Some(method_name) = &assertion.method {
+        build_php_method_call(result_var, method_name, assertion.args.as_ref())
+    } else {
+        String::new()
+    };
+    let check = assertion.check.as_deref().unwrap_or("is_true");
+    let has_php_check_val = matches!(assertion.assertion_type.as_str(), "method_result") && assertion.value.is_some();
+    let php_check_val = if matches!(assertion.assertion_type.as_str(), "method_result") {
+        assertion.value.as_ref().map(json_to_php).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let check_n = assertion.value.as_ref().and_then(|v| v.as_u64()).unwrap_or(0);
+    let is_bool_val = assertion.value.as_ref().is_some_and(|v| v.is_boolean());
+    let bool_is_true = assertion.value.as_ref().and_then(|v| v.as_bool()).unwrap_or(false);
+
+    // Early returns for non-template-renderable assertions.
+    if matches!(assertion_type, "not_error" | "error") {
+        if assertion_type == "not_error" {
             // Already handled by the call succeeding without exception.
         }
-        "error" => {
-            // Handled at the test method level.
-        }
-        other => {
-            panic!("PHP e2e generator: unsupported assertion type: {other}");
-        }
+        // "error" is handled at the test method level.
+        return;
     }
+
+    let rendered = crate::template_env::render(
+        "php/assertion.jinja",
+        minijinja::context! {
+            assertion_type => assertion_type,
+            field_expr => field_expr,
+            php_val => php_val,
+            has_php_val => has_php_val,
+            trimmed_field_expr => trimmed_field_expr,
+            is_string_val => is_string_val,
+            values_php => values_php,
+            contains_any_checks => contains_any_checks,
+            n => n,
+            call_expr => call_expr,
+            check => check,
+            php_check_val => php_check_val,
+            has_php_check_val => has_php_check_val,
+            check_n => check_n,
+            is_bool_val => is_bool_val,
+            bool_is_true => bool_is_true,
+        },
+    );
+    let _ = write!(out, "        {}", rendered);
 }
 
 /// Build a PHP call expression for a `method_result` assertion.
@@ -1811,7 +1535,6 @@ fn build_php_visitor(setup_lines: &mut Vec<String>, visitor_spec: &crate::fixtur
 
 /// Emit a PHP visitor method for a callback action.
 fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, action: &CallbackAction) {
-    let snake_method = method_name;
     let params = match method_name {
         "visit_link" => "$ctx, $href, $text, $title",
         "visit_image" => "$ctx, $src, $alt, $title",
@@ -1845,56 +1568,26 @@ fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, act
         _ => "$ctx",
     };
 
-    setup_lines.push(format!("    public function {snake_method}({params}) {{"));
-    match action {
-        CallbackAction::Skip => {
-            setup_lines.push("        return 'skip';".to_string());
-        }
-        CallbackAction::Continue => {
-            setup_lines.push("        return 'continue';".to_string());
-        }
-        CallbackAction::PreserveHtml => {
-            setup_lines.push("        return 'preserve_html';".to_string());
-        }
-        CallbackAction::Custom { output } => {
-            let escaped = escape_php(output);
-            setup_lines.push(format!("        return ['custom' => \"{escaped}\"];"));
-        }
-        CallbackAction::CustomTemplate { template } => {
-            let escaped = escape_php(template);
-            // Replace {key} placeholders with {$key} for PHP variable interpolation in double-quoted strings.
-            let mut interpolated = String::new();
-            let mut chars = escaped.chars().peekable();
-            while let Some(ch) = chars.next() {
-                if ch == '{' {
-                    // Check if next char is a letter or underscore (start of identifier)
-                    if let Some(&next_ch) = chars.peek() {
-                        if next_ch.is_ascii_alphabetic() || next_ch == '_' {
-                            // Consume identifier and find closing brace
-                            interpolated.push('{');
-                            interpolated.push('$');
-                            while let Some(&c) = chars.peek() {
-                                if c.is_ascii_alphanumeric() || c == '_' {
-                                    interpolated.push(chars.next().unwrap());
-                                } else if c == '}' {
-                                    interpolated.push(chars.next().unwrap());
-                                    break;
-                                } else {
-                                    // Not a valid identifier continuation; emit literally and stop
-                                    interpolated.push('{');
-                                    break;
-                                }
-                            }
-                            continue;
-                        }
-                    }
-                }
-                interpolated.push(ch);
-            }
-            setup_lines.push(format!("        return ['custom' => \"{interpolated}\"];"));
-        }
+    let (action_type, action_value) = match action {
+        CallbackAction::Skip => ("skip", String::new()),
+        CallbackAction::Continue => ("continue", String::new()),
+        CallbackAction::PreserveHtml => ("preserve_html", String::new()),
+        CallbackAction::Custom { output } => ("custom", escape_php(output)),
+        CallbackAction::CustomTemplate { template } => ("custom_template", escape_php(template)),
+    };
+
+    let rendered = crate::template_env::render(
+        "php/visitor_method.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            params => params,
+            action_type => action_type,
+            action_value => action_value,
+        },
+    );
+    for line in rendered.lines() {
+        setup_lines.push(line.to_string());
     }
-    setup_lines.push("    }".to_string());
 }
 
 /// Returns true if the type name is a PHP reserved/primitive type that cannot be imported.

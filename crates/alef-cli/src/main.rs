@@ -186,9 +186,9 @@ enum Commands {
         /// Ignore cache.
         #[arg(long)]
         clean: bool,
-        /// Skip post-generation formatters (formatters run by default).
+        /// Run post-generation formatters on emitted files (off by default).
         #[arg(long)]
-        no_format: bool,
+        format: bool,
     },
     /// Initialize a new alef.toml config.
     Init {
@@ -1113,7 +1113,7 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Commands::All { clean, no_format } => {
+        Commands::All { clean, format } => {
             let (workspace, resolved) = load_config(config_path)?;
             version_pin::check_alef_toml_version(&workspace)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
@@ -1326,7 +1326,7 @@ fn main() -> Result<()> {
                 //  2. `fmt_post_generate` runs any extra repo-configured
                 //     `[lint.<lang>].format` commands (linters, custom passes).
                 // Both are scoped to languages that actually regenerated this run.
-                if !no_format && !changed_languages.is_empty() {
+                if format && !changed_languages.is_empty() {
                     eprintln!("Formatting generated files...");
                     // Include stubs in the format pass so that languages where only
                     // stubs changed (no bindings written) still trigger their formatter.

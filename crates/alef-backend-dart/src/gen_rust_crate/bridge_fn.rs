@@ -47,9 +47,14 @@ pub(crate) fn emit_bridge_fn(
         frb_rust_type_with_source(&f.return_type, false, source_crate_name, type_paths)
     };
 
-    out.push_str(&format!(
-        "pub {async_kw}fn {fn_name}({}) -> {return_ty} {{\n",
-        params.join(", ")
+    out.push_str(&crate::template_env::render(
+        "rust_bridge_fn_open.jinja",
+        minijinja::context! {
+            async_kw => async_kw,
+            fn_name => fn_name.as_str(),
+            params => params.join(", "),
+            return_ty => return_ty.as_str(),
+        },
     ));
 
     // Resolve the call target via the IR's full rust_path, falling back to the

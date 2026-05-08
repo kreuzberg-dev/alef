@@ -61,17 +61,23 @@ pub(crate) fn marshal_param_to_ffi(
     match ty {
         TypeRef::String | TypeRef::Char | TypeRef::Json => {
             let cname = "c".to_string() + name;
-            writeln!(out, "            var {} = arena.allocateFrom({});", cname, name).ok();
+            out.push_str(&crate::template_env::render(
+                "marshal_string.jinja",
+                minijinja::context! {
+                    cname => &cname,
+                    name => name,
+                },
+            ));
         }
         TypeRef::Path => {
-            // Arena.allocateFrom takes a CharSequence; java.nio.file.Path is not one.
             let cname = "c".to_string() + name;
-            writeln!(
-                out,
-                "            var {} = arena.allocateFrom({}.toString());",
-                cname, name
-            )
-            .ok();
+            out.push_str(&crate::template_env::render(
+                "marshal_path.jinja",
+                minijinja::context! {
+                    cname => &cname,
+                    name => name,
+                },
+            ));
         }
         TypeRef::Bytes => {
             // byte[] → convert to MemorySegment pointer for FFI
@@ -87,93 +93,77 @@ pub(crate) fn marshal_param_to_ffi(
         TypeRef::Named(type_name) => {
             let cname = "c".to_string() + name;
             if opaque_types.contains(type_name.as_str()) {
-                // Opaque handles: pass the inner MemorySegment via .handle()
-                writeln!(out, "            var {} = {}.handle();", cname, name).ok();
+                out.push_str(&crate::template_env::render(
+                    "marshal_opaque_handle.jinja",
+                    minijinja::context! {
+                        cname => &cname,
+                        name => name,
+                    },
+                ));
             } else {
-                // Non-opaque named types: serialize to JSON, call _from_json to get FFI pointer.
-                // The pointer must be freed after the FFI call with _free.
                 let type_snake = type_name.to_snake_case();
                 let from_json_handle = format!(
                     "NativeLib.{}_{}_FROM_JSON",
                     prefix.to_uppercase(),
                     type_snake.to_uppercase()
                 );
-                let _free_handle = format!("NativeLib.{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
-                writeln!(
-                    out,
-                    "            var {}Json = {} != null ? MAPPER.writeValueAsString({}) : null;",
-                    cname, name, name
-                )
-                .ok();
-                writeln!(
-                    out,
-                    "            var {}JsonSeg = {}Json != null ? arena.allocateFrom({}Json) : MemorySegment.NULL;",
-                    cname, cname, cname
-                )
-                .ok();
-                writeln!(out, "            var {} = {}Json != null", cname, cname).ok();
-                writeln!(
-                    out,
-                    "                ? (MemorySegment) {}.invoke({}JsonSeg)",
-                    from_json_handle, cname
-                )
-                .ok();
-                writeln!(out, "                : MemorySegment.NULL;").ok();
+                out.push_str(&crate::template_env::render(
+                    "marshal_named_type.jinja",
+                    minijinja::context! {
+                        cname => &cname,
+                        name => name,
+                        from_json_handle => &from_json_handle,
+                    },
+                ));
             }
         }
         TypeRef::Optional(inner) => {
-            // For optional types, marshal the inner type if not null
             match inner.as_ref() {
                 TypeRef::String | TypeRef::Char | TypeRef::Json => {
                     let cname = "c".to_string() + name;
-                    writeln!(
-                        out,
-                        "            var {} = {} != null ? arena.allocateFrom({}) : MemorySegment.NULL;",
-                        cname, name, name
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "marshal_optional_string.jinja",
+                        minijinja::context! {
+                            cname => &cname,
+                            name => name,
+                        },
+                    ));
                 }
                 TypeRef::Path => {
                     let cname = "c".to_string() + name;
-                    writeln!(
-                        out,
-                        "            var {} = {} != null ? arena.allocateFrom({}.toString()) : MemorySegment.NULL;",
-                        cname, name, name
-                    )
-                    .ok();
+                    out.push_str(&crate::template_env::render(
+                        "marshal_optional_path.jinja",
+                        minijinja::context! {
+                            cname => &cname,
+                            name => name,
+                        },
+                    ));
                 }
                 TypeRef::Named(type_name) => {
                     let cname = "c".to_string() + name;
                     if opaque_types.contains(type_name.as_str()) {
-                        writeln!(
-                            out,
-                            "            var {} = {} != null ? {}.handle() : MemorySegment.NULL;",
-                            cname, name, name
-                        )
-                        .ok();
+                        out.push_str(&crate::template_env::render(
+                            "marshal_optional_opaque_handle.jinja",
+                            minijinja::context! {
+                                cname => &cname,
+                                name => name,
+                            },
+                        ));
                     } else {
-                        // Non-opaque named type in Optional: serialize to JSON and call _from_json
                         let type_snake = type_name.to_snake_case();
                         let from_json_handle = format!(
                             "NativeLib.{}_{}_FROM_JSON",
                             prefix.to_uppercase(),
                             type_snake.to_uppercase()
                         );
-                        writeln!(
-                            out,
-                            "            var {}Json = {} != null ? MAPPER.writeValueAsString({}) : null;",
-                            cname, name, name
-                        )
-                        .ok();
-                        writeln!(out, "            var {}JsonSeg = {}Json != null ? arena.allocateFrom({}Json) : MemorySegment.NULL;", cname, cname, cname).ok();
-                        writeln!(out, "            var {} = {}Json != null", cname, cname).ok();
-                        writeln!(
-                            out,
-                            "                ? (MemorySegment) {}.invoke({}JsonSeg)",
-                            from_json_handle, cname
-                        )
-                        .ok();
-                        writeln!(out, "                : MemorySegment.NULL;").ok();
+                        out.push_str(&crate::template_env::render(
+                            "marshal_optional_named_type.jinja",
+                            minijinja::context! {
+                                cname => &cname,
+                                name => name,
+                                from_json_handle => &from_json_handle,
+                            },
+                        ));
                     }
                 }
                 _ => {
@@ -182,15 +172,14 @@ pub(crate) fn marshal_param_to_ffi(
             }
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            // Vec/Map types: serialize to JSON string, then pass as a C string via arena.
             let cname = "c".to_string() + name;
-            writeln!(
-                out,
-                "            var {}Json = MAPPER.writeValueAsString({});",
-                cname, name
-            )
-            .ok();
-            writeln!(out, "            var {} = arena.allocateFrom({}Json);", cname, cname).ok();
+            out.push_str(&crate::template_env::render(
+                "marshal_vec_map.jinja",
+                minijinja::context! {
+                    cname => &cname,
+                    name => name,
+                },
+            ));
         }
         _ => {
             // Primitives and others pass through directly
@@ -248,8 +237,11 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
         return;
     }
 
-    writeln!(out, "    // Helper methods for FFI marshalling").ok();
-    writeln!(out).ok();
+    out.push_str(&crate::template_env::render(
+        "gen_helper_methods_header.jinja",
+        minijinja::context! {},
+    ));
+    out.push_str("\n");
 
     if needs_check_last_error {
         // Reads the last FFI error code and, if non-zero, reads the error message and throws.

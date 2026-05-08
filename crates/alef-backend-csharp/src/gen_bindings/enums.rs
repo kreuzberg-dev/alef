@@ -22,8 +22,9 @@ pub(super) fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
 }
 
 pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
-    let mut out = csharp_file_header();
-    out.push_str("using System.Text.Json.Serialization;\n\n");
+    use crate::template_env::render;
+    use minijinja::Value;
+
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
     // Tagged union: enum has a serde tag AND data variants → generate abstract record hierarchy
@@ -49,8 +50,8 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
 
     let enum_pascal = enum_def.name.to_pascal_case();
 
-    // Collect (json_name, pascal_name) pairs
-    let variants: Vec<(String, String)> = enum_def
+    // Collect variant data with doc lines for template rendering
+    let variant_list: Vec<(String, String)> = enum_def
         .variants
         .iter()
         .map(|v| {
@@ -63,96 +64,62 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
         })
         .collect();
 
-    out.push_str("using System;\n");
-    out.push_str("using System.Text.Json;\n\n");
+    let variants: Vec<Value> = enum_def
+        .variants
+        .iter()
+        .map(|v| {
+            let json_name = v
+                .serde_rename
+                .clone()
+                .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
+            let pascal_name = v.name.to_pascal_case();
+            let doc_lines: Vec<String> = if !v.doc.is_empty() {
+                v.doc.lines().map(|l| l.to_string()).collect()
+            } else {
+                vec![]
+            };
+            Value::from_serialize(serde_json::json!({
+                "json_name": json_name,
+                "pascal_name": pascal_name,
+                "doc": !v.doc.is_empty(),
+                "doc_lines": doc_lines,
+            }))
+        })
+        .collect();
 
-    out.push_str(&format!("namespace {};\n\n", namespace));
+    let doc_lines: Vec<String> = if !enum_def.doc.is_empty() {
+        enum_def.doc.lines().map(|l| l.to_string()).collect()
+    } else {
+        vec![]
+    };
 
-    // Generate doc comment if available
-    if !enum_def.doc.is_empty() {
-        out.push_str("/// <summary>\n");
-        for line in enum_def.doc.lines() {
-            out.push_str(&format!("/// {}\n", line));
-        }
-        out.push_str("/// </summary>\n");
-    }
-
-    if needs_custom_converter {
-        out.push_str(&format!("[JsonConverter(typeof({enum_pascal}JsonConverter))]\n"));
-    }
-    out.push_str(&format!("public enum {enum_pascal}\n"));
-    out.push_str("{\n");
-
-    for (json_name, pascal_name) in &variants {
-        // Find doc for this variant
-        if let Some(v) = enum_def
-            .variants
-            .iter()
-            .find(|v| v.name.to_pascal_case() == *pascal_name)
-        {
-            if !v.doc.is_empty() {
-                out.push_str("    /// <summary>\n");
-                for line in v.doc.lines() {
-                    out.push_str(&format!("    /// {}\n", line));
-                }
-                out.push_str("    /// </summary>\n");
-            }
-        }
-        out.push_str(&format!("    [JsonPropertyName(\"{json_name}\")]\n"));
-        out.push_str(&format!("    {pascal_name},\n"));
-    }
-
-    out.push_str("}\n");
+    let mut out = render(
+        "enum_header.jinja",
+        Value::from_serialize(serde_json::json!({
+            "namespace": namespace,
+            "enum_pascal": enum_pascal,
+            "needs_custom_converter": needs_custom_converter,
+            "doc": !enum_def.doc.is_empty(),
+            "doc_lines": doc_lines,
+            "variants": variants,
+        })),
+    );
+    out.push('\n');
 
     // Generate custom converter class after the enum when needed
     if needs_custom_converter {
-        out.push('\n');
-        out.push_str(&format!(
-            "/// <summary>Custom JSON converter for <see cref=\"{enum_pascal}\"/> that respects explicit variant names.</summary>\n"
+        out.push_str(&render(
+            "enum_custom_converter.jinja",
+            Value::from_serialize(serde_json::json!({
+                "enum_pascal": enum_pascal,
+                "variants": variant_list.iter().map(|(json_name, pascal_name)| {
+                    serde_json::json!({
+                        "json_name": json_name,
+                        "pascal_name": pascal_name,
+                    })
+                }).collect::<Vec<_>>(),
+            })),
         ));
-        out.push_str(&format!(
-            "internal sealed class {enum_pascal}JsonConverter : JsonConverter<{enum_pascal}>\n"
-        ));
-        out.push_str("{\n");
-
-        // Read
-        out.push_str(&format!(
-            "    public override {enum_pascal} Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)\n"
-        ));
-        out.push_str("    {\n");
-        out.push_str("        var value = reader.GetString();\n");
-        out.push_str("        return value switch\n");
-        out.push_str("        {\n");
-        for (json_name, pascal_name) in &variants {
-            out.push_str(&format!(
-                "            \"{json_name}\" => {enum_pascal}.{pascal_name},\n"
-            ));
-        }
-        out.push_str(&format!(
-            "            _ => throw new JsonException($\"Unknown {enum_pascal} value: {{value}}\")\n"
-        ));
-        out.push_str("        };\n");
-        out.push_str("    }\n\n");
-
-        // Write
-        out.push_str(&format!(
-            "    public override void Write(Utf8JsonWriter writer, {enum_pascal} value, JsonSerializerOptions options)\n"
-        ));
-        out.push_str("    {\n");
-        out.push_str("        var str = value switch\n");
-        out.push_str("        {\n");
-        for (json_name, pascal_name) in &variants {
-            out.push_str(&format!(
-                "            {enum_pascal}.{pascal_name} => \"{json_name}\",\n"
-            ));
-        }
-        out.push_str(&format!(
-            "            _ => throw new JsonException($\"Unknown {enum_pascal} value: {{value}}\")\n"
-        ));
-        out.push_str("        };\n");
-        out.push_str("        writer.WriteStringValue(str);\n");
-        out.push_str("    }\n");
-        out.push_str("}\n");
     }
 
     out
@@ -164,6 +131,8 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
 /// a C# polymorphic record hierarchy using .NET 7+ `[JsonPolymorphic]` and `[JsonDerivedType]`
 /// attributes. These attributes are the idiomatic way to handle JSON polymorphism in modern C#.
 fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
+    use crate::template_env::render;
+
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let enum_pascal = enum_def.name.to_pascal_case();
     // Namespace prefix used to fully-qualify inner types when their short name is shadowed
@@ -172,7 +141,8 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
     let mut out = csharp_file_header();
     out.push_str("using System.Text.Json.Serialization;\n\n");
-    out.push_str(&format!("namespace {};\n\n", namespace));
+    out.push_str(&render("namespace_decl.jinja", minijinja::context! { namespace }));
+    out.push('\n');
 
     // Collect all variant pascal names to check for field-name-to-variant-name clashes
     let variant_names: std::collections::HashSet<String> =
@@ -196,44 +166,48 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
     if !enum_def.doc.is_empty() {
         out.push_str("/// <summary>\n");
         for line in enum_def.doc.lines() {
-            out.push_str(&format!("/// {}\n", line));
+            out.push_str(&render("doc_line.jinja", minijinja::context! { line }));
         }
         out.push_str("/// </summary>\n");
     }
 
     // [JsonPolymorphic] + [JsonDerivedType] attributes must ALL be on the base type,
     // not on the nested records — System.Text.Json resolves polymorphism from the base type.
-    out.push_str(&format!(
-        "[JsonPolymorphic(TypeDiscriminatorPropertyName = \"{tag_field}\")]\n"
+    out.push_str(&render(
+        "json_polymorphic_attr.jinja",
+        minijinja::context! { tag_field },
     ));
     for (pascal, discriminator) in &discriminators {
-        out.push_str(&format!("[JsonDerivedType(typeof({pascal}), \"{discriminator}\")]\n"));
+        out.push_str(&render(
+            "json_derived_type_attr.jinja",
+            minijinja::context! { pascal, discriminator },
+        ));
     }
-    out.push_str(&format!("public abstract record {enum_pascal}\n"));
+    out.push_str(&render(
+        "abstract_record_header.jinja",
+        minijinja::context! { enum_pascal },
+    ));
     out.push_str("{\n");
 
     // Nested sealed records for each variant (no [JsonDerivedType] here — it's on the base)
     for variant in &enum_def.variants {
         let pascal = variant.name.to_pascal_case();
-        let discriminator = discriminators
-            .iter()
-            .find(|(p, _)| p == &pascal)
-            .map(|(_, d)| d.as_str())
-            .unwrap_or("");
 
         if !variant.doc.is_empty() {
             out.push_str("    /// <summary>\n");
             for line in variant.doc.lines() {
-                out.push_str(&format!("    /// {}\n", line));
+                out.push_str(&render("doc_line_indented.jinja", minijinja::context! { line }));
             }
             out.push_str("    /// </summary>\n");
         }
 
-        let _ = discriminator; // discriminator is used in doc/comments; nested records don't need it
-
         if variant.fields.is_empty() {
             // Unit variant → sealed record with no fields
-            out.push_str(&format!("    public sealed record {pascal}() : {enum_pascal};\n\n"));
+            out.push_str(&render(
+                "unit_variant_record.jinja",
+                minijinja::context! { pascal, enum_pascal },
+            ));
+            out.push('\n');
         } else {
             // CS8910: when a single-field variant has a parameter whose TYPE equals the record name
             // (e.g., record ImageUrl(ImageUrl Value)), the primary constructor conflicts with the
@@ -250,15 +224,22 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                 // standalone type of the same name (e.g. `ContentPart.ImageUrl` would shadow
                 // `LiterLlm.ImageUrl` within the `ContentPart` abstract record body).
                 let qualified_cs_type = format!("global::{ns}.{cs_type}");
-                out.push_str(&format!("    public sealed record {pascal} : {enum_pascal}\n"));
+                out.push_str(&render(
+                    "variant_record_body_header.jinja",
+                    minijinja::context! { pascal, enum_pascal },
+                ));
                 out.push_str("    {\n");
-                out.push_str(&format!(
-                    "        public required {qualified_cs_type} Value {{ get; init; }}\n"
+                out.push_str(&render(
+                    "required_value_property.jinja",
+                    minijinja::context! { qualified_cs_type },
                 ));
                 out.push_str("    }\n\n");
             } else {
                 // Data variant → sealed record with fields as constructor params
-                out.push_str(&format!("    public sealed record {pascal}(\n"));
+                out.push_str(&render(
+                    "variant_record_params_header.jinja",
+                    minijinja::context! { pascal },
+                ));
                 for (i, field) in variant.fields.iter().enumerate() {
                     let cs_type = csharp_type(&field.ty);
                     let cs_type = if field.optional && !cs_type.ends_with('?') {
@@ -277,7 +258,10 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                     };
                     let comma = if i < variant.fields.len() - 1 { "," } else { "" };
                     if is_tuple_field(field) {
-                        out.push_str(&format!("        {cs_type} Value{comma}\n"));
+                        out.push_str(&render(
+                            "variant_field_tuple.jinja",
+                            minijinja::context! { cs_type, comma },
+                        ));
                     } else {
                         let json_name = field.name.trim_start_matches('_');
                         let cs_name = to_csharp_name(json_name);
@@ -288,19 +272,45 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                         let clashes = cs_name == pascal || cs_name == cs_type || variant_names.contains(&cs_name);
                         if clashes {
                             // Rename to Value with JSON property mapping to preserve the original field name
-                            out.push_str(&format!(
-                                "        [property: JsonPropertyName(\"{json_name}\")] {cs_type} Value{comma}\n"
+                            out.push_str(&render(
+                                "variant_field_json_value.jinja",
+                                minijinja::context! { json_name, cs_type, comma },
                             ));
                         } else {
-                            out.push_str(&format!(
-                                "        [property: JsonPropertyName(\"{json_name}\")] {cs_type} {cs_name}{comma}\n"
+                            out.push_str(&render(
+                                "variant_field_json_named.jinja",
+                                minijinja::context! { json_name, cs_type, cs_name, comma },
                             ));
                         }
                     }
                 }
-                out.push_str(&format!("    ) : {enum_pascal};\n\n"));
+                out.push_str(&render(
+                    "variant_record_close.jinja",
+                    minijinja::context! { enum_pascal },
+                ));
+                out.push('\n');
             }
         }
+    }
+
+    // Add accessor properties for data variants
+    for variant in &enum_def.variants {
+        // Only generate accessors for variants with exactly one tuple field
+        if variant.fields.len() != 1 || !is_tuple_field(&variant.fields[0]) {
+            continue;
+        }
+        let pascal = variant.name.to_pascal_case();
+        let return_type = csharp_type(&variant.fields[0].ty);
+        let return_type_nullable = format!("{return_type}?");
+        out.push_str(&render(
+            "variant_accessor_summary.jinja",
+            minijinja::context! { pascal },
+        ));
+        out.push_str(&render(
+            "variant_accessor_property.jinja",
+            minijinja::context! { pascal, return_type_nullable },
+        ));
+        out.push('\n');
     }
 
     out.push_str("}\n");

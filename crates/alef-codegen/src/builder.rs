@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 /// Builder for constructing Rust source files.
 #[derive(Debug, Default)]
 pub struct RustFileBuilder {
@@ -27,10 +25,16 @@ impl RustFileBuilder {
     /// These are placed at the very top of the file, before imports.
     pub fn add_inner_attribute(&mut self, attr: &str) {
         // Append to doc_header since it comes first
+        let rendered = crate::template_env::render(
+            "builders/inner_attribute.jinja",
+            minijinja::context! {
+                attr => attr,
+            },
+        );
         if let Some(ref mut header) = self.doc_header {
-            header.push_str(&format!("#![{attr}]\n"));
+            header.push_str(&rendered);
         } else {
-            self.doc_header = Some(format!("#![{attr}]\n"));
+            self.doc_header = Some(rendered);
         }
     }
 
@@ -71,7 +75,12 @@ impl RustFileBuilder {
 
         if !self.imports.is_empty() {
             for import in &self.imports {
-                writeln!(out, "use {import};").ok();
+                out.push_str(&crate::template_env::render(
+                    "builders/use_import.jinja",
+                    minijinja::context! {
+                        import => import,
+                    },
+                ));
             }
             out.push('\n');
         }
@@ -149,28 +158,60 @@ impl StructBuilder {
         let mut out = String::with_capacity(capacity);
 
         if !self.derives.is_empty() {
-            writeln!(out, "#[derive({})]", self.derives.join(", ")).ok();
+            out.push_str(&crate::template_env::render(
+                "builders/derive_attr.jinja",
+                minijinja::context! {
+                    derives => self.derives.join(", "),
+                },
+            ));
         }
 
         for attr in &self.attrs {
-            writeln!(out, "#[{attr}]").ok();
+            out.push_str(&crate::template_env::render(
+                "builders/generic_attr.jinja",
+                minijinja::context! {
+                    attr => attr,
+                },
+            ));
         }
 
-        writeln!(out, "{} struct {} {{", self.visibility, self.name).ok();
+        out.push_str(&crate::template_env::render(
+            "builders/struct_header.jinja",
+            minijinja::context! {
+                visibility => &self.visibility,
+                name => &self.name,
+            },
+        ));
 
         for (name, ty, attrs, doc) in &self.fields {
             if !doc.is_empty() {
                 for line in doc.lines() {
-                    writeln!(out, "    /// {line}").ok();
+                    out.push_str(&crate::template_env::render(
+                        "builders/doc_line.jinja",
+                        minijinja::context! {
+                            line => line,
+                        },
+                    ));
                 }
             }
             for attr in attrs {
-                writeln!(out, "    #[{attr}]").ok();
+                out.push_str(&crate::template_env::render(
+                    "builders/generic_attr.jinja",
+                    minijinja::context! {
+                        attr => attr,
+                    },
+                ));
             }
-            writeln!(out, "    pub {name}: {ty},").ok();
+            out.push_str(&crate::template_env::render(
+                "builders/struct_field.jinja",
+                minijinja::context! {
+                    name => name,
+                    ty => ty,
+                },
+            ));
         }
 
-        write!(out, "}}").ok();
+        out.push('}');
         out
     }
 }
@@ -210,10 +251,20 @@ impl ImplBuilder {
         let mut out = String::with_capacity(capacity);
 
         for attr in &self.attrs {
-            writeln!(out, "#[{attr}]").ok();
+            out.push_str(&crate::template_env::render(
+                "builders/generic_attr.jinja",
+                minijinja::context! {
+                    attr => attr,
+                },
+            ));
         }
 
-        writeln!(out, "impl {} {{", self.target).ok();
+        out.push_str(&crate::template_env::render(
+            "builders/impl_header.jinja",
+            minijinja::context! {
+                target => &self.target,
+            },
+        ));
 
         for (i, method) in self.methods.iter().enumerate() {
             // Indent each line of the method
@@ -221,7 +272,12 @@ impl ImplBuilder {
                 if line.is_empty() {
                     out.push('\n');
                 } else {
-                    writeln!(out, "    {line}").ok();
+                    out.push_str(&crate::template_env::render(
+                        "builders/indented_line.jinja",
+                        minijinja::context! {
+                            line => line,
+                        },
+                    ));
                 }
             }
             if i < self.methods.len() - 1 {
@@ -229,7 +285,7 @@ impl ImplBuilder {
             }
         }
 
-        write!(out, "}}").ok();
+        out.push('}');
         out
     }
 }

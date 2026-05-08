@@ -1,7 +1,6 @@
 use crate::type_map::is_void_return;
 use ahash::AHashSet;
 use alef_core::ir::TypeRef;
-use std::fmt::Write;
 
 /// Render an expression that produces a Copy-typed value, avoiding clippy::clone_on_copy.
 ///
@@ -30,95 +29,129 @@ pub(super) fn gen_value_to_c(
     enum_names: &AHashSet<String>,
     clone_names: &AHashSet<String>,
 ) -> String {
-    let mut out = String::with_capacity(2048);
     match ty {
         TypeRef::Primitive(p) => {
             // Bool needs cast to i32 for C ABI; other primitives may need deref if from Option
-            if matches!(p, alef_core::ir::PrimitiveType::Bool) {
-                writeln!(out, "{indent}{expr} as i32").ok();
+            let type_class = if matches!(p, alef_core::ir::PrimitiveType::Bool) {
+                "primitive_bool"
             } else {
-                writeln!(out, "{indent}{expr}").ok();
-            }
-        }
-        TypeRef::String | TypeRef::Char => {
-            writeln!(out, "{indent}match CString::new({expr}.to_string()) {{").ok();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
-        TypeRef::Path => {
-            writeln!(
-                out,
-                "{indent}match CString::new({expr}.to_string_lossy().to_string()) {{"
+                "primitive_other"
+            };
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => type_class,
+                    expr => expr,
+                    indent => indent,
+                },
             )
-            .ok();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
         }
-        TypeRef::Json => {
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}    }},").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
+        TypeRef::String | TypeRef::Char => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "string",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Path => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "path",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Json => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "json_or_vec_or_map",
+                expr => expr,
+                indent => indent,
+            },
+        ),
         TypeRef::Named(name) => {
             if enum_names.contains(name.as_str()) {
                 // Copy-typed enums: clippy::clone_on_copy fires on .clone(). Use auto-copy/deref.
                 let copy = copy_expr(expr);
-                writeln!(out, "{indent}Box::into_raw(Box::new({copy}))").ok();
+                crate::template_env::render(
+                    "value_to_c_conversion.jinja",
+                    minijinja::context! {
+                        type_class => "named_enum",
+                        expr => expr,
+                        copy_expr => &copy,
+                        indent => indent,
+                    },
+                )
             } else if clone_names.contains(name.as_str()) {
                 // Clone-capable struct: clone the borrowed reference into an owned box.
-                writeln!(out, "{indent}Box::into_raw(Box::new({expr}.clone()))").ok();
+                crate::template_env::render(
+                    "value_to_c_conversion.jinja",
+                    minijinja::context! {
+                        type_class => "named_clone",
+                        expr => expr,
+                        indent => indent,
+                    },
+                )
             } else {
                 // Non-Clone opaque type: the caller holds a borrow from the parent struct.
                 // Return a raw pointer alias — the C caller must not outlive the parent handle.
-                writeln!(out, "{indent}{expr} as *const _ as *mut _").ok();
+                crate::template_env::render(
+                    "value_to_c_conversion.jinja",
+                    minijinja::context! {
+                        type_class => "named_non_clone",
+                        expr => expr,
+                        indent => indent,
+                    },
+                )
             }
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             // Serialize as JSON
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}    }},").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "json_or_vec_or_map",
+                    expr => expr,
+                    indent => indent,
+                },
+            )
         }
         TypeRef::Bytes => {
             // Return pointer; caller must also get length. Cast to *mut u8 to match FFI signature.
-            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").ok();
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "bytes",
+                    expr => expr,
+                    indent => indent,
+                },
+            )
         }
-        TypeRef::Duration => {
-            writeln!(out, "{indent}{expr}.as_millis() as u64").ok();
-        }
-        TypeRef::Unit => {
-            // nothing to return
-        }
+        TypeRef::Duration => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "duration",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Unit => String::new(),
         TypeRef::Optional(inner) => {
-            writeln!(out, "{indent}match &{expr} {{").ok();
-            writeln!(out, "{indent}    Some(val) => {{").ok();
-            write!(
-                out,
-                "{}",
-                gen_value_to_c("val", inner, &format!("{indent}        "), enum_names, clone_names)
+            let inner_conversion = gen_value_to_c("val", inner, &format!("{indent}        "), enum_names, clone_names);
+            let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "optional",
+                    expr => expr,
+                    indent => indent,
+                    inner_conversion => &inner_conversion,
+                    null_value => null_value,
+                },
             )
-            .ok();
-            writeln!(out, "{indent}    }}").ok();
-            writeln!(
-                out,
-                "{indent}    None => {},",
-                null_return_value(&TypeRef::Optional(inner.clone()))
-            )
-            .ok();
-            writeln!(out, "{indent}}}").ok();
         }
     }
-    out
 }
 
 /// Generate a type-appropriate unimplemented body for FFI (no todo!()).
@@ -176,87 +209,103 @@ pub(super) fn null_return_value(ty: &TypeRef) -> &'static str {
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum_names: &AHashSet<String>) -> String {
-    let mut out = String::with_capacity(2048);
     match ty {
         TypeRef::Primitive(prim) => match prim {
-            alef_core::ir::PrimitiveType::Bool => {
-                writeln!(out, "{indent}if {expr} {{").ok();
-                writeln!(out, "{indent}    1").ok();
-                writeln!(out, "{indent}}} else {{").ok();
-                writeln!(out, "{indent}    0").ok();
-                writeln!(out, "{indent}}}").ok();
-            }
-            _ => {
-                writeln!(out, "{indent}{expr}").ok();
-            }
+            alef_core::ir::PrimitiveType::Bool => crate::template_env::render(
+                "owned_value_to_c_bool.jinja",
+                minijinja::context! {
+                    expr => expr,
+                    indent => indent,
+                },
+            ),
+            _ => crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "primitive_other",
+                    expr => expr,
+                    indent => indent,
+                },
+            ),
         },
-        TypeRef::String | TypeRef::Char => {
-            writeln!(out, "{indent}match CString::new({expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
-        TypeRef::Json => {
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}    }},").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
-        TypeRef::Path => {
-            writeln!(
-                out,
-                "{indent}match CString::new({expr}.to_string_lossy().to_string()) {{"
-            )
-            .ok();
-            writeln!(out, "{indent}    Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
+        TypeRef::String | TypeRef::Char => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "string",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Json => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "json_or_vec_or_map",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Path => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "path",
+                expr => expr,
+                indent => indent,
+            },
+        ),
         TypeRef::Named(_) => {
             // For owned values, .clone() is wasteful. Just box the value directly.
             // (Copy enums auto-copy; non-Copy types move into Box::new.)
-            writeln!(out, "{indent}Box::into_raw(Box::new({expr}))").ok();
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "named_clone",
+                    expr => expr,
+                    indent => indent,
+                },
+            )
         }
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            writeln!(out, "{indent}match serde_json::to_string(&{expr}) {{").ok();
-            writeln!(out, "{indent}    Ok(s) => match CString::new(s) {{").ok();
-            writeln!(out, "{indent}        Ok(cs) => cs.into_raw(),").ok();
-            writeln!(out, "{indent}        Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}    }},").ok();
-            writeln!(out, "{indent}    Err(_) => std::ptr::null_mut(),").ok();
-            writeln!(out, "{indent}}}").ok();
-        }
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "json_or_vec_or_map",
+                expr => expr,
+                indent => indent,
+            },
+        ),
         TypeRef::Bytes => {
             // Return pointer; assume out-param for length. Cast to *mut u8 to match FFI signature.
-            writeln!(out, "{indent}{expr}.as_ptr() as *mut u8").ok();
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "bytes",
+                    expr => expr,
+                    indent => indent,
+                },
+            )
         }
         TypeRef::Optional(inner) => {
-            writeln!(out, "{indent}match {expr} {{").ok();
-            writeln!(out, "{indent}    Some(val) => {{").ok();
-            write!(
-                out,
-                "{}",
-                gen_owned_value_to_c("val", inner, &format!("{indent}        "), _enum_names)
+            let inner_conversion = gen_owned_value_to_c("val", inner, &format!("{indent}        "), _enum_names);
+            let null_value = null_return_value(&TypeRef::Optional(inner.clone()));
+            crate::template_env::render(
+                "value_to_c_conversion.jinja",
+                minijinja::context! {
+                    type_class => "optional",
+                    expr => expr,
+                    indent => indent,
+                    inner_conversion => &inner_conversion,
+                    null_value => null_value,
+                },
             )
-            .ok();
-            writeln!(out, "{indent}    }}").ok();
-            writeln!(
-                out,
-                "{indent}    None => {},",
-                null_return_value(&TypeRef::Optional(inner.clone()))
-            )
-            .ok();
-            writeln!(out, "{indent}}}").ok();
         }
-        TypeRef::Duration => {
-            writeln!(out, "{indent}{expr}.as_millis() as u64").ok();
-        }
-        TypeRef::Unit => {}
+        TypeRef::Duration => crate::template_env::render(
+            "value_to_c_conversion.jinja",
+            minijinja::context! {
+                type_class => "duration",
+                expr => expr,
+                indent => indent,
+            },
+        ),
+        TypeRef::Unit => String::new(),
     }
-    out
 }
 
 // ---------------------------------------------------------------------------
@@ -297,30 +346,12 @@ pub(super) fn gen_cbindgen_toml(prefix: &str, api: &alef_core::ir::ApiSurface) -
         .collect::<Vec<_>>()
         .join("\n");
 
-    let after_includes = if forward_decls.is_empty() {
-        String::new()
-    } else {
-        format!("\nafter_includes = \"\"\"\n/* Opaque type forward declarations */\n{forward_decls}\n\"\"\"\n")
-    };
-
-    format!(
-        r#"# This file is auto-generated by alef. DO NOT EDIT.
-language = "C"
-include_guard = "{prefix_upper}_H"
-pragma_once = true
-autogen_warning = "/* This file is auto-generated by alef. DO NOT EDIT. */"
-{after_includes}
-[defines]
-"target_os = windows" = "SKIF_WINDOWS"
-
-[export]
-prefix = "{prefix_upper}"
-include = []
-exclude = []
-
-[fn]
-args = "vertical"
-"#
+    crate::template_env::render(
+        "cbindgen_toml.jinja",
+        minijinja::context! {
+            prefix_upper => &prefix_upper,
+            forward_decls => &forward_decls,
+        },
     )
 }
 
@@ -332,7 +363,6 @@ pub(super) fn gen_build_rs(header_name: &str, go_output_dir: Option<&str>) -> St
     let go_copy_step = match go_output_dir {
         Some(go_dir) => {
             let go_dir = go_dir.trim_end_matches('/');
-            // Compute depth: e.g. "packages/go" has 2 components → "../../"
             let depth = std::path::Path::new(go_dir)
                 .components()
                 .filter(|c| matches!(c, std::path::Component::Normal(_)))
@@ -341,25 +371,20 @@ pub(super) fn gen_build_rs(header_name: &str, go_output_dir: Option<&str>) -> St
             let to_root = "../".repeat(depth);
             let dest_dir = format!("{to_root}{go_dir}/include");
             format!(
-                r#"
-    let go_include_dir = std::path::Path::new("{dest_dir}");
-    std::fs::create_dir_all(go_include_dir).expect("Unable to create Go include directory");
-    std::fs::copy("include/{header_name}", go_include_dir.join("{header_name}"))
-        .expect("Unable to copy header to Go include directory");
-"#
+                "\n    let go_include_dir = std::path::Path::new(\"{dest_dir}\");\n    \
+                 std::fs::create_dir_all(go_include_dir).expect(\"Unable to create Go include directory\");\n    \
+                 std::fs::copy(format!(\"include/{header_name}\"), go_include_dir.join(\"{header_name}\"))\n        \
+                 .expect(\"Unable to copy header to Go include directory\");\n"
             )
         }
         None => String::new(),
     };
-
-    format!(
-        r#"// This file is auto-generated by alef. DO NOT EDIT.
-fn main() {{
-    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    cbindgen::generate(crate_dir)
-        .expect("Unable to generate C bindings")
-        .write_to_file("include/{header_name}");{go_copy_step}}}
-"#
+    crate::template_env::render(
+        "build_rs.jinja",
+        minijinja::context! {
+            header_name => header_name,
+            go_copy_step => go_copy_step,
+        },
     )
 }
 
@@ -368,42 +393,11 @@ fn main() {{
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_last_error(prefix: &str) -> String {
-    format!(
-        r#"thread_local! {{
-    static LAST_ERROR_CODE: RefCell<i32> = const {{ RefCell::new(0) }};
-    static LAST_ERROR_CONTEXT: RefCell<Option<CString>> = const {{ RefCell::new(None) }};
-}}
-
-fn set_last_error(code: i32, message: &str) {{
-    LAST_ERROR_CODE.with_borrow_mut(|c| *c = code);
-    LAST_ERROR_CONTEXT.with_borrow_mut(|c| *c = CString::new(message).ok());
-}}
-
-fn clear_last_error() {{
-    LAST_ERROR_CODE.with_borrow_mut(|c| *c = 0);
-    LAST_ERROR_CONTEXT.with_borrow_mut(|c| *c = None);
-}}
-
-/// Return the last error code (0 means no error).
-/// # Safety
-/// Caller must ensure all pointer arguments are valid or null.
-/// Returned pointers must be freed with the appropriate free function.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_last_error_code() -> i32 {{
-    LAST_ERROR_CODE.with_borrow(|c| *c)
-}}
-
-/// Return the last error message. The pointer is valid until the next FFI call on this thread.
-/// # Safety
-/// Caller must ensure all pointer arguments are valid or null.
-/// Returned pointers must be freed with the appropriate free function.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_last_error_context() -> *const c_char {{
-    LAST_ERROR_CONTEXT.with_borrow(|ctx| {{
-        ctx.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())
-    }})
-}}"#,
-        prefix = prefix
+    crate::template_env::render(
+        "last_error.jinja",
+        minijinja::context! {
+            prefix => prefix,
+        },
     )
 }
 
@@ -412,18 +406,11 @@ pub unsafe extern "C" fn {prefix}_last_error_context() -> *const c_char {{
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_free_string(prefix: &str) -> String {
-    format!(
-        r#"/// Free a string previously returned by this library.
-/// # Safety
-/// Pointer must have been returned by this library, or be null.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_free_string(ptr: *mut c_char) {{
-    if !ptr.is_null() {{
-        // SAFETY: ptr was allocated by CString::into_raw; caller ensures no aliases.
-        unsafe {{ drop(CString::from_raw(ptr)); }}
-    }}
-}}"#,
-        prefix = prefix
+    crate::template_env::render(
+        "free_string.jinja",
+        minijinja::context! {
+            prefix => prefix,
+        },
     )
 }
 
@@ -432,17 +419,11 @@ pub unsafe extern "C" fn {prefix}_free_string(ptr: *mut c_char) {{
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_version(prefix: &str) -> String {
-    format!(
-        r#"/// Return the library version string. The pointer is static and must NOT be freed.
-/// # Safety
-/// Caller must ensure all pointer arguments are valid or null.
-/// Returned pointers must be freed with the appropriate free function.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {prefix}_version() -> *const c_char {{
-    static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
-    VERSION.as_ptr() as *const c_char
-}}"#,
-        prefix = prefix
+    crate::template_env::render(
+        "version_fn.jinja",
+        minijinja::context! {
+            prefix => prefix,
+        },
     )
 }
 
@@ -480,12 +461,5 @@ pub unsafe extern "C" fn {prefix}_free_bytes(ptr: *mut u8, len: usize, cap: usiz
 /// Generate a lazily-initialized tokio runtime helper for blocking on async
 /// functions from synchronous FFI entry points.
 pub(super) fn gen_ffi_tokio_runtime() -> String {
-    r#"fn get_ffi_runtime() -> &'static tokio::runtime::Runtime {
-    use std::sync::OnceLock;
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
-    })
-}"#
-    .to_string()
+    crate::template_env::render("ffi_tokio_runtime.jinja", minijinja::context! {})
 }

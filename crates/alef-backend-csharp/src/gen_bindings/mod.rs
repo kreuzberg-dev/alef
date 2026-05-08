@@ -646,31 +646,37 @@ pub(super) fn emit_named_param_setup(
                 }
                 let from_json_method = format!("{}FromJson", type_name.to_pascal_case());
                 if param.optional {
-                    out.push_str(&format!(
-                        "{indent}var {json_var} = {param_name} != null ? JsonSerializer.Serialize({param_name}, JsonOptions) : \"null\";\n"
+                    out.push_str(&crate::template_env::render(
+                        "named_param_json_optional.jinja",
+                        minijinja::context! { indent, json_var => &json_var, param_name => &param_name },
                     ));
                 } else {
-                    out.push_str(&format!(
-                        "{indent}var {json_var} = JsonSerializer.Serialize({param_name}, JsonOptions);\n"
+                    out.push_str(&crate::template_env::render(
+                        "named_param_json_serialize.jinja",
+                        minijinja::context! { indent, json_var => &json_var, param_name => &param_name },
                     ));
                 }
-                out.push_str(&format!(
-                    "{indent}var {handle_var} = NativeMethods.{from_json_method}({json_var});\n"
+                out.push_str(&crate::template_env::render(
+                    "named_param_handle_from_json.jinja",
+                    minijinja::context! { indent, handle_var => &handle_var, from_json_method => &from_json_method, json_var => &json_var },
                 ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 // Vec/Map: serialize to JSON string, marshal to native pointer
-                out.push_str(&format!(
-                    "{indent}var {json_var} = JsonSerializer.Serialize({param_name}, JsonOptions);\n"
+                out.push_str(&crate::template_env::render(
+                    "named_param_json_serialize.jinja",
+                    minijinja::context! { indent, json_var => &json_var, param_name => &param_name },
                 ));
-                out.push_str(&format!(
-                    "{indent}var {handle_var} = Marshal.StringToHGlobalAnsi({json_var});\n"
+                out.push_str(&crate::template_env::render(
+                    "named_param_handle_string.jinja",
+                    minijinja::context! { indent, handle_var => &handle_var, json_var => &json_var },
                 ));
             }
             TypeRef::Bytes => {
                 // byte[]: pin the managed array and pass pointer to native
-                out.push_str(&format!(
-                    "{indent}var {handle_var} = GCHandle.Alloc({param_name}, GCHandleType.Pinned);\n"
+                out.push_str(&crate::template_env::render(
+                    "named_param_handle_pin.jinja",
+                    minijinja::context! { indent, handle_var => &handle_var, param_name => &param_name },
                 ));
             }
             _ => {}
@@ -697,13 +703,22 @@ pub(super) fn emit_named_param_teardown(
                     continue;
                 }
                 let free_method = format!("{}Free", type_name.to_pascal_case());
-                out.push_str(&format!("        NativeMethods.{free_method}({handle_var});\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_free.jinja",
+                    minijinja::context! { indent => "        ", free_method => &free_method, handle_var => &handle_var },
+                ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                out.push_str(&format!("        Marshal.FreeHGlobal({handle_var});\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_hglobal.jinja",
+                    minijinja::context! { indent => "        ", handle_var => &handle_var },
+                ));
             }
             TypeRef::Bytes => {
-                out.push_str(&format!("        {handle_var}.Free();\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_gchandle.jinja",
+                    minijinja::context! { indent => "        ", handle_var => &handle_var },
+                ));
             }
             _ => {}
         }
@@ -727,13 +742,22 @@ pub(super) fn emit_named_param_teardown_indented(
                     continue;
                 }
                 let free_method = format!("{}Free", type_name.to_pascal_case());
-                out.push_str(&format!("{indent}NativeMethods.{free_method}({handle_var});\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_free.jinja",
+                    minijinja::context! { indent, free_method => &free_method, handle_var => &handle_var },
+                ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-                out.push_str(&format!("{indent}Marshal.FreeHGlobal({handle_var});\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_hglobal.jinja",
+                    minijinja::context! { indent, handle_var => &handle_var },
+                ));
             }
             TypeRef::Bytes => {
-                out.push_str(&format!("{indent}{handle_var}.Free();\n"));
+                out.push_str(&crate::template_env::render(
+                    "named_param_teardown_gchandle.jinja",
+                    minijinja::context! { indent, handle_var => &handle_var },
+                ));
             }
             _ => {}
         }

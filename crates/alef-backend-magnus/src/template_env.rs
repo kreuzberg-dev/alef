@@ -27,6 +27,30 @@ static TEMPLATES: &[(&str, &str)] = &[
         "visitor_bridge_wrapper.rs.jinja",
         include_str!("../templates/visitor_bridge_wrapper.rs.jinja"),
     ),
+    (
+        "visitor_bridge.rs.jinja",
+        include_str!("../templates/visitor_bridge.rs.jinja"),
+    ),
+    (
+        "visitor_method.rs.jinja",
+        include_str!("../templates/visitor_method.rs.jinja"),
+    ),
+    (
+        "main_rb_wrapper.rb.jinja",
+        include_str!("../templates/main_rb_wrapper.rb.jinja"),
+    ),
+    (
+        "native_rb_wrapper.rb.jinja",
+        include_str!("../templates/native_rb_wrapper.rb.jinja"),
+    ),
+    (
+        "version_rb_wrapper.rb.jinja",
+        include_str!("../templates/version_rb_wrapper.rb.jinja"),
+    ),
+    (
+        "sync_method_body.rs.jinja",
+        include_str!("../templates/sync_method_body.rs.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

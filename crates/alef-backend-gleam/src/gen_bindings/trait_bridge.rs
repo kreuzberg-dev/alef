@@ -30,8 +30,12 @@ pub(crate) fn emit_trait_bridge_shims(
     let trait_snake = trait_name.to_snake_case();
 
     // Documentation comment
-    out.push_str(&format!("/// Trait bridge shims for `{trait_name}`.\n"));
-    out.push_str("///\n");
+    out.push_str(&crate::template_env::render(
+        "trait_bridge_doc_header.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+        },
+    ));
     if let Some(ty) = trait_type {
         if !ty.doc.is_empty() {
             for line in ty.doc.lines() {
@@ -58,10 +62,15 @@ pub(crate) fn emit_trait_bridge_shims(
     // Pid type; Dynamic lets callers pass the Erlang PID term directly.
     if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
         imports.insert("import gleam/dynamic.{type Dynamic}");
-        out.push_str(&format!("@external(erlang, \"{nif_module}\", \"{register_fn}\")\n"));
-        out.push_str(&format!(
-            "pub fn register_{trait_snake}(pid: Dynamic, plugin_name: String) -> Nil\n"
+        out.push_str(&crate::template_env::render(
+            "register_fn.jinja",
+            minijinja::context! {
+                nif_module => nif_module,
+                register_fn => register_fn,
+                trait_snake => &trait_snake,
+            },
         ));
+        out.push('\n');
     }
 
     // Per-method response shims.
@@ -93,33 +102,35 @@ pub(crate) fn emit_trait_bridge_shims(
                 .unwrap_or_else(|| "String".to_string());
 
             // Doc comment with usage guidance.
-            out.push_str(&format!(
-                "/// Send the `{method_snake}` response back to the Rustler reply-registry.\n"
+            out.push_str(&crate::template_env::render(
+                "method_doc_header.jinja",
+                minijinja::context! {
+                    method_snake => &method_snake,
+                },
             ));
-            out.push_str("///\n");
-            out.push_str(&format!(
-                "/// Call this from your `handle_info/2` after processing a\n\
-                 /// `{{:trait_call, \"{method_snake}\", args_json, call_id}}` message:\n"
-            ));
-            out.push_str("///\n");
-            out.push_str(&format!(
-                "/// ```gleam\n\
-                 /// // pub fn handle_info(msg, state) {{\n\
-                 /// //   case msg {{\n\
-                 /// //     #(atom.create(\"{method_snake}\"), args_json, call_id) ->\n\
-                 /// //       let result = do_{method_snake}(args_json)\n\
-                 /// //       {nif_fn_name}(call_id, result)\n\
-                 /// //       actor.continue(state)\n\
-                 /// //     _ -> actor.continue(state)\n\
-                 /// //   }}\n\
-                 /// // }}\n\
-                 /// ```\n"
+            out.push_str(&crate::template_env::render(
+                "method_doc_usage.jinja",
+                minijinja::context! {
+                    method_snake => &method_snake,
+                    nif_fn_name => &nif_fn_name,
+                },
             ));
 
             imports.insert("import gleam/dynamic.{type Dynamic}");
-            out.push_str(&format!("@external(erlang, \"{nif_module}\", \"{nif_fn_name}\")\n"));
-            out.push_str(&format!(
-                "pub fn {nif_fn_name}(call_id: Dynamic, result: Result({ok_type}, {err_type})) -> Nil\n"
+            out.push_str(&crate::template_env::render(
+                "method_external.jinja",
+                minijinja::context! {
+                    nif_module => nif_module,
+                    nif_fn_name => &nif_fn_name,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "method_signature.jinja",
+                minijinja::context! {
+                    nif_fn_name => &nif_fn_name,
+                    ok_type => &ok_type,
+                    err_type => &err_type,
+                },
             ));
             out.push('\n');
         }
@@ -131,17 +142,27 @@ pub(crate) fn emit_trait_bridge_shims(
 /// These are emitted once per module regardless of how many bridges are active,
 /// because the Rustler side registers them as module-level NIFs used by all bridges.
 pub(crate) fn emit_trait_support_nifs(nif_module: &str, out: &mut String) {
-    out.push_str("/// Complete a pending trait call with a successful JSON result.\n");
-    out.push_str("/// Call this from your GenServer after processing a trait_call message.\n");
-    out.push_str(&format!(
-        "@external(erlang, \"{nif_module}\", \"complete_trait_call\")\n"
+    out.push_str(&crate::template_env::render(
+        "support_nif_doc.jinja",
+        minijinja::context! {},
     ));
-    out.push_str("pub fn complete_trait_call(reply_id: Int, result_json: String) -> Nil\n");
+    out.push('\n');
+    out.push_str(&crate::template_env::render(
+        "support_nif_complete.jinja",
+        minijinja::context! {
+            nif_module => nif_module,
+        },
+    ));
+    out.push('\n');
     out.push('\n');
 
     out.push_str("/// Fail a pending trait call with an error message.\n");
     out.push_str("/// Call this from your GenServer when processing a trait_call message fails.\n");
-    out.push_str(&format!("@external(erlang, \"{nif_module}\", \"fail_trait_call\")\n"));
-    out.push_str("pub fn fail_trait_call(reply_id: Int, error_message: String) -> Nil\n");
+    out.push_str(&crate::template_env::render(
+        "support_nif_fail.jinja",
+        minijinja::context! {
+            nif_module => nif_module,
+        },
+    ));
     out.push('\n');
 }

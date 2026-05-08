@@ -54,24 +54,25 @@ pub(super) fn render_test_function(
         format!("{description}.")
     };
 
-    if is_skipped(fixture, "python") {
+    let skip_decorator = if is_skipped(fixture, "python") {
         let reason = fixture
             .skip
             .as_ref()
             .and_then(|s| s.reason.as_deref())
             .unwrap_or("skipped for python");
         let escaped = escape_python(reason);
-        let _ = writeln!(out, "@pytest.mark.skip(reason=\"{escaped}\")");
-    }
+        format!("@pytest.mark.skip(reason=\"{escaped}\")\n")
+    } else {
+        String::new()
+    };
 
     let is_async = python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
-    if is_async {
-        let _ = writeln!(out, "@pytest.mark.asyncio");
-        let _ = writeln!(out, "async def test_{fn_name}() -> None:");
+    let async_decorator = if is_async {
+        "@pytest.mark.asyncio\n".to_string()
     } else {
-        let _ = writeln!(out, "def test_{fn_name}() -> None:");
-    }
-    let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
+        String::new()
+    };
+    let async_kw = if is_async { "async " } else { "" };
 
     let has_error_assertion = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
@@ -86,16 +87,17 @@ pub(super) fn render_test_function(
         arg_name_map,
     );
 
+    // Build visitor class if present
+    let mut visitor_class = String::new();
     if let Some(visitor_spec) = &fixture.visitor {
-        let _ = writeln!(out, "    class _TestVisitor:");
+        let _ = writeln!(visitor_class, "    class _TestVisitor:");
         for (method_name, action) in &visitor_spec.callbacks {
-            emit_python_visitor_method(out, method_name, action);
+            emit_python_visitor_method(&mut visitor_class, method_name, action);
         }
     }
 
-    for binding in &arg_bindings {
-        let _ = writeln!(out, "{binding}");
-    }
+    // Build arg bindings string
+    let arg_bindings_str = arg_bindings.iter().map(|b| format!("{b}\n")).collect::<String>();
 
     let call_args_str = {
         let mut exprs = kwarg_exprs.clone();
@@ -132,12 +134,32 @@ pub(super) fn render_test_function(
     };
 
     if has_error_assertion {
-        emit_error_assertion(out, fixture, &call_expr);
+        // Build error assertion block
+        let mut error_assertion_block = String::new();
+        emit_error_assertion(&mut error_assertion_block, fixture, &call_expr);
+
+        let ctx = minijinja::context! {
+            skip_decorator => skip_decorator,
+            async_decorator => async_decorator,
+            async_kw => async_kw,
+            fn_name => fn_name,
+            docstring => desc_with_period,
+            visitor_class => visitor_class,
+            arg_bindings => arg_bindings_str,
+            call_expr => call_expr,
+            is_error_assertion => true,
+            error_assertion_block => error_assertion_block,
+            result_assertions => String::new(),
+        };
+        let rendered = crate::template_env::render("python/test_function.jinja", ctx);
+        out.push_str(&rendered);
         return;
     }
 
+    // Build result and assertions
+    let mut result_assertions = String::new();
     emit_result_and_assertions(
-        out,
+        &mut result_assertions,
         fixture,
         e2e_config,
         call_config,
@@ -146,6 +168,22 @@ pub(super) fn render_test_function(
         field_resolver,
         result_is_simple,
     );
+
+    let ctx = minijinja::context! {
+        skip_decorator => skip_decorator,
+        async_decorator => async_decorator,
+        async_kw => async_kw,
+        fn_name => fn_name,
+        docstring => desc_with_period,
+        visitor_class => visitor_class,
+        arg_bindings => arg_bindings_str,
+        call_expr => call_expr,
+        is_error_assertion => false,
+        error_assertion_block => String::new(),
+        result_assertions => result_assertions,
+    };
+    let rendered = crate::template_env::render("python/test_function.jinja", ctx);
+    out.push_str(&rendered);
 }
 
 fn emit_error_assertion(out: &mut String, fixture: &Fixture, call_expr: &str) {

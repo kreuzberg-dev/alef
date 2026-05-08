@@ -1,7 +1,5 @@
 //! Test file and test case rendering for TypeScript e2e tests.
 
-use std::fmt::Write as FmtWrite;
-
 use crate::config::{ArgMapping, E2eConfig};
 use crate::escape::{escape_js, expand_fixture_templates, sanitize_ident};
 use crate::field_access::FieldResolver;
@@ -32,17 +30,13 @@ pub fn render_test_file(
     e2e_config: &E2eConfig,
 ) -> String {
     // `lang` is used for wasm visitor arg placement and override routing
-    let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
-
     let (needs_cache_isolation, has_configure) = detect_cache_isolation_needs(fixtures, e2e_config);
 
-    let import_line = if needs_cache_isolation && has_configure {
+    let import_vitest = if needs_cache_isolation && has_configure {
         "import { describe, expect, it, beforeAll, afterAll } from 'vitest';"
     } else {
         "import { describe, expect, it } from 'vitest';"
     };
-    let _ = writeln!(out, "{}", import_line);
 
     let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test() && !f.assertions.is_empty());
 
@@ -70,6 +64,9 @@ pub fn render_test_file(
         .filter(|arg| arg.arg_type == "handle")
         .map(|arg| format!("create{}", arg.name.to_upper_camel_case()))
         .collect();
+
+    let mut import_modules = String::new();
+    let mut import_node_fs = String::new();
 
     if has_non_http_fixtures {
         let mut imports: Vec<String> = if let Some(factory) = client_factory {
@@ -146,54 +143,38 @@ pub fn render_test_file(
                 }
             }
             let imports_str = imports.join(", ");
-            let _ = writeln!(out, "import {{ {imports_str} }} from '{pkg_name}';");
+            import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
         } else {
             let imports_str = imports.join(", ");
-            let _ = writeln!(out, "import {{ {imports_str} }} from '{pkg_name}';");
+            import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
         }
 
         if needs_cache_isolation && has_configure {
-            let _ = writeln!(out, "import {{ mkdtempSync, rmSync }} from 'node:fs';");
-            let _ = writeln!(out, "import {{ join }} from 'node:path';");
-            let _ = writeln!(out, "import {{ tmpdir }} from 'node:os';");
+            import_node_fs = "import { mkdtempSync, rmSync } from 'node:fs';\nimport { join } from 'node:path';\nimport { tmpdir } from 'node:os';".to_string();
         }
     }
 
-    if has_non_http_fixtures {
-        let _ = writeln!(out);
-        let _ = writeln!(out, "function _alefE2eText(value: unknown): string {{");
-        let _ = writeln!(out, "  return value == null ? \"\" : String(value);");
-        let _ = writeln!(out, "}}");
-        let _ = writeln!(out);
-        let _ = writeln!(out, "function _alefE2eItemTexts(item: unknown): string[] {{");
-        let _ = writeln!(out, "  if (item == null || typeof item !== \"object\") {{");
-        let _ = writeln!(out, "    return [_alefE2eText(item)];");
-        let _ = writeln!(out, "  }}");
-        let _ = writeln!(out, "  const record = item as Record<string, unknown>;");
-        let _ = writeln!(
-            out,
-            "  const itemsText = Array.isArray(record.items) ? record.items.map(_alefE2eText).join(\" \") : \"\";"
-        );
-        let _ = writeln!(
-            out,
-            "  return [_alefE2eText(item), _alefE2eText(record.kind), _alefE2eText(record.name), _alefE2eText(record.source), _alefE2eText(record.alias), _alefE2eText(record.text), _alefE2eText(record.signature), itemsText];"
-        );
-        let _ = writeln!(out, "}}");
-    }
+    // Build helper functions string
+    let helper_functions = if has_non_http_fixtures {
+        crate::template_env::render("typescript/helpers.jinja", minijinja::context! {})
+    } else {
+        String::new()
+    };
 
-    let _ = writeln!(out);
-    let _ = writeln!(out, "describe('{category}', () => {{");
-
+    // Build cache isolation setup
+    let mut cache_isolation_setup = String::new();
     if needs_cache_isolation && has_configure {
-        emit_cache_isolation_setup(&mut out);
+        emit_cache_isolation_setup(&mut cache_isolation_setup);
     }
 
+    // Build fixtures body
+    let mut fixtures_body = String::new();
     for (i, fixture) in fixtures.iter().enumerate() {
         if fixture.is_http_test() {
-            render_http_test_case(&mut out, fixture);
+            render_http_test_case(&mut fixtures_body, fixture);
         } else {
             render_test_case(
-                &mut out,
+                &mut fixtures_body,
                 fixture,
                 client_factory,
                 options_type,
@@ -205,12 +186,21 @@ pub fn render_test_file(
             );
         }
         if i + 1 < fixtures.len() {
-            let _ = writeln!(out);
+            fixtures_body.push('\n');
         }
     }
 
-    let _ = writeln!(out, "}});");
-    out
+    let ctx = minijinja::context! {
+        header => hash::header(CommentStyle::DoubleSlash),
+        import_vitest => import_vitest,
+        import_modules => import_modules,
+        import_node_fs => import_node_fs,
+        helper_functions => helper_functions,
+        category => category,
+        cache_isolation_setup => cache_isolation_setup,
+        fixtures_body => fixtures_body,
+    };
+    crate::template_env::render("typescript/test_file.jinja", ctx)
 }
 
 /// Resolve the function name for a call config, applying node-specific overrides.
@@ -245,9 +235,14 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     let description = fixture.description.replace('\'', "\\'");
 
     if http.expected_response.status_code == 101 {
-        let _ = writeln!(out, "  it.skip('{test_name}: {description}', async () => {{");
-        let _ = writeln!(out, "    // HTTP 101 WebSocket upgrade cannot be tested via fetch");
-        let _ = writeln!(out, "  }});");
+        let rendered = crate::template_env::render(
+            "typescript/http_test_skip_101.jinja",
+            minijinja::context! {
+                test_name => test_name,
+                description => description,
+            },
+        );
+        out.push_str(&rendered);
         return;
     }
 
@@ -275,99 +270,125 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     }
 
     let fixture_id = escape_js(&fixture.id);
-    let _ = writeln!(out, "  it('{test_name}: {description}', async () => {{");
-    let _ = writeln!(
-        out,
-        "    const mockUrl = `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
-    );
-
     let init_str = init_entries.join(", ");
-    let _ = writeln!(out, "    const response = await fetch(mockUrl, {{ {init_str} }});");
 
     let status = http.expected_response.status_code;
-    let _ = writeln!(out, "    expect(response.status).toBe({status});");
 
-    if let Some(expected_body) = &http.expected_response.body {
+    // Determine body type and prepare context
+    let (has_text_body, text_body) = if let Some(expected_body) = &http.expected_response.body {
         if !(expected_body.is_null() || expected_body.is_string() && expected_body.as_str() == Some("")) {
             if let serde_json::Value::String(s) = expected_body {
-                let escaped = escape_js(s);
-                let _ = writeln!(out, "    const text = await response.text();");
-                let _ = writeln!(out, "    expect(text).toBe('{escaped}');");
+                (true, escape_js(s))
             } else {
-                let js_val = json_to_js(expected_body);
-                let _ = writeln!(out, "    const data = await response.json();");
-                let _ = writeln!(out, "    expect(data).toEqual({js_val});");
+                (false, String::new())
             }
+        } else {
+            (false, String::new())
         }
-    } else if let Some(partial) = &http.expected_response.body_partial {
-        let _ = writeln!(out, "    const data = await response.json();");
-        if let Some(obj) = partial.as_object() {
-            for (key, val) in obj {
-                let js_key = escape_js(key);
-                let js_val = json_to_js(val);
-                let _ = writeln!(
-                    out,
-                    "    expect((data as Record<string, unknown>)['{js_key}']).toEqual({js_val});"
-                );
-            }
-        }
-    }
+    } else {
+        (false, String::new())
+    };
 
+    let (has_json_body, json_val) = if let Some(expected_body) = &http.expected_response.body {
+        if !(expected_body.is_null() || expected_body.is_string() && expected_body.as_str() == Some("")) {
+            if let serde_json::Value::String(_) = expected_body {
+                (false, String::new())
+            } else {
+                (true, json_to_js(expected_body))
+            }
+        } else {
+            (false, String::new())
+        }
+    } else {
+        (false, String::new())
+    };
+
+    let (has_partial_body, partial_body_checks) = if let Some(partial) = &http.expected_response.body_partial {
+        if let Some(obj) = partial.as_object() {
+            let checks: Vec<minijinja::Value> = obj
+                .iter()
+                .map(|(key, val)| {
+                    minijinja::context! {
+                        key => escape_js(key),
+                        js_val => json_to_js(val),
+                    }
+                })
+                .collect();
+            (true, checks)
+        } else {
+            (false, Vec::new())
+        }
+    } else {
+        (false, Vec::new())
+    };
+
+    // Build header assertions
+    let mut header_assertions: Vec<minijinja::Value> = Vec::new();
     for (header_name, header_value) in &http.expected_response.headers {
         let lower_name = header_name.to_lowercase();
         if lower_name == "content-encoding" {
             continue;
         }
         let escaped_name = escape_js(&lower_name);
-        match header_value.as_str() {
-            "<<present>>" => {
-                let _ = writeln!(
-                    out,
-                    "    expect(response.headers.get('{escaped_name}')).not.toBeNull();"
-                );
-            }
-            "<<absent>>" => {
-                let _ = writeln!(out, "    expect(response.headers.get('{escaped_name}')).toBeNull();");
-            }
-            "<<uuid>>" => {
-                let _ = writeln!(
-                    out,
-                    "    expect(response.headers.get('{escaped_name}')).toMatch(/^[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$/);"
-                );
-            }
-            exact => {
-                let escaped_val = escape_js(exact);
-                let _ = writeln!(
-                    out,
-                    "    expect(response.headers.get('{escaped_name}')).toBe('{escaped_val}');"
-                );
-            }
-        }
+        let (assertion_type, value) = match header_value.as_str() {
+            "<<present>>" => ("present", String::new()),
+            "<<absent>>" => ("absent", String::new()),
+            "<<uuid>>" => ("uuid", String::new()),
+            exact => ("exact", escape_js(exact)),
+        };
+        header_assertions.push(minijinja::context! {
+            name => escaped_name,
+            assertion_type => assertion_type,
+            value => value,
+        });
     }
 
+    // Build validation error assertions
     let body_has_content = matches!(&http.expected_response.body, Some(v)
         if !(v.is_null() || (v.is_string() && v.as_str() == Some(""))));
-    if let Some(validation_errors) = &http.expected_response.validation_errors {
-        if !validation_errors.is_empty() && !body_has_content {
-            let _ = writeln!(
-                out,
-                "    const body = await response.json() as {{ errors?: unknown[] }};"
-            );
-            let _ = writeln!(out, "    const errors = body.errors ?? [];");
-            for ve in validation_errors {
-                let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_js(s))).collect();
-                let loc_str = loc_js.join(", ");
-                let expanded_msg = expand_fixture_templates(&ve.msg);
-                let escaped_msg = escape_js(&expanded_msg);
-                let _ = writeln!(
-                    out,
-                    "    expect((errors as Array<Record<string, unknown>>).some((e) => JSON.stringify(e[\"loc\"]) === JSON.stringify([{loc_str}]) && String(e[\"msg\"]).includes(\"{escaped_msg}\"))).toBe(true);"
-                );
+    let (has_validation_errors, validation_errors) =
+        if let Some(validation_errors) = &http.expected_response.validation_errors {
+            if !validation_errors.is_empty() && !body_has_content {
+                let errors: Vec<minijinja::Value> = validation_errors
+                    .iter()
+                    .map(|ve| {
+                        let loc_js: Vec<String> = ve.loc.iter().map(|s| format!("\"{}\"", escape_js(s))).collect();
+                        let loc_str = loc_js.join(", ");
+                        let expanded_msg = expand_fixture_templates(&ve.msg);
+                        let escaped_msg = escape_js(&expanded_msg);
+                        minijinja::context! {
+                            loc_js => loc_str,
+                            escaped_msg => escaped_msg,
+                        }
+                    })
+                    .collect();
+                (true, errors)
+            } else {
+                (false, Vec::new())
             }
-        }
-    }
+        } else {
+            (false, Vec::new())
+        };
 
-    let _ = writeln!(out, "  }});");
+    let ctx = minijinja::context! {
+        test_name => test_name,
+        description => description,
+        method => method,
+        init_str => init_str,
+        fixture_id => fixture_id,
+        expected_status => status,
+        has_text_body => has_text_body,
+        text_body => text_body,
+        has_json_body => has_json_body,
+        json_val => json_val,
+        has_partial_body => has_partial_body,
+        partial_body_checks => partial_body_checks,
+        header_assertions => header_assertions,
+        has_validation_errors => has_validation_errors,
+        validation_errors => validation_errors,
+    };
+    let rendered = crate::template_env::render("typescript/http_test.jinja", ctx);
+    out.push_str(&rendered);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -453,37 +474,22 @@ fn render_test_case(
     let base_url_expr = format!("`${{process.env.MOCK_SERVER_URL}}/fixtures/{}`", fixture.id);
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
+    let is_skipped = fixture.assertions.is_empty();
 
-    if fixture.assertions.is_empty() {
-        let _ = writeln!(out, "  it.skip('{test_name}: {description}', async () => {{");
-        let _ = writeln!(out, "    // no assertions configured for this fixture in node e2e");
-        let _ = writeln!(out, "  }});");
-        return;
-    }
+    // Build client setup
+    let client_setup = if let Some(factory) = client_factory {
+        format!("const client = {factory}('test-key', {base_url_expr});")
+    } else {
+        String::new()
+    };
 
-    if expects_error {
-        let _ = writeln!(out, "  it('{test_name}: {description}', async () => {{");
-        if let Some(factory) = client_factory {
-            let _ = writeln!(out, "    const client = {factory}('test-key', {base_url_expr});");
+    // Build assertions body
+    let mut assertions_body = String::new();
+    for assertion in &fixture.assertions {
+        if assertion.assertion_type == "not_error" && !call_config.returns_result {
+            continue;
         }
-        let _ = writeln!(out, "    await expect(async () => {{");
-        for line in &setup_lines {
-            let _ = writeln!(out, "      {line}");
-        }
-        let _ = writeln!(out, "      await {call_expr};");
-        let _ = writeln!(out, "    }}).rejects.toThrow();");
-        let _ = writeln!(out, "  }});");
-        return;
-    }
-
-    let _ = writeln!(out, "  it('{test_name}: {description}', {async_kw}() => {{");
-
-    if let Some(factory) = client_factory {
-        let _ = writeln!(out, "    const client = {factory}('test-key', {base_url_expr});");
-    }
-
-    for line in &setup_lines {
-        let _ = writeln!(out, "    {line}");
+        render_assertion(&mut assertions_body, assertion, result_var, field_resolver);
     }
 
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
@@ -496,20 +502,22 @@ fn render_test_case(
         }
     });
 
-    if has_usable_assertion {
-        let _ = writeln!(out, "    const {result_var} = {await_kw}{call_expr};");
-    } else {
-        let _ = writeln!(out, "    {await_kw}{call_expr};");
-    }
-
-    for assertion in &fixture.assertions {
-        if assertion.assertion_type == "not_error" && !call_config.returns_result {
-            continue;
-        }
-        render_assertion(out, assertion, result_var, field_resolver);
-    }
-
-    let _ = writeln!(out, "  }});");
+    let ctx = minijinja::context! {
+        test_name => test_name,
+        description => description,
+        async_kw => async_kw,
+        client_setup => client_setup,
+        setup_lines => setup_lines,
+        call_expr => call_expr,
+        has_usable_assertion => has_usable_assertion,
+        result_var => result_var,
+        await_kw => await_kw,
+        assertions_body => assertions_body,
+        expects_error => expects_error,
+        is_skipped => is_skipped,
+    };
+    let rendered = crate::template_env::render("typescript/test_function.jinja", ctx);
+    out.push_str(&rendered);
 }
 
 /// Check whether any arg at index `idx` or later has a non-null value in `input`.
@@ -821,21 +829,8 @@ fn detect_cache_isolation_needs(fixtures: &[&Fixture], e2e_config: &E2eConfig) -
 
 /// Emit the cache isolation setup code (beforeAll/afterAll blocks).
 fn emit_cache_isolation_setup(out: &mut String) {
-    let _ = writeln!(out, "  let _tslpTestCacheDir: string;");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "  beforeAll(() => {{");
-    let _ = writeln!(out, "    _tslpTestCacheDir = mkdtempSync(join(tmpdir(), 'tslp-e2e-'));");
-    let _ = writeln!(out, "    configure({{ cacheDir: _tslpTestCacheDir }});");
-    let _ = writeln!(out, "  }});");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "  afterAll(() => {{");
-    let _ = writeln!(out, "    configure({{}});");
-    let _ = writeln!(
-        out,
-        "    try {{ rmSync(_tslpTestCacheDir, {{ recursive: true, force: true }}); }} catch (_e) {{}}"
-    );
-    let _ = writeln!(out, "  }});");
-    let _ = writeln!(out);
+    let rendered = crate::template_env::render("typescript/cache_isolation_setup.jinja", minijinja::context! {});
+    out.push_str(&rendered);
 }
 
 #[cfg(test)]

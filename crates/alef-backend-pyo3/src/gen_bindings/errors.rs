@@ -23,7 +23,6 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
         if !seen_classes.insert(error.name.clone()) {
             continue; // skip duplicate base class
         }
-        out.push_str(&format!("class {}(Exception):\n", error.name));
         let doc = if !error.doc.is_empty() {
             let first_line = sanitize_python_doc(&doc_first_paragraph_joined(&error.doc));
             if first_line.ends_with('.') {
@@ -34,8 +33,10 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
         } else {
             class_name_to_docstring(&error.name)
         };
-        out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
-        out.push_str("\n\n");
+        out.push_str(&crate::template_env::render(
+            "exception_base_class.jinja",
+            minijinja::context! { name => &error.name, doc => doc },
+        ));
 
         // Per-variant exception subclasses
         for variant in &error.variants {
@@ -43,7 +44,6 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
             if !seen_classes.insert(variant_name.clone()) {
                 continue; // skip duplicate variant class
             }
-            out.push_str(&format!("class {}({}):\n", variant_name, error.name));
             let doc = if !variant.doc.is_empty() {
                 let first_line = sanitize_python_doc(&doc_first_paragraph_joined(&variant.doc));
                 if first_line.ends_with('.') {
@@ -54,8 +54,10 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
             } else {
                 class_name_to_docstring(&variant_name)
             };
-            out.push_str(&format!("    \"\"\"{}\"\"\"\n", doc));
-            out.push_str("\n\n");
+            out.push_str(&crate::template_env::render(
+                "exception_variant_class.jinja",
+                minijinja::context! { name => &variant_name, base => &error.name, doc => doc },
+            ));
         }
     }
 
@@ -75,8 +77,9 @@ pub(super) fn gen_init_py(
 
     let mut out = String::with_capacity(1024);
     out.push_str(&hash::header(CommentStyle::Hash));
-    out.push_str(&format!(
-        "\"\"\"Public API for the conversion library.\n\nVersion: {version}\n\"\"\"\n\n"
+    out.push_str(&crate::template_env::render(
+        "init_header.jinja",
+        minijinja::context! { version => version },
     ));
 
     // Collect enum names referenced by config types (user-facing enums only)
@@ -224,11 +227,18 @@ pub(super) fn gen_init_py(
         if import_line.len() > 88 {
             out.push_str("from .api import (\n");
             for name in &imports_from_api {
-                out.push_str(&format!("    {},\n", name));
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push_str("\n");
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&format!("{}\n", import_line));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
         }
     }
     if !imports_from_exceptions.is_empty() {
@@ -236,24 +246,41 @@ pub(super) fn gen_init_py(
         if import_line.len() > 88 {
             out.push_str("from .exceptions import (\n");
             for name in &imports_from_exceptions {
-                out.push_str(&format!("    {},\n", name));
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push_str("\n");
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&format!("{}\n", import_line));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
         }
     }
     // Data enums are Rust-backed structs; re-export from the native module.
     if !imports_from_native.is_empty() {
         let import_line = format!("from .{module_name} import {}", imports_from_native.join(", "));
         if import_line.len() > 88 {
-            out.push_str(&format!("from .{module_name} import (\n"));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("from .{module_name} import (\n") },
+            ));
             for name in &imports_from_native {
-                out.push_str(&format!("    {},\n", name));
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push_str("\n");
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&format!("{}\n", import_line));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
         }
     }
     if !imports_from_options.is_empty() {
@@ -261,11 +288,18 @@ pub(super) fn gen_init_py(
         if import_line.len() > 88 {
             out.push_str("from .options import (\n");
             for name in &imports_from_options {
-                out.push_str(&format!("    {},\n", name));
+                out.push_str(&crate::template_env::render(
+                    "trait_bridge/indented_import_item.jinja",
+                    minijinja::context! { name => name },
+                ));
+                out.push_str("\n");
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&format!("{}\n", import_line));
+            out.push_str(&crate::template_env::render(
+                "trait_bridge/single_line.jinja",
+                minijinja::context! { text => format!("{}\n", import_line) },
+            ));
         }
     }
 
@@ -286,10 +320,16 @@ pub(super) fn gen_init_py(
 
     out.push_str("\n__all__ = [\n");
     for name in &all_items {
-        out.push_str(&format!("    \"{name}\",\n"));
+        out.push_str(&crate::template_env::render(
+            "init_all_entry.jinja",
+            minijinja::context! { name => name },
+        ));
     }
     out.push_str("]\n\n");
-    out.push_str(&format!("__version__ = \"{version}\"\n"));
+    out.push_str(&crate::template_env::render(
+        "version_declaration.jinja",
+        minijinja::context! { version => version },
+    ));
 
     out
 }

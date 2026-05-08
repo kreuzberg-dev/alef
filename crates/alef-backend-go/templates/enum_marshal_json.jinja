@@ -1,0 +1,8 @@
+// MarshalJSON implements json.Marshaler for the enum type.
+func (e {{ enum_name }}) MarshalJSON() ([]byte, error) {
+	if e.Variant != "" {
+		return json.Marshal(e.Variant)
+	}
+	type alias {{ enum_name }}
+	return json.Marshal(alias(e))
+}

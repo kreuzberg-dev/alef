@@ -50,7 +50,14 @@ pub(crate) fn emit_function(
         zig_return_type(&f.return_type)
     };
 
-    out.push_str(&format!("pub fn {}({}) {} {{\n", f.name, params.join(", "), return_ty));
+    out.push_str(&crate::template_env::render(
+        "function_signature.jinja",
+        minijinja::context! {
+            func_name => &f.name,
+            params => params.join(", "),
+            return_ty => &return_ty,
+        },
+    ));
 
     // Emit allocation/conversion boilerplate for each parameter.
     for p in &f.params {
@@ -65,12 +72,32 @@ pub(crate) fn emit_function(
         // Fallible function: call C, then check last_error_code(). Zig requires `_`
         // (single underscore) to discard a value; named locals must be used.
         if matches!(f.return_type, TypeRef::Unit) {
-            out.push_str(&format!("    _ = {c_call};\n"));
+            out.push_str(&crate::template_env::render(
+                "function_call_unit.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
         } else {
-            out.push_str(&format!("    const _result = {c_call};\n"));
+            out.push_str(&crate::template_env::render(
+                "function_call_result.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
         }
-        out.push_str(&format!("    if (c.{prefix}_last_error_code() != 0) {{\n"));
-        out.push_str(&format!("        return _first_error({error_type});\n"));
+        out.push_str(&crate::template_env::render(
+            "function_error_check.jinja",
+            minijinja::context! {
+                prefix => prefix,
+            },
+        ));
+        out.push_str(&crate::template_env::render(
+            "function_error_return.jinja",
+            minijinja::context! {
+                error_type => error_type,
+            },
+        ));
         out.push_str("    }\n");
 
         // Free owned C strings after the error check.
@@ -83,7 +110,12 @@ pub(crate) fn emit_function(
             out.push_str("    return;\n");
         } else {
             let ret_expr = unwrap_return_expr("_result", &f.return_type);
-            out.push_str(&format!("    return {ret_expr};\n"));
+            out.push_str(&crate::template_env::render(
+                "function_return.jinja",
+                minijinja::context! {
+                    ret_expr => ret_expr,
+                },
+            ));
         }
     } else {
         // Infallible function: free params, return directly.
@@ -91,11 +123,26 @@ pub(crate) fn emit_function(
             emit_param_free(p, out);
         }
         if matches!(f.return_type, TypeRef::Unit) {
-            out.push_str(&format!("    {c_call};\n"));
+            out.push_str(&crate::template_env::render(
+                "function_call_unit.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
         } else {
-            out.push_str(&format!("    const _result = {c_call};\n"));
+            out.push_str(&crate::template_env::render(
+                "function_call_result.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
             let ret_expr = unwrap_return_expr("_result", &f.return_type);
-            out.push_str(&format!("    return {ret_expr};\n"));
+            out.push_str(&crate::template_env::render(
+                "function_return.jinja",
+                minijinja::context! {
+                    ret_expr => ret_expr,
+                },
+            ));
         }
     }
 
@@ -138,20 +185,34 @@ fn emit_param_conversion(p: &ParamDef, out: &mut String) {
     let name = &p.name;
     match &p.ty {
         TypeRef::String | TypeRef::Path => {
-            out.push_str(&format!(
-                "    const {name}_z: [:0]u8 = try std.fmt.allocPrintSentinel(\n"
+            out.push_str(&crate::template_env::render(
+                "param_string_line1.jinja",
+                minijinja::context! {
+                    name => name,
+                },
             ));
-            out.push_str(&format!("        std.heap.c_allocator, \"{{s}}\", .{{{name}}}, 0,\n"));
-            out.push_str("    );\n");
+            out.push_str(&crate::template_env::render(
+                "param_string_line2.jinja",
+                minijinja::context! {
+                    name => name,
+                },
+            ));
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             // Caller supplies JSON bytes; we need a null-terminated C string copy.
             out.push_str("    // Vec/Map parameters are passed as JSON strings across the FFI boundary.\n");
-            out.push_str(&format!(
-                "    const {name}_z: [:0]u8 = try std.fmt.allocPrintSentinel(\n"
+            out.push_str(&crate::template_env::render(
+                "param_string_line1.jinja",
+                minijinja::context! {
+                    name => name,
+                },
             ));
-            out.push_str(&format!("        std.heap.c_allocator, \"{{s}}\", .{{{name}}}, 0,\n"));
-            out.push_str("    );\n");
+            out.push_str(&crate::template_env::render(
+                "param_string_line2.jinja",
+                minijinja::context! {
+                    name => name,
+                },
+            ));
         }
         _ => {
             // No conversion needed — Bytes uses .ptr/.len directly, primitives pass through.
@@ -167,7 +228,12 @@ fn emit_param_free(p: &ParamDef, out: &mut String) {
     let name = &p.name;
     match &p.ty {
         TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            out.push_str(&format!("    std.heap.c_allocator.free({name}_z);\n"));
+            out.push_str(&crate::template_env::render(
+                "param_free.jinja",
+                minijinja::context! {
+                    name => name,
+                },
+            ));
         }
         _ => {}
     }
@@ -202,9 +268,19 @@ fn unwrap_return_expr(raw: &str, ty: &TypeRef) -> String {
             // Copy the null-terminated C string to an owned Zig allocation, then free the C copy.
             let mut s = String::new();
             s.push_str("blk: {\n");
-            s.push_str(&format!("        const slice = std.mem.sliceTo({raw}, 0);\n"));
+            s.push_str(&crate::template_env::render(
+                "return_unwrap_slice.jinja",
+                minijinja::context! {
+                    raw => raw,
+                },
+            ));
             s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");
-            s.push_str(&format!("        _free_string({raw});\n"));
+            s.push_str(&crate::template_env::render(
+                "return_unwrap_free.jinja",
+                minijinja::context! {
+                    raw => raw,
+                },
+            ));
             s.push_str("        break :blk owned;\n");
             s.push_str("    }");
             s
