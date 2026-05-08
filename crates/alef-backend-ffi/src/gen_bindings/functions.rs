@@ -233,7 +233,7 @@ pub(super) fn gen_method_wrapper(
             &format!("{type_name}::{method_name}"),
             has_error || is_bytes_result,
         ));
-        out.push('}');
+        out.push_str("\n}");
         return out;
     }
 
@@ -534,7 +534,7 @@ pub(super) fn gen_method_wrapper(
         }
     }
 
-    out.push('}');
+    out.push_str("\n}");
     out
 }
 
@@ -662,7 +662,7 @@ pub(super) fn gen_free_function(
             func_name,
             has_error || is_bytes_result,
         ));
-        out.push('}');
+        out.push_str("\n}");
         return out;
     }
 
@@ -886,7 +886,7 @@ pub(super) fn gen_free_function(
         }
     }
 
-    out.push('}');
+    out.push_str("\n}");
     out
 }
 
