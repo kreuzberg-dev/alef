@@ -630,7 +630,7 @@ fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::config::ArgMapping],
     fixture_id: &str,
-    module_name: &str,
+    _module_name: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -649,21 +649,19 @@ fn build_args_and_setup(
             continue;
         }
 
-        // The Zig binding's `ExtractionConfig` mirror is a pure-data struct
-        // and the binding does not expose a JSON-loading helper. Emit a
-        // default-initialized literal for the `config` parameter so the
-        // generated test compiles and exercises the call path. Fixture
-        // configuration content is not applied — the alternative would be a
-        // bespoke JSON parser, which is out of scope for the codegen.
-        //
-        // `std.mem.zeroes` rejects tagged unions whose first payload type
-        // cannot be zeroed (e.g. `OutputFormat` containing string variants);
-        // `std.mem.zeroInit` zeroes the majority of fields and accepts an
-        // override map for the ones that can't be safely zeroed.
+        // The Zig wrapper accepts struct parameters (e.g. `ExtractionConfig`)
+        // as JSON `[]const u8`, converting them to opaque FFI handles via the
+        // `<prefix>_<snake>_from_json` helper at the binding layer. Emit the
+        // fixture's configuration value as a JSON string literal, falling back
+        // to `"{}"` when the fixture omits a config so callers exercise the
+        // default path.
         if arg.name == "config" && arg.arg_type == "json_object" {
-            parts.push(format!(
-                "std.mem.zeroInit({module_name}.ExtractionConfig, .{{ .output_format = {module_name}.OutputFormat{{ .plain = {{}} }} }})"
-            ));
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let json_str = match input.get(field) {
+                Some(serde_json::Value::Null) | None => "{}".to_string(),
+                Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
+            };
+            parts.push(format!("\"{}\"", escape_zig(&json_str)));
             continue;
         }
 
