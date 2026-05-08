@@ -241,14 +241,76 @@ fn render_test_file(
     result_is_simple: bool,
     enum_fields: &HashSet<String>,
 ) -> String {
+    // Detect whether any fixture in this group uses a file_path or bytes arg — if so
+    // the test class chdir's to <repo>/test_documents at setUp time so the
+    // fixture-relative paths in test bodies (e.g. "docx/fake.docx") resolve correctly.
+    // The Swift binding's `extractBytes`/`extractFile` e2e wrappers consult
+    // `FIXTURES_DIR` first, otherwise resolve against the current directory.
+    // Mirrors the Ruby/Python conftest pattern that chdirs to test_documents.
+    let needs_chdir = fixtures.iter().any(|f| {
+        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        call_config
+            .args
+            .iter()
+            .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
+    });
+
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     let _ = writeln!(out, "import XCTest");
+    let _ = writeln!(out, "import Foundation");
     let _ = writeln!(out, "import {module_name}");
     let _ = writeln!(out, "import RustBridge");
     let _ = writeln!(out);
     let _ = writeln!(out, "/// E2e tests for category: {category}.");
     let _ = writeln!(out, "final class {class_name}: XCTestCase {{");
+
+    if needs_chdir {
+        // chdir once for the class so all fixture file_path arguments resolve relative
+        // to the repository's test_documents directory. The path traversal mirrors the
+        // package layout: packages/swift/.. /.. /test_documents.
+        let _ = writeln!(out, "    override class func setUp() {{");
+        let _ = writeln!(out, "        super.setUp()");
+        let _ = writeln!(
+            out,
+            "        let _testDocs = URL(fileURLWithPath: #filePath)"
+        );
+        let _ = writeln!(
+            out,
+            "            .deletingLastPathComponent() // KreuzbergTests/"
+        );
+        let _ = writeln!(
+            out,
+            "            .deletingLastPathComponent() // Tests/"
+        );
+        let _ = writeln!(
+            out,
+            "            .deletingLastPathComponent() // packages/swift/"
+        );
+        let _ = writeln!(
+            out,
+            "            .deletingLastPathComponent() // packages/"
+        );
+        let _ = writeln!(
+            out,
+            "            .deletingLastPathComponent() // <repo root>"
+        );
+        let _ = writeln!(
+            out,
+            "            .appendingPathComponent(\"test_documents\")"
+        );
+        let _ = writeln!(
+            out,
+            "        if FileManager.default.fileExists(atPath: _testDocs.path) {{"
+        );
+        let _ = writeln!(
+            out,
+            "            FileManager.default.changeCurrentDirectoryPath(_testDocs.path)"
+        );
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+    }
 
     for fixture in fixtures {
         if fixture.is_http_test() {
