@@ -138,15 +138,15 @@ fn emit_param_conversion(p: &ParamDef, out: &mut String) {
     let name = &p.name;
     match &p.ty {
         TypeRef::String | TypeRef::Path => {
-            out.push_str(&format!("    const {name}_z: [*:0]u8 = try std.fmt.allocPrintZ(\n"));
-            out.push_str(&format!("        std.heap.c_allocator, \"{{s}}\", .{{{name}}},\n"));
+            out.push_str(&format!("    const {name}_z: [:0]u8 = try std.fmt.allocPrintSentinel(\n"));
+            out.push_str(&format!("        std.heap.c_allocator, \"{{s}}\", .{{{name}}}, 0,\n"));
             out.push_str("    );\n");
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             // Caller supplies JSON bytes; we need a null-terminated C string copy.
             out.push_str("    // Vec/Map parameters are passed as JSON strings across the FFI boundary.\n");
-            out.push_str(&format!("    const {name}_z: [*:0]u8 = try std.fmt.allocPrintZ(\n"));
-            out.push_str(&format!("        std.heap.c_allocator, \"{{s}}\", .{{{name}}},\n"));
+            out.push_str(&format!("    const {name}_z: [:0]u8 = try std.fmt.allocPrintSentinel(\n"));
+            out.push_str(&format!("        std.heap.c_allocator, \"{{s}}\", .{{{name}}}, 0,\n"));
             out.push_str("    );\n");
         }
         _ => {
@@ -164,7 +164,7 @@ fn emit_param_free(p: &ParamDef, out: &mut String) {
     match &p.ty {
         TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             out.push_str(&format!(
-                "    std.heap.c_allocator.free({name}_z[0..std.mem.len({name}_z)]);\n"
+                "    std.heap.c_allocator.free({name}_z);\n"
             ));
         }
         _ => {}
