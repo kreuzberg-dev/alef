@@ -1916,3 +1916,107 @@ fn test_stubs_non_void_methods_have_return_statements() {
         "stub bodies must throw \\RuntimeException to satisfy PHPStan level 9; content:\n{content}"
     );
 }
+
+#[test]
+fn test_vec_named_struct_parameter() {
+    let backend = PhpBackend;
+
+    // Create test API with Vec<Item> parameter
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Item".to_string(),
+            rust_path: "test_lib::Item".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("id", TypeRef::Primitive(PrimitiveType::U32), false),
+                make_field("name", TypeRef::String, false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "batch_process".to_string(),
+            rust_path: "test_lib::batch_process".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "items".to_string(),
+                ty: TypeRef::Vec(Box::new(TypeRef::Named("Item".to_string()))),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: "Batch process items".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+    };
+
+    let config = make_config();
+
+    // Generate bindings
+    let result = backend.generate_bindings(&api, &config);
+    assert!(
+        result.is_ok(),
+        "Generation should succeed for Vec<NamedStruct> parameter"
+    );
+
+    let files = result.unwrap();
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+
+    // Should contain the Item type definition
+    assert!(
+        lib_rs.content.contains("pub struct Item"),
+        "Should contain Item struct definition"
+    );
+
+    // Should contain the batch_process function with Vec<Item> parameter handling
+    assert!(
+        lib_rs.content.contains("batch_process"),
+        "Should contain batch_process function"
+    );
+
+    // The generated code should contain array iteration logic for Vec<Item>
+    // (looking for the manual conversion pattern we implemented)
+    assert!(
+        lib_rs.content.contains("items_core") || lib_rs.content.contains(".iter()"),
+        "Should contain array iteration logic for Vec<Item> parameter conversion"
+    );
+
+    // Should NOT contain a panic stub or empty body for the function
+    assert!(
+        !lib_rs
+            .content
+            .contains(&format!("fn batch_process() {{\n        unimplemented!()")),
+        "Should NOT generate unimplemented stub for batch_process"
+    );
+}
