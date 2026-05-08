@@ -249,15 +249,20 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     };
     let shutdown_body = generator.gen_sync_method_body(&shutdown_method, spec);
 
+    // Split method bodies into lines for template iteration
+    let version_lines: Vec<&str> = version_body.lines().collect();
+    let init_lines: Vec<&str> = init_body.lines().collect();
+    let shutdown_lines: Vec<&str> = shutdown_body.lines().collect();
+
     Some(crate::template_env::render(
         "generators/trait_bridge/plugin_impl.jinja",
         minijinja::context! {
             super_trait_path => super_trait_path,
             wrapper_name => wrapper,
             error_path => error_path,
-            version_body => version_body,
-            init_body => init_body,
-            shutdown_body => shutdown_body,
+            version_lines => version_lines,
+            init_lines => init_lines,
+            shutdown_lines => shutdown_lines,
         },
     ))
 }
