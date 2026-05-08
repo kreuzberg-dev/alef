@@ -131,10 +131,18 @@ impl E2eCodegen for PhpCodegen {
         // Check if any fixture is an HTTP test (needs mock server bootstrap).
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
 
+        // Check if any fixture uses file_path or bytes args (needs chdir to test_documents).
+        let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+            let cc = e2e_config.resolve_call(f.call.as_deref());
+            cc.args
+                .iter()
+                .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
+        });
+
         // Generate bootstrap.php that loads both autoloaders and optionally starts the mock server.
         files.push(GeneratedFile {
             path: output_base.join("bootstrap.php"),
-            content: render_bootstrap(&pkg_path, has_http_fixtures),
+            content: render_bootstrap(&pkg_path, has_http_fixtures, has_file_fixtures),
             generated_header: true,
         });
 
@@ -272,7 +280,7 @@ fn render_phpunit_xml() -> String {
     crate::template_env::render("php/phpunit.xml.jinja", minijinja::context! {})
 }
 
-fn render_bootstrap(pkg_path: &str, has_http_fixtures: bool) -> String {
+fn render_bootstrap(pkg_path: &str, has_http_fixtures: bool, has_file_fixtures: bool) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     crate::template_env::render(
         "php/bootstrap.php.jinja",
@@ -280,6 +288,7 @@ fn render_bootstrap(pkg_path: &str, has_http_fixtures: bool) -> String {
             header => header,
             pkg_path => pkg_path,
             has_http_fixtures => has_http_fixtures,
+            has_file_fixtures => has_file_fixtures,
         },
     )
 }

@@ -155,6 +155,24 @@ pub(crate) fn gen_php_struct(
         {
             attrs.push("serde(default = \"crate::serde_defaults::bool_true\")".to_string());
         }
+        // Enum-backed String fields (PHP maps unit enums to plain `String`) default to "" via
+        // `String::default()`, but the core enum doesn't accept `""` as a valid variant. Skip
+        // serializing the empty string so the core deserializer falls back to the enum's own
+        // `Default` (which always corresponds to a real variant).
+        if cfg.has_serde {
+            let enum_backed_string = match &field.ty {
+                TypeRef::Named(n) if enum_names.contains(n) => true,
+                TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n)),
+                _ => false,
+            };
+            if enum_backed_string {
+                if field.optional {
+                    attrs.push("serde(skip_serializing_if = \"Option::is_none\")".to_string());
+                } else {
+                    attrs.push("serde(skip_serializing_if = \"String::is_empty\")".to_string());
+                }
+            }
+        }
         attrs
     };
 
