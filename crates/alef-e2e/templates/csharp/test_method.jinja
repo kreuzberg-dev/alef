@@ -28,31 +28,31 @@
     public {{ return_type }} Test_{{ method_name }}()
     {
         // {{ description }}
-{%- if client_factory_setup %}
+{% if client_factory_setup %}
 {{ client_factory_setup }}
-{%- endif %}
-{%- if return_type == "async Task" %}
+{% endif %}
+{% if return_type == "async Task" %}
         await Assert.ThrowsAnyAsync<{{ exception_class }}>(() => {{ call_target }}.{{ call_expr }});
-{%- else %}
+{% else %}
         Assert.ThrowsAny<{{ exception_class }}>(() => {{ call_target }}.{{ call_expr }});
-{%- endif %}
+{% endif %}
     }
 {%- else %}
     [Fact]
     public {{ return_type }} Test_{{ method_name }}()
     {
         // {{ description }}
-{%- if client_factory_setup %}
+{% if client_factory_setup %}
 {{ client_factory_setup }}
-{%- endif %}
-{%- for line in setup_lines %}
+{% endif %}
+{% for line in setup_lines %}
         {{ line }}
-{%- endfor %}
-{%- if has_usable_assertion %}
+{% endfor %}
+{% if has_usable_assertion %}
         var {{ result_var }} = {{ async_kw }}{{ call_target }}.{{ call_expr }};
 {{ assertions_body }}
-{%- else %}
+{% else %}
         {{ async_kw }}{{ call_target }}.{{ call_expr }};
-{%- endif %}
+{% endif %}
     }
 {%- endif %}

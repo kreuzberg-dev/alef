@@ -12,13 +12,14 @@
 #}
 {{ header }}
 {{ using_imports }}
-namespace {{ namespace }};
-
-/// <summary>E2e tests for category: {{ category }}.</summary>
-public class {{ test_class }}
+namespace {{ namespace }}
 {
-    {{ config_options_field }}
+    /// <summary>E2e tests for category: {{ category }}.</summary>
+    public class {{ test_class }}
+    {
+        {{ config_options_field }}
 
 {{ fixtures_body }}
 {{ visitor_class_decls }}
+    }
 }
