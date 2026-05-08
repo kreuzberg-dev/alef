@@ -446,6 +446,37 @@ pub unsafe extern "C" fn {prefix}_version() -> *const c_char {{
     )
 }
 
+// ---------------------------------------------------------------------------
+// free_bytes
+// ---------------------------------------------------------------------------
+
+/// Generate a `{prefix}_free_bytes` companion that reconstructs and drops a
+/// heap-allocated `Vec<u8>` previously returned via the out-param convention
+/// (`out_ptr / out_len / out_cap`).
+///
+/// This is emitted once per FFI module alongside `{prefix}_free_string` so
+/// that callers can safely release byte buffers returned by functions whose
+/// Rust signature is `Result<Vec<u8>>`.
+pub(super) fn gen_free_bytes(prefix: &str) -> String {
+    format!(
+        r#"/// Free a byte buffer previously returned by this library via out-params.
+/// `ptr`, `len`, and `cap` must match the values written by the library function,
+/// or the call must pass `ptr = null` (in which case it is a no-op).
+/// # Safety
+/// Pointer must have been returned by this library (via out_ptr / out_len / out_cap
+/// out-params), or be null. The len and cap values must be unchanged since the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {prefix}_free_bytes(ptr: *mut u8, len: usize, cap: usize) {{
+    if !ptr.is_null() {{
+        // SAFETY: ptr/len/cap were produced by Vec::into_raw_parts (or equivalent)
+        // by this library; caller must not have mutated them.
+        unsafe {{ drop(Vec::from_raw_parts(ptr, len, cap)); }}
+    }}
+}}"#,
+        prefix = prefix
+    )
+}
+
 /// Generate a lazily-initialized tokio runtime helper for blocking on async
 /// functions from synchronous FFI entry points.
 pub(super) fn gen_ffi_tokio_runtime() -> String {

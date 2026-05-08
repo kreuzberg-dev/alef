@@ -14,7 +14,10 @@ use alef_adapters::AdapterBodies;
 use alef_core::config::AdapterPattern;
 
 use functions::{gen_free_function, gen_method_wrapper, gen_streaming_method_wrapper};
-use helpers::{gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_string, gen_last_error, gen_version};
+use helpers::{
+    gen_build_rs, gen_cbindgen_toml, gen_ffi_tokio_runtime, gen_free_bytes, gen_free_string, gen_last_error,
+    gen_version,
+};
 use types::{
     gen_enum_free, gen_enum_from_i32, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json, gen_field_accessor,
     gen_type_free, gen_type_from_json, gen_type_to_json,
@@ -194,6 +197,9 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
 
     // free_string helper
     builder.add_item(&gen_free_string(prefix));
+
+    // free_bytes helper — companion for functions returning Result<Vec<u8>> via out-params
+    builder.add_item(&gen_free_bytes(prefix));
 
     // version helper
     builder.add_item(&gen_version(prefix));
@@ -1348,6 +1354,125 @@ options_type = "ConversionOptions"
         assert!(
             !lib.content.contains("convert(&html_str, options_rs, visitor_handle"),
             "convert_with_visitor must NOT pass visitor as 3rd arg in OptionsField path"
+        );
+    }
+
+    /// Fix 1 regression test: `type_ref_to_rust_type` must use the configured `core_import`
+    /// for `TypeRef::Named` variants, not a hard-coded `"kreuzberg"` prefix.
+    ///
+    /// When a crate uses `core_import = "my_custom_lib"`, generated Vec/Map turbofish type
+    /// annotations that reference Named types must use `my_custom_lib::TypeName`, not
+    /// `kreuzberg::TypeName`.
+    #[test]
+    fn test_core_import_parameterization_uses_configured_import_not_hardcoded_kreuzberg() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-custom-lib"
+sources = ["src/lib.rs"]
+core_import = "my_custom_lib"
+"#,
+        );
+        let api = sample_api();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The generated code must not contain the old hard-coded kreuzberg prefix
+        // in any type annotation position.  (It may legitimately appear in doc comments
+        // or string literals, but never as a Rust path qualifier in generated code.)
+        assert!(
+            !lib.content.contains("kreuzberg::"),
+            "generated code must not hard-code 'kreuzberg::' when core_import is 'my_custom_lib'; got:\n{}",
+            &lib.content[..lib.content.len().min(2000)]
+        );
+        // The configured import must appear as a qualifier for core types
+        assert!(
+            lib.content.contains("my_custom_lib::"),
+            "generated code must use the configured core_import 'my_custom_lib::' as a type qualifier"
+        );
+    }
+
+    /// Fix 2 regression test: functions returning `Result<Vec<u8>>` must use the out-param
+    /// convention (i32 return + out_ptr/out_len/out_cap parameters) and the module must
+    /// include a companion `{prefix}_free_bytes` function.
+    #[test]
+    fn test_bytes_result_return_uses_out_params_and_emits_free_bytes() {
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![FunctionDef {
+                name: "render_page".to_string(),
+                rust_path: "my_lib::render_page".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "page_index".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::U32),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Bytes,
+                is_async: false,
+                error_type: Some("MyError".to_string()),
+                doc: "Render a page to PNG bytes.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            }],
+            enums: vec![],
+            errors: vec![],
+        };
+        let config = sample_config();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        // The function must use out-params, not return *mut u8 directly
+        assert!(
+            lib.content.contains("out_ptr: *mut *mut u8"),
+            "Result<Vec<u8>> function must have out_ptr out-param"
+        );
+        assert!(
+            lib.content.contains("out_len: *mut usize"),
+            "Result<Vec<u8>> function must have out_len out-param"
+        );
+        assert!(
+            lib.content.contains("out_cap: *mut usize"),
+            "Result<Vec<u8>> function must have out_cap out-param"
+        );
+        // The function must return i32, not *mut u8
+        assert!(
+            lib.content.contains("fn my_lib_render_page("),
+            "function must be emitted with the correct FFI name"
+        );
+        // Vec::into_raw_parts must be used to decompose the result
+        assert!(
+            lib.content.contains("into_raw_parts()"),
+            "Result<Vec<u8>> success arm must use Vec::into_raw_parts()"
+        );
+        // The module must include a free_bytes companion
+        assert!(
+            lib.content.contains("fn my_lib_free_bytes("),
+            "module must include my_lib_free_bytes companion function"
+        );
+        assert!(
+            lib.content.contains("Vec::from_raw_parts(ptr, len, cap)"),
+            "free_bytes must reconstruct and drop the Vec via Vec::from_raw_parts"
         );
     }
 }
