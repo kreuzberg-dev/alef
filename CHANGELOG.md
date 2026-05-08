@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- chore(scaffold/php): rename emitted PHP CS Fixer config from `php-cs-fixer.php` to
+  `.php-cs-fixer.dist.php`. The dotted name is the default `php-cs-fixer` looks up
+  without `--config`, so users (and the kreuzberg-dev pre-commit `php-cs-fixer` hook)
+  pick up the alef-managed config instead of any hand-rolled `php-cs-fixer.php` left
+  over from earlier scaffolds. The `composer.json` `format`/`format:check`/`lint:fix`
+  scripts drop their `--config php-cs-fixer.php` flag for the same reason.
+
 ### Fixed
+
+- fix(scaffold/php): exclude the `stubs/` directory from the emitted
+  `.php-cs-fixer.dist.php` finder. PHP CS Fixer's `@PHP82Migration` rule (enabled by
+  the scaffolded config) promotes class-level property declarations into constructor
+  parameters and *deletes* the explicit `public Type $name;` lines. Stub files (e.g.
+  `stubs/<extension>_extension.php`) are scanned by phpstan and rely on those explicit
+  property declarations to know what fields the native classes expose, so this rewrite
+  silently breaks `phpstan` (every property access becomes "unknown class"). Adding
+  `->notPath('stubs')` keeps stubs untouched.
 
 - fix(error-gen/java): wrap class doc comments in `/** ... */` and stop swallowing the
   newline after the `package …;` declaration. The `{%-` whitespace control on the doc
