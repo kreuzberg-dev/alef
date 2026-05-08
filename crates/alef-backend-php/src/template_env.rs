@@ -65,6 +65,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "php_vec_string_refs_let_binding.jinja",
         include_str!("../templates/php_vec_string_refs_let_binding.jinja"),
     ),
+    (
+        "php_vec_named_struct_let_binding.jinja",
+        include_str!("../templates/php_vec_named_struct_let_binding.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

@@ -238,7 +238,7 @@ pub(crate) fn gen_php_call_args(params: &[alef_core::ir::ParamDef], opaque_types
 /// Generate let bindings for non-opaque Named params in free functions.
 /// Creates `let {name}_core: {core_import}::{TypeName} = {name}.clone().into();`
 /// so the function body can pass `&{name}_core` instead of `{name}.clone().into()`.
-/// Also handles Vec<NonOpaqueCustomType> by creating let bindings for the converted vector.
+/// Also handles Vec<NonOpaqueCustomType> by iterating PHP arrays and extracting each element.
 pub(crate) fn gen_php_named_let_bindings(
     params: &[alef_core::ir::ParamDef],
     opaque_types: &AHashSet<String>,
@@ -246,6 +246,7 @@ pub(crate) fn gen_php_named_let_bindings(
 ) -> String {
     use minijinja::context;
     let mut out = String::new();
+
     for p in params {
         let php_name = to_php_name(&p.name);
         match &p.ty {
@@ -263,14 +264,14 @@ pub(crate) fn gen_php_named_let_bindings(
             TypeRef::Vec(inner) => {
                 if let TypeRef::Named(name) = inner.as_ref() {
                     if !opaque_types.contains(name.as_str()) {
-                        // Vec<NonOpaqueCustomType>: create a binding that converts each element
+                        // Vec<NonOpaqueCustomType> (php_class struct): manually iterate PHP array
                         out.push_str(&crate::template_env::render(
-                            "php_vec_named_let_binding.jinja",
+                            "php_vec_named_struct_let_binding.jinja",
                             context! {
                                 php_name => php_name,
                                 is_optional => p.optional,
                                 core_import => core_import,
-                                type_name => name,
+                                struct_name => name,
                             },
                         ));
                     }
