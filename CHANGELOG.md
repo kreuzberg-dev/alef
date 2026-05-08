@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(go-backend): substitute `{fn_options_from_json}` and `{fn_options_free}` placeholders
+  in `gen_visitor.rs`. Two `out.push_str("...")` calls embedded the placeholders verbatim
+  inside a raw Rust string literal, so the generated Go visitor code shipped unsubstituted
+  Jinja-style braces (e.g. `cOptions = C.{fn_options_from_json}(tmpStr)`), failing
+  `gofmt` parse. Switched to `format!` with the existing locals; doubled the unrelated
+  Go-block `{`/`}` so they survive the format string.
+
 - fix(ffi-backend): emit a string literal instead of `format!("include/{header_name}")` in
   the generated `build.rs` go-copy step. `header_name` is interpolated at codegen time, so
   the rendered code only ever passes a literal — clippy's `clippy::useless_format` then
