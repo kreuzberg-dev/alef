@@ -111,6 +111,16 @@ impl Backend for ZigBackend {
         for en in &api.enums {
             top_level_names.insert(en.name.clone());
         }
+        // Set of struct (non-enum, non-trait) type names. Function parameters
+        // typed as `Named(name)` where `name ∈ struct_names` are passed across
+        // the FFI as opaque handles via JSON, since cbindgen emits them as
+        // opaque types in the generated header.
+        let struct_names: std::collections::HashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait)
+            .map(|t| t.name.clone())
+            .collect();
         // Functions matching `register_{trait_snake}` / `unregister_{trait_snake}` for
         // any configured trait bridge are emitted by `emit_trait_bridge` with a
         // proper vtable signature. Skip the regular C-FFI shim to avoid duplicate
@@ -139,7 +149,14 @@ impl Backend for ZigBackend {
             if trait_bridge_fn_names.contains(&f.name) {
                 continue;
             }
-            emit_function(f, &prefix, &declared_errors, &top_level_names, &mut content);
+            emit_function(
+                f,
+                &prefix,
+                &declared_errors,
+                &top_level_names,
+                &struct_names,
+                &mut content,
+            );
             content.push('\n');
         }
 
