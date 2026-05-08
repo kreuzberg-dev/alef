@@ -119,6 +119,31 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
         }
     }
 
+    // For tagged enums with variants having single-tuple Named fields, add explicit variant-specific
+    // properties (not via getters, which NAPI-RS doesn't generate .d.ts for) to enable direct property access.
+    enum_def.variants.iter().for_each(|v| {
+        if v.fields.len() != 1 {
+            return;
+        }
+        let field = &v.fields[0];
+        let is_tuple = field
+            .name
+            .strip_prefix('_')
+            .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
+        if !is_tuple {
+            return;
+        }
+        if let TypeRef::Named(inner_type_name) = &field.ty {
+            let variant_name_snake = alef_codegen::naming::to_python_name(&v.name);
+            let binding_type = format!("{prefix}{inner_type_name}");
+            let js_name = alef_codegen::naming::to_node_name(&v.name);
+            if js_name != variant_name_snake {
+                lines.push(format!("    #[napi(js_name = \"{js_name}\")]"));
+            }
+            lines.push(format!("    pub {variant_name_snake}: Option<{binding_type}>,"));
+        }
+    });
+
     lines.push("}".to_string());
 
     // Default impl
@@ -137,7 +162,7 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
 
     // For tagged enums where every non-empty variant is a single-tuple Named field, emit a
     // #[napi] impl block with per-variant getters so callers can do `.excel.sheetCount` etc.
-    let tuple_named_variants: Vec<(&alef_core::ir::EnumVariant, &str)> = enum_def
+    let _tuple_named_variants: Vec<(&alef_core::ir::EnumVariant, &str)> = enum_def
         .variants
         .iter()
         .filter_map(|v| {
@@ -159,50 +184,6 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
             }
         })
         .collect();
-
-    let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
-    if has_data_variants && !tuple_named_variants.is_empty() {
-        lines.push(String::new());
-        lines.push("#[napi]".to_string());
-        lines.push(format!("impl {prefix}{} {{", enum_def.name));
-
-        for (variant, inner_type_name) in &tuple_named_variants {
-            // Snake_case for the Rust method name; lowercase for the serde tag discriminator.
-            let variant_name_snake = alef_codegen::naming::to_python_name(&variant.name);
-            let variant_name_lower = variant.name.to_lowercase();
-            // Discriminator: explicit serde_rename, or lowercased variant name (mirrors methods.rs)
-            let discriminator = variant
-                .serde_rename
-                .as_deref()
-                .unwrap_or(&variant_name_lower)
-                .to_string();
-            let js_method_name = alef_codegen::naming::to_node_name(&variant.name);
-            let binding_type = format!("{prefix}{inner_type_name}");
-
-            lines.push(String::new());
-            if js_method_name != variant_name_snake {
-                lines.push(format!("    #[napi(getter, js_name = \"{js_method_name}\")]"));
-            } else {
-                lines.push("    #[napi(getter)]".to_string());
-            }
-            lines.push(format!(
-                "    pub fn {variant_name_snake}(&self) -> napi::bindgen_prelude::Result<{binding_type}> {{"
-            ));
-            lines.push(format!("        if self.{tag_field}_tag != \"{discriminator}\" {{"));
-            lines.push(format!(
-                "            return Err(napi::bindgen_prelude::Error::new(napi::bindgen_prelude::Status::InvalidArg, format!(\"variant is not {discriminator}, got {{}}\", self.{tag_field}_tag)));"
-            ));
-            lines.push("        }".to_string());
-            lines.push("        self._0.as_ref()".to_string());
-            lines.push("            .ok_or_else(|| napi::bindgen_prelude::Error::new(napi::bindgen_prelude::Status::InvalidArg, \"field _0 is empty\"))".to_string());
-            lines.push(format!(
-                "            .and_then(|s| serde_json::from_str::<{binding_type}>(s).map_err(|e| napi::bindgen_prelude::Error::new(napi::bindgen_prelude::Status::InvalidArg, format!(\"failed to deserialize {binding_type}: {{}}\", e))))"
-            ));
-            lines.push("    }".to_string());
-        }
-
-        lines.push("}".to_string());
-    }
 
     lines.join("\n")
 }

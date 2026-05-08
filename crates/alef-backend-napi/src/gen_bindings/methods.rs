@@ -206,6 +206,25 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         let _variant_field_names: std::collections::BTreeSet<String> =
             variant.fields.iter().map(|f| f.name.clone()).collect();
 
+        // Helper to build variant-specific optional property initializations
+        // (e.g., excel: Some(...), for FormatMetadata::Excel variant)
+        let variant_data_inits = if variant.fields.len() == 1 {
+            let field = &variant.fields[0];
+            let is_tuple = field
+                .name
+                .strip_prefix('_')
+                .is_some_and(|s| s.chars().all(|c| c.is_ascii_digit()));
+            if is_tuple && matches!(&field.ty, alef_core::ir::TypeRef::Named(_)) {
+                // This variant has single-tuple Named field that should be exposed as optional property
+                let variant_name_snake = alef_codegen::naming::to_python_name(&variant.name);
+                vec![format!("{variant_name_snake}: Some(_0.into())")]
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
         if variant.fields.is_empty() {
             writeln!(
                 out,
@@ -292,13 +311,17 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                     }
                 })
                 .collect();
+
+            // Combine all field inits (base fields + variant-specific optional properties)
+            let all_inits: Vec<String> = field_inits.iter().chain(variant_data_inits.iter()).cloned().collect();
+
             if is_tuple {
                 writeln!(
                     out,
                     "            {core_path}::{}({}) => Self {{ {tag_field}_tag: \"{tag_value}\".to_string(), {} }},",
                     variant.name,
                     destructured.join(", "),
-                    field_inits.join(", ")
+                    all_inits.join(", ")
                 )
                 .ok();
             } else {
@@ -307,7 +330,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                     "            {core_path}::{} {{ {} }} => Self {{ {tag_field}_tag: \"{tag_value}\".to_string(), {} }},",
                     variant.name,
                     destructured.join(", "),
-                    field_inits.join(", ")
+                    all_inits.join(", ")
                 )
                 .ok();
             }
