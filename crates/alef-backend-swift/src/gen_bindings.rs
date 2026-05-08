@@ -433,47 +433,51 @@ fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("}\n\n");
 
     // extractFileSync(path:mimeType:configJson:) - 3-arg form
-    out.push_str("/// E2e wrapper: deserialises `configJson` -> ExtractionConfig, then calls extractFileSync.\n");
+    out.push_str("/// E2e wrapper: resolves fixture path, deserialises `configJson` -> ExtractionConfig, then calls extractFileSync.\n");
     out.push_str("public func extractFileSync(\n");
     out.push_str("    _ path: String,\n");
     out.push_str("    _ mimeType: String?,\n");
     out.push_str("    _ configJson: String\n");
     out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
     out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractFileSync(path, mimeType, config)\n");
+    out.push_str("    return try extractFileSync(resolvedPath, mimeType, config)\n");
     out.push_str("}\n\n");
 
     // extractFileSync(path:configJson:) - 2-arg form (no mimeType)
-    out.push_str("/// E2e wrapper: deserialises `configJson` -> ExtractionConfig, nil mimeType.\n");
+    out.push_str("/// E2e wrapper: resolves fixture path, deserialises `configJson` -> ExtractionConfig, nil mimeType.\n");
     out.push_str("public func extractFileSync(\n");
     out.push_str("    _ path: String,\n");
     out.push_str("    _ configJson: String\n");
     out.push_str(") throws -> ExtractionResult {\n");
+    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
     out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractFileSync(path, nil, config)\n");
+    out.push_str("    return try extractFileSync(resolvedPath, nil, config)\n");
     out.push_str("}\n\n");
 
     // extractFile(path:mimeType:configJson:) - async 3-arg form
     out.push_str(
-        "/// E2e wrapper (async): deserialises `configJson` -> ExtractionConfig, then calls extractFileSync.\n",
+        "/// E2e wrapper (async): resolves fixture path, deserialises `configJson` -> ExtractionConfig, then calls extractFileSync.\n",
     );
     out.push_str("public func extractFile(\n");
     out.push_str("    _ path: String,\n");
     out.push_str("    _ mimeType: String?,\n");
     out.push_str("    _ configJson: String\n");
     out.push_str(") async throws -> ExtractionResult {\n");
+    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
     out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractFileSync(path, mimeType, config)\n");
+    out.push_str("    return try extractFileSync(resolvedPath, mimeType, config)\n");
     out.push_str("}\n\n");
 
     // extractFile(path:configJson:) - async 2-arg form (no mimeType)
-    out.push_str("/// E2e wrapper (async): deserialises `configJson` -> ExtractionConfig, nil mimeType.\n");
+    out.push_str("/// E2e wrapper (async): resolves fixture path, deserialises `configJson` -> ExtractionConfig, nil mimeType.\n");
     out.push_str("public func extractFile(\n");
     out.push_str("    _ path: String,\n");
     out.push_str("    _ configJson: String\n");
     out.push_str(") async throws -> ExtractionResult {\n");
+    out.push_str("    let resolvedPath = resolveFixturePath(path).path\n");
     out.push_str("    let config = try extractionConfigFromJson(configJson)\n");
-    out.push_str("    return try extractFileSync(path, nil, config)\n");
+    out.push_str("    return try extractFileSync(resolvedPath, nil, config)\n");
     out.push_str("}\n\n");
 
     // batchExtractBytesSync(jsonItems:)
