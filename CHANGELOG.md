@@ -51,6 +51,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `magnus_hash_constructor.jinja` and `rustler_kwargs_constructor.jinja`. The `field.assignment`
   strings already terminate in `,`, so the templates were emitting `,,` and Rust rejected the
   generated kwargs constructors with `expected identifier, found ','`.
+- fix(jinja-env): set `keep_trailing_newline` on every backend's minijinja `Environment`. With
+  `trim_blocks` + `lstrip_blocks` already on, `keep_trailing_newline=false` (the minijinja default)
+  stripped the final `\n` from each rendered template, so the struct/impl builders' `out.push_str`
+  concatenations collapsed onto one line. `///` doc comments then swallowed the rest of the file,
+  producing "unclosed delimiter" errors throughout `pyo3`, `napi`, `php`, and `wasm` bindings.
+  Brings `alef-codegen`, `alef-e2e`, and the `extendr`, `kotlin`, `napi`, `rustler`, `wasm`
+  backends in line with the `csharp`/`dart`/`gleam`/`java`/`magnus`/`php`/`pyo3`/`swift`/`zig`
+  backends that already set this.
+- fix(e2e/java): replace `${{project.basedir}}` with `${project.basedir}` in `pom.xml.jinja`. The
+  doubled braces were intended to escape the literal Maven property syntax but Jinja parses the
+  inner `{{project.basedir}}` as an undefined-variable expression and refuses to render the
+  template. Single braces pass through untouched and the emitted pom still contains the correct
+  `${project.basedir}` Maven reference.
+- fix(php-backend): align `php_vec_string_refs_let_binding.jinja` to the `param_name` context key
+  used by `helpers.rs`. The template referenced an undefined `php_name` and rendered as empty
+  string, emitting `let _refs: Vec<&str> = .iter().map(...)` (no receiver) for sanitized
+  `Vec<String>`/`Vec<&str>` parameters and breaking compilation of the PHP binding.
 
 ## [0.14.36] - 2026-05-08
 
