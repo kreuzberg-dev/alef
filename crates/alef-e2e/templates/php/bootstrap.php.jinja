@@ -11,7 +11,14 @@ require_once __DIR__ . '/vendor/autoload.php';
 $pkgAutoloader = __DIR__ . '/{{ pkg_path }}/vendor/autoload.php';
 if (file_exists($pkgAutoloader)) {
     require_once $pkgAutoloader;
-}{% if has_http_fixtures %}
+}{% if has_file_fixtures %}
+
+// Change to the test_documents directory so that fixture file paths like
+// "pdf/fake_memo.pdf" resolve correctly when running phpunit from e2e/php/.
+$_test_documents = __DIR__ . '/../../test_documents';
+if (is_dir($_test_documents)) {
+    chdir($_test_documents);
+}{% endif %}{% if has_http_fixtures %}
 
 // Spawn the mock HTTP server binary for HTTP fixture tests.
 $mockServerBin = __DIR__ . '/../rust/target/release/mock-server';
