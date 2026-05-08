@@ -277,7 +277,7 @@ pub(super) fn gen_method_wrapper(
         write!(
             out,
             "{}",
-            gen_param_conversion(p, has_error, &method.return_type, core_import)
+            gen_param_conversion(p, has_error, is_bytes_result, &method.return_type, core_import)
         )
         .ok();
     }
@@ -679,7 +679,7 @@ pub(super) fn gen_free_function(
         write!(
             out,
             "{}",
-            gen_param_conversion(p, has_error, &func.return_type, core_import)
+            gen_param_conversion(p, has_error, is_bytes_result, &func.return_type, core_import)
         )
         .ok();
     }
@@ -941,6 +941,7 @@ fn type_ref_to_rust_type(ty: &TypeRef) -> String {
 pub(super) fn gen_param_conversion(
     param: &ParamDef,
     has_error: bool,
+    is_bytes_result: bool,
     return_type: &TypeRef,
     _core_import: &str,
 ) -> String {
@@ -948,7 +949,7 @@ pub(super) fn gen_param_conversion(
     let rs_name = format!("{name}_rs");
     let mut out = String::with_capacity(2048);
 
-    let fail_ret = if has_error && is_void_return(return_type) {
+    let fail_ret = if is_bytes_result || (has_error && is_void_return(return_type)) {
         "return -1;"
     } else if is_void_return(return_type) {
         "return;"
