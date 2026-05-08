@@ -711,7 +711,7 @@ pub(super) fn gen_named_let_bindings_by_ref(
                     )
                 };
                 bindings.push_str(&binding);
-                bindings.push_str("    ");
+                bindings.push_str("\n    ");
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {
                 let binding = if p.optional {
@@ -740,7 +740,7 @@ pub(super) fn gen_named_let_bindings_by_ref(
                     }
                 };
                 bindings.push_str(&binding);
-                bindings.push_str("    ");
+                bindings.push_str("\n    ");
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref => {
                 let binding = if p.optional {
@@ -759,7 +759,7 @@ pub(super) fn gen_named_let_bindings_by_ref(
                     )
                 };
                 bindings.push_str(&binding);
-                bindings.push_str("    ");
+                bindings.push_str("\n    ");
             }
             _ => {}
         }
@@ -815,7 +815,7 @@ fn gen_named_let_bindings_inner(
                     )
                 };
                 bindings.push_str(&binding);
-                bindings.push_str("    ");
+                bindings.push_str("\n    ");
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())) => {
                 let promoted = promote && crate::shared::is_promoted_optional(params, idx);
@@ -849,7 +849,7 @@ fn gen_named_let_bindings_inner(
                     )
                 };
                 bindings.push_str(&binding);
-                bindings.push_str("    ");
+                bindings.push_str("\n    ");
             }
             // Vec<String> with is_ref=true: core expects &[&str].
             // Convert Vec<String> to Vec<&str> via intermediate binding.
@@ -870,7 +870,7 @@ fn gen_named_let_bindings_inner(
                     )
                 };
                 bindings.push_str(&binding);
-                bindings.push_str("    ");
+                bindings.push_str("\n    ");
             }
             // Sanitized Vec<String> (originally Vec<tuple>): deserialize each JSON string.
             TypeRef::Vec(inner)
@@ -1459,7 +1459,7 @@ pub fn gen_async_body(
             let result_handling = if has_error {
                 format!(
                     "let result = {core_call}.await\n            \
-                     .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?"
+                     .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;"
                 )
             } else if is_unit_return {
                 format!("{core_call}.await;")
@@ -1496,7 +1496,7 @@ pub fn gen_async_body(
             let result_handling = if has_error {
                 format!(
                     "let result = {core_call}.await\n        \
-                     .map_err(|e| JsValue::from_str(&e.to_string()))?"
+                     .map_err(|e| JsValue::from_str(&e.to_string()))?;"
                 )
             } else if is_unit_return {
                 format!("{core_call}.await;")
@@ -1520,7 +1520,7 @@ pub fn gen_async_body(
             let result_handling = if has_error {
                 format!(
                     "let result = {core_call}.await\n            \
-                     .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?"
+                     .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;"
                 )
             } else if is_unit_return {
                 format!("{core_call}.await;")
