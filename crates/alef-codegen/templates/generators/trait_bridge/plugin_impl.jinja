@@ -4,20 +4,20 @@ impl {{ super_trait_path }} for {{ wrapper_name }} {
     }
 
     fn version(&self) -> String {
-{%- for line in version_lines %}
+{% for line in version_lines %}
         {{ line }}
-{%- endfor %}
+{% endfor %}
     }
 
     fn initialize(&self) -> std::result::Result<(), {{ error_path }}> {
-{%- for line in init_lines %}
+{% for line in init_lines %}
         {{ line }}
-{%- endfor %}
+{% endfor %}
     }
 
     fn shutdown(&self) -> std::result::Result<(), {{ error_path }}> {
-{%- for line in shutdown_lines %}
+{% for line in shutdown_lines %}
         {{ line }}
-{%- endfor %}
+{% endfor %}
     }
 }

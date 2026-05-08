@@ -762,7 +762,10 @@ mod tests {
         let out = gen_method_wrapper(&typ, &method, "krz", &opaque);
         // The function signature may span multiple lines (method_receiver_instance + params + method_return).
         // Check for the receiver and name components rather than the full single-line form.
-        assert!(out.contains("func (h *Client) Close("), "expected receiver+method in: {out}");
+        assert!(
+            out.contains("func (h *Client) Close("),
+            "expected receiver+method in: {out}"
+        );
         assert!(out.contains("unsafe.Pointer(h.ptr)"));
     }
 
