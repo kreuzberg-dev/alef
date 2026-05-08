@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-05-08
+
+### Changed
+
+- refactor(backends): migrate all parameterized code emission in every `alef-backend-*` crate to
+  minijinja template `render()` calls. `writeln!(out, "...")` and `push_str(&format!(...))` are no
+  longer used for interpolated output in any backend; all variable substitution goes through named
+  `.jinja` templates registered in each crate's `template_env.rs`. Static `push_str("literal\n")`
+  calls with no interpolation are unchanged. Templates use `trim_blocks = true`,
+  `lstrip_blocks = true`, and `keep_trailing_newline = true`. Affected crates: `alef-backend-ffi`,
+  `alef-backend-napi`, `alef-backend-pyo3`, `alef-backend-wasm`, `alef-backend-csharp`,
+  `alef-backend-java`, `alef-backend-go`, `alef-backend-magnus`, `alef-backend-php`,
+  `alef-backend-rustler`, `alef-backend-extendr`, `alef-backend-swift`, `alef-backend-zig`.
+
 ## [0.14.36] - 2026-05-08
 
 ### Changed
