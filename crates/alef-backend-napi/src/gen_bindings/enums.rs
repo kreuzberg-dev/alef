@@ -70,6 +70,9 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> Str
     ];
 
     for variant in &enum_def.variants {
+        if let Some(rename) = variant.serde_rename.as_deref() {
+            lines.push(format!("    #[napi(value = \"{rename}\")]"));
+        }
         lines.push(format!("    {},", variant.name));
     }
 

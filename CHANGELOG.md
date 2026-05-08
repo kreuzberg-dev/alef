@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(napi-backend): represent `#[serde(untagged)]` data enums as a thin
+  `serde_json::Value` wrapper struct with manual `FromNapiValue`/`ToNapiValue`
+  impls. Previously the variants were flattened to a `#[napi(string_enum)]`
+  and the inner data was lost, so JS callers couldn't pass either side of
+  `Single(String)` / `Multiple(Vec<String>)`-style unions.
+- fix(napi-backend): map `Json` fields to `serde_json::Value` (relying on
+  napi-rs's `serde-json` feature) so JS callers can pass arbitrary
+  objects/arrays/scalars instead of having to pre-serialize to a string.
+  Threaded a new `json_as_value` flag through `ConversionConfig`.
+- fix(napi-backend): per-field `#[serde(rename = "...")]` is now emitted as
+  `#[napi(js_name = "...")]` so JS-side property names match the wire format
+  (e.g. `tool_type` with rename `"type"` is exposed as `type`). Per-variant
+  `#[serde(rename = "...")]` is now emitted as `#[napi(value = "...")]` on
+  the corresponding string-enum variant.
+- fix(napi-backend): streaming adapter methods (e.g. `chat_stream`) now
+  return `Vec<Js{Item}>` directly so JS callers receive a typed array of
+  chunks; previously the body called `serde_json::to_string` and the
+  IR-declared return type was `String`, forcing JS callers to parse JSON
+  manually.
+- fix(e2e/typescript): added `result_is_simple` support so that
+  bytes-returning methods (e.g. `speech`) can be tested with length-only
+  assertions on the result directly, mirroring the Python codegen. Also
+  added `api_key_var` env-skip support so live-API smoke tests skip when
+  the API key is not set instead of falling through to the mock server.
+- fix(e2e/python): client setup is now appended to the test function body
+  instead of being written to the outer file buffer; the Jinja migration
+  regression placed `client = create_client(...)` lines outside the test
+  functions, breaking every mock-driven test.
+- fix(e2e/python): use positional args when invoking the binding method
+  instead of keyword args (`client.chat(request)` rather than
+  `client.chat(request=request)`), since the binding's keyword name may
+  differ from the alef.toml-declared call arg name (e.g. core uses `req`
+  while the call is named `request`).
 - fix(java-backend): wrap `readJsonList` null-check inside try-catch so that
   `checkLastError()`'s `Throwable` is caught and rethrown as `KreuzbergRsException`,
   resolving Java compile error on FFI method calls.

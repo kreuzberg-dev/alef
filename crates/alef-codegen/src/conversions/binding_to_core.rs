@@ -94,6 +94,8 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             }
             let conversion = if optionalized && !field.optional {
                 gen_optionalized_field_to_core(&field.name, &field.ty, config, false)
+            } else if field.optional {
+                gen_optionalized_field_to_core(&field.name, &field.ty, config, true)
             } else {
                 field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
             };
@@ -704,7 +706,9 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
         if let TypeRef::Map(_k, v) = ty {
             if matches!(v.as_ref(), TypeRef::Json) {
                 if optional {
-                    return format!("{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k.into(), v)).collect()");
+                    return format!(
+                        "{name}: val.{name}.unwrap_or_default().into_iter().map(|(k, v)| (k.into(), v)).collect()"
+                    );
                 }
                 return format!("{name}: val.{name}.into_iter().map(|(k, v)| (k.into(), v)).collect()");
             }

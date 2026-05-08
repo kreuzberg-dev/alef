@@ -155,6 +155,21 @@ impl Backend for NapiBackend {
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Node)?;
 
+        // Map "OwnerType.method" -> streaming item type. The napi backend needs to
+        // override the IR-declared `String` return type with `Vec<{prefix}{item}>`
+        // for streaming adapters, since the generated body returns chunks directly
+        // as a JS array instead of a serialized JSON string.
+        let streaming_item_types: ahash::AHashMap<String, String> = config
+            .adapters
+            .iter()
+            .filter(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming))
+            .filter_map(|a| {
+                let owner = a.owner_type.as_deref()?;
+                let item = a.item_type.as_deref()?;
+                Some((format!("{owner}.{}", a.name), item.to_string()))
+            })
+            .collect();
+
         // JsVisitorRef: a thin wrapper around napi::Object that implements Clone.
         // This newtype makes Object<'static> work with napi(object) field derivations,
         // which require Clone. Uses std::sync::Arc to make the handle cheaply cloneable.
@@ -238,6 +253,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &opaque_types,
                     &prefix,
                     &adapter_bodies,
+                    &streaming_item_types,
                 ));
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.

@@ -81,10 +81,7 @@ pub(super) fn gen_struct(
         };
         // Honor `#[serde(rename = "...")]` on the core field so JS callers see the wire
         // name (e.g. core `tool_type` with rename `"type"` is exposed to JS as `type`).
-        let js_name = field
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| to_node_name(&field.name));
+        let js_name = field.serde_rename.clone().unwrap_or_else(|| to_node_name(&field.name));
         let mut attrs = if js_name != field.name {
             vec![format!("napi(js_name = \"{}\")", js_name)]
         } else {
@@ -174,6 +171,7 @@ pub(super) fn gen_opaque_struct_methods(
     opaque_types: &AHashSet<String>,
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    streaming_item_types: &ahash::AHashMap<String, String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&format!("{prefix}{}", typ.name));
     impl_builder.add_attr("napi");
@@ -208,6 +206,7 @@ pub(super) fn gen_opaque_struct_methods(
             opaque_types,
             prefix,
             adapter_bodies,
+            streaming_item_types,
         ));
     }
     for method in &statics {
@@ -231,9 +230,16 @@ pub(super) fn gen_opaque_instance_method(
     opaque_types: &AHashSet<String>,
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    streaming_item_types: &ahash::AHashMap<String, String>,
 ) -> String {
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
-    let return_type = mapper.map_type(&method.return_type);
+    let adapter_key_for_stream = format!("{}.{}", typ.name, method.name);
+    let stream_item = streaming_item_types.get(&adapter_key_for_stream);
+    let return_type = if let Some(item) = stream_item {
+        format!("Vec<{prefix}{item}>")
+    } else {
+        mapper.map_type(&method.return_type)
+    };
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
     let js_name = to_node_name(&method.name);

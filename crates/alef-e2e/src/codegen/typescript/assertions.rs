@@ -32,9 +32,7 @@ pub(super) fn render_assertion(
                     "count_equals" => {
                         if let Some(val) = &assertion.value {
                             let js_val = json_to_js(val);
-                            out.push_str(&format!(
-                                "    expect({result_var}.length).toBe({js_val});\n"
-                            ));
+                            out.push_str(&format!("    expect({result_var}.length).toBe({js_val});\n"));
                         }
                         return;
                     }
