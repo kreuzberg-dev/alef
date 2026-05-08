@@ -344,7 +344,7 @@ pub(super) fn gen_build_rs(header_name: &str, go_output_dir: Option<&str>) -> St
                 r#"
     let go_include_dir = std::path::Path::new("{dest_dir}");
     std::fs::create_dir_all(go_include_dir).expect("Unable to create Go include directory");
-    std::fs::copy(format!("include/{header_name}"), go_include_dir.join("{header_name}"))
+    std::fs::copy("include/{header_name}", go_include_dir.join("{header_name}"))
         .expect("Unable to copy header to Go include directory");
 "#
             )
