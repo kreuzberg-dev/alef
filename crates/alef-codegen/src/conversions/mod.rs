@@ -170,6 +170,7 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 },
                 FieldDef {
                     name: "timeout".into(),
@@ -185,6 +186,7 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 },
                 FieldDef {
                     name: "backend".into(),
@@ -200,6 +202,7 @@ mod tests {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 },
             ],
             methods: vec![],
@@ -304,6 +307,7 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
         });
 
         let result = gen_from_binding_to_core(&typ, "my_crate");
@@ -337,6 +341,7 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
         });
 
         let result = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
@@ -479,6 +484,7 @@ mod tests {
                 core_wrapper: CoreWrapper::Cow,
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
             },
             FieldDef {
                 name: "structure".into(),
@@ -494,6 +500,7 @@ mod tests {
                 core_wrapper: CoreWrapper::None,
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
             },
         ];
         let config = ConversionConfig {
@@ -547,6 +554,7 @@ mod tests {
             core_wrapper: CoreWrapper::Arc,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
         }
     }
 

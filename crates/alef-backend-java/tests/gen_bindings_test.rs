@@ -44,6 +44,7 @@ fn make_newtype_field(ty: TypeRef) -> FieldDef {
         core_wrapper: alef_core::ir::CoreWrapper::None,
         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
     }
 }
 
@@ -72,6 +73,7 @@ fn test_basic_generation() {
                 core_wrapper: alef_core::ir::CoreWrapper::None,
                 vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
             }],
             methods: vec![],
             is_opaque: false,
@@ -298,6 +300,7 @@ fn test_optional_field_defaults_in_builder() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 },
                 FieldDef {
                     name: "bullets".to_string(),
@@ -313,6 +316,7 @@ fn test_optional_field_defaults_in_builder() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 },
                 FieldDef {
                     name: "escape_asterisks".to_string(),
@@ -328,6 +332,7 @@ fn test_optional_field_defaults_in_builder() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 },
                 FieldDef {
                     name: "timeout_ms".to_string(),
@@ -343,6 +348,7 @@ fn test_optional_field_defaults_in_builder() {
                     core_wrapper: alef_core::ir::CoreWrapper::None,
                     vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 },
             ],
             methods: vec![],

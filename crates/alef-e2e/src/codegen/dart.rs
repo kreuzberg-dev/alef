@@ -359,17 +359,18 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                     serde_json::Value::String(s) => {
                         args.push(format!("'{}'", escape_dart(s)));
                     }
-                    serde_json::Value::Null if arg_def.optional => {
+                    serde_json::Value::Null
+                        if arg_def.optional
                         // Optional string absent from fixture — try to infer MIME from path
                         // when the arg name looks like a MIME-type parameter.
-                        if arg_def.name == "mime_type" {
-                            let inferred = file_path_for_mime
-                                .and_then(|p| mime_from_extension(p))
-                                .unwrap_or("application/octet-stream");
-                            args.push(format!("'{inferred}'"));
-                        }
-                        // Other optional strings with null value are omitted.
+                        && arg_def.name == "mime_type" =>
+                    {
+                        let inferred = file_path_for_mime
+                            .and_then(mime_from_extension)
+                            .unwrap_or("application/octet-stream");
+                        args.push(format!("'{inferred}'"));
                     }
+                    // Other optional strings with null value are omitted.
                     _ => {}
                 }
             }

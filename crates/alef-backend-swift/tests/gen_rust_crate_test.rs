@@ -23,6 +23,7 @@ fn make_field(name: &str, ty: TypeRef) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
     }
 }
 
@@ -879,6 +880,7 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
         }],
         methods: vec![],
         is_opaque: false,

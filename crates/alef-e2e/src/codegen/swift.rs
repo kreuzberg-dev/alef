@@ -784,7 +784,7 @@ fn render_assertion(
                 let swift_val = json_to_swift(expected);
                 // When the root result IS the array (result_is_simple + result_is_array) and
                 // there is no field path, check array membership via map+contains.
-                let no_field = assertion.field.as_deref().map_or(true, |f| f.is_empty());
+                let no_field = assertion.field.as_deref().is_none_or(|f| f.is_empty());
                 if result_is_simple && result_is_array && no_field {
                     // RustVec<RustString> iteration yields RustStringRef (no `toString()`);
                     // use `.as_str().toString()` to convert each element to a Swift String.
