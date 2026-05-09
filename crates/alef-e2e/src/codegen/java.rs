@@ -1287,39 +1287,49 @@ fn render_assertion(
                     // All nullable fields in the Java binding return @Nullable types, not Optional<T>.
                     // Wrap them in Optional.ofNullable() so e2e tests can use .orElse() fallbacks.
                     let optional_expr = format!("java.util.Optional.ofNullable({accessor})");
-                    match assertion.assertion_type.as_str() {
-                        // For not_empty / is_empty on Optional fields, return the raw Optional
-                        // so the assertion arms can call isPresent()/isEmpty().
-                        "not_empty" | "is_empty" => optional_expr,
-                        // For size/count assertions on Optional<List<T>> fields, use List.of() fallback.
-                        "count_min" | "count_equals" => {
-                            format!("{optional_expr}.orElse(java.util.List.of())")
+                    // Enum-typed optional fields need .map(v -> v.getValue()) to coerce to String
+                    // before the orElse("") fallback can type-check (Optional<Enum>.orElse("") would
+                    // be a type mismatch — Optional<String>.orElse("") is the only safe form).
+                    if field_is_enum {
+                        match assertion.assertion_type.as_str() {
+                            "not_empty" | "is_empty" => optional_expr,
+                            _ => format!("{optional_expr}.map(v -> v.getValue()).orElse(\"\")"),
                         }
-                        // For numeric comparisons on Optional<Long/Integer> fields, use 0L.
-                        "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => {
-                            if field_resolver.is_array(resolved) {
+                    } else {
+                        match assertion.assertion_type.as_str() {
+                            // For not_empty / is_empty on Optional fields, return the raw Optional
+                            // so the assertion arms can call isPresent()/isEmpty().
+                            "not_empty" | "is_empty" => optional_expr,
+                            // For size/count assertions on Optional<List<T>> fields, use List.of() fallback.
+                            "count_min" | "count_equals" => {
                                 format!("{optional_expr}.orElse(java.util.List.of())")
-                            } else {
-                                format!("{optional_expr}.orElse(0L)")
                             }
-                        }
-                        // For equals on Optional fields, determine fallback based on whether value is numeric.
-                        // If the fixture value is a number, use 0L; otherwise use "".
-                        "equals" => {
-                            if let Some(expected) = &assertion.value {
-                                if expected.is_number() {
+                            // For numeric comparisons on Optional<Long/Integer> fields, use 0L.
+                            "greater_than" | "less_than" | "greater_than_or_equal" | "less_than_or_equal" => {
+                                if field_resolver.is_array(resolved) {
+                                    format!("{optional_expr}.orElse(java.util.List.of())")
+                                } else {
                                     format!("{optional_expr}.orElse(0L)")
+                                }
+                            }
+                            // For equals on Optional fields, determine fallback based on whether value is numeric.
+                            // If the fixture value is a number, use 0L; otherwise use "".
+                            "equals" => {
+                                if let Some(expected) = &assertion.value {
+                                    if expected.is_number() {
+                                        format!("{optional_expr}.orElse(0L)")
+                                    } else {
+                                        format!("{optional_expr}.orElse(\"\")")
+                                    }
                                 } else {
                                     format!("{optional_expr}.orElse(\"\")")
                                 }
-                            } else {
-                                format!("{optional_expr}.orElse(\"\")")
                             }
+                            _ if field_resolver.is_array(resolved) => {
+                                format!("{optional_expr}.orElse(java.util.List.of())")
+                            }
+                            _ => format!("{optional_expr}.orElse(\"\")"),
                         }
-                        _ if field_resolver.is_array(resolved) => {
-                            format!("{optional_expr}.orElse(java.util.List.of())")
-                        }
-                        _ => format!("{optional_expr}.orElse(\"\")"),
                     }
                 } else {
                     accessor
@@ -1332,7 +1342,10 @@ fn render_assertion(
     // For enum fields, string-based assertions need .getValue() to convert the enum to
     // its serde-serialized lowercase string value (e.g., AssetCategory.Image -> "image").
     // All alef-generated Java enums expose a getValue() method annotated with @JsonValue.
-    let string_expr = if field_is_enum {
+    // Optional enum fields are already coerced to String via `.map(v -> v.getValue()).orElse("")`
+    // upstream in field_expr; in that case the value is already a String and we must not
+    // call .getValue() again. Detect by looking for `.map(v -> v.getValue())` in the expr.
+    let string_expr = if field_is_enum && !field_expr.contains(".map(v -> v.getValue())") {
         format!("{field_expr}.getValue()")
     } else {
         field_expr.clone()
