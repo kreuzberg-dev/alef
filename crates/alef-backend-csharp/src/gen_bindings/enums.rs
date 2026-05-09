@@ -32,6 +32,15 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
         return gen_tagged_union(enum_def, namespace);
     }
 
+    // Untagged union with data variants (e.g. EmbeddingInput = String | Vec<String>):
+    // emit a transparent JsonElement-wrapper class with a paired JsonConverter.
+    // System.Text.Json cannot dispatch between alternatives by name (variant
+    // identifiers don't appear in the wire JSON), so we pass the JsonElement
+    // through and let the Rust core (serde) resolve the variant.
+    if enum_def.serde_untagged && has_data_variants {
+        return gen_untagged_wrapper(enum_def, namespace);
+    }
+
     // If any variant has an explicit serde_rename whose value differs from what
     // SnakeCaseLower would produce (e.g. "og:image" vs "og_image"), the global
     // JsonStringEnumConverter(SnakeCaseLower) in KreuzcrawlLib.JsonOptions would
@@ -464,4 +473,34 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
     out.push_str(" serialization is not supported\");\n");
     out.push_str("    }\n");
     out.push_str("}\n");
+}
+
+/// Emit a transparent JsonElement-wrapper class for `#[serde(untagged)]` enums.
+///
+/// Untagged unions like `EmbeddingInput = Single(String) | Multiple(Vec<String>)`
+/// have no on-wire discriminator. The default System.Text.Json enum converter
+/// rejects any value that doesn't match a variant name. The wrapper class holds
+/// the JsonElement verbatim, with a paired JsonConverter that round-trips the
+/// raw JSON. Static factories (`Of`, `FromJson`, `OfObject`) and probe accessors
+/// (`AsString`, `AsList`, `AsObject`) keep ergonomic construction available.
+fn gen_untagged_wrapper(enum_def: &EnumDef, namespace: &str) -> String {
+    use crate::template_env::render;
+    use minijinja::Value;
+
+    let class_name = enum_def.name.to_pascal_case();
+    let doc_lines: Vec<String> = if !enum_def.doc.is_empty() {
+        enum_def.doc.lines().map(|l| l.to_string()).collect()
+    } else {
+        vec![]
+    };
+
+    render(
+        "untagged_union_wrapper.jinja",
+        Value::from_serialize(serde_json::json!({
+            "namespace": namespace,
+            "class_name": class_name,
+            "doc": !enum_def.doc.is_empty(),
+            "doc_lines": doc_lines,
+        })),
+    )
 }
