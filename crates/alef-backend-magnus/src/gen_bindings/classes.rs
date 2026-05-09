@@ -48,15 +48,25 @@ pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &
 }
 
 /// Generate Magnus methods for an opaque struct (delegates to self.inner).
+///
+/// `streaming_method_names` lists method names whose default async-stub emission
+/// should be skipped — the streaming module emits a dedicated, hand-rolled
+/// implementation for those methods (yielding to a Ruby block / returning an
+/// Enumerator) and registers it separately.
 pub(super) fn gen_opaque_struct_methods(
     typ: &TypeDef,
     mapper: &MagnusMapper,
     opaque_types: &AHashSet<String>,
+    streaming_method_names: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
     for method in &typ.methods {
         if !method.is_static {
+            if streaming_method_names.contains(&method.name) {
+                // Skip — emitted via streaming module.
+                continue;
+            }
             if method.is_async {
                 impl_builder.add_method(&gen_opaque_async_instance_method(
                     method,

@@ -2,6 +2,7 @@
 
 mod classes;
 pub mod functions;
+mod streaming;
 
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
@@ -86,7 +87,8 @@ impl Backend for MagnusBackend {
             "allow(clippy::too_many_arguments, clippy::let_unit_value, clippy::needless_borrow, \
              clippy::map_identity, clippy::just_underscores_and_digits, clippy::unnecessary_cast, \
              clippy::unused_unit, clippy::unwrap_or_default, clippy::derivable_impls, \
-             clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions)",
+             clippy::needless_borrows_for_generic_args, clippy::unnecessary_fallible_conversions, \
+             clippy::type_complexity, clippy::useless_conversion, clippy::clone_on_copy)",
         );
         builder.add_import(
             "magnus::{function, method, prelude::*, Error, Ruby, IntoValueFromNative, try_convert::TryConvertOwned}",
@@ -112,6 +114,46 @@ impl Backend for MagnusBackend {
 
         // Compute module name early so it can be used for class paths in #[magnus::wrap]
         let module_name = get_module_name(&api.crate_name);
+
+        // Collect streaming adapters: for each, we generate a custom iterator
+        // wrapper struct + an instance method on the owning opaque type that
+        // drives the Rust core stream natively (yielding to Ruby blocks /
+        // returning an Enumerator). The default async-stub emission is bypassed
+        // for these methods.
+        let streaming_adapters: Vec<streaming::StreamingAdapter<'_>> = config
+            .adapters
+            .iter()
+            .filter_map(|a| streaming::StreamingAdapter::from_config(a, &module_name))
+            .collect();
+        let streaming_method_names: AHashSet<String> = streaming_adapters
+            .iter()
+            .map(|a| a.name.to_string())
+            .collect();
+        let mut streaming_methods_by_owner: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for adapter in &streaming_adapters {
+            streaming_methods_by_owner
+                .entry(adapter.owner_type.to_string())
+                .or_default()
+                .push(adapter.name.to_string());
+        }
+        let mut streaming_method_registrations: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for adapter in &streaming_adapters {
+            streaming_method_registrations
+                .entry(adapter.owner_type.to_string())
+                .or_default()
+                .push(streaming::gen_streaming_method_registration(adapter));
+        }
+        let mut streaming_iterator_registrations: Vec<String> = Vec::new();
+        for adapter in &streaming_adapters {
+            streaming_iterator_registrations.extend(streaming::gen_iterator_registration(adapter));
+        }
+
+        // Add imports needed by the streaming generators.
+        if !streaming_adapters.is_empty() {
+            builder.add_import("futures::StreamExt as _");
+        }
 
         // Custom module declarations
         let custom_mods = config.custom_modules.for_language(Language::Ruby);
@@ -182,7 +224,26 @@ impl Backend for MagnusBackend {
             }
             if typ.is_opaque {
                 builder.add_item(&classes::gen_opaque_struct(typ, &core_import, &module_name));
-                builder.add_item(&classes::gen_opaque_struct_methods(typ, &mapper, &opaque_types));
+                builder.add_item(&classes::gen_opaque_struct_methods(
+                    typ,
+                    &mapper,
+                    &opaque_types,
+                    &streaming_method_names,
+                ));
+                // Append streaming methods in a separate impl block so they sit
+                // alongside the auto-generated ones for this owner type.
+                let owner_streaming: Vec<&streaming::StreamingAdapter<'_>> = streaming_adapters
+                    .iter()
+                    .filter(|a| a.owner_type == typ.name)
+                    .collect();
+                if !owner_streaming.is_empty() {
+                    let mut impl_block = format!("impl {} {{\n", typ.name);
+                    for adapter in &owner_streaming {
+                        impl_block.push_str(&streaming::gen_streaming_method_body(adapter));
+                    }
+                    impl_block.push_str("}\n");
+                    builder.add_item(&impl_block);
+                }
             } else {
                 let generates_default =
                     typ.has_default && alef_codegen::generators::can_generate_default_impl(typ, &default_types);
@@ -384,12 +445,22 @@ impl Backend for MagnusBackend {
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Ruby)?;
 
+        // Emit streaming iterator wrapper structs (e.g. ChatStreamIterator) plus
+        // their inherent `next_chunk` / `each` methods. These are appended after
+        // all opaque types so the iterator type names cannot shadow user types.
+        for adapter in &streaming_adapters {
+            builder.add_item(&streaming::gen_iterator_struct(adapter));
+        }
+
         builder.add_item(&functions::gen_module_init(
             &module_name,
             api,
             config,
             &exclude_functions,
             &exclude_types,
+            &streaming_methods_by_owner,
+            &streaming_iterator_registrations,
+            &streaming_method_registrations,
         ));
 
         let content = builder.build();
