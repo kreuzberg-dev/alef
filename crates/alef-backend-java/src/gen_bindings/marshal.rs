@@ -195,8 +195,30 @@ pub(crate) fn marshal_param_to_ffi(
                         ));
                     }
                 }
+                // Optional primitive numeric types: Java auto-unboxes null Long/Integer/etc.
+                // via `.intValue()`/`.longValue()` when passed to MethodHandle.invoke(...),
+                // which throws NullPointerException. Emit an explicit null→0 coercion local
+                // so the FFI call always receives a valid primitive.
+                TypeRef::Primitive(prim) => {
+                    use alef_core::ir::PrimitiveType;
+                    let cname = "c".to_string() + name;
+                    let (prim_kw, zero_lit) = match prim {
+                        PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
+                            ("long", "0L")
+                        }
+                        PrimitiveType::F32 => ("float", "0.0f"),
+                        PrimitiveType::F64 => ("double", "0.0"),
+                        PrimitiveType::Bool => ("boolean", "false"),
+                        _ => ("int", "0"),
+                    };
+                    writeln!(
+                        out,
+                        "            {prim_kw} {cname} = ({name} == null) ? {zero_lit} : {name};",
+                    )
+                    .ok();
+                }
                 _ => {
-                    // Other optional types (primitives) pass through
+                    // Other optional types pass through
                 }
             }
         }
@@ -225,6 +247,10 @@ pub(crate) fn ffi_param_name(name: &str, ty: &TypeRef, _opaque_types: &AHashSet<
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Named(_) => {
                 "c".to_string() + name
             }
+            // Optional primitives are unwrapped via a `c<Name>` local that coerces null → 0/false
+            // (see marshal_param_to_ffi). Reference that local instead of the raw boxed parameter
+            // so MethodHandle.invoke doesn't auto-unbox a null Long/Integer and throw NPE.
+            TypeRef::Primitive(_) => "c".to_string() + name,
             _ => name.to_string(),
         },
         _ => name.to_string(),
