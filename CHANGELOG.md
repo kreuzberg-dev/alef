@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(magnus-backend): emit valid serde attribute `#[serde(default = "default_timeout")]` (function path) instead of `#[serde(default = "30000")]` (literal string) for Duration-typed timeout fields. The invalid literal syntax caused compilation errors in Ruby e2e bindings. Added helper function `default_timeout() -> u64` to struct templates.
+
 ### Added
 
 - feat(e2e/java): emit a JUnit Platform `LauncherSessionListener` (`MockServerListener`) and the matching SPI manifest under `src/test/resources/META-INF/services/` to spawn the mock-server binary once per launcher session whenever any fixture is HTTP-bound or carries `mock_response`. Mirrors the Ruby `spec_helper.rb` / Python `conftest.py` / Node `globalSetup.ts` / C `Makefile` spawn patterns. The listener parses the `MOCK_SERVER_URL=...` line from mock-server stdout, exposes it as the `mockServerUrl` JVM system property, and tears the child down via stdin-close on `launcherSessionClosed` (with a 2s timeout fallback to `destroyForcibly`). A pre-set `MOCK_SERVER_URL` env var skips the spawn entirely (CI / external orchestration). The pom.xml template gains a `dependencyManagement` import of `org.junit:junit-bom` and an explicit `org.junit.platform:junit-platform-launcher` test dependency so the SPI lookup actually finds the listener interface. Generated test bodies now read `System.getProperty("mockServerUrl", System.getenv("MOCK_SERVER_URL"))` so external overrides still work without going through JNI's lack of `setenv`. Without this, every fixture-bound Java test failed with `LiterLlmRsException: error sending request for url (null/fixtures/<id>/...)` whenever `task java:e2e:test` ran standalone, because nothing in the Java toolchain spawned the mock-server.
