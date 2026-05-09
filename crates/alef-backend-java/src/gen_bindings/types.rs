@@ -18,6 +18,7 @@ pub(crate) fn gen_record_type(
     sealed_unions_with_unwrapped: &AHashSet<String>,
     lang_rename_all: &str,
     has_visitor_pattern: bool,
+    main_class: &str,
 ) -> String {
     // `fields_joined` holds the comma-separated parameter list used both for the
     // single-line length probe AND for the final single-line emit path — no rebuild.
@@ -222,11 +223,15 @@ pub(crate) fn gen_record_type(
     record_block.push_str("} from a JSON string.\n");
     record_block.push_str("     *\n");
     record_block.push_str("     * @param json JSON serialisation matching the Rust-side field names (snake_case).\n");
-    record_block.push_str("     * @throws RuntimeException if the JSON cannot be deserialised.\n");
+    record_block.push_str("     * @throws ");
+    record_block.push_str(main_class);
+    record_block.push_str("Exception if the JSON cannot be deserialised.\n");
     record_block.push_str("     */\n");
     record_block.push_str("    public static ");
     record_block.push_str(&typ.name);
-    record_block.push_str(" fromJson(String json) {\n");
+    record_block.push_str(" fromJson(String json) throws ");
+    record_block.push_str(main_class);
+    record_block.push_str("Exception {\n");
     record_block.push_str("        try {\n");
     record_block.push_str("            return new com.fasterxml.jackson.databind.ObjectMapper()\n");
     record_block.push_str("                .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
@@ -244,9 +249,11 @@ pub(crate) fn gen_record_type(
     record_block.push_str(&typ.name);
     record_block.push_str(".class);\n");
     record_block.push_str("        } catch (Exception e) {\n");
-    record_block.push_str("            throw new RuntimeException(\"Failed to parse ");
+    record_block.push_str("            throw new ");
+    record_block.push_str(main_class);
+    record_block.push_str("Exception(\"Failed to parse ");
     record_block.push_str(&typ.name);
-    record_block.push_str(" from JSON\", e);\n");
+    record_block.push_str(" from JSON: \" + e.getMessage(), e);\n");
     record_block.push_str("        }\n");
     record_block.push_str("    }\n");
 
@@ -272,9 +279,18 @@ pub(crate) fn gen_record_type(
                     // "user passed false" from "JSON omitted the field".
                     // Duration fields map to boxed Long in Java; int literals don't auto-box
                     // to Long, so we must use the L suffix to produce a long literal that Java
-                    // will auto-box correctly.
-                    let suffix = if matches!(f.ty, TypeRef::Duration) { "L" } else { "" };
-                    Some(format!("        if ({jname} == 0) {jname} = {n}{suffix};"))
+                    // will auto-box correctly. Boxed types may also arrive as null when JSON
+                    // omits the field (Jackson defaults boxed numerics to null, not 0), so we
+                    // must null-check before the equality test — otherwise the implicit
+                    // Long.longValue() unboxing throws NullPointerException at deserialise time.
+                    let is_boxed = matches!(f.ty, TypeRef::Duration);
+                    let suffix = if is_boxed { "L" } else { "" };
+                    let cond = if is_boxed {
+                        format!("{jname} == null || {jname} == 0")
+                    } else {
+                        format!("{jname} == 0")
+                    };
+                    Some(format!("        if ({cond}) {jname} = {n}{suffix};"))
                 }
                 _ => None,
             }
@@ -358,7 +374,7 @@ pub(crate) fn gen_record_type(
     out
 }
 
-pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
+pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str) -> String {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
     // Tagged union: enum has a serde tag AND data variants → generate sealed interface hierarchy
@@ -371,7 +387,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
     // alternatives by name (variant identifiers don't appear in the wire JSON), so
     // we hold the raw JsonNode and let serde on the Rust side resolve the variant.
     if enum_def.serde_untagged && has_data_variants {
-        return gen_java_untagged_wrapper(package, enum_def);
+        return gen_java_untagged_wrapper(package, enum_def, main_class);
     }
 
     let header = hash::header(CommentStyle::DoubleSlash);
@@ -466,7 +482,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef) -> String {
 /// holds the JsonNode verbatim, with `@JsonValue` for serialization and
 /// `@JsonCreator(mode=DELEGATING)` so Jackson hands the parsed JsonNode straight
 /// through. The Rust core (serde) resolves the variant on the way in.
-fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef) -> String {
+fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef, main_class: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let doc = enum_def
         .doc
@@ -474,6 +490,7 @@ fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef) -> String {
         .next()
         .map(|line| escape_javadoc_line(line.trim()))
         .unwrap_or_default();
+    let exception_class = format!("{main_class}Exception");
     crate::template_env::render(
         "untagged_union_wrapper.jinja",
         minijinja::context! {
@@ -481,6 +498,7 @@ fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef) -> String {
             package => package,
             class_name => &enum_def.name,
             doc => doc,
+            exception_class => exception_class,
         },
     )
 }

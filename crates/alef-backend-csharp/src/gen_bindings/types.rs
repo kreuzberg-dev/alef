@@ -491,6 +491,7 @@ pub(super) fn gen_record_type(
     custom_converter_enums: &HashSet<String>,
     _lang_rename_all: &str,
     bridge_type_aliases: &HashSet<String>,
+    exception_class: &str,
 ) -> String {
     use crate::template_env::render;
 
@@ -749,6 +750,64 @@ pub(super) fn gen_record_type(
 
         out.push('\n');
     }
+
+    // Emit a static `FromJson(string json)` factory that wraps any
+    // System.Text.Json `JsonException` (or any other deserialization
+    // failure) in `<Crate>Exception` so error fixtures can assert
+    // `Assert.ThrowsAny<<Crate>Exception>(...)` over both the
+    // deserialization step and the FFI call.  Without this, malformed
+    // JSON surfaces as a raw `JsonException` that the test does not
+    // catch.  Mirrors the Java backend's `fromJson` factory.
+    out.push_str("\n    /// <summary>\n");
+    out.push_str("    /// Parse a <see cref=\"");
+    out.push_str(&class_name);
+    out.push_str("\"/> from a JSON string.\n");
+    out.push_str("    /// </summary>\n");
+    out.push_str("    /// <exception cref=\"");
+    out.push_str(exception_class);
+    out.push_str("\">When the JSON cannot be deserialised.</exception>\n");
+    out.push_str("    public static ");
+    out.push_str(&class_name);
+    out.push_str(" FromJson(string json)\n");
+    out.push_str("    {\n");
+    out.push_str("        try\n");
+    out.push_str("        {\n");
+    out.push_str("            return JsonSerializer.Deserialize<");
+    out.push_str(&class_name);
+    out.push_str(">(json, JsonOptions)\n");
+    out.push_str("                ?? throw new ");
+    out.push_str(exception_class);
+    out.push_str("($\"Failed to parse ");
+    out.push_str(&class_name);
+    out.push_str(" from JSON: deserializer returned null\");\n");
+    out.push_str("        }\n");
+    out.push_str("        catch (");
+    out.push_str(exception_class);
+    out.push_str(")\n");
+    out.push_str("        {\n");
+    out.push_str("            throw;\n");
+    out.push_str("        }\n");
+    out.push_str("        catch (Exception e)\n");
+    out.push_str("        {\n");
+    out.push_str("            throw new ");
+    out.push_str(exception_class);
+    out.push_str("($\"Failed to parse ");
+    out.push_str(&class_name);
+    out.push_str(" from JSON: {e.Message}\", e);\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    // Match the JsonSerializerOptions used by the e2e harness's
+    // `ConfigOptions` and the FFI request-serialization path so the
+    // round-trip stays consistent — `JsonStringEnumConverter` with the
+    // snake-case policy + `WhenWritingDefault` skipping zero / false /
+    // null. Setting `PropertyNamingPolicy` explicitly here would break
+    // sealed-union variant matching for records whose property names
+    // already carry `[JsonPropertyName]` annotations.
+    out.push_str("\n    private static readonly JsonSerializerOptions JsonOptions = new()\n");
+    out.push_str("    {\n");
+    out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,\n");
+    out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
+    out.push_str("    };\n");
 
     out.push_str("}\n");
 
