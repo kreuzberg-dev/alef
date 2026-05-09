@@ -373,7 +373,7 @@ pub mod precommit {
     pub const RUMDL_REV: &str = "v0.1.91";
 
     // renovate: datasource=github-tags packageName=crate-ci/typos
-    pub const TYPOS_REV: &str = "v1.46.0";
+    pub const TYPOS_REV: &str = "v1.46.1";
 
     // renovate: datasource=github-tags packageName=kreuzberg-dev/pre-commit-hooks
     pub const KREUZBERG_PRECOMMIT_HOOKS_REV: &str = "v1.0.0";
