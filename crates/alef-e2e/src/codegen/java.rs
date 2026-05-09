@@ -957,6 +957,17 @@ fn render_test_method(
         }
     }
 
+    // Merge per-call java enum_fields with the file-level java enum_fields so that
+    // call-specific enum-typed result fields (e.g. `choices[0].finish_reason` for
+    // chat) trigger Optional<Enum> coercion even when the global override block
+    // does not list them. Per-call entries take precedence.
+    let mut effective_enum_fields: std::collections::HashMap<String, String> = enum_fields.clone();
+    if let Some(co) = call_overrides {
+        for (k, v) in &co.enum_fields {
+            effective_enum_fields.insert(k.clone(), v.clone());
+        }
+    }
+
     for assertion in &fixture.assertions {
         render_assertion(
             &mut assertions_body,
@@ -966,7 +977,7 @@ fn render_test_method(
             field_resolver,
             effective_result_is_simple,
             effective_result_is_bytes,
-            enum_fields,
+            &effective_enum_fields,
         );
     }
 
