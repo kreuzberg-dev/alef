@@ -299,7 +299,10 @@ fn render_main_test_go() -> String {
     let _ = writeln!(out, "\t\t\tpanic(err)");
     let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t\t// Keep a writable pipe to the mock-server's stdin so the");
-    let _ = writeln!(out, "\t\t// server does not see EOF and exit immediately. The mock-server");
+    let _ = writeln!(
+        out,
+        "\t\t// server does not see EOF and exit immediately. The mock-server"
+    );
     let _ = writeln!(out, "\t\t// blocks reading stdin until the parent closes the pipe.");
     let _ = writeln!(out, "\t\tstdin, err := cmd.StdinPipe()");
     let _ = writeln!(out, "\t\tif err != nil {{");

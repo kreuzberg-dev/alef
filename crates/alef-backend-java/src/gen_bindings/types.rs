@@ -263,7 +263,8 @@ pub(crate) fn gen_record_type(
     // @JsonInclude may appear in field annotations OR as a class-level annotation in record_block.
     let needs_json_include = fields_joined.contains("@JsonInclude(") || record_block.contains("@JsonInclude(");
     // @JsonDeserialize may appear at class level (builder) OR at field level (custom deserializers).
-    let needs_json_deserialize = record_block.contains("@JsonDeserialize(") || fields_joined.contains("@JsonDeserialize(");
+    let needs_json_deserialize =
+        record_block.contains("@JsonDeserialize(") || fields_joined.contains("@JsonDeserialize(");
     let needs_json_serialize = fields_joined.contains("@JsonSerialize(");
     let needs_json_ignore = fields_joined.contains("@JsonIgnore");
     let needs_nullable = fields_joined.contains("@Nullable");
@@ -469,7 +470,6 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         imports.push("java.util.Optional");
     }
     if needs_unwrapped {
-        imports.push("com.fasterxml.jackson.databind.JsonDeserializer");
         imports.push("com.fasterxml.jackson.databind.deser.std.StdDeserializer");
         imports.push("com.fasterxml.jackson.core.JsonParser");
         imports.push("com.fasterxml.jackson.databind.DeserializationContext");
@@ -1013,7 +1013,7 @@ fn gen_sealed_union_deserializer(out: &mut String, package: &str, enum_def: &Enu
     out.push_str("Deserializer extends StdDeserializer<");
     out.push_str(&enum_def.name);
     out.push_str("> {\n");
-    out.push_str("    public ");
+    out.push_str("    ");
     out.push_str(&enum_def.name);
     out.push_str("Deserializer() {\n");
     out.push_str("        super(");
@@ -1040,16 +1040,15 @@ fn gen_sealed_union_deserializer(out: &mut String, package: &str, enum_def: &Enu
     // Generate a switch/case based on the tag value
     out.push_str("        return switch (tagValue) {\n");
     for variant in &enum_def.variants {
-        let discriminator = variant
-            .serde_rename
-            .clone()
-            .unwrap_or_else(|| {
-                let name = &variant.name;
-                // Apply the same naming convention as the Rust enum
-                enum_def.serde_rename_all.as_deref()
-                    .map(|strategy| java_apply_rename_all(name, Some(strategy)))
-                    .unwrap_or_else(|| java_apply_rename_all(name, None))
-            });
+        let discriminator = variant.serde_rename.clone().unwrap_or_else(|| {
+            let name = &variant.name;
+            // Apply the same naming convention as the Rust enum
+            enum_def
+                .serde_rename_all
+                .as_deref()
+                .map(|strategy| java_apply_rename_all(name, Some(strategy)))
+                .unwrap_or_else(|| java_apply_rename_all(name, None))
+        });
 
         out.push_str("            case \"");
         out.push_str(&discriminator);
@@ -1090,4 +1089,3 @@ fn gen_sealed_union_deserializer(out: &mut String, package: &str, enum_def: &Enu
     out.push_str("    }\n");
     out.push_str("}\n");
 }
-
