@@ -83,6 +83,7 @@ pub(crate) fn make_field(name: &str, ty: TypeRef, optional: bool, typed_default:
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
     }
 }
 

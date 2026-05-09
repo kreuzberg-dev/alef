@@ -25,6 +25,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         core_wrapper: CoreWrapper::None,
         vec_inner_core_wrapper: CoreWrapper::None,
         newtype_wrapper: None,
+        serde_rename: None,
     }
 }
 
@@ -1308,6 +1309,7 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
                         core_wrapper: CoreWrapper::None,
                         vec_inner_core_wrapper: CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
                     }],
                     is_tuple: false,
                     doc: "Success with items".to_string(),
@@ -1330,6 +1332,7 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
                         core_wrapper: CoreWrapper::None,
                         vec_inner_core_wrapper: CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
                     }],
                     is_tuple: false,
                     doc: "Error with message".to_string(),
@@ -1414,6 +1417,7 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 }],
                 is_tuple: true,
                 doc: String::new(),
@@ -1503,6 +1507,7 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
                     core_wrapper: CoreWrapper::None,
                     vec_inner_core_wrapper: CoreWrapper::None,
                     newtype_wrapper: None,
+                    serde_rename: None,
                 }],
                 is_tuple: true,
                 doc: String::new(),
@@ -1577,6 +1582,7 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
                 core_wrapper: CoreWrapper::None,
                 vec_inner_core_wrapper: CoreWrapper::None,
                 newtype_wrapper: None,
+                serde_rename: None,
             }],
             methods: vec![],
             is_opaque: false,

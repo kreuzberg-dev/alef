@@ -41,6 +41,7 @@ fn print_generated_java_code() {
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
                     },
                     FieldDef {
                         name: "timeout".to_string(),
@@ -56,6 +57,7 @@ fn print_generated_java_code() {
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
                     },
                 ],
                 methods: vec![],
@@ -91,6 +93,7 @@ fn print_generated_java_code() {
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
                     },
                     FieldDef {
                         name: "confidence".to_string(),
@@ -106,6 +109,7 @@ fn print_generated_java_code() {
                         core_wrapper: alef_core::ir::CoreWrapper::None,
                         vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
                         newtype_wrapper: None,
+                        serde_rename: None,
                     },
                 ],
                 methods: vec![],

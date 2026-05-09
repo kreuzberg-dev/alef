@@ -215,7 +215,10 @@ fn gen_wrapper_function(
     // Skip config parameters — they are optional by convention and will be defaulted
     for param in &visible_params {
         let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
-        if !param.optional && !is_optional_by_convention && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
+        if !param.optional
+            && !is_optional_by_convention
+            && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes)
+        {
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
         }
@@ -563,7 +566,10 @@ fn gen_wrapper_method(
     // Skip config parameters — they are optional by convention and will be defaulted
     for param in &visible_params {
         let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
-        if !param.optional && !is_optional_by_convention && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
+        if !param.optional
+            && !is_optional_by_convention
+            && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes)
+        {
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
         }

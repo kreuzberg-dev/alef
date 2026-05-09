@@ -751,6 +751,7 @@ mod tests {
             core_wrapper: CoreWrapper::None,
             vec_inner_core_wrapper: CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
         }
     }
 

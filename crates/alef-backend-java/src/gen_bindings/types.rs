@@ -1049,7 +1049,13 @@ fn gen_sealed_union_deserializer(out: &mut String, _package: &str, enum_def: &En
     out.push_str(tag_field);
     out.push_str("\");\n");
     out.push_str("        }\n");
-    out.push_str("        String tagValue = tagNode.asText();\n\n");
+    out.push_str("        String tagValue = tagNode.asText();\n");
+    // Remove the discriminator field before deserialising the inner type so that
+    // the target builder (e.g. TextMetadataBuilder) does not encounter an
+    // unrecognised property and throw UnrecognizedPropertyException.
+    out.push_str("        node.remove(\"");
+    out.push_str(tag_field);
+    out.push_str("\");\n\n");
 
     // Generate a switch/case based on the tag value
     out.push_str("        return switch (tagValue) {\n");

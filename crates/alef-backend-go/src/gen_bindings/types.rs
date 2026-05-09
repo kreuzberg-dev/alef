@@ -1280,6 +1280,7 @@ mod tests {
             core_wrapper: alef_core::ir::CoreWrapper::None,
             vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
             newtype_wrapper: None,
+            serde_rename: None,
         }
     }
 
