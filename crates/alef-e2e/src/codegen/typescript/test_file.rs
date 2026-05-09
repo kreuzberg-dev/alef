@@ -126,13 +126,16 @@ pub fn render_test_file(
                 // No Update class exists; options are constructed as plain object literals.
                 imports.push(format!("type {opts_type}"));
             } else {
-                // WASM: value import needed for .fromUpdate() runtime calls.
+                // WASM: value import needed for runtime construction. The
+                // alef-backend-wasm codegen does not emit `*Update` builder
+                // classes, so we construct the main type directly via its
+                // all-optional positional constructor and then assign each
+                // present field through generated setters. Nested types use
+                // the same pattern. See `ts_builder_expression_inner`.
                 imports.push(opts_type.to_string());
-                imports.push(format!("{opts_type}Update"));
                 for nested_type in nested_types.values() {
                     if !imports.contains(nested_type) {
                         imports.push(nested_type.clone());
-                        imports.push(format!("{nested_type}Update"));
                     }
                 }
                 // Also import enum types referenced in this test file
@@ -615,10 +618,12 @@ fn emit_typescript_batch_item_array(arr: &serde_json::Value, elem_type: &str) ->
 /// Node: ConversionOptions is a TypeScript interface — returns a plain object literal
 /// with a type assertion (`{ key: val } as TypeName`). No Update class or fromUpdate().
 ///
-/// WASM: WasmConversionOptionsUpdate has a positional constructor (40+ args). Passing
-/// an object literal as the first positional arg silently lands as `heading_style`.
-/// Instead, use an empty constructor + setter assignments wrapped in an IIFE so the
-/// expression can be inlined as a function argument.
+/// WASM: alef-backend-wasm does not emit `*Update` builder classes, so we
+/// instantiate the main type directly. Every wasm-bindgen-emitted struct
+/// exposes an all-optional positional constructor (`new T()`) plus per-field
+/// setters, so we build the value with `new T()` followed by setter
+/// assignments wrapped in an IIFE so the expression can be inlined as a
+/// function argument. Nested object values follow the same pattern.
 fn ts_builder_expression(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
@@ -626,7 +631,7 @@ fn ts_builder_expression(
     lang: &str,
     enum_fields: &std::collections::HashMap<String, String>,
 ) -> String {
-    ts_builder_expression_inner(obj, type_name, nested_types, lang, enum_fields, true)
+    ts_builder_expression_inner(obj, type_name, nested_types, lang, enum_fields)
 }
 
 fn ts_builder_expression_inner(
@@ -635,7 +640,6 @@ fn ts_builder_expression_inner(
     nested_types: &std::collections::HashMap<String, String>,
     lang: &str,
     enum_fields: &std::collections::HashMap<String, String>,
-    call_from_update: bool,
 ) -> String {
     if lang == "node" {
         let mut fields = Vec::new();
@@ -651,16 +655,17 @@ fn ts_builder_expression_inner(
         return format!("{obj_literal} as {type_name}");
     }
 
-    // WASM path: empty constructor + setter assignments, wrapped in an IIFE.
-    let update_type = format!("{type_name}Update");
-    let mut stmts: Vec<String> = vec![format!("const _u = new {update_type}();")];
+    // WASM path: construct the main type directly via its no-arg constructor
+    // (every wasm-bindgen-emitted struct exposes an all-optional positional
+    // ctor + per-field setters). Nested object values are constructed
+    // recursively the same way.
+    let mut stmts: Vec<String> = vec![format!("const _u = new {type_name}();")];
     for (key, val) in obj {
         let camel_key = snake_to_camel(key);
         if let serde_json::Value::Object(nested_obj) = val {
             if let Some(nested_type) = nested_types.get(key.as_str()) {
-                // Nested objects in setters should return Update type, not call fromUpdate
                 let nested_expr =
-                    ts_builder_expression_inner(nested_obj, nested_type, nested_types, lang, enum_fields, false);
+                    ts_builder_expression_inner(nested_obj, nested_type, nested_types, lang, enum_fields);
                 stmts.push(format!("_u.{camel_key} = {nested_expr};"));
             } else {
                 stmts.push(format!("_u.{camel_key} = {};", json_to_js_camel(val)));
@@ -678,12 +683,7 @@ fn ts_builder_expression_inner(
         }
     }
 
-    // Only call fromUpdate at the top level; nested expressions return the Update type
-    if call_from_update {
-        stmts.push(format!("return {type_name}.fromUpdate(_u);"));
-    } else {
-        stmts.push("return _u;".to_string());
-    }
+    stmts.push("return _u;".to_string());
     let body = stmts.join(" ");
     format!("(() => {{ {body} }})()")
 }
