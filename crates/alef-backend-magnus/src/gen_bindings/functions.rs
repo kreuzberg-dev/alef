@@ -688,12 +688,16 @@ pub(super) fn gen_magnus_unimplemented_body(
 }
 
 /// Generate the module initialization function.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_module_init(
     module_name: &str,
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     exclude_functions: &std::collections::HashSet<&str>,
     exclude_types: &std::collections::HashSet<&str>,
+    streaming_methods_by_owner: &std::collections::HashMap<String, Vec<String>>,
+    streaming_iterator_registrations: &[String],
+    streaming_method_registrations: &std::collections::HashMap<String, Vec<String>>,
 ) -> String {
     let mut lines = vec![
         "#[magnus::init]".to_string(),
@@ -760,6 +764,11 @@ pub(super) fn gen_module_init(
             }
         }
 
+        let streaming_owner_methods = streaming_methods_by_owner
+            .get(typ.name.as_str())
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+
         for method in &typ.methods {
             if !method.is_static {
                 // Skip apply_update methods: they mutate self without returning a value,
@@ -773,6 +782,11 @@ pub(super) fn gen_module_init(
                 // These methods mutate the wrapper in place, which isn't compatible with Ruby's
                 // object model. Callers should use builder patterns or from_* constructors instead.
                 if matches!(method.receiver, Some(ReceiverKind::RefMut)) {
+                    continue;
+                }
+
+                // Streaming methods register via streaming_method_registrations below.
+                if streaming_owner_methods.contains(&method.name) {
                     continue;
                 }
 
@@ -792,6 +806,20 @@ pub(super) fn gen_module_init(
             }
         }
 
+        // Append streaming method registrations (e.g. chat_stream → DefaultClient::chat_stream)
+        // for this owner type. These are emitted by the streaming module.
+        if let Some(regs) = streaming_method_registrations.get(typ.name.as_str()) {
+            for reg in regs {
+                lines.push(reg.clone());
+            }
+        }
+
+        lines.push("".to_string());
+    }
+
+    // Register iterator classes (e.g. ChatStreamIterator) at module scope.
+    if !streaming_iterator_registrations.is_empty() {
+        lines.extend(streaming_iterator_registrations.iter().cloned());
         lines.push("".to_string());
     }
 
@@ -964,7 +992,16 @@ gem_name = "test_lib"
             enums: vec![],
             errors: vec![],
         };
-        let code = gen_module_init("TestLib", &api, &config, &Default::default(), &Default::default());
+        let code = gen_module_init(
+            "TestLib",
+            &api,
+            &config,
+            &Default::default(),
+            &Default::default(),
+            &Default::default(),
+            &[],
+            &Default::default(),
+        );
         assert!(code.contains("#[magnus::init]"), "must emit #[magnus::init]");
         assert!(code.contains("fn ruby_init(ruby: &Ruby)"), "must emit init fn");
         assert!(code.contains("define_module(\"TestLib\")"), "must define the module");
