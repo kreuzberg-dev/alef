@@ -1,9 +1,67 @@
 use crate::{cargo_package_header, core_dep_features, detect_workspace_inheritance, render_extra_deps, scaffold_meta};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::{Language, ResolvedCrateConfig};
-use alef_core::ir::ApiSurface;
+use alef_core::ir::{ApiSurface, TypeRef};
 use alef_core::template_versions as tv;
 use std::path::PathBuf;
+
+/// Check if a TypeRef or any of its nested types is Json
+fn type_ref_contains_json(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Json => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_ref_contains_json(inner),
+        TypeRef::Map(key, val) => type_ref_contains_json(key) || type_ref_contains_json(val),
+        _ => false,
+    }
+}
+
+/// Check if the API surface has any Json fields
+fn api_has_json_fields(api: &ApiSurface) -> bool {
+    // Check struct fields
+    for type_def in &api.types {
+        for field in &type_def.fields {
+            if type_ref_contains_json(&field.ty) {
+                return true;
+            }
+        }
+        // Check method parameters and return types
+        for method in &type_def.methods {
+            if type_ref_contains_json(&method.return_type) {
+                return true;
+            }
+            for param in &method.params {
+                if type_ref_contains_json(&param.ty) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Check function parameters and return types
+    for func in &api.functions {
+        if type_ref_contains_json(&func.return_type) {
+            return true;
+        }
+        for param in &func.params {
+            if type_ref_contains_json(&param.ty) {
+                return true;
+            }
+        }
+    }
+
+    // Check enum fields
+    for enum_def in &api.enums {
+        for variant in &enum_def.variants {
+            for field in &variant.fields {
+                if type_ref_contains_json(&field.ty) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
 
 pub(crate) fn scaffold_node_cargo(
     api: &ApiSurface,
@@ -40,6 +98,16 @@ pub(crate) fn scaffold_node_cargo(
         format!("\n{all_deps}")
     };
 
+    let mut napi_features = vec!["async"];
+    if api_has_json_fields(api) {
+        napi_features.push("serde-json");
+    }
+    let napi_features_str = napi_features
+        .iter()
+        .map(|f| format!("\"{}\"", f))
+        .collect::<Vec<_>>()
+        .join(", ");
+
     let content = format!(
         r#"{pkg_header}
 
@@ -51,7 +119,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 {crate_name} = {{ path = "../{core_crate_dir}"{features} }}
-napi = {{ version = "{napi}", features = ["async"] }}
+napi = {{ version = "{napi}", features = [{napi_features}] }}
 napi-derive = "{napi_derive}"
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"{extra_deps_section}
@@ -65,6 +133,7 @@ napi-build = "{napi_build}"
         core_crate_dir = core_crate_dir,
         features = core_dep_features(config, Language::Node),
         napi = tv::cargo::NAPI,
+        napi_features = napi_features_str,
         napi_derive = tv::cargo::NAPI_DERIVE,
         napi_build = tv::cargo::NAPI_BUILD,
         extra_deps_section = extra_deps_section,
