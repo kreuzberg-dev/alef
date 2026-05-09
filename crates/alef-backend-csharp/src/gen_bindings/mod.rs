@@ -315,10 +315,24 @@ impl Backend for CsharpBackend {
             });
         }
 
+        // 7. Generate ByteArrayToIntArrayConverter if any non-opaque type has non-optional Bytes fields.
+        // Non-optional byte[] fields must be serialized as JSON int arrays, not base64 strings.
+        let needs_byte_array_converter = api
+            .types
+            .iter()
+            .any(|t| !t.is_opaque && t.fields.iter().any(|f| !f.optional && matches!(f.ty, TypeRef::Bytes)));
+        if needs_byte_array_converter {
+            files.push(GeneratedFile {
+                path: base_path.join("ByteArrayToIntArrayConverter.cs"),
+                content: types::gen_byte_array_to_int_array_converter(&namespace),
+                generated_header: true,
+            });
+        }
+
         // Build adapter body map (consumed by generators via body substitution)
         let _adapter_bodies = alef_adapters::build_adapter_bodies(config, Language::Csharp)?;
 
-        // 7. Generate Directory.Build.props at the package root (always overwritten).
+        // 8. Generate Directory.Build.props at the package root (always overwritten).
         // This file enables Nullable=enable and latest LangVersion for all C# projects
         // in the packages/csharp hierarchy without requiring per-csproj configuration.
         files.push(GeneratedFile {
