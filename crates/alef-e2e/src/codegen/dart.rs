@@ -183,7 +183,10 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config: &E2eConfi
     let _ = writeln!(out, "import 'package:kreuzberg/kreuzberg.dart';");
     // RustLib is the flutter_rust_bridge entrypoint; must be initialized before any FRB call.
     // It lives in the FRB-generated frb_generated.dart inside the kreuzberg package.
-    let _ = writeln!(out, "import 'package:kreuzberg/src/frb/frb_generated.dart' show RustLib;");
+    let _ = writeln!(
+        out,
+        "import 'package:kreuzberg/src/frb/frb_generated.dart' show RustLib;"
+    );
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
         let _ = writeln!(out, "import 'dart:convert';");
@@ -319,6 +322,24 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
         .iter()
         .find(|a| a.arg_type == "file_path")
         .and_then(|a| resolve_field(&fixture.input, &a.field).as_str());
+
+    // Detect whether this call converts a file_path arg to bytes at test-run time.
+    // Dart cannot pass OS-level file paths through the FRB bridge — the idiomatic API
+    // is always bytes. When a file_path arg is present (and no caller-supplied dart
+    // function override has already been applied), remap the function name:
+    //   extractFile      → extractBytes
+    //   extractFileSync  → extractBytesSync
+    let has_file_path_arg = call_config.args.iter().any(|a| a.arg_type == "file_path");
+    // Apply the remap only when no per-fixture dart override has already specified the
+    // function — if the fixture author set a dart-specific function name we trust it.
+    let caller_supplied_override = call_overrides.and_then(|o| o.function.as_ref()).is_some();
+    if has_file_path_arg && !caller_supplied_override {
+        function_name = match function_name.as_str() {
+            "extractFile" => "extractBytes".to_string(),
+            "extractFileSync" => "extractBytesSync".to_string(),
+            other => other.to_string(),
+        };
+    }
 
     let mut args = Vec::new();
     for arg_def in &call_config.args {

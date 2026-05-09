@@ -212,7 +212,14 @@ impl Backend for JavaBackend {
                 }
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.java", typ.name)),
-                    content: gen_record_type(&package, typ, &complex_enums, &sealed_unions_with_unwrapped, &lang_rename_all, has_visitor_pattern),
+                    content: gen_record_type(
+                        &package,
+                        typ,
+                        &complex_enums,
+                        &sealed_unions_with_unwrapped,
+                        &lang_rename_all,
+                        has_visitor_pattern,
+                    ),
                     generated_header: true,
                 });
                 // Generate builder class for types with defaults
@@ -229,9 +236,10 @@ impl Backend for JavaBackend {
         // 4a. Utility serializer for byte[] → JSON int-array (needed when any record
         // has a non-optional Bytes field). Jackson's default byte[] serialiser emits
         // base64, which Rust's serde Vec<u8> cannot accept. Emit the class once.
-        let needs_bytes_serializer = api.types.iter().any(|t| {
-            !t.is_opaque && t.fields.iter().any(|f| !f.optional && matches!(f.ty, TypeRef::Bytes))
-        });
+        let needs_bytes_serializer = api
+            .types
+            .iter()
+            .any(|t| !t.is_opaque && t.fields.iter().any(|f| !f.optional && matches!(f.ty, TypeRef::Bytes)));
         if needs_bytes_serializer {
             files.push(GeneratedFile {
                 path: base_path.join("ByteArrayToIntArraySerializer.java"),

@@ -309,7 +309,11 @@ fn gen_struct_methods_impl(
             // Also generate a #[php(constructor)] for named construction.
             // Include parameters for all scalar/Vec fields (required and optional).
             // Omit complex optional fields (they default to None).
-            fn field_can_be_param(ty: &alef_core::ir::TypeRef, enum_names: &AHashSet<String>, opaque_types: &AHashSet<String>) -> bool {
+            fn field_can_be_param(
+                ty: &alef_core::ir::TypeRef,
+                enum_names: &AHashSet<String>,
+                opaque_types: &AHashSet<String>,
+            ) -> bool {
                 match ty {
                     alef_core::ir::TypeRef::Vec(inner) => {
                         // Vec<NonOpaqueCustomType> cannot be a constructor param (requires error handling for FromZval)
@@ -365,7 +369,11 @@ fn gen_struct_methods_impl(
 
                 // Generate let bindings for Vec<NonOpaqueCustomType> fields
                 let mut let_bindings = String::new();
-                for f in typ.fields.iter().filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types)) {
+                for f in typ
+                    .fields
+                    .iter()
+                    .filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types))
+                {
                     if let TypeRef::Vec(inner) = &f.ty {
                         if let TypeRef::Named(name) = inner.as_ref() {
                             if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
@@ -525,17 +533,18 @@ fn gen_struct_methods_impl(
                     .fields
                     .iter()
                     .map(|f| {
+                        let php_param_name = alef_codegen::naming::to_php_name(&f.name);
                         // Check if this needs let-binding conversion
                         if let TypeRef::Vec(inner) = &f.ty {
                             if let TypeRef::Named(name) = inner.as_ref() {
                                 if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
                                     // Use the _core binding
-                                    return format!("{}: {}_core", f.name, f.name);
+                                    return format!("{}: {}_core", f.name, php_param_name);
                                 }
                             }
                         }
-                        // Default: use field name as-is
-                        format!("{}: {}", f.name, f.name)
+                        // Default: use php parameter name (camelCase) for the value
+                        format!("{}: {}", f.name, php_param_name)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
