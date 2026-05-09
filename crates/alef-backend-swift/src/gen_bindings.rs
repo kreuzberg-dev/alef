@@ -549,14 +549,16 @@ fn emit_e2e_wrappers(out: &mut String) {
 /// function name (if present) and converting to camelCase. The inner call uses
 /// the camelCased name of the function directly (which swift-bridge exposes).
 ///
-/// When the convenience wrapper has the same Swift name as the underlying bridge
-/// function (i.e. the Rust name had no `_sync` suffix to strip), the same-module
-/// overload would shadow the imported `RustBridge.<name>(_:_:...)` declaration.
-/// In that case we explicitly qualify the inner call with `RustBridge.` so Swift's
-/// overload resolution finds the positional bridge wrapper instead of looping back
-/// to the labeled convenience overloads — which would either fail to compile or
-/// resolve to the convenience overload itself (causing infinite recursion / wrong
-/// return type, e.g. a Swift `String` that has no `.toString()` member).
+/// The convenience overload always uses a labeled first parameter (`content:`),
+/// while the underlying bridge function exposes an unlabeled first parameter
+/// (`_ content: RustVec<UInt8>`). Swift overload resolution distinguishes these
+/// by argument label inclusion, so a positional inner call `swift_inner(makeByteVec(...))`
+/// resolves unambiguously to the bridge function even when `wrapper_name == swift_inner`.
+///
+/// We previously qualified the inner call with `RustBridge.` to "bypass shadowing",
+/// but Swift does not allow `ModuleName.functionName` qualification of free functions
+/// imported from another module — the call `RustBridge.detectMimeTypeFromBytes(...)`
+/// fails with "module 'RustBridge' has no member named 'detectMimeTypeFromBytes'".
 fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashSet<&str>, out: &mut String) {
     let swift_inner = swift_ident(&func.name.to_lower_camel_case());
     // Wrapper name: strip trailing "Sync" for the public-facing overload name.
@@ -565,13 +567,9 @@ fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashS
     } else {
         swift_inner.clone()
     };
-    // Qualify the inner call with `RustBridge.` when the convenience wrapper would
-    // shadow the imported bridge function (same Swift name).
-    let inner_call = if wrapper_name == swift_inner {
-        format!("RustBridge.{swift_inner}")
-    } else {
-        swift_inner.clone()
-    };
+    // Inner call is always the unqualified bridge function name. Argument-label
+    // disambiguation handles the case where wrapper_name == swift_inner.
+    let inner_call = swift_inner.clone();
 
     // Collect remaining params (everything after the first Bytes param).
     let trailing_params: Vec<&alef_core::ir::ParamDef> = func.params.iter().skip(1).collect();
@@ -610,9 +608,10 @@ fn emit_bytes_overloads(func: &FunctionDef, _all_names: &std::collections::HashS
 /// `TypeRef::Path`. The wrapper accepts `path: String` instead of a `URL` or `Path`
 /// and delegates to the camelCased bridge function directly.
 ///
-/// As with `emit_bytes_overloads`, when the convenience wrapper has the same Swift
-/// name as the underlying bridge function we qualify the inner call with
-/// `RustBridge.` to avoid shadowing the imported declaration.
+/// The convenience overload uses the labeled `path:` first parameter; the bridge
+/// function uses an unlabeled first parameter, so positional inner calls resolve
+/// unambiguously without `RustBridge.` qualification (which Swift rejects for
+/// free functions imported from another module).
 fn emit_path_overload(func: &FunctionDef, _all_names: &std::collections::HashSet<&str>, out: &mut String) {
     let swift_inner = swift_ident(&func.name.to_lower_camel_case());
     let wrapper_name = if swift_inner.ends_with("Sync") {
@@ -620,11 +619,7 @@ fn emit_path_overload(func: &FunctionDef, _all_names: &std::collections::HashSet
     } else {
         swift_inner.clone()
     };
-    let inner_call = if wrapper_name == swift_inner {
-        format!("RustBridge.{swift_inner}")
-    } else {
-        swift_inner.clone()
-    };
+    let inner_call = swift_inner.clone();
 
     let trailing_params: Vec<&alef_core::ir::ParamDef> = func.params.iter().skip(1).collect();
     let return_ty = swift_return_type(&func.return_type);
