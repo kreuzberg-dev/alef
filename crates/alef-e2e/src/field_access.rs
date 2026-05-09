@@ -575,7 +575,13 @@ fn render_java(segments: &[PathSegment], result_var: &str) -> String {
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
                 out.push_str(&field.to_lower_camel_case());
-                out.push_str(&format!("().get(\"{key}\")"));
+                // Numeric keys index into List<T> (.get(int)); string keys index into Map<String, V>.
+                let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    out.push_str(&format!("().get({key})"));
+                } else {
+                    out.push_str(&format!("().get(\"{key}\")"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".size()");
@@ -618,7 +624,13 @@ fn render_java_with_optionals(segments: &[PathSegment], result_var: &str, option
                 path_so_far.push_str(field);
                 out.push('.');
                 out.push_str(&field.to_lower_camel_case());
-                out.push_str(&format!("().get(\"{key}\")"));
+                // Numeric keys index into List<T> (.get(int)); string keys index into Map<String, V>.
+                let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+                if is_numeric {
+                    out.push_str(&format!("().get({key})"));
+                } else {
+                    out.push_str(&format!("().get(\"{key}\")"));
+                }
             }
             PathSegment::Length => {
                 out.push_str(".size()");

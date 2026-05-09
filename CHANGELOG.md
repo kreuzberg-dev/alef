@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.9] - 2026-05-09
+
 ### Fixed
 
 - fix(e2e/elixir): coerce enum atom fields via `to_string/1` before string comparisons. Rustler binds Rust enums as Elixir atoms (e.g. `:stop` for `FinishReason::Stop`), so `String.trim/1` on `result.choices[0].finish_reason` raised `FunctionClauseError: no function clause matching in String.trim/1` on every chat fixture asserting `finish_reason == "stop"`. `render_assertion` now consults `[crates.e2e].fields_enum` (matched against both the raw fixture path and the resolved alias) and wraps the accessor in `to_string(...)` for `equals` assertions, mirroring the existing Ruby/Python coercion paths.
