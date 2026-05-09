@@ -238,9 +238,30 @@ fn emit_lib_rs(
         extern_blocks.push(plugin_inbound::emit_extern_block_for_inbound(trait_def));
     }
 
+    // Detect kreuzberg-style e2e types: when the api surface exposes
+    // `ExtractionConfig`, `BatchBytesItem`, and `BatchFileItem` (all serde-enabled),
+    // emit JSON factory shims so the e2e test layer can deserialise fixture JSON
+    // into the corresponding opaque swift-bridge types. This is structural — no
+    // crate-name hardcoding — and is a no-op for binding crates that don't expose
+    // these specific types.
+    let has_e2e_types = api_has_e2e_types(api);
+
     out.push_str("#[swift_bridge::bridge]\nmod ffi {\n");
     for block in &extern_blocks {
         out.push_str(block);
+    }
+    if has_e2e_types {
+        out.push_str(concat!(
+            "    extern \"Rust\" {\n",
+            "\n",
+            "        #[swift_bridge(swift_name = \"extractionConfigFromJson\")]\n",
+            "        fn extraction_config_from_json(json: String) -> Result<ExtractionConfig, String>;\n",
+            "        #[swift_bridge(swift_name = \"batchBytesItemFromJson\")]\n",
+            "        fn batch_bytes_item_from_json(json: String) -> Result<BatchBytesItem, String>;\n",
+            "        #[swift_bridge(swift_name = \"batchFileItemFromJson\")]\n",
+            "        fn batch_file_item_from_json(json: String) -> Result<BatchFileItem, String>;\n",
+            "    }\n",
+        ));
     }
     out.push_str("}\n\n");
 
@@ -294,14 +315,29 @@ fn emit_lib_rs(
         out.push('\n');
     }
 
+    // Emit JSON-factory shims for kreuzberg-style e2e types when present.
+    // The matching extern declarations are emitted in the ffi module above.
+    if has_e2e_types {
+        emit_json_factory_shims(&source_crate, &mut out);
+    }
+
     out
 }
 
-/// Emits JSON factory functions for kreuzberg-specific opaque swift-bridge types
+/// Returns `true` when the api surface exposes the kreuzberg-style e2e helper
+/// types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`), all serde-enabled.
+/// Used to gate emission of JSON-factory shims and Swift e2e wrapper helpers.
+fn api_has_e2e_types(api: &ApiSurface) -> bool {
+    let required = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
+    required
+        .iter()
+        .all(|name| api.types.iter().any(|t| !t.is_trait && t.has_serde && t.name == *name))
+}
+
+/// Emits JSON factory functions for kreuzberg-style opaque swift-bridge types
 /// (`extraction_config_from_json`, `batch_bytes_item_from_json`, `batch_file_item_from_json`).
-/// No longer wired into `emit_lib_rs` because the symbols are hardcoded and pollute
-/// every generated bridge crate. Retained behind `#[allow(dead_code)]` for reference.
-#[allow(dead_code)]
+/// Wired into `emit_lib_rs` only when the api surface exposes all three serde-enabled
+/// types — see `api_has_e2e_types`. Crate-agnostic by structure.
 fn emit_json_factory_shims(source_crate: &str, out: &mut String) {
     out.push_str("// JSON factory shims for e2e test layer.\n");
     out.push_str("// These let generated tests deserialise fixture JSON into opaque swift-bridge types.\n\n");

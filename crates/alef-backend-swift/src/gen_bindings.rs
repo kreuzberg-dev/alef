@@ -384,16 +384,35 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
     for func in &path_candidates {
         emit_path_overload(func, &all_names, out);
     }
+
+    // Emit e2e-test wrappers when the api surface exposes the kreuzberg-style
+    // helper types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`). These
+    // wrappers depend on the JSON-factory shims emitted by the Rust bridge crate
+    // (`extractionConfigFromJson`, `batchBytesItemFromJson`, `batchFileItemFromJson`),
+    // which are gated by the same structural check in `gen_rust_crate::emit_lib_rs`.
+    // No-op for binding crates that don't expose these specific types.
+    if api_has_e2e_helper_types(api) {
+        emit_e2e_wrappers(out);
+    }
 }
 
-/// Emits the e2e-test helper wrappers (kreuzberg-specific, retained for reference).
+/// Returns `true` when the api surface exposes the kreuzberg-style e2e helper
+/// types (`ExtractionConfig`, `BatchBytesItem`, `BatchFileItem`), all serde-enabled.
+/// Mirrors `gen_rust_crate::api_has_e2e_types` so the Swift wrapper helpers and
+/// the Rust-side JSON-factory shims are emitted together.
+fn api_has_e2e_helper_types(api: &ApiSurface) -> bool {
+    let required = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
+    required
+        .iter()
+        .all(|name| api.types.iter().any(|t| !t.is_trait && t.has_serde && t.name == *name))
+}
+
+/// Emits the e2e-test helper wrappers used by the generated Swift e2e test layer.
 ///
-/// NOTE: this helper is hardcoded for kreuzberg-only symbols (`extractBytes`,
-/// `extractFile`, `batchExtract*`, `extractionConfigFromJson`) and is no longer wired
-/// into the Swift backend pipeline. Generic IR-driven wrappers are emitted by
-/// `emit_bytes_overloads` / `emit_path_overload`. Kept behind `#[allow(dead_code)]`
-/// so existing fix history is not lost; safe to delete in a follow-up cleanup.
-#[allow(dead_code)]
+/// Hardcoded for kreuzberg-style symbols (`extractBytes`, `extractFile`,
+/// `batchExtract*`, `extractionConfigFromJson`); emission is gated structurally
+/// by `api_has_e2e_helper_types`, so this is a no-op for binding crates that
+/// don't expose those types.
 fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("// MARK: - E2e Test Convenience Wrappers\n");
     out.push_str("// JSON-config and file-loading wrappers used exclusively by the generated e2e tests.\n\n");
@@ -496,10 +515,7 @@ fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("    for json in jsonItems {\n");
     out.push_str("        items.push(value: try batchBytesItemFromJson(json))\n");
     out.push_str("    }\n");
-    out.push_str(
-        "    let config = try extractionConfigFromJson(\"{}\")
-    \n",
-    );
+    out.push_str("    let config = try extractionConfigFromJson(\"{}\")\n");
     out.push_str("    return try batchExtractBytesSync(items, config).map { $0 }\n");
     out.push_str("}\n\n");
 
