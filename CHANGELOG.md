@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(e2e/rust): support array-form `input.mock_responses` schema in mock-server template. The Rust e2e test template's `render_mock_server_setup` only recognized the single-response schema (`mock_response: { status, body, stream_chunks, headers }`), silently discarding the multi-response array schema (`input.mock_responses: [{ path, status_code, headers, body_inline, body_file }, ...]`) used by kreuzcrawl and other fixture-heavy projects. The kreuzcrawl standalone mock-server (`tools/mock-server/src/main.rs`) correctly loaded 452 routes from 246 fixture files, but the alef-generated `e2e/rust/src/main.rs` loaded only 20, because the template never examined `fixture.input.get("mock_responses")`. The fix extends `render_mock_server_setup` to first check for the array schema (extracting `path`, `status_code`, `headers`, and `body_inline` from each element; defaulting path to "/" and status to 200), fall back to the single-response schema if absent, emit multiple `MockRoute` objects when the array contains multiple elements, and emit a single route when either schema produces exactly one response. The standalone binary's `load_routes_recursive` function continues to handle both schemas including `body_file` (fixture-relative file loading), while the test-function template (which lacks fixture-dir context) emits placeholder bodies for `body_file` entries — the binaries will be tested separately against the real file paths. Restores e2e fixture coverage for array-based mock-response projects.
 
+## [0.15.14] - 2026-05-09
+
+### Fixed
+
+- fix(scaffold-kotlin): exclude the alef-emitted Kotlin binding-class file (e.g. `Kreuzberg.kt`) from the ktlint check in the generated `packages/kotlin/build.gradle.kts`. The alef-backend-kotlin emits the binding object with parameters on a single line, no expression bodies, and blank lines inside method blocks — patterns that ktlint flags as `parameter-list-wrapping`, `function-expression-body`, and `no-blank-lines-in-block` violations. The scaffold's `ktlint { filter { ... } }` block now adds `exclude { entry -> entry.file.toString().endsWith("/<BindingClass>.kt") }` (where `<BindingClass>` is `config.name` pascal-cased) so the generated file passes CI without hand-edits while still linting all user-authored Kotlin sources.
+
 ## [0.15.13] - 2026-05-09
 
 ### Fixed
