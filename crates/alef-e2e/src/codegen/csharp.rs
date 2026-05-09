@@ -1390,9 +1390,12 @@ fn build_args_and_setup(
                         let sorted = sort_discriminator_first(v.clone());
                         let json_str = serde_json::to_string(&sorted).unwrap_or_default();
                         let escaped = escape_csharp(&json_str);
-                        parts.push(format!(
-                            "JsonSerializer.Deserialize<{opts_type}>(\"{escaped}\", ConfigOptions)!",
-                        ));
+                        // Use the binding-emitted `<Type>.FromJson(...)` factory so any
+                        // System.Text.Json deserialization failure is wrapped in
+                        // `<Crate>Exception`, allowing error fixtures asserting
+                        // `Assert.ThrowsAny<<Crate>Exception>(...)` to catch the parse
+                        // failure (e.g. `Unknown FilePurpose value: invalid-purpose`).
+                        parts.push(format!("{opts_type}.FromJson(\"{escaped}\")",));
                         continue;
                     }
                     // Array value: generate a typed List<T> based on element_type.

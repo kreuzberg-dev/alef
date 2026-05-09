@@ -214,6 +214,7 @@ impl Backend for JavaBackend {
                         &sealed_unions_with_unwrapped,
                         &lang_rename_all,
                         has_visitor_pattern,
+                        &main_class,
                     ),
                     generated_header: true,
                 });
@@ -271,7 +272,7 @@ impl Backend for JavaBackend {
             }
             files.push(GeneratedFile {
                 path: base_path.join(format!("{}.java", enum_def.name)),
-                content: gen_enum_class(&package, enum_def),
+                content: gen_enum_class(&package, enum_def, &main_class),
                 generated_header: true,
             });
         }

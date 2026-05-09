@@ -275,6 +275,20 @@ impl Backend for CsharpBackend {
                 if is_tagged_union {
                     return false;
                 }
+                // Enums whose `serde_rename_all` is something other than snake_case
+                // (e.g. "kebab-case" for `FilePurpose::FineTune` → `"fine-tune"`)
+                // need a custom converter — `JsonStringEnumConverter(SnakeCaseLower)`
+                // would write `"fine_tune"` instead.
+                let rename_all_differs = matches!(
+                    e.serde_rename_all.as_deref(),
+                    Some("kebab-case")
+                        | Some("SCREAMING-KEBAB-CASE")
+                        | Some("camelCase")
+                        | Some("PascalCase")
+                );
+                if rename_all_differs {
+                    return true;
+                }
                 // Enums with non-standard variant names need a custom converter
                 e.variants.iter().any(|v| {
                     if let Some(ref rename) = v.serde_rename {
@@ -316,6 +330,7 @@ impl Backend for CsharpBackend {
                         &custom_converter_enums,
                         &lang_rename_all,
                         &bridge_type_aliases,
+                        &exception_class_name,
                     )),
                     generated_header: true,
                 });

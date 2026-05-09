@@ -44,20 +44,27 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
     }
 
     // If any variant has an explicit serde_rename whose value differs from what
-    // SnakeCaseLower would produce (e.g. "og:image" vs "og_image"), the global
-    // JsonStringEnumConverter(SnakeCaseLower) in KreuzcrawlLib.JsonOptions would
-    // ignore [JsonPropertyName] and use the naming policy instead.
-    // Also, the non-generic JsonStringEnumConverter does NOT support [JsonPropertyName]
-    // on enum members at all. For these cases we generate a custom JsonConverter<T>
-    // that explicitly maps each variant name.
-    let needs_custom_converter = enum_def.variants.iter().any(|v| {
-        if let Some(ref rename) = v.serde_rename {
-            let snake = apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref());
-            rename != &snake
-        } else {
-            false
-        }
-    });
+    // SnakeCaseLower would produce (e.g. "og:image" vs "og_image"), or if the
+    // enum-level rename_all is something other than snake_case (e.g. "kebab-case"
+    // for `#[serde(rename_all = "kebab-case")] FilePurpose { FineTune }` →
+    // `"fine-tune"` on the wire), the global JsonStringEnumConverter(SnakeCaseLower)
+    // in JsonOptions would either ignore [JsonPropertyName] (the non-generic
+    // converter does not consult it on enum members) or apply the wrong policy.
+    // For these cases we generate a custom JsonConverter<T> that explicitly maps
+    // each variant name to the correct wire string.
+    let rename_all_differs = matches!(
+        enum_def.serde_rename_all.as_deref(),
+        Some("kebab-case") | Some("SCREAMING-KEBAB-CASE") | Some("camelCase") | Some("PascalCase")
+    );
+    let needs_custom_converter = rename_all_differs
+        || enum_def.variants.iter().any(|v| {
+            if let Some(ref rename) = v.serde_rename {
+                let snake = apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref());
+                rename != &snake
+            } else {
+                false
+            }
+        });
 
     let enum_pascal = enum_def.name.to_pascal_case();
 
