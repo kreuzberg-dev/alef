@@ -1,9 +1,13 @@
+fn default_timeout() -> u64 {
+    30000
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize{% if not generates_default %}, Default{% endif %})]
 {% if has_default %}#[serde(default)]
 {% endif %}#[magnus::wrap(class = "{{ class_path }}")]
 pub struct {{ struct_name }} {
 {% for field in fields %}
-{% if field.field_type == 'u64' and (field.name == 'request_timeout' or field.name == 'timeout') %}    #[serde(default = "30000")]
+{% if field.field_type == 'u64' and (field.name == 'request_timeout' or field.name == 'timeout') %}    #[serde(default = "default_timeout")]
 {% endif %}    {{ field.name }}: {{ field.field_type }},
 {% endfor %}
 }
