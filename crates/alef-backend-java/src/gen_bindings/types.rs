@@ -262,7 +262,8 @@ pub(crate) fn gen_record_type(
     let needs_json_property = fields_joined.contains("@JsonProperty(");
     // @JsonInclude may appear in field annotations OR as a class-level annotation in record_block.
     let needs_json_include = fields_joined.contains("@JsonInclude(") || record_block.contains("@JsonInclude(");
-    let needs_json_deserialize = record_block.contains("@JsonDeserialize(");
+    // @JsonDeserialize may appear at class level (builder) OR at field level (custom deserializers).
+    let needs_json_deserialize = record_block.contains("@JsonDeserialize(") || fields_joined.contains("@JsonDeserialize(");
     let needs_json_serialize = fields_joined.contains("@JsonSerialize(");
     let needs_json_ignore = fields_joined.contains("@JsonIgnore");
     let needs_nullable = fields_joined.contains("@Nullable");

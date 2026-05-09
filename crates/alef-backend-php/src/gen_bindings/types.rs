@@ -334,7 +334,7 @@ fn gen_struct_methods_impl(
             let has_representable_required = typ
                 .fields
                 .iter()
-                .any(|f| !f.optional && field_can_be_param(&f.ty, enum_names));
+                .any(|f| !f.optional && field_can_be_param(&f.ty, enum_names, opaque_types));
 
             if has_representable_required {
                 // Build parameter lines using gen_php_function_params logic for proper type conversions
@@ -342,7 +342,7 @@ fn gen_struct_methods_impl(
                 let param_defs: Vec<alef_core::ir::ParamDef> = typ
                     .fields
                     .iter()
-                    .filter(|f| field_can_be_param(&f.ty, enum_names))
+                    .filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types))
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
                         alef_core::ir::ParamDef {
@@ -365,7 +365,7 @@ fn gen_struct_methods_impl(
 
                 // Generate let bindings for Vec<NonOpaqueCustomType> fields
                 let mut let_bindings = String::new();
-                for f in typ.fields.iter().filter(|f| field_can_be_param(&f.ty, enum_names)) {
+                for f in typ.fields.iter().filter(|f| field_can_be_param(&f.ty, enum_names, opaque_types)) {
                     if let TypeRef::Vec(inner) = &f.ty {
                         if let TypeRef::Named(name) = inner.as_ref() {
                             if !opaque_types.contains(name.as_str()) && !enum_names.contains(name.as_str()) {
@@ -413,7 +413,7 @@ fn gen_struct_methods_impl(
                     .iter()
                     .map(|f| {
                         let php_param_name = alef_codegen::naming::to_php_name(&f.name);
-                        if field_can_be_param(&f.ty, enum_names) {
+                        if field_can_be_param(&f.ty, enum_names, opaque_types) {
                             // Check if this needs let-binding conversion
                             if let TypeRef::Vec(inner) = &f.ty {
                                 if let TypeRef::Named(name) = inner.as_ref() {

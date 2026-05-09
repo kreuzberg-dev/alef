@@ -666,6 +666,11 @@ fn field_is_optional_in_rust(field: &FieldDef) -> bool {
 
 /// Generate a positional Magnus constructor for types with <=15 fields.
 /// Uses `Option<T>` parameters and applies defaults in the body.
+///
+/// Currently unused — `gen_magnus_kwargs_constructor` always delegates to the
+/// hash-based form because Magnus's `function!` arity cap (15) doesn't apply to
+/// variadic `(-1)` arity. Kept for reference / potential future revival.
+#[allow(dead_code)]
 fn gen_magnus_positional_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     let fields: Vec<_> = typ
         .fields
