@@ -322,11 +322,59 @@ fn render_makefile(categories: &[String], header_name: &str, ffi_crate_path: &st
     let _ = writeln!(out, "$(TARGET): $(SRCS)");
     let _ = writeln!(out, "\t$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)");
     let _ = writeln!(out);
+    // The `test:` target spawns the e2e mock-server binary, captures its
+    // assigned MOCK_SERVER_URL line on stdout, exports it for the test process,
+    // runs the suite, then tears the server down. This mirrors the per-language
+    // conftest/setup machinery used by Python, Ruby, Java, etc.
+    let _ = writeln!(out, "MOCK_SERVER_BIN ?= ../rust/target/release/mock-server");
+    let _ = writeln!(out, "FIXTURES_DIR ?= ../../fixtures");
+    let _ = writeln!(out);
     let _ = writeln!(out, "test: $(TARGET)");
-    let _ = writeln!(out, "\t./$(TARGET)");
+    let _ = writeln!(out, "\t@if [ -n \"$$MOCK_SERVER_URL\" ]; then \\");
+    let _ = writeln!(out, "\t\t./$(TARGET); \\");
+    let _ = writeln!(out, "\telse \\");
+    let _ = writeln!(out, "\t\tif [ ! -x \"$(MOCK_SERVER_BIN)\" ]; then \\");
+    let _ = writeln!(
+        out,
+        "\t\t\techo \"mock-server binary not found at $(MOCK_SERVER_BIN); run: cargo build --manifest-path ../rust/Cargo.toml --bin mock-server --release\" >&2; \\"
+    );
+    let _ = writeln!(out, "\t\t\texit 1; \\");
+    let _ = writeln!(out, "\t\tfi; \\");
+    let _ = writeln!(out, "\t\trm -f mock_server.stdout mock_server.stdin; \\");
+    let _ = writeln!(out, "\t\tmkfifo mock_server.stdin; \\");
+    let _ = writeln!(
+        out,
+        "\t\t\"$(MOCK_SERVER_BIN)\" \"$(FIXTURES_DIR)\" <mock_server.stdin >mock_server.stdout 2>&1 & \\"
+    );
+    let _ = writeln!(out, "\t\tMOCK_PID=$$!; \\");
+    let _ = writeln!(out, "\t\texec 9>mock_server.stdin; \\");
+    let _ = writeln!(out, "\t\tMOCK_URL=\"\"; \\");
+    let _ = writeln!(out, "\t\tfor _ in $$(seq 1 50); do \\");
+    let _ = writeln!(out, "\t\t\tif [ -s mock_server.stdout ]; then \\");
+    let _ = writeln!(
+        out,
+        "\t\t\t\tMOCK_URL=$$(grep -o 'MOCK_SERVER_URL=[^ ]*' mock_server.stdout | head -1 | cut -d= -f2); \\"
+    );
+    let _ = writeln!(out, "\t\t\t\tif [ -n \"$$MOCK_URL\" ]; then break; fi; \\");
+    let _ = writeln!(out, "\t\t\tfi; \\");
+    let _ = writeln!(out, "\t\t\tsleep 0.1; \\");
+    let _ = writeln!(out, "\t\tdone; \\");
+    let _ = writeln!(
+        out,
+        "\t\tif [ -z \"$$MOCK_URL\" ]; then echo 'failed to start mock-server' >&2; cat mock_server.stdout >&2; kill $$MOCK_PID 2>/dev/null || true; exit 1; fi; \\"
+    );
+    let _ = writeln!(
+        out,
+        "\t\tMOCK_SERVER_URL=\"$$MOCK_URL\" ./$(TARGET); STATUS=$$?; \\"
+    );
+    let _ = writeln!(out, "\t\texec 9>&-; \\");
+    let _ = writeln!(out, "\t\tkill $$MOCK_PID 2>/dev/null || true; \\");
+    let _ = writeln!(out, "\t\trm -f mock_server.stdout mock_server.stdin; \\");
+    let _ = writeln!(out, "\t\texit $$STATUS; \\");
+    let _ = writeln!(out, "\tfi");
     let _ = writeln!(out);
     let _ = writeln!(out, "clean:");
-    let _ = writeln!(out, "\trm -f $(TARGET)");
+    let _ = writeln!(out, "\trm -f $(TARGET) mock_server.stdout mock_server.stdin");
     out
 }
 
@@ -741,10 +789,25 @@ fn render_test_function(
             }
         }
 
-        let _ = writeln!(
-            out,
-            "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", NULL, 0, 0, NULL);"
-        );
+        let fixture_id = &fixture.id;
+        if fixture.needs_mock_server() {
+            let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
+            let _ = writeln!(out, "    assert(mock_base != NULL && \"MOCK_SERVER_URL must be set\");");
+            let _ = writeln!(out, "    char base_url[1024];");
+            let _ = writeln!(
+                out,
+                "    snprintf(base_url, sizeof(base_url), \"%s/fixtures/{fixture_id}\", mock_base);"
+            );
+            let _ = writeln!(
+                out,
+                "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", base_url, 0, 0, NULL);"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", NULL, 0, 0, NULL);"
+            );
+        }
         let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
         let method_args = if request_handle_vars.is_empty() && inline_method_args.is_empty() && extra_args.is_empty() {
@@ -1294,10 +1357,25 @@ fn render_bytes_test_function(
         }
     }
 
-    let _ = writeln!(
-        out,
-        "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", NULL, 0, 0, NULL);"
-    );
+    let fixture_id = &fixture.id;
+    if fixture.needs_mock_server() {
+        let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
+        let _ = writeln!(out, "    assert(mock_base != NULL && \"MOCK_SERVER_URL must be set\");");
+        let _ = writeln!(out, "    char base_url[1024];");
+        let _ = writeln!(
+            out,
+            "    snprintf(base_url, sizeof(base_url), \"%s/fixtures/{fixture_id}\", mock_base);"
+        );
+        let _ = writeln!(
+            out,
+            "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", base_url, 0, 0, NULL);"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "    {prefix_upper}DefaultClient* client = {prefix}_{factory}(\"test-key\", NULL, 0, 0, NULL);"
+        );
+    }
     let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
     // Out-params for the byte buffer.
@@ -1441,10 +1519,25 @@ fn render_chat_stream_test_function(
         .unwrap_or("chat_completion_request")
         .to_string();
 
-    let _ = writeln!(
-        out,
-        "    {prefix_upper}DefaultClient* client = {prefix}_create_client(\"test-key\", NULL, 0, 0, NULL);"
-    );
+    let fixture_id = &fixture.id;
+    if fixture.needs_mock_server() {
+        let _ = writeln!(out, "    const char* mock_base = getenv(\"MOCK_SERVER_URL\");");
+        let _ = writeln!(out, "    assert(mock_base != NULL && \"MOCK_SERVER_URL must be set\");");
+        let _ = writeln!(out, "    char base_url[1024];");
+        let _ = writeln!(
+            out,
+            "    snprintf(base_url, sizeof(base_url), \"%s/fixtures/{fixture_id}\", mock_base);"
+        );
+        let _ = writeln!(
+            out,
+            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(\"test-key\", base_url, 0, 0, NULL);"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "    {prefix_upper}DefaultClient* client = {prefix}_create_client(\"test-key\", NULL, 0, 0, NULL);"
+        );
+    }
     let _ = writeln!(out, "    assert(client != NULL && \"failed to create client\");");
 
     let _ = writeln!(
