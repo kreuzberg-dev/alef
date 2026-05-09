@@ -13,6 +13,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("enum_header.jinja", include_str!("../templates/enum_header.jinja")),
     (
+        "untagged_union_wrapper.jinja",
+        include_str!("../templates/untagged_union_wrapper.jinja"),
+    ),
+    (
         "error_dispatch.jinja",
         include_str!("../templates/error_dispatch.jinja"),
     ),

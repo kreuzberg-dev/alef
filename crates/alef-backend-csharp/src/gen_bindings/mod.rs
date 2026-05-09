@@ -256,18 +256,10 @@ impl Backend for CsharpBackend {
             }
         }
 
-        // Collect complex enums (enums with data variants that are untagged) — these can't be
-        // simple C# enums and should be represented as JsonElement for flexible deserialization.
-        // Tagged unions (serde_tag is set) are now generated as proper abstract records
-        // and can be deserialized as their concrete types, so they are NOT complex_enums.
-        // Externally-tagged enums (the serde default when both serde_tag and serde_untagged are
-        // absent) are also not complex — they are emitted as string enums.
-        let complex_enums: HashSet<String> = api
-            .enums
-            .iter()
-            .filter(|e| e.serde_untagged && e.variants.iter().any(|v| !v.fields.is_empty()))
-            .map(|e| e.name.to_pascal_case())
-            .collect();
+        // Untagged unions with data variants now emit as JsonElement-wrapper classes
+        // (see gen_untagged_wrapper). The set is intentionally empty so record fields
+        // keep their wrapper-class type instead of being downcast to JsonElement.
+        let complex_enums: HashSet<String> = HashSet::new();
 
         // Collect enums that require a custom JsonConverter (non-standard serialized names only).
         // Tagged unions are generated as abstract records with [JsonPolymorphic] and do NOT need

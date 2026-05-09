@@ -786,6 +786,23 @@ fn render_test_method(
     // Build call expression
     let call_expr = format!("{}({})", effective_function_name, final_args);
 
+    // Merge per-call C# `enum_fields` keys with the global file-level
+    // `fields_enum` set so call-specific enum-typed result fields (e.g.
+    // BatchObject's `status` → BatchStatus) trigger enum coercion in
+    // assertions even when the global set does not list them. The
+    // file-level `enum_fields` argument carries the default-call's override;
+    // `cs_overrides.enum_fields` carries the per-fixture-call's override
+    // (e.g. retrieve_batch.overrides.csharp.enum_fields).
+    let mut effective_enum_fields: std::collections::HashSet<String> = e2e_config.fields_enum.clone();
+    for k in enum_fields.keys() {
+        effective_enum_fields.insert(k.clone());
+    }
+    if let Some(o) = cs_overrides {
+        for k in o.enum_fields.keys() {
+            effective_enum_fields.insert(k.clone());
+        }
+    }
+
     // Build assertions body for non-error cases
     let mut assertions_body = String::new();
     if !expects_error && !returns_void {
@@ -801,7 +818,7 @@ fn render_test_method(
                 call_config.result_is_vec || cs_overrides.is_some_and(|o| o.result_is_vec),
                 call_config.result_is_array,
                 effective_result_is_bytes,
-                &e2e_config.fields_enum,
+                &effective_enum_fields,
             );
         }
     }
