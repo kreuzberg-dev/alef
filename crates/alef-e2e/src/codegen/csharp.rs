@@ -1913,13 +1913,16 @@ fn render_assertion(
         "equals" => {
             if let Some(expected) = &assertion.value {
                 // Enum field equality bypasses the template (which would emit `.Trim()`,
-                // a string-only API). Compare lowercase ToString() against the lowercase
-                // fixture value to match the JSON form.
+                // a string-only API). Compare the snake-cased ToString() against the
+                // expected value to match the wire JSON form (`InProgress` → `in_progress`,
+                // `ContentFilter` → `content_filter`, etc.). `JsonNamingPolicy.SnakeCaseLower`
+                // is the same policy used by the global JsonStringEnumConverter, so the
+                // assertion compares against exactly what serde would emit.
                 if field_is_enum && expected.is_string() {
                     let s_lower = expected.as_str().map(|s| s.to_lowercase()).unwrap_or_default();
                     let _ = writeln!(
                         out,
-                        "        Assert.Equal(\"{}\", {field_expr}?.ToString()?.ToLower());",
+                        "        Assert.Equal(\"{}\", {field_expr} == null ? null : JsonNamingPolicy.SnakeCaseLower.ConvertName({field_expr}.ToString()!));",
                         escape_csharp(&s_lower)
                     );
                     return;

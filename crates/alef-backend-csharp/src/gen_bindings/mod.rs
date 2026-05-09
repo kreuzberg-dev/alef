@@ -639,6 +639,7 @@ pub(super) fn emit_named_param_setup(
     params: &[alef_core::ir::ParamDef],
     indent: &str,
     true_opaque_types: &HashSet<String>,
+    exception_name: &str,
 ) {
     for param in params {
         let param_name = param.name.to_lower_camel_case();
@@ -664,20 +665,36 @@ pub(super) fn emit_named_param_setup(
                 };
 
                 if param.optional && !is_config_param {
+                    // Optional Named param: pass IntPtr.Zero through to native when the
+                    // C# arg is null instead of round-tripping `"null"` through FromJson
+                    // which would error with "invalid type: null, expected struct T".
                     out.push_str(&crate::template_env::render(
-                        "named_param_json_optional.jinja",
-                        minijinja::context! { indent, json_var => &json_var, param_name => &param_name },
+                        "named_param_handle_from_json_optional.jinja",
+                        minijinja::context! {
+                            indent,
+                            handle_var => &handle_var,
+                            from_json_method => &from_json_method,
+                            json_var => &json_var,
+                            param_name => &param_name,
+                            exception_name => exception_name,
+                        },
                     ));
                 } else {
                     out.push_str(&crate::template_env::render(
                         "named_param_json_serialize.jinja",
                         minijinja::context! { indent, json_var => &json_var, param_name => &param_to_serialize },
                     ));
+                    out.push_str(&crate::template_env::render(
+                        "named_param_handle_from_json.jinja",
+                        minijinja::context! {
+                            indent,
+                            handle_var => &handle_var,
+                            from_json_method => &from_json_method,
+                            json_var => &json_var,
+                            exception_name => exception_name,
+                        },
+                    ));
                 }
-                out.push_str(&crate::template_env::render(
-                    "named_param_handle_from_json.jinja",
-                    minijinja::context! { indent, handle_var => &handle_var, from_json_method => &from_json_method, json_var => &json_var },
-                ));
             }
             TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 // Vec/Map: serialize to JSON string, marshal to native pointer

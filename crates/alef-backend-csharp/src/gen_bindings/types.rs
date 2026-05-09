@@ -317,7 +317,7 @@ fn gen_opaque_method(
     out.push_str(")\n    {\n");
 
     // Serialize Named params to JSON handles.
-    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types);
+    emit_named_param_setup(&mut out, &visible_params, "        ", true_opaque_types, exception_name);
 
     // The native method name is {TypeName}{MethodName} (same as gen_wrapper_method).
     let cs_native_name = format!("{class_name}{method_cs_name}");
@@ -569,8 +569,10 @@ pub(super) fn gen_record_type(
         } else {
             // [JsonPropertyName("json_name")]
             // FFI-based languages serialize to JSON that Rust serde deserializes.
-            // Since Rust uses default snake_case, JSON property names must be snake_case.
-            let json_name = field.name.clone();
+            // Prefer the explicit `#[serde(rename = "...")]` value over the field name —
+            // e.g. core `tool_type` with `#[serde(rename = "type")]` round-trips as
+            // `"type"` on the wire, not `"tool_type"`.
+            let json_name = field.serde_rename.clone().unwrap_or_else(|| field.name.clone());
             out.push_str(&render(
                 "json_property_name_attr.jinja",
                 minijinja::context! { json_name },

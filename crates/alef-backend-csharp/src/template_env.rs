@@ -17,6 +17,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/untagged_union_wrapper.jinja"),
     ),
     (
+        "sealed_union_converter.jinja",
+        include_str!("../templates/sealed_union_converter.jinja"),
+    ),
+    (
+        "named_param_handle_from_json_optional.jinja",
+        include_str!("../templates/named_param_handle_from_json_optional.jinja"),
+    ),
+    (
         "error_dispatch.jinja",
         include_str!("../templates/error_dispatch.jinja"),
     ),

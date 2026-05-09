@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(csharp-backend): emit a proper `Write` method for sealed-union `JsonConverter<T>`. The previous implementation threw `NotSupportedException` from `Write`, so any C# binding that serialized a sealed union (e.g. a `Message.User` instance inside a `ChatCompletionRequest`) failed at the FFI marshalling step with `Message serialization is not supported`. The new converter mirrors the Java sealed-union serializer pattern: switch on the variant, write the discriminator tag, then flatten the inner record's fields alongside the tag (so `Message.User(UserMessage value)` round-trips as `{"role":"user","content":...}` not `{"value":{...}}`). Emitted via a new `sealed_union_converter.jinja` template that owns both the Read and Write methods and replaces ~190 lines of inline `out.push_str` calls.
+
 ### Fixed
+
+- fix(csharp-backend): null-marshal `Optional<&T>` (`TypeRef::Named` + `optional: true`) parameters by passing `IntPtr.Zero` instead of round-tripping the literal string `"null"` through `<Type>FromJson`. Without this, `client.ListBatches(null)` against `Option<&BatchListQuery>` failed with `invalid type: null, expected struct BatchListQuery`. Mirrors the Java fix for the same IR shape. Emitted via a new `named_param_handle_from_json_optional.jinja` template.
+
+- fix(csharp-backend): respect `#[serde(rename = "...")]` when emitting `[JsonPropertyName("...")]` on record properties. Previously the generator hardcoded `field.name` as the JSON wire name, so fields like `tool_type` (renamed via `#[serde(rename = "type")]`) round-tripped as `"tool_type"` on the wire — Rust serde then rejected the request with `unknown field tool_type, expected type or function`. Now uses `field.serde_rename` when set, falling back to `field.name`.
+
+- fix(csharp-backend): retrieve the actual FFI error message instead of throwing a generic `"<NativeMethod> failed"`. The `null_result_throw.jinja` template now reads `LastErrorCode()` + `LastErrorContext()` and surfaces the underlying Rust error (e.g. `"missing field 'role'"`, `"invalid type: null, expected struct BatchListQuery"`) so callers see the real cause instead of a meaningless wrapper.
+
+- fix(csharp-backend): check the return value of `<Type>FromJson` and throw the actual error before passing the (potentially-null) handle to the next FFI call. Without this, a malformed serialized JSON silently returned `IntPtr.Zero`, then the next FFI call failed with `Null pointer passed for parameter 'req'` — masking the real serialization error. The `named_param_handle_from_json.jinja` template now checks the handle and throws with the underlying error context. Same pattern as the existing Java emission.
+
+- fix(e2e/csharp): use `JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString())` for enum-equality assertions instead of `.ToString()?.ToLower()`. C# enum members are PascalCase (`InProgress`, `ContentFilter`, `ToolCalls`), so `.ToLower()` produces `inprogress`, `contentfilter`, `toolcalls` — none of which match the snake_case wire format (`in_progress`, `content_filter`, `tool_calls`) that the global `JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower)` actually emits.
 
 - fix(java-backend, csharp-backend): handle `#[serde(rename_all = "kebab-case")]` (and `SCREAMING-KEBAB-CASE`) on enums. Both `apply_rename_all` helpers had no `kebab-case` arm, so they fell through to `name.to_lowercase()`, producing `FineTune` → `"finetune"` instead of `"fine-tune"`. JSON values like `"fine-tune"` then failed to deserialize with `Cannot construct instance of FilePurpose, problem: Unknown value: fine-tune` (3 Java tests, all C# file-purpose tests).
 
