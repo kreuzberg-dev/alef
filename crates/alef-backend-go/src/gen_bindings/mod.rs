@@ -6,7 +6,7 @@ use functions::{gen_convert_with_visitor_wrapper, gen_function_wrapper};
 use methods::gen_method_wrapper;
 use types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
-    gen_struct_type, gen_unmarshal_bytes_helper, is_tuple_field,
+    gen_struct_type, gen_unmarshal_bytes_helper, is_passthrough_raw_message_enum, is_tuple_field,
 };
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
@@ -455,6 +455,13 @@ fn gen_go_file(
                 .iter()
                 .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field))
         })
+        .filter(|e| !is_passthrough_raw_message_enum(e))
+        .map(|e| e.name.as_str())
+        .collect();
+    let passthrough_enum_names: std::collections::HashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|e| is_passthrough_raw_message_enum(e))
         .map(|e| e.name.as_str())
         .collect();
     for enum_def in api.enums.iter().filter(|e| !visitor_types.contains(e.name.as_str())) {
@@ -508,7 +515,7 @@ fn gen_go_file(
             // structs that share field names with the primary config type, producing duplicate
             // With* function declarations.
             if typ.has_default && !typ.name.ends_with("Update") {
-                out.push_str(&gen_config_options(typ, &unit_enum_names));
+                out.push_str(&gen_config_options(typ, &unit_enum_names, &passthrough_enum_names));
                 out.push_str("\n\n");
             }
         }

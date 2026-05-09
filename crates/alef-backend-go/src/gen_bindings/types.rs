@@ -183,21 +183,15 @@ pub(super) fn gen_enum_type(enum_def: &EnumDef) -> String {
                 .any(|f| is_tuple_field(f) && matches!(&f.ty, TypeRef::Named(_)))
         });
 
-        // Untagged enums whose variants mix scalar and collection shapes (e.g.
-        // `Single(String) | Multiple(Vec<String>)`, `Text(String) | Parts(Vec<Foo>)`)
-        // can't be modeled as `type X string` — Vec serializes to an array, not a
-        // string, and any decoded JSON must round-trip without rejecting either shape.
-        // Emit them as a `json.RawMessage` wrapper that passes the raw bytes through
-        // unchanged (mirrors the napi `serde_json::Value` wrapper for the same case).
-        let any_tuple_field_is_collection = enum_def.variants.iter().any(|v| {
-            v.fields
-                .iter()
-                .any(|f| is_tuple_field(f) && matches!(&f.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)))
-        });
-
         if any_tuple_field_is_named_struct {
             gen_tuple_tagged_union_type(enum_def)
-        } else if any_tuple_field_is_collection {
+        } else if is_passthrough_raw_message_enum(enum_def) {
+            // Untagged enums whose variants mix scalar and collection shapes (e.g.
+            // `Single(String) | Multiple(Vec<String>)`, `Text(String) | Parts(Vec<Foo>)`)
+            // can't be modeled as `type X string` — Vec serializes to an array, not a
+            // string, and any decoded JSON must round-trip without rejecting either shape.
+            // Emit them as a `json.RawMessage` wrapper that passes the raw bytes through
+            // unchanged (mirrors the napi `serde_json::Value` wrapper for the same case).
             gen_passthrough_raw_message_enum(enum_def)
         } else {
             gen_newtype_tuple_enum_type(enum_def)
@@ -205,6 +199,35 @@ pub(super) fn gen_enum_type(enum_def: &EnumDef) -> String {
     } else {
         gen_data_enum_type(enum_def)
     }
+}
+
+/// Returns true if this enum should be emitted as a `json.RawMessage` passthrough
+/// type — used for untagged enums with mixed scalar/collection variants.
+pub(super) fn is_passthrough_raw_message_enum(enum_def: &EnumDef) -> bool {
+    let is_data_enum = enum_def.variants.iter().any(|v| !v.fields.is_empty());
+    if !is_data_enum {
+        return false;
+    }
+    let all_data_fields_are_tuple = enum_def
+        .variants
+        .iter()
+        .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field));
+    if !all_data_fields_are_tuple {
+        return false;
+    }
+    let any_tuple_field_is_named_struct = enum_def.variants.iter().any(|v| {
+        v.fields
+            .iter()
+            .any(|f| is_tuple_field(f) && matches!(&f.ty, TypeRef::Named(_)))
+    });
+    if any_tuple_field_is_named_struct {
+        return false;
+    }
+    enum_def.variants.iter().any(|v| {
+        v.fields
+            .iter()
+            .any(|f| is_tuple_field(f) && matches!(&f.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)))
+    })
 }
 
 /// Generate a Go type that wraps `json.RawMessage` for an untagged enum whose
@@ -1198,7 +1221,11 @@ fn go_return_expr_inner(
 
 /// Generate functional options pattern for Go config types with defaults.
 /// Produces ConfigOption type and WithFieldName constructors.
-pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::HashSet<&str>) -> String {
+pub(super) fn gen_config_options(
+    typ: &TypeDef,
+    enum_names: &std::collections::HashSet<&str>,
+    passthrough_enum_names: &std::collections::HashSet<&str>,
+) -> String {
     let mut out = String::with_capacity(2048);
 
     // ConfigOption type definition
@@ -1283,12 +1310,22 @@ pub(super) fn gen_config_options(typ: &TypeDef, enum_names: &std::collections::H
             "nil".to_string()
         } else {
             let mut val = alef_codegen::config_gen::default_value_for_field(field, "go");
+            // Passthrough json.RawMessage-backed enum: zero value is `nil` (a nil
+            // []byte slice). Override unconditionally — config_gen would otherwise
+            // return `""` for `String` defaults baked into the IR for these types.
+            if let TypeRef::Named(name) = &field.ty {
+                if passthrough_enum_names.contains(name.as_str()) {
+                    val = "nil".to_string();
+                }
+            }
             // config_gen returns "nil" for Named types with Empty default, but in Go
             // non-optional Named types are value types. Fix up based on whether the
             // Named type is a string-based enum or a struct.
             if val == "nil" {
                 if let TypeRef::Named(name) = &field.ty {
-                    if enum_names.contains(name.as_str()) {
+                    if passthrough_enum_names.contains(name.as_str()) {
+                        // already handled above; keep nil
+                    } else if enum_names.contains(name.as_str()) {
                         // String-typed enum — zero value is empty string
                         val = "\"\"".to_string();
                     } else {
