@@ -71,6 +71,15 @@ impl E2eCodegen for JavaCodegen {
             generated_header: false,
         });
 
+        // Detect whether any fixture needs the mock-server (HTTP fixtures or
+        // fixtures with a `mock_response`). When present, emit a
+        // JUnit Platform LauncherSessionListener that spawns the mock-server
+        // before any test runs and a META-INF/services SPI manifest registering
+        // it. Without this, every fixture-bound test failed with
+        // `LiterLlmRsException: error sending request for url` because
+        // `System.getenv("MOCK_SERVER_URL")` was null.
+        let needs_mock_server = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.needs_mock_server());
+
         // Generate test files per category. Path mirrors the configured Java
         // package — `dev.myorg` becomes `dev/myorg`, etc. — so the package
         // declaration in each test file matches its filesystem location.
@@ -79,6 +88,25 @@ impl E2eCodegen for JavaCodegen {
             test_base = test_base.join(segment);
         }
         let test_base = test_base.join("e2e");
+
+        if needs_mock_server {
+            files.push(GeneratedFile {
+                path: test_base.join("MockServerListener.java"),
+                content: render_mock_server_listener(&java_group_id),
+                generated_header: true,
+            });
+            files.push(GeneratedFile {
+                path: output_base
+                    .join("src")
+                    .join("test")
+                    .join("resources")
+                    .join("META-INF")
+                    .join("services")
+                    .join("org.junit.platform.launcher.LauncherSessionListener"),
+                content: format!("{java_group_id}.e2e.MockServerListener\n"),
+                generated_header: false,
+            });
+        }
 
         // Resolve options_type from override.
         let options_type = overrides.and_then(|o| o.options_type.clone());
@@ -200,6 +228,133 @@ fn render_pom_xml(
             maven_surefire_version => tv::maven::MAVEN_SUREFIRE_PLUGIN_E2E,
         },
     )
+}
+
+/// Render the JUnit Platform LauncherSessionListener that spawns the
+/// mock-server binary once per launcher session and tears it down on close.
+///
+/// Mirrors the Ruby `spec_helper.rb` and Python `conftest.py` patterns. The
+/// URL is exposed as a JVM system property `mockServerUrl`; generated test
+/// bodies prefer it over the `MOCK_SERVER_URL` env var so external overrides
+/// (e.g. CI exporting MOCK_SERVER_URL) still work without rerouting through
+/// JNI's lack of `setenv`.
+fn render_mock_server_listener(java_group_id: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let mut out = header;
+    out.push_str(&format!("package {java_group_id}.e2e;\n\n"));
+    out.push_str("import java.io.BufferedReader;\n");
+    out.push_str("import java.io.File;\n");
+    out.push_str("import java.io.IOException;\n");
+    out.push_str("import java.io.InputStreamReader;\n");
+    out.push_str("import java.nio.charset.StandardCharsets;\n");
+    out.push_str("import java.nio.file.Path;\n");
+    out.push_str("import java.nio.file.Paths;\n");
+    out.push_str("import org.junit.platform.launcher.LauncherSession;\n");
+    out.push_str("import org.junit.platform.launcher.LauncherSessionListener;\n");
+    out.push_str("\n");
+    out.push_str("/**\n");
+    out.push_str(" * Spawns the mock-server binary once per JUnit launcher session and\n");
+    out.push_str(" * exposes its URL as the `mockServerUrl` system property. Generated\n");
+    out.push_str(" * test bodies read the property (with `MOCK_SERVER_URL` env-var\n");
+    out.push_str(" * fallback) so tests can run via plain `mvn test` without any external\n");
+    out.push_str(" * mock-server orchestration. Mirrors the Ruby spec_helper / Python\n");
+    out.push_str(" * conftest spawn pattern. Honors a pre-set MOCK_SERVER_URL by\n");
+    out.push_str(" * skipping the spawn entirely.\n");
+    out.push_str(" */\n");
+    out.push_str("public class MockServerListener implements LauncherSessionListener {\n");
+    out.push_str("    private Process mockServer;\n");
+    out.push_str("\n");
+    out.push_str("    @Override\n");
+    out.push_str("    public void launcherSessionOpened(LauncherSession session) {\n");
+    out.push_str("        String preset = System.getenv(\"MOCK_SERVER_URL\");\n");
+    out.push_str("        if (preset != null && !preset.isEmpty()) {\n");
+    out.push_str("            System.setProperty(\"mockServerUrl\", preset);\n");
+    out.push_str("            return;\n");
+    out.push_str("        }\n");
+    out.push_str("        Path repoRoot = locateRepoRoot();\n");
+    out.push_str("        if (repoRoot == null) {\n");
+    out.push_str("            throw new IllegalStateException(\"MockServerListener: could not locate repo root (looked for fixtures/ in ancestors of \" + System.getProperty(\"user.dir\") + \")\");\n");
+    out.push_str("        }\n");
+    out.push_str("        String binName = System.getProperty(\"os.name\", \"\").toLowerCase().contains(\"win\") ? \"mock-server.exe\" : \"mock-server\";\n");
+    out.push_str("        File bin = repoRoot.resolve(\"e2e\").resolve(\"rust\").resolve(\"target\").resolve(\"release\").resolve(binName).toFile();\n");
+    out.push_str("        File fixturesDir = repoRoot.resolve(\"fixtures\").toFile();\n");
+    out.push_str("        if (!bin.exists()) {\n");
+    out.push_str("            throw new IllegalStateException(\"MockServerListener: mock-server binary not found at \" + bin + \" — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release\");\n");
+    out.push_str("        }\n");
+    out.push_str("        ProcessBuilder pb = new ProcessBuilder(bin.getAbsolutePath(), fixturesDir.getAbsolutePath())\n");
+    out.push_str("            .redirectErrorStream(false);\n");
+    out.push_str("        try {\n");
+    out.push_str("            mockServer = pb.start();\n");
+    out.push_str("        } catch (IOException e) {\n");
+    out.push_str("            throw new IllegalStateException(\"MockServerListener: failed to start mock-server\", e);\n");
+    out.push_str("        }\n");
+    out.push_str("        // Read until we see the MOCK_SERVER_URL=... line. Cap the loop so a\n");
+    out.push_str("        // misbehaving mock-server cannot block the launcher indefinitely.\n");
+    out.push_str("        BufferedReader stdout = new BufferedReader(new InputStreamReader(mockServer.getInputStream(), StandardCharsets.UTF_8));\n");
+    out.push_str("        String url = null;\n");
+    out.push_str("        try {\n");
+    out.push_str("            for (int i = 0; i < 16; i++) {\n");
+    out.push_str("                String line = stdout.readLine();\n");
+    out.push_str("                if (line == null) break;\n");
+    out.push_str("                if (line.startsWith(\"MOCK_SERVER_URL=\")) {\n");
+    out.push_str("                    url = line.substring(\"MOCK_SERVER_URL=\".length()).trim();\n");
+    out.push_str("                    break;\n");
+    out.push_str("                }\n");
+    out.push_str("            }\n");
+    out.push_str("        } catch (IOException e) {\n");
+    out.push_str("            mockServer.destroyForcibly();\n");
+    out.push_str("            throw new IllegalStateException(\"MockServerListener: failed to read mock-server stdout\", e);\n");
+    out.push_str("        }\n");
+    out.push_str("        if (url == null || url.isEmpty()) {\n");
+    out.push_str("            mockServer.destroyForcibly();\n");
+    out.push_str("            throw new IllegalStateException(\"MockServerListener: mock-server did not emit MOCK_SERVER_URL\");\n");
+    out.push_str("        }\n");
+    out.push_str("        System.setProperty(\"mockServerUrl\", url);\n");
+    out.push_str("        // Drain remaining stdout/stderr in daemon threads so a full pipe\n");
+    out.push_str("        // does not block the child.\n");
+    out.push_str("        Process server = mockServer;\n");
+    out.push_str("        Thread drainOut = new Thread(() -> drain(stdout));\n");
+    out.push_str("        drainOut.setDaemon(true);\n");
+    out.push_str("        drainOut.start();\n");
+    out.push_str("        Thread drainErr = new Thread(() -> drain(new BufferedReader(new InputStreamReader(server.getErrorStream(), StandardCharsets.UTF_8))));\n");
+    out.push_str("        drainErr.setDaemon(true);\n");
+    out.push_str("        drainErr.start();\n");
+    out.push_str("    }\n");
+    out.push_str("\n");
+    out.push_str("    @Override\n");
+    out.push_str("    public void launcherSessionClosed(LauncherSession session) {\n");
+    out.push_str("        if (mockServer == null) return;\n");
+    out.push_str("        try { mockServer.getOutputStream().close(); } catch (IOException ignored) {}\n");
+    out.push_str("        try {\n");
+    out.push_str("            if (!mockServer.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {\n");
+    out.push_str("                mockServer.destroyForcibly();\n");
+    out.push_str("            }\n");
+    out.push_str("        } catch (InterruptedException ignored) {\n");
+    out.push_str("            Thread.currentThread().interrupt();\n");
+    out.push_str("            mockServer.destroyForcibly();\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("\n");
+    out.push_str("    private static Path locateRepoRoot() {\n");
+    out.push_str("        Path dir = Paths.get(\"\").toAbsolutePath();\n");
+    out.push_str("        while (dir != null) {\n");
+    out.push_str("            if (dir.resolve(\"fixtures\").toFile().isDirectory()\n");
+    out.push_str("                && dir.resolve(\"e2e\").toFile().isDirectory()) {\n");
+    out.push_str("                return dir;\n");
+    out.push_str("            }\n");
+    out.push_str("            dir = dir.getParent();\n");
+    out.push_str("        }\n");
+    out.push_str("        return null;\n");
+    out.push_str("    }\n");
+    out.push_str("\n");
+    out.push_str("    private static void drain(BufferedReader reader) {\n");
+    out.push_str("        try {\n");
+    out.push_str("            char[] buf = new char[1024];\n");
+    out.push_str("            while (reader.read(buf) >= 0) { /* drain */ }\n");
+    out.push_str("        } catch (IOException ignored) {}\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -984,7 +1139,7 @@ fn render_test_method(
         let mut setup: Vec<String> = Vec::new();
         if fixture.mock_response.is_some() || fixture.http.is_some() {
             setup.push(format!(
-                "String mockUrl = System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";"
+                "String mockUrl = System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";"
             ));
             setup.push(format!(
                 "var client = {class_name}.{factory_name}(\"test-key\", mockUrl, null, null, null);"
@@ -1045,7 +1200,7 @@ fn build_args_and_setup(
     for arg in args {
         if arg.arg_type == "mock_url" {
             setup_lines.push(format!(
-                "String {} = System.getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\";",
+                "String {} = System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\")) + \"/fixtures/{fixture_id}\";",
                 arg.name,
             ));
             parts.push(arg.name.clone());

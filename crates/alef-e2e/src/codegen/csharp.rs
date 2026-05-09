@@ -93,12 +93,22 @@ impl E2eCodegen for CSharpCodegen {
             generated_header: false,
         });
 
+        // Detect whether any fixture needs the mock-server (HTTP fixtures or
+        // fixtures with a `mock_response`). When present, the generated
+        // TestSetup.cs will spawn the mock-server via [ModuleInitializer]
+        // before any test loads — mirroring the Ruby spec_helper / Python
+        // conftest spawn pattern. Without this, every fixture-bound test
+        // failed with `LiterLlmException : builder error` because reqwest
+        // rejected the relative URL when MOCK_SERVER_URL was unset.
+        let needs_mock_server = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.needs_mock_server());
+
         // Emit a TestSetup.cs whose ModuleInitializer chdirs to test_documents
         // so fixture-relative paths like "docx/fake.docx" resolve correctly when
-        // dotnet test runs from bin/{Configuration}/{Tfm}.
+        // dotnet test runs from bin/{Configuration}/{Tfm}, and (when fixtures
+        // need it) spawns the mock-server binary.
         files.push(GeneratedFile {
             path: output_base.join("TestSetup.cs"),
-            content: render_test_setup(),
+            content: render_test_setup(needs_mock_server),
             generated_header: true,
         });
 
@@ -191,40 +201,128 @@ fn render_csproj(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: cr
     )
 }
 
-fn render_test_setup() -> String {
+fn render_test_setup(needs_mock_server: bool) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
-    out.push_str(
-        r#"using System;
-using System.IO;
-using System.Runtime.CompilerServices;
-
-namespace Kreuzberg.E2eTests;
-
-internal static class TestSetup
-{
-    [ModuleInitializer]
-    internal static void Init()
-    {
-        // Walk up from the assembly directory until we find the repo root
-        // (the directory containing test_documents/) so that fixture paths
-        // like "docx/fake.docx" resolve regardless of where dotnet test
-        // launched the runner from.
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
-        {
-            var candidate = Path.Combine(dir.FullName, "test_documents");
-            if (Directory.Exists(candidate))
-            {
-                Directory.SetCurrentDirectory(candidate);
-                return;
-            }
-            dir = dir.Parent;
-        }
+    out.push_str("using System;\n");
+    out.push_str("using System.IO;\n");
+    if needs_mock_server {
+        out.push_str("using System.Diagnostics;\n");
     }
-}
-"#,
-    );
+    out.push_str("using System.Runtime.CompilerServices;\n\n");
+    out.push_str("namespace Kreuzberg.E2eTests;\n\n");
+    out.push_str("internal static class TestSetup\n");
+    out.push_str("{\n");
+    if needs_mock_server {
+        out.push_str("    private static Process? _mockServer;\n\n");
+    }
+    out.push_str("    [ModuleInitializer]\n");
+    out.push_str("    internal static void Init()\n");
+    out.push_str("    {\n");
+    out.push_str("        // Walk up from the assembly directory until we find the repo root\n");
+    out.push_str("        // (the directory containing test_documents/) so that fixture paths\n");
+    out.push_str("        // like \"docx/fake.docx\" resolve regardless of where dotnet test\n");
+    out.push_str("        // launched the runner from.\n");
+    out.push_str("        var dir = new DirectoryInfo(AppContext.BaseDirectory);\n");
+    out.push_str("        DirectoryInfo? repoRoot = null;\n");
+    out.push_str("        while (dir != null)\n");
+    out.push_str("        {\n");
+    out.push_str("            var candidate = Path.Combine(dir.FullName, \"test_documents\");\n");
+    out.push_str("            if (Directory.Exists(candidate))\n");
+    out.push_str("            {\n");
+    out.push_str("                repoRoot = dir;\n");
+    out.push_str("                Directory.SetCurrentDirectory(candidate);\n");
+    out.push_str("                break;\n");
+    out.push_str("            }\n");
+    out.push_str("            dir = dir.Parent;\n");
+    out.push_str("        }\n");
+    if needs_mock_server {
+        out.push_str("\n");
+        out.push_str("        // Spawn the mock-server binary before any test loads, mirroring the\n");
+        out.push_str("        // Ruby spec_helper / Python conftest pattern. Honors a pre-set\n");
+        out.push_str("        // MOCK_SERVER_URL (e.g. set by `task` or CI) by skipping the spawn.\n");
+        out.push_str("        // Without this, every fixture-bound test failed with\n");
+        out.push_str("        // `<Lib>Exception : builder error` because reqwest rejected the\n");
+        out.push_str("        // relative URL produced by `\"\" + \"/fixtures/<id>\"`.\n");
+        out.push_str("        var preset = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\");\n");
+        out.push_str("        if (!string.IsNullOrEmpty(preset))\n");
+        out.push_str("        {\n");
+        out.push_str("            return;\n");
+        out.push_str("        }\n");
+        out.push_str("        if (repoRoot == null)\n");
+        out.push_str("        {\n");
+        out.push_str("            throw new InvalidOperationException(\"TestSetup: could not locate repo root (test_documents/ not found)\");\n");
+        out.push_str("        }\n");
+        out.push_str("        var bin = Path.Combine(\n");
+        out.push_str("            repoRoot.FullName,\n");
+        out.push_str("            \"e2e\", \"rust\", \"target\", \"release\", \"mock-server\");\n");
+        out.push_str("        if (OperatingSystem.IsWindows())\n");
+        out.push_str("        {\n");
+        out.push_str("            bin += \".exe\";\n");
+        out.push_str("        }\n");
+        out.push_str("        var fixturesDir = Path.Combine(repoRoot.FullName, \"fixtures\");\n");
+        out.push_str("        if (!File.Exists(bin))\n");
+        out.push_str("        {\n");
+        out.push_str("            throw new InvalidOperationException(\n");
+        out.push_str("                $\"TestSetup: mock-server binary not found at {bin} — run: cargo build --manifest-path e2e/rust/Cargo.toml --bin mock-server --release\");\n");
+        out.push_str("        }\n");
+        out.push_str("        var psi = new ProcessStartInfo\n");
+        out.push_str("        {\n");
+        out.push_str("            FileName = bin,\n");
+        out.push_str("            Arguments = $\"\\\"{fixturesDir}\\\"\",\n");
+        out.push_str("            RedirectStandardInput = true,\n");
+        out.push_str("            RedirectStandardOutput = true,\n");
+        out.push_str("            RedirectStandardError = true,\n");
+        out.push_str("            UseShellExecute = false,\n");
+        out.push_str("        };\n");
+        out.push_str("        _mockServer = Process.Start(psi)\n");
+        out.push_str("            ?? throw new InvalidOperationException(\"TestSetup: failed to start mock-server\");\n");
+        out.push_str("        // The mock-server prints `MOCK_SERVER_URL=<url>` as its first stdout\n");
+        out.push_str("        // line, then `mock-server: loaded <N> routes from <dir>` etc. Read\n");
+        out.push_str("        // until we see the URL line so it can race against startup.\n");
+        out.push_str("        string? url = null;\n");
+        out.push_str("        for (int i = 0; i < 16; i++)\n");
+        out.push_str("        {\n");
+        out.push_str("            var line = _mockServer.StandardOutput.ReadLine();\n");
+        out.push_str("            if (line == null)\n");
+        out.push_str("            {\n");
+        out.push_str("                break;\n");
+        out.push_str("            }\n");
+        out.push_str("            const string prefix = \"MOCK_SERVER_URL=\";\n");
+        out.push_str("            if (line.StartsWith(prefix, StringComparison.Ordinal))\n");
+        out.push_str("            {\n");
+        out.push_str("                url = line.Substring(prefix.Length).Trim();\n");
+        out.push_str("                break;\n");
+        out.push_str("            }\n");
+        out.push_str("        }\n");
+        out.push_str("        if (string.IsNullOrEmpty(url))\n");
+        out.push_str("        {\n");
+        out.push_str("            try { _mockServer.Kill(true); } catch { }\n");
+        out.push_str("            throw new InvalidOperationException(\"TestSetup: mock-server did not emit MOCK_SERVER_URL\");\n");
+        out.push_str("        }\n");
+        out.push_str("        Environment.SetEnvironmentVariable(\"MOCK_SERVER_URL\", url);\n");
+        out.push_str("        // Drain stdout/stderr so the child does not block on a full pipe.\n");
+        out.push_str("        var server = _mockServer;\n");
+        out.push_str("        var stdoutThread = new System.Threading.Thread(() =>\n");
+        out.push_str("        {\n");
+        out.push_str("            try { server.StandardOutput.ReadToEnd(); } catch { }\n");
+        out.push_str("        }) { IsBackground = true };\n");
+        out.push_str("        stdoutThread.Start();\n");
+        out.push_str("        var stderrThread = new System.Threading.Thread(() =>\n");
+        out.push_str("        {\n");
+        out.push_str("            try { server.StandardError.ReadToEnd(); } catch { }\n");
+        out.push_str("        }) { IsBackground = true };\n");
+        out.push_str("        stderrThread.Start();\n");
+        out.push_str("        // Tear the child down on assembly unload / process exit by closing\n");
+        out.push_str("        // its stdin (the mock-server treats stdin EOF as a shutdown signal).\n");
+        out.push_str("        AppDomain.CurrentDomain.ProcessExit += (_, _) =>\n");
+        out.push_str("        {\n");
+        out.push_str("            try { _mockServer.StandardInput.Close(); } catch { }\n");
+        out.push_str("            try { if (!_mockServer.WaitForExit(2000)) { _mockServer.Kill(true); } } catch { }\n");
+        out.push_str("        };\n");
+    }
+    out.push_str("    }\n");
+    out.push_str("}\n");
     out
 }
 
