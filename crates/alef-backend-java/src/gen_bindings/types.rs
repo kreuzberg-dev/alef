@@ -208,6 +208,44 @@ pub(crate) fn gen_record_type(
         record_block.push_str("    }\n");
     }
 
+    // Emit a static `fromJson(String)` factory for binding consumers (e2e tests
+    // and downstream user code). Mirrors the wider STREAM_MAPPER configuration
+    // used by the opaque-handle class so SNAKE_CASE field names round-trip
+    // correctly with the Rust core's serde representation.
+    record_block.push_str("\n    /**\n");
+    record_block.push_str("     * Parse a {@code ");
+    record_block.push_str(&typ.name);
+    record_block.push_str("} from a JSON string.\n");
+    record_block.push_str("     *\n");
+    record_block.push_str("     * @param json JSON serialisation matching the Rust-side field names (snake_case).\n");
+    record_block.push_str("     * @throws RuntimeException if the JSON cannot be deserialised.\n");
+    record_block.push_str("     */\n");
+    record_block.push_str("    public static ");
+    record_block.push_str(&typ.name);
+    record_block.push_str(" fromJson(String json) {\n");
+    record_block.push_str("        try {\n");
+    record_block.push_str("            return new com.fasterxml.jackson.databind.ObjectMapper()\n");
+    record_block.push_str("                .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
+    record_block.push_str("                .findAndRegisterModules()\n");
+    record_block.push_str(
+        "                .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
+    );
+    record_block.push_str(
+        "                .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)\n",
+    );
+    record_block.push_str(
+        "                .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true)\n",
+    );
+    record_block.push_str("                .readValue(json, ");
+    record_block.push_str(&typ.name);
+    record_block.push_str(".class);\n");
+    record_block.push_str("        } catch (Exception e) {\n");
+    record_block.push_str("            throw new RuntimeException(\"Failed to parse ");
+    record_block.push_str(&typ.name);
+    record_block.push_str(" from JSON\", e);\n");
+    record_block.push_str("        }\n");
+    record_block.push_str("    }\n");
+
     // Generate a compact constructor that applies Rust-side defaults for non-optional
     // primitive fields whose Java default (0, false, etc.) differs from the Rust default.
     // This ensures that when Jackson deserialises JSON that omits a field, the record
