@@ -139,7 +139,7 @@ pub fn gen_trait_bridges_file(
 fn gen_trait_bridge(
     out: &mut String,
     trait_def: &TypeDef,
-    _bridge_cfg: &TraitBridgeConfig,
+    bridge_cfg: &TraitBridgeConfig,
     ffi_prefix: &str,
     crate_name: &str,
 ) {
@@ -332,6 +332,85 @@ fn gen_trait_bridge(
         },
     ));
     out.push_str("}\n");
+
+    // =========================================================================
+    // Config-driven unregistration / clear functions (opt-in via bridge_cfg)
+    // =========================================================================
+    let unregister_block = gen_unregistration_fn(bridge_cfg, ffi_prefix, trait_name);
+    if !unregister_block.is_empty() {
+        out.push('\n');
+        out.push_str(&unregister_block);
+    }
+
+    let clear_block = gen_clear_fn(bridge_cfg, ffi_prefix, trait_name);
+    if !clear_block.is_empty() {
+        out.push('\n');
+        out.push_str(&clear_block);
+    }
+}
+
+/// Generate a config-driven unregistration wrapper.
+///
+/// Returns an empty string when `bridge_cfg.unregister_fn` is `None`.
+/// Otherwise emits a Go function whose name is `bridge_cfg.unregister_fn`,
+/// accepting a `name string` parameter and calling the C-exported
+/// `{ffi_prefix}_unregister_{trait_snake}` function via cgo.
+fn gen_unregistration_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait_name: &str) -> String {
+    let Some(fn_name) = bridge_cfg.unregister_fn.as_deref() else {
+        return String::new();
+    };
+    let trait_snake = heck::AsSnakeCase(trait_name).to_string();
+    let c_function = format!("{}_unregister_{}", ffi_prefix, trait_snake);
+
+    let mut out = String::new();
+    out.push_str(&crate::template_env::render(
+        "unregister_fn_header.jinja",
+        minijinja::context! {
+            fn_name => fn_name,
+            trait_name => trait_name,
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "unregister_c_call.jinja",
+        minijinja::context! {
+            c_function => c_function,
+            trait_name => trait_name,
+        },
+    ));
+    out.push_str("}\n");
+    out
+}
+
+/// Generate a config-driven clear-all wrapper.
+///
+/// Returns an empty string when `bridge_cfg.clear_fn` is `None`.
+/// Otherwise emits a Go function whose name is `bridge_cfg.clear_fn`,
+/// taking no arguments and calling the C-exported
+/// `{ffi_prefix}_clear_{trait_snake}` function via cgo.
+fn gen_clear_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait_name: &str) -> String {
+    let Some(fn_name) = bridge_cfg.clear_fn.as_deref() else {
+        return String::new();
+    };
+    let trait_snake = heck::AsSnakeCase(trait_name).to_string();
+    let c_function = format!("{}_clear_{}", ffi_prefix, trait_snake);
+
+    let mut out = String::new();
+    out.push_str(&crate::template_env::render(
+        "clear_function_header.jinja",
+        minijinja::context! {
+            fn_name => fn_name,
+            name => trait_name,
+        },
+    ));
+    out.push_str(&crate::template_env::render(
+        "clear_c_call.jinja",
+        minijinja::context! {
+            c_function => c_function,
+            trait_name => trait_name,
+        },
+    ));
+    out.push_str("}\n");
+    out
 }
 
 /// Generate the Go interface method signature for a trait method.
@@ -1032,5 +1111,69 @@ mod tests {
                 crate_name, trait_name
             );
         }
+    }
+
+    #[test]
+    fn gen_unregistration_fn_returns_empty_when_none() {
+        let cfg = alef_core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            unregister_fn: None,
+            clear_fn: None,
+            ..Default::default()
+        };
+        let result = gen_unregistration_fn(&cfg, "kreuzberg", "OcrBackend");
+        assert!(result.is_empty(), "expected empty output when unregister_fn is None");
+    }
+
+    #[test]
+    fn gen_unregistration_fn_emits_wrapper_when_set() {
+        let cfg = alef_core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            unregister_fn: Some("unregister_ocr_backend".to_string()),
+            clear_fn: None,
+            ..Default::default()
+        };
+        let result = gen_unregistration_fn(&cfg, "kreuzberg", "OcrBackend");
+        assert!(!result.is_empty(), "expected non-empty output when unregister_fn is set");
+        assert!(
+            result.contains("func unregister_ocr_backend(name string) error"),
+            "generated function signature not found in:\n{result}"
+        );
+        assert!(
+            result.contains("C.kreuzberg_unregister_ocr_backend"),
+            "C call not found in:\n{result}"
+        );
+    }
+
+    #[test]
+    fn gen_clear_fn_returns_empty_when_none() {
+        let cfg = alef_core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            unregister_fn: None,
+            clear_fn: None,
+            ..Default::default()
+        };
+        let result = gen_clear_fn(&cfg, "kreuzberg", "OcrBackend");
+        assert!(result.is_empty(), "expected empty output when clear_fn is None");
+    }
+
+    #[test]
+    fn gen_clear_fn_emits_wrapper_when_set() {
+        let cfg = alef_core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            unregister_fn: None,
+            clear_fn: Some("clear_ocr_backends".to_string()),
+            ..Default::default()
+        };
+        let result = gen_clear_fn(&cfg, "kreuzberg", "OcrBackend");
+        assert!(!result.is_empty(), "expected non-empty output when clear_fn is set");
+        assert!(
+            result.contains("func clear_ocr_backends() error"),
+            "generated function signature not found in:\n{result}"
+        );
+        assert!(
+            result.contains("C.kreuzberg_clear_ocr_backend"),
+            "C call not found in:\n{result}"
+        );
     }
 }
