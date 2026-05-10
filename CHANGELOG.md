@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.24] - 2026-05-10
+
+### Added
+
+- feat(alef-core): `SelectWhen` enum and `resolve_call_for_fixture` — named call configs in `[e2e.calls.*]` can now declare `select_when = { input_has = "<key>" }` to auto-route fixtures whose input contains that key, without requiring an explicit `"call"` field on every fixture. All per-language e2e generators now use `resolve_call_for_fixture` instead of `resolve_call` so auto-routing applies everywhere.
+- feat(alef-e2e/go): wrap engine creation in error-return for validation fixtures — when a test fixture has `type=error` assertions, `build_args_and_setup` now emits `return` instead of `t.Fatalf` if `CreateEngine` itself fails, so validation errors from engine creation satisfy the error assertion rather than failing the test.
+
 ### Changed
 
 - alef-e2e/typescript: auto-derive nested-type wrapping from IR field types — `ts_builder_expression_inner` now resolves class-typed fields (`TypeRef::Named` and `TypeRef::Vec(Named)`) from the type registry, removing the need for manual `nested_types` mappings in alef.toml call overrides. Explicit overrides still win on collision.
