@@ -111,7 +111,9 @@ impl E2eCodegen for GoCodegen {
                         "contains" | "contains_all" | "contains_any" | "not_contains"
                     ) && {
                         if a.field.as_ref().is_none_or(|f| f.is_empty()) {
-                            e2e_config.resolve_call(f.call.as_deref()).result_is_array
+                            e2e_config
+                                .resolve_call_for_fixture(f.call.as_deref(), &f.input)
+                                .result_is_array
                         } else {
                             let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
                             field_resolver.is_array(resolved_name)
@@ -146,7 +148,7 @@ impl E2eCodegen for GoCodegen {
                 if f.needs_mock_server() {
                     return true;
                 }
-                let cc = e2e_config.resolve_call(f.call.as_deref());
+                let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
                 let go_override = cc.overrides.get("go").or_else(|| e2e_config.call.overrides.get("go"));
                 go_override.and_then(|o| o.client_factory.as_deref()).is_some()
             });
@@ -397,7 +399,7 @@ fn render_test_file(
         if !emits_executable_test(f) {
             return false;
         }
-        let call_config = e2e_config.resolve_call(f.call.as_deref());
+        let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         let go_override = call_config
             .overrides
             .get("go")
@@ -444,7 +446,9 @@ fn render_test_file(
                     // If no field is specified, check if the result itself is an array.
                     if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                         // No field specified: check if result is an array
-                        e2e_config.resolve_call(f.call.as_deref()).result_is_array
+                        e2e_config
+                            .resolve_call_for_fixture(f.call.as_deref(), &f.input)
+                            .result_is_array
                     } else {
                         // Field specified: check if that field is an array
                         let resolved_name = field_resolver.resolve(a.field.as_deref().unwrap_or(""));
@@ -480,7 +484,7 @@ fn render_test_file(
             return false;
         }
 
-        let call = e2e_config.resolve_call(f.call.as_deref());
+        let call = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         let call_args = &call.args;
         // handle args with non-null config value
         let has_handle = call_args.iter().any(|a| a.arg_type == "handle") && {
@@ -548,7 +552,9 @@ fn render_test_file(
                     // on invalid fields are skipped without emitting any fmt.Sprint call.
                     if a.field.as_ref().is_none_or(|f| f.is_empty()) {
                         // No field: fmt.Sprint only if result is not an array
-                        !e2e_config.resolve_call(f.call.as_deref()).result_is_array
+                        !e2e_config
+                            .resolve_call_for_fixture(f.call.as_deref(), &f.input)
+                            .result_is_array
                     } else {
                         // Field specified: fmt.Sprint only if that field is not an array
                         // and the field is actually valid for the result type (otherwise
@@ -727,7 +733,7 @@ fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::config::E2eCon
     if fixture.is_http_test() {
         return false;
     }
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     // Honor per-call `skip_languages`: when the resolved call's `skip_languages`
     // contains `"go"`, the Go binding doesn't expose this function.
     if call_config.skip_languages.iter().any(|l| l == "go") {
@@ -784,7 +790,7 @@ fn render_test_function(
     }
 
     // Resolve call config per-fixture (supports named calls via fixture.call).
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "go";
     let overrides = call_config.overrides.get(lang);
 
@@ -865,6 +871,7 @@ fn render_test_function(
         call_options_type,
         &fixture.id,
         call_options_ptr,
+        expects_error,
     );
 
     // Build visitor if present — integrate into options instead of separate parameter.
@@ -1518,6 +1525,7 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     fixture_id: &str,
     options_ptr: bool,
+    expects_error: bool,
 ) -> (Vec<String>, String) {
     use heck::ToUpperCamelCase;
 
@@ -1543,11 +1551,19 @@ fn build_args_and_setup(
             let constructor_name = format!("Create{}", arg.name.to_upper_camel_case());
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
+            // When the fixture expects an error (validation test), engine creation
+            // may itself be the error source.  Use `return` so the test passes when
+            // creation fails, rather than t.Fatalf which would mark it as a failure.
+            let create_err_handler = if expects_error {
+                "return".to_string()
+            } else {
+                "t.Fatalf(\"create handle failed: %v\", createErr)".to_string()
+            };
             if config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
             {
                 setup_lines.push(format!(
-                    "{name}, createErr := {import_alias}.{constructor_name}(nil)\n\tif createErr != nil {{\n\t\tt.Fatalf(\"create handle failed: %v\", createErr)\n\t}}",
+                    "{name}, createErr := {import_alias}.{constructor_name}(nil)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}",
                     name = arg.name,
                 ));
             } else {
@@ -1558,7 +1574,7 @@ fn build_args_and_setup(
                     "var {name}Config {import_alias}.CrawlConfig\n\tif err := json.Unmarshal([]byte({go_literal}), &{name}Config); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
                 ));
                 setup_lines.push(format!(
-                    "{name}, createErr := {import_alias}.{constructor_name}(&{name}Config)\n\tif createErr != nil {{\n\t\tt.Fatalf(\"create handle failed: %v\", createErr)\n\t}}"
+                    "{name}, createErr := {import_alias}.{constructor_name}(&{name}Config)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}"
                 ));
             }
             parts.push(arg.name.clone());
