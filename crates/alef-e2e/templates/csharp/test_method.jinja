@@ -31,13 +31,22 @@
 {% if client_factory_setup %}
 {{ client_factory_setup }}
 {% endif %}
-{% for line in setup_lines %}
-        {{ line }}
-{% endfor %}
 {% if return_type == "async Task" %}
-        await Assert.ThrowsAnyAsync<{{ exception_class }}>(() => {{ call_target }}.{{ call_expr }});
+        await Assert.ThrowsAnyAsync<{{ exception_class }}>(async () =>
+        {
+{% for line in setup_lines %}
+            {{ line }}
+{% endfor %}
+            await {{ call_target }}.{{ call_expr }};
+        });
 {% else %}
-        Assert.ThrowsAny<{{ exception_class }}>(() => {{ call_target }}.{{ call_expr }});
+        Assert.ThrowsAny<{{ exception_class }}>(() =>
+        {
+{% for line in setup_lines %}
+            {{ line }}
+{% endfor %}
+            {{ call_target }}.{{ call_expr }};
+        });
 {% endif %}
     }
 {%- else %}

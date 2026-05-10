@@ -872,6 +872,46 @@ fn render_test_case(
         let _ = writeln!(out, "      else");
     }
 
+    // For expects_error fixtures, engine/handle creation (lines starting with `{:ok,`)
+    // would crash via a match error before reaching the assertion. Instead, transform
+    // handle-creation setup lines into the error assertion itself and return early.
+    // Config setup lines (e.g. `engine_config = "..."`) are safe to emit as-is before
+    // the transformed assertion.
+    if expects_error {
+        // Emit non-handle setup lines (config assignments, etc.) as-is.
+        // Transform handle-creation lines (`{:ok, name} = Module.create_X(...)`) into
+        // `assert {:error, _} = Module.create_X(...)`.
+        let mut emitted_error_assertion = false;
+        for line in &setup_lines {
+            if line.starts_with("{:ok,") {
+                // Strip the `{:ok, varname} = ` prefix, keep the RHS as the error assertion.
+                if let Some(rhs) = line.splitn(2, '=').nth(1) {
+                    let rhs = rhs.trim();
+                    let _ = writeln!(out, "      assert {{:error, _}} = {rhs}");
+                    emitted_error_assertion = true;
+                } else {
+                    let _ = writeln!(out, "      {line}");
+                }
+            } else {
+                let _ = writeln!(out, "      {line}");
+            }
+        }
+        // If no handle-creation setup line was found, fall back to asserting on the
+        // main function call (e.g. validation error raised by the function itself).
+        if !emitted_error_assertion {
+            let _ = writeln!(
+                out,
+                "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
+            );
+        }
+        if needs_api_key_skip {
+            let _ = writeln!(out, "      end");
+        }
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "  end");
+        return;
+    }
+
     for line in &setup_lines {
         let _ = writeln!(out, "      {line}");
     }
@@ -895,24 +935,6 @@ fn render_test_case(
     // the value itself so assertions on a logical "audio"/"content" field map to the
     // bare binary instead of a struct accessor that doesn't exist.
     let result_is_simple = call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple);
-
-    if expects_error {
-        if returns_result {
-            let _ = writeln!(
-                out,
-                "      assert {{:error, _}} = {module_path}.{function_name}({effective_args})"
-            );
-        } else {
-            // Non-Result function — just call and discard; error detection not meaningful.
-            let _ = writeln!(out, "      _result = {module_path}.{function_name}({effective_args})");
-        }
-        if needs_api_key_skip {
-            let _ = writeln!(out, "      end");
-        }
-        let _ = writeln!(out, "    end");
-        let _ = writeln!(out, "  end");
-        return;
-    }
 
     if returns_result {
         let _ = writeln!(

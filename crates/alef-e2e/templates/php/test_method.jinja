@@ -19,15 +19,18 @@
 {%- if client_factory %}
         {{ client_factory }}
 {% endif %}
+{%- if expects_error %}
+        $this->expectException(\Exception::class);
 {%- for line in setup_lines %}
         {{ line }}
 {% endfor %}
-{%- if expects_error %}
-        $this->expectException(\Exception::class);
         {{ call_expr }};
 {%- elif skip_test %}
         $this->markTestSkipped('no assertions configured for this fixture in php e2e');
 {%- else %}
+{%- for line in setup_lines %}
+        {{ line }}
+{% endfor %}
 {%- if not has_usable_assertions %}
         $this->expectNotToPerformAssertions();
 {% endif %}
