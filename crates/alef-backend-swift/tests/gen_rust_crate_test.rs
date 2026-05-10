@@ -946,3 +946,117 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         cargo.content
     );
 }
+
+// ---------------------------------------------------------------------------
+// gen_unregistration_fn / gen_clear_fn tests
+// ---------------------------------------------------------------------------
+
+fn config_with_full_bridge(
+    trait_name: &str,
+    unregister_fn: Option<&str>,
+    clear_fn: Option<&str>,
+) -> ResolvedCrateConfig {
+    let mut cfg = make_config();
+    cfg.trait_bridges = vec![TraitBridgeConfig {
+        trait_name: trait_name.to_string(),
+        super_trait: None,
+        registry_getter: Some("demo::plugins::registry::get_test_registry".to_string()),
+        register_fn: Some("register_test_plugin".to_string()),
+        unregister_fn: unregister_fn.map(str::to_string),
+        clear_fn: clear_fn.map(str::to_string),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        bind_via: alef_core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+    }];
+    cfg
+}
+
+fn make_minimal_trait_api(trait_name: &str) -> ApiSurface {
+    let trait_def = make_trait_type(trait_name, &format!("demo::{trait_name}"), vec![]);
+    ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+/// When `unregister_fn` and `clear_fn` are both configured, the generated lib.rs
+/// must contain both functions with the configured names and the correct signatures.
+#[test]
+fn trait_bridge_unregister_and_clear_fns_emitted_when_both_configured() {
+    let api = make_minimal_trait_api("Analyzer");
+    let cfg = config_with_full_bridge("Analyzer", Some("unregister_analyzer"), Some("clear_analyzers"));
+
+    let files = gen_rust_crate::emit(&api, &cfg).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // unregister_fn must be present with the configured name and String arg.
+    assert!(
+        lib.content
+            .contains("pub fn unregister_analyzer(name: String) -> Result<(), String>"),
+        "lib.rs must contain unregister_analyzer signature; got:\n{}",
+        lib.content
+    );
+    // unregister body must call the registry getter.
+    assert!(
+        lib.content.contains("demo::plugins::registry::get_test_registry()"),
+        "unregister_analyzer body must call registry getter; got:\n{}",
+        lib.content
+    );
+
+    // clear_fn must be present with the configured name and no args.
+    assert!(
+        lib.content.contains("pub fn clear_analyzers() -> Result<(), String>"),
+        "lib.rs must contain clear_analyzers signature; got:\n{}",
+        lib.content
+    );
+    // clear body must also call the registry getter.
+    assert!(
+        lib.content.contains("pub fn clear_analyzers() -> Result<(), String>"),
+        "clear_analyzers body must be emitted; got:\n{}",
+        lib.content
+    );
+
+    // Both names must appear in the extern "Rust" block for swift-bridge visibility.
+    assert!(
+        lib.content
+            .contains("fn unregister_analyzer(name: String) -> Result<(), String>;"),
+        "extern Rust block must declare unregister_analyzer; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("fn clear_analyzers() -> Result<(), String>;"),
+        "extern Rust block must declare clear_analyzers; got:\n{}",
+        lib.content
+    );
+}
+
+/// When `unregister_fn` and `clear_fn` are both `None`, neither function must
+/// appear in the generated lib.rs.
+#[test]
+fn trait_bridge_no_unregister_or_clear_when_both_none() {
+    let api = make_minimal_trait_api("Analyzer");
+    let cfg = config_with_full_bridge("Analyzer", None, None);
+
+    let files = gen_rust_crate::emit(&api, &cfg).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        !lib.content.contains("unregister_"),
+        "lib.rs must not emit any unregister fn when unregister_fn is None; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("clear_"),
+        "lib.rs must not emit any clear fn when clear_fn is None; got:\n{}",
+        lib.content
+    );
+}

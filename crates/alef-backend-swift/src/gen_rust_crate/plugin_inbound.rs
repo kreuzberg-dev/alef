@@ -31,10 +31,12 @@
 //! instance lives until the `Arc`'s last clone is dropped, at which point the swift-bridge
 //! `Drop` impl releases the retained ARC reference.
 
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator as _, TraitBridgeSpec};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::ir::{ApiSurface, MethodDef, ParamDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 
+use crate::gen_rust_crate::trait_bridge::SwiftBridgeGenerator;
 use crate::gen_rust_crate::type_bridge::{needs_json_bridge, swift_bridge_rust_type};
 
 /// Inbound-specific type bridging.
@@ -87,6 +89,13 @@ pub(crate) fn emit_extern_block_for_inbound_registration(
         let camel = heck::AsLowerCamelCase(unregister_fn).to_string();
         block.push_str(&format!(
             "        #[swift_bridge(swift_name = \"{camel}\")]\n        fn {unregister_fn}(name: String) -> Result<(), String>;\n"
+        ));
+        has_any = true;
+    }
+    if let Some(clear_fn) = bridge_config.clear_fn.as_deref() {
+        let camel = heck::AsLowerCamelCase(clear_fn).to_string();
+        block.push_str(&format!(
+            "        #[swift_bridge(swift_name = \"{camel}\")]\n        fn {clear_fn}() -> Result<(), String>;\n"
         ));
         has_any = true;
     }
@@ -261,22 +270,41 @@ pub(crate) fn emit_inbound_wrapper(
         }
     }
 
-    if let Some(unregister_fn) = bridge_config.unregister_fn.as_deref() {
-        if let Some(registry_getter) = bridge_config.registry_getter.as_deref() {
-            out.push_str(&format!(
-                "/// Unregister a previously-registered `{trait_name}` plugin by name.\n"
-            ));
-            out.push_str(&format!(
-                "pub fn {unregister_fn}(name: String) -> Result<(), String> {{\n"
-            ));
-            out.push_str(&format!("    let registry = {registry_getter}();\n"));
-            out.push_str("    let mut guard = registry.write();\n");
-            out.push_str("    guard.remove(&name).map_err(|e| e.to_string())\n");
-            out.push_str("}\n\n");
-        }
+    let spec = build_bridge_spec(bridge_config, trait_def, source_crate, type_paths);
+    let generator = SwiftBridgeGenerator;
+
+    let unregister_code = generator.gen_unregistration_fn(&spec);
+    if !unregister_code.is_empty() {
+        out.push_str(&unregister_code);
+        out.push('\n');
+    }
+
+    let clear_code = generator.gen_clear_fn(&spec);
+    if !clear_code.is_empty() {
+        out.push_str(&clear_code);
+        out.push('\n');
     }
 
     out
+}
+
+/// Build a [`TraitBridgeSpec`] from inbound-wrapper context so the
+/// [`SwiftBridgeGenerator`] can be called without duplicating field extraction.
+fn build_bridge_spec<'a>(
+    bridge_config: &'a TraitBridgeConfig,
+    trait_def: &'a TypeDef,
+    source_crate: &'a str,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> TraitBridgeSpec<'a> {
+    TraitBridgeSpec {
+        trait_def,
+        bridge_config,
+        core_import: source_crate,
+        wrapper_prefix: "Swift",
+        type_paths: type_paths.clone(),
+        error_type: "KreuzbergError".to_string(),
+        error_constructor: "{msg}".to_string(),
+    }
 }
 
 /// Emit the shared helper functions used by every inbound wrapper:
