@@ -161,6 +161,18 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/unregister_c_call.jinja"),
     ),
     (
+        "unregister_fn_header.jinja",
+        include_str!("../templates/unregister_fn_header.jinja"),
+    ),
+    (
+        "clear_function_header.jinja",
+        include_str!("../templates/clear_function_header.jinja"),
+    ),
+    (
+        "clear_c_call.jinja",
+        include_str!("../templates/clear_c_call.jinja"),
+    ),
+    (
         "visitor_interface_method.jinja",
         include_str!("../templates/visitor_interface_method.jinja"),
     ),
