@@ -1134,7 +1134,10 @@ mod tests {
             ..Default::default()
         };
         let result = gen_unregistration_fn(&cfg, "kreuzberg", "OcrBackend");
-        assert!(!result.is_empty(), "expected non-empty output when unregister_fn is set");
+        assert!(
+            !result.is_empty(),
+            "expected non-empty output when unregister_fn is set"
+        );
         assert!(
             result.contains("func unregister_ocr_backend(name string) error"),
             "generated function signature not found in:\n{result}"
