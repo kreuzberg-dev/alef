@@ -301,9 +301,7 @@ fn render_file_setup(test_documents_dir: &str) -> String {
     let mut out = header;
     out.push_str("import { fileURLToPath } from 'url';\n");
     out.push_str("import { dirname, join } from 'path';\n\n");
-    out.push_str(
-        "// Change to the configured test-documents directory so that fixture file paths like\n",
-    );
+    out.push_str("// Change to the configured test-documents directory so that fixture file paths like\n");
     out.push_str("// \"pdf/fake_memo.pdf\" resolve correctly when vitest runs from e2e/wasm/.\n");
     out.push_str("// setup.ts lives in e2e/wasm/; the fixtures dir lives at the repository root,\n");
     out.push_str("// two directories up: e2e/wasm/ -> e2e/ -> repo root.\n");

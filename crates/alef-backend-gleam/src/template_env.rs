@@ -31,10 +31,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/trait_bridge_doc_header.jinja"),
     ),
     ("register_fn.jinja", include_str!("../templates/register_fn.jinja")),
-    (
-        "unregister_fn.jinja",
-        include_str!("../templates/unregister_fn.jinja"),
-    ),
+    ("unregister_fn.jinja", include_str!("../templates/unregister_fn.jinja")),
     ("clear_fn.jinja", include_str!("../templates/clear_fn.jinja")),
     (
         "method_doc_header.jinja",

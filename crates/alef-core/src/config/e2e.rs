@@ -885,10 +885,8 @@ mod tests {
 
     #[test]
     fn test_documents_dir_explicit_override_wins() {
-        let cfg: E2eConfig = toml::from_str(
-            "test_documents_dir = \"fixture_files\"\n[call]\nfunction = \"f\"\n",
-        )
-        .expect("explicit override must deserialize");
+        let cfg: E2eConfig = toml::from_str("test_documents_dir = \"fixture_files\"\n[call]\nfunction = \"f\"\n")
+            .expect("explicit override must deserialize");
         assert_eq!(cfg.test_documents_dir, "fixture_files");
     }
 

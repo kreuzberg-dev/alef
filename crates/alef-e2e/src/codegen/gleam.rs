@@ -176,10 +176,8 @@ impl E2eCodegen for GleamE2eCodegen {
                 .unwrap_or(&[]);
             // Optional wrapper template used when a json_object arg has no
             // matching element_type recipe.
-            let json_object_wrapper: Option<&str> = config
-                .gleam
-                .as_ref()
-                .and_then(|g| g.json_object_wrapper.as_deref());
+            let json_object_wrapper: Option<&str> =
+                config.gleam.as_ref().and_then(|g| g.json_object_wrapper.as_deref());
             let content = render_test_file(
                 &group.category,
                 &active,
@@ -765,13 +763,7 @@ fn render_test_case(
         .as_ref()
         .and_then(|p| p.name.as_ref())
         .cloned()
-        .unwrap_or_else(|| {
-            module_path
-                .split('.')
-                .next()
-                .unwrap_or(module_path)
-                .to_string()
-        });
+        .unwrap_or_else(|| module_path.split('.').next().unwrap_or(module_path).to_string());
     for assertion in &fixture.assertions {
         render_assertion(
             out,
@@ -885,9 +877,7 @@ fn build_args_and_setup(
                 let recipe = if element_type.is_empty() {
                     None
                 } else {
-                    element_constructors
-                        .iter()
-                        .find(|r| r.element_type == element_type)
+                    element_constructors.iter().find(|r| r.element_type == element_type)
                 };
 
                 if let Some(recipe) = recipe {
@@ -898,9 +888,7 @@ fn build_args_and_setup(
                         Some(serde_json::Value::Array(arr)) => {
                             let items: Vec<String> = arr
                                 .iter()
-                                .map(|item| {
-                                    render_gleam_element_constructor(item, recipe, test_documents_path)
-                                })
+                                .map(|item| render_gleam_element_constructor(item, recipe, test_documents_path))
                                 .collect();
                             format!("[{}]", items.join(", "))
                         }
@@ -1014,7 +1002,10 @@ fn render_gleam_element_constructor(
                 // field if present, else an empty string. Surfacing the
                 // unsupported kind in the generated code makes the error
                 // visible at compile-time rather than failing silently.
-                field.value.clone().unwrap_or_else(|| format!("\"<unsupported kind: {other}>\""))
+                field
+                    .value
+                    .clone()
+                    .unwrap_or_else(|| format!("\"<unsupported kind: {other}>\""))
             }
         };
         field_exprs.push(format!("{}: {}", field.gleam_field, expr));
@@ -1798,14 +1789,8 @@ mod tests {
             go_type: None,
         };
         let input = serde_json::json!({ "config": { "x": 1 } });
-        let (_setup, args_str) = build_args_and_setup(
-            &input,
-            &[arg],
-            "test_fixture",
-            "../../test_documents",
-            &[],
-            None,
-        );
+        let (_setup, args_str) =
+            build_args_and_setup(&input, &[arg], "test_fixture", "../../test_documents", &[], None);
         // Default behaviour: bare JSON-string literal, no wrapper. The
         // emission must NOT contain any function-call shape from a wrapper.
         assert!(

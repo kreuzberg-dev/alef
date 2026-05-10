@@ -768,8 +768,12 @@ fn trait_bridge_response_shim_includes_doc_comment() {
 #[test]
 fn trait_bridge_emits_unregistration_fn_when_configured() {
     let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
-    let bridge_cfg =
-        make_bridge_cfg_full("OcrBackend", "register_ocr_backend", Some("unregister_ocr_backend"), None);
+    let bridge_cfg = make_bridge_cfg_full(
+        "OcrBackend",
+        "register_ocr_backend",
+        Some("unregister_ocr_backend"),
+        None,
+    );
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -827,8 +831,7 @@ fn trait_bridge_omits_unregistration_fn_when_not_configured() {
 #[test]
 fn trait_bridge_emits_clear_fn_when_configured() {
     let trait_type = make_trait_type("OcrBackend", vec![make_method("process")]);
-    let bridge_cfg =
-        make_bridge_cfg_full("OcrBackend", "register_ocr_backend", None, Some("clear_ocr_backends"));
+    let bridge_cfg = make_bridge_cfg_full("OcrBackend", "register_ocr_backend", None, Some("clear_ocr_backends"));
 
     let api = ApiSurface {
         crate_name: "demo".into(),
