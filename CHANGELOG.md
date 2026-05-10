@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(alef-e2e/c): streaming tool_calls assertions (`tool_calls`, `tool_calls[0].function.name`) are now emitted as skip comments instead of attempting to parse them out of the last SSE chunk's `choices`. The OpenAI streaming wire format distributes a single tool call's fields across many delta chunks, and the inline C SSE parser only inspects the last chunk — which carries `finish_reason=tool_calls` but no payload — so the assertions could never evaluate. Mirrors Python's `# skipped: field 'tool_calls' not available on result type` for the same fixture. A delta-merge accumulator is the proper long-term fix; tracked separately.
 
+- fix(alef-e2e/wasm): generate `globalSetup.ts` (which spawns the mock-server and exports `MOCK_SERVER_URL`) for any fixture that needs the mock server, not just `is_http_test()` (which only matched the consumer-style `http: { ... }` shape and missed the entire `mock_response: { ... }` set used by liter-llm). Without globalSetup, every fixture that interpolates `${process.env.MOCK_SERVER_URL}/fixtures/<id>` into a base URL hit `undefined/fixtures/<id>` and `reqwest::Client::builder().build()` resolved to `Err(builder error)` because the URL parser rejected the constructed `Url`. Predicate now uses `Fixture::needs_mock_server()` which covers both schemas; the surrounding comment block already stated the same intent. Lifts liter-llm WASM e2e from 56/161 → 153/161 passing in a single config change.
+
 ## [0.15.30] - 2026-05-10
 
 ### Fixed

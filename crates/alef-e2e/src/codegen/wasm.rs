@@ -123,7 +123,14 @@ impl E2eCodegen for WasmCodegen {
             .collect();
 
         let any_fixtures = active_per_group.iter().flat_map(|g| g.iter());
-        let has_http_fixtures = any_fixtures.clone().any(|f| f.is_http_test());
+        // The wasm globalSetup spawns the mock server. It must run for any fixture
+        // that interpolates `${process.env.MOCK_SERVER_URL}` into a base URL —
+        // i.e. anything with `mock_response` (liter-llm shape) or `http`
+        // (kreuzberg/kreuzcrawl shape), not just raw `is_http_test`. The
+        // comment block below this line states the same intent; the previous
+        // condition (`f.is_http_test()`) only detected the consumer-style
+        // `http: { ... }` shape and missed the entire liter-llm fixture set.
+        let has_http_fixtures = any_fixtures.clone().any(|f| f.needs_mock_server());
         // file_path / bytes args are read off disk by the generated code at runtime;
         // we add a setup.ts chdir to test_documents so relative paths resolve.
         let has_file_fixtures = active_per_group.iter().flatten().any(|f| {
