@@ -844,7 +844,15 @@ fn derive_nested_types_for_wasm(
     let mut map = std::collections::HashMap::new();
     for field in &type_def.fields {
         if let Some(class_name) = class_name_from_type_ref(&field.ty) {
-            map.insert(field.name.clone(), wasm_class_name(&class_name));
+            // Only map fields whose IR type is a struct (TypeDef). Sealed-union
+            // enums (EnumDef) don't expose a constructible wasm-bindgen class
+            // — wasm-bindgen serialises them via discriminator from a plain
+            // object literal, so wrapping them with `new Wasm<Enum>()` fails
+            // with `WasmFoo is not a constructor`. Looking up the name in
+            // type_defs filters enums out (they're carried in EnumDef, not here).
+            if type_defs.iter().any(|t| t.name == class_name) {
+                map.insert(field.name.clone(), wasm_class_name(&class_name));
+            }
         }
     }
     map
