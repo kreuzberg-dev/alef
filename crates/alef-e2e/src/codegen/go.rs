@@ -1552,10 +1552,10 @@ fn build_args_and_setup(
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
             // When the fixture expects an error (validation test), engine creation
-            // may itself be the error source.  Use `return` so the test passes when
-            // creation fails, rather than t.Fatalf which would mark it as a failure.
+            // is the error source. Assert the error and return so the test passes
+            // without proceeding to the (unreachable) function call.
             let create_err_handler = if expects_error {
-                "return".to_string()
+                "assert.Error(t, createErr)\n\t\treturn".to_string()
             } else {
                 "t.Fatalf(\"create handle failed: %v\", createErr)".to_string()
             };
