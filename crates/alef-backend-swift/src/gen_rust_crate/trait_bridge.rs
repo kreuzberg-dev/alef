@@ -4,11 +4,121 @@
 //!   - an `extern "Rust"` block with `{Trait}Box` + one free trampoline fn per method
 //!   - a `pub struct {Trait}Box(pub Box<dyn Trait + Send + Sync>)` definition
 //!   - one `pub fn {trait_snake}_call_{method}(this: &{Trait}Box, …)` trampoline per method
+//!
+//! [`SwiftBridgeGenerator`] implements [`alef_codegen::generators::trait_bridge::TraitBridgeGenerator`]
+//! for the inbound plugin registration pattern (Swift implements a Rust trait). The
+//! `gen_unregistration_fn` and `gen_clear_fn` overrides emit swift-bridge–visible `pub fn`
+//! wrappers that delegate to the host crate's `unregister_*` / `clear_*` registry entry
+//! points.
 
 use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
+
+// ---------------------------------------------------------------------------
+// SwiftBridgeGenerator — TraitBridgeGenerator impl for the Swift backend
+// ---------------------------------------------------------------------------
+
+/// Swift-specific trait bridge generator.
+///
+/// The Swift inbound plugin pattern (Swift class implements a Rust trait) is
+/// primarily handled by [`super::plugin_inbound`], which emits `extern "Swift"`
+/// shims, wrapper structs, and the `Plugin` / trait impls. This generator
+/// provides the [`TraitBridgeGenerator`] contract so that `gen_unregistration_fn`
+/// and `gen_clear_fn` can be called uniformly from the plugin inbound emitter.
+///
+/// `gen_registration_fn` returns an empty string because registration requires
+/// a `Swift{Trait}Box` argument whose type is only available in the inbound
+/// `extern "Rust"` context; that function is emitted by `plugin_inbound` directly.
+pub struct SwiftBridgeGenerator;
+
+impl TraitBridgeGenerator for SwiftBridgeGenerator {
+    fn foreign_object_type(&self) -> &str {
+        // Swift handles are opaque swift-bridge types; no single Rust type name.
+        "swift_bridge::opaque"
+    }
+
+    fn bridge_imports(&self) -> Vec<String> {
+        vec![]
+    }
+
+    fn gen_sync_method_body(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        // Not used: swift-bridge trampolines are emitted by emit_trait_bridge_wrapper, not
+        // via the shared TraitBridgeGenerator infrastructure.
+        String::new()
+    }
+
+    fn gen_async_method_body(&self, _method: &MethodDef, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    fn gen_constructor(&self, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    /// Returns an empty string. Registration requires a `Swift{Trait}Box` argument
+    /// whose type is only available inside the `extern "Rust"` block produced by
+    /// `plugin_inbound::emit_extern_block_for_inbound_registration`; that function
+    /// emits the `register_*` entry point directly.
+    fn gen_registration_fn(&self, _spec: &TraitBridgeSpec) -> String {
+        String::new()
+    }
+
+    /// Emit a `pub fn {name}(name: String) -> Result<(), String>` that unregisters
+    /// a previously-registered plugin by name.
+    ///
+    /// The function calls into the configured registry directly — consistent with
+    /// how `register_*` calls the registry in `plugin_inbound::emit_inbound_wrapper`.
+    ///
+    /// Returns an empty string when `spec.bridge_config.unregister_fn` is `None`
+    /// or when `spec.bridge_config.registry_getter` is not set (no registry to
+    /// call into).
+    fn gen_unregistration_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(unregister_fn) = spec.bridge_config.unregister_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
+        let trait_name = &spec.trait_def.name;
+        format!(
+            "/// Unregister a previously-registered `{trait_name}` plugin by name.\n\
+             pub fn {unregister_fn}(name: String) -> Result<(), String> {{\n\
+             \x20\x20\x20\x20let registry = {registry_getter}();\n\
+             \x20\x20\x20\x20let mut guard = registry.write();\n\
+             \x20\x20\x20\x20guard.remove(&name).map_err(|e| e.to_string())\n\
+             }}\n"
+        )
+    }
+
+    /// Emit a `pub fn {name}() -> Result<(), String>` that clears all registered
+    /// plugins of this type. Typically used in test teardown.
+    ///
+    /// The function calls into the configured registry directly — consistent with
+    /// how `register_*` and `unregister_*` call the registry.
+    ///
+    /// Returns an empty string when `spec.bridge_config.clear_fn` is `None`
+    /// or when `spec.bridge_config.registry_getter` is not set.
+    fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
+        let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
+            return String::new();
+        };
+        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
+            return String::new();
+        };
+        let trait_name = &spec.trait_def.name;
+        format!(
+            "/// Clear all registered `{trait_name}` plugins.\n\
+             pub fn {clear_fn}() -> Result<(), String> {{\n\
+             \x20\x20\x20\x20let registry = {registry_getter}();\n\
+             \x20\x20\x20\x20let mut guard = registry.write();\n\
+             \x20\x20\x20\x20guard.clear().map_err(|e| e.to_string())\n\
+             }}\n"
+        )
+    }
+}
 
 /// Emit the `extern "Rust"` block for a trait bridge.
 ///
