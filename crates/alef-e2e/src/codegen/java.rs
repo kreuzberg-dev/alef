@@ -455,7 +455,7 @@ fn render_test_file(
         all_options_types.insert(t.to_string());
     }
     for f in fixtures.iter() {
-        let call_cfg = e2e_config.resolve_call(f.call.as_deref());
+        let call_cfg = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         if let Some(ov) = call_cfg.overrides.get(lang_for_om) {
             if let Some(t) = &ov.options_type {
                 all_options_types.insert(t.clone());
@@ -495,7 +495,7 @@ fn render_test_file(
     // Note: enum types don't need explicit imports since they're in the same package.
     let mut nested_types_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for f in fixtures.iter() {
-        let call_cfg = e2e_config.resolve_call(f.call.as_deref());
+        let call_cfg = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
         for arg in &call_cfg.args {
             if arg.arg_type == "json_object" {
                 let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
@@ -958,7 +958,8 @@ fn render_test_method(
     }
 
     // Resolve per-fixture call config (supports named calls via fixture.call field).
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    // Use resolve_call_for_fixture to support auto-routing via select_when.
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "java";
     let call_overrides = call_config.overrides.get(lang);
     let effective_function_name = call_overrides
@@ -2203,4 +2204,72 @@ fn emit_java_visitor_method(
 /// Convert snake_case method names to Java camelCase.
 fn method_to_camel(snake: &str) -> String {
     snake.to_lower_camel_case()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{CallConfig, E2eConfig, SelectWhen};
+    use crate::fixture::Fixture;
+    use std::collections::HashMap;
+
+    fn make_fixture_with_input(id: &str, input: serde_json::Value) -> Fixture {
+        Fixture {
+            id: id.to_string(),
+            category: None,
+            description: "test fixture".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        }
+    }
+
+    /// Test that resolve_call_for_fixture correctly routes to batchScrape
+    /// when input has batch_urls and select_when condition matches.
+    #[test]
+    fn test_java_select_when_routes_to_batch_scrape() {
+        let mut calls = HashMap::new();
+        calls.insert(
+            "batch_scrape".to_string(),
+            CallConfig {
+                function: "batchScrape".to_string(),
+                module: "com.example.kreuzcrawl".to_string(),
+                select_when: Some(SelectWhen::InputHas("batch_urls".to_string())),
+                ..CallConfig::default()
+            },
+        );
+
+        let e2e_config = E2eConfig {
+            call: CallConfig {
+                function: "scrape".to_string(),
+                module: "com.example.kreuzcrawl".to_string(),
+                ..CallConfig::default()
+            },
+            calls,
+            ..E2eConfig::default()
+        };
+
+        // Fixture with batch_urls but no explicit call field should route to batch_scrape
+        let fixture = make_fixture_with_input(
+            "batch_empty_urls",
+            serde_json::json!({ "batch_urls": [] }),
+        );
+
+        let resolved_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+        assert_eq!(resolved_call.function, "batchScrape");
+
+        // Fixture without batch_urls should fall back to default scrape
+        let fixture_no_batch = make_fixture_with_input(
+            "simple_scrape",
+            serde_json::json!({ "url": "https://example.com" }),
+        );
+        let resolved_default = e2e_config.resolve_call_for_fixture(fixture_no_batch.call.as_deref(), &fixture_no_batch.input);
+        assert_eq!(resolved_default.function, "scrape");
+    }
 }
