@@ -300,12 +300,13 @@ fn emit_doc_comment(doc: &str, indent: &str, out: &mut String) {
     if doc.is_empty() {
         return;
     }
-    for line in doc.lines() {
-        out.push_str(indent);
-        out.push_str("/// ");
-        out.push_str(line);
-        out.push('\n');
-    }
+    out.push_str(&crate::template_env::render(
+        "doc_comment.jinja",
+        minijinja::context! {
+            indent => indent,
+            lines => doc.lines().collect::<Vec<_>>(),
+        },
+    ));
 }
 
 /// Returns `true` if the first parameter of `func_def` has the given `TypeRef` shape.

@@ -14,13 +14,12 @@ pub(super) fn emit_rustdoc(doc: &str) -> String {
     if doc.is_empty() {
         return String::new();
     }
-    let mut out = String::new();
-    for line in doc.lines() {
-        out.push_str("/// ");
-        out.push_str(line);
-        out.push('\n');
-    }
-    out
+    crate::template_env::render(
+        "rustdoc",
+        minijinja::context! {
+            lines => doc.lines().collect::<Vec<_>>(),
+        },
+    )
 }
 
 /// Convert a `TypeRef` to its concrete Rust type string for use in serde deserialization

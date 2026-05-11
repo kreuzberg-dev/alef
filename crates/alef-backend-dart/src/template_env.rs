@@ -214,6 +214,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "abstract_class_doc_code_end.jinja",
         include_str!("../templates/abstract_class_doc_code_end.jinja"),
     ),
+    ("doc_comment.jinja", include_str!("../templates/doc_comment.jinja")),
     (
         "abstract_method_declaration.jinja",
         include_str!("../templates/abstract_method_declaration.jinja"),

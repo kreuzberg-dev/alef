@@ -1317,7 +1317,10 @@ fn render_tagged_union_assertion(
             } else if suffix_is_array {
                 let _ = writeln!(out, "      {inner_field_expr} |> list.is_empty |> should.equal(False)");
             } else {
-                let _ = writeln!(out, "      {inner_field_expr} |> string.is_empty |> should.equal(False)");
+                let _ = writeln!(
+                    out,
+                    "      {inner_field_expr} |> string.is_empty |> should.equal(False)"
+                );
             }
         }
         "is_empty" => {

@@ -25,6 +25,32 @@ fn struct_named_inner(ty: &TypeRef) -> Option<&str> {
     }
 }
 
+/// Like `struct_named_inner` but searches for any Named type (used for opaque handle detection).
+/// Returns the type name if `ty` (or its Optional inner) is a Named type.
+pub(crate) fn opaque_type_name_inner(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name.as_str()),
+        TypeRef::Optional(inner) => opaque_type_name_inner(inner),
+        _ => None,
+    }
+}
+
+/// Returns the opaque type name if `ty` is (or wraps in Optional) a Named type
+/// that is in `opaque_creator_map`.
+fn get_opaque_named<'a>(
+    ty: &'a TypeRef,
+    opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
+) -> Option<&'a str> {
+    match ty {
+        TypeRef::Named(name) if opaque_creator_map.contains_key(name.as_str()) => Some(name.as_str()),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if opaque_creator_map.contains_key(name.as_str()) => Some(name.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn snake_case(name: &str) -> String {
     heck::AsSnakeCase(name).to_string()
 }
@@ -35,6 +61,7 @@ pub(crate) fn emit_function(
     declared_errors: &[String],
     top_level_names: &std::collections::HashSet<String>,
     struct_names: &std::collections::HashSet<String>,
+    opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
     out: &mut String,
 ) {
     emit_cleaned_zig_doc(out, &f.doc, "");
@@ -59,7 +86,11 @@ pub(crate) fn emit_function(
     let f = &f_local;
 
     // Build the wrapper-level parameter list (Zig-idiomatic types, not raw C types).
-    let params: Vec<String> = f.params.iter().map(|p| format_param_wrapper(p, struct_names)).collect();
+    let params: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| format_param_wrapper(p, struct_names, opaque_creator_map))
+        .collect();
 
     let zig_error_type = f
         .error_type
@@ -87,11 +118,15 @@ pub(crate) fn emit_function(
 
     // Emit allocation/conversion boilerplate for each parameter.
     for p in &f.params {
-        emit_param_conversion(p, prefix, struct_names, out);
+        emit_param_conversion(p, prefix, struct_names, opaque_creator_map, out);
     }
 
     // Build the C argument list.
-    let c_args: Vec<String> = f.params.iter().flat_map(|p| c_arg_names(p, struct_names)).collect();
+    let c_args: Vec<String> = f
+        .params
+        .iter()
+        .flat_map(|p| c_arg_names(p, struct_names, opaque_creator_map))
+        .collect();
     let c_call = format!("c.{prefix}_{}({})", f.name, c_args.join(", "));
 
     if let Some(error_type) = &zig_error_type {
@@ -128,7 +163,7 @@ pub(crate) fn emit_function(
 
         // Free owned C strings after the error check.
         for p in &f.params {
-            emit_param_free(p, prefix, struct_names, out);
+            emit_param_free(p, prefix, struct_names, opaque_creator_map, out);
         }
 
         // Produce the Zig return value from `_result`.
@@ -146,7 +181,7 @@ pub(crate) fn emit_function(
     } else {
         // Infallible function: free params, return directly.
         for p in &f.params {
-            emit_param_free(p, prefix, struct_names, out);
+            emit_param_free(p, prefix, struct_names, opaque_creator_map, out);
         }
         if matches!(f.return_type, TypeRef::Unit) {
             out.push_str(&crate::template_env::render(
@@ -176,8 +211,12 @@ pub(crate) fn emit_function(
 }
 
 /// Return the Zig-wrapper parameter type string for a function parameter.
-fn format_param_wrapper(p: &ParamDef, struct_names: &std::collections::HashSet<String>) -> String {
-    let ty_str = zig_param_type(&p.ty, p.optional, struct_names);
+fn format_param_wrapper(
+    p: &ParamDef,
+    struct_names: &std::collections::HashSet<String>,
+    opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
+) -> String {
+    let ty_str = zig_param_type(&p.ty, p.optional, struct_names, opaque_creator_map);
     format!("{}: {}", p.name, ty_str)
 }
 
@@ -189,14 +228,23 @@ fn format_param_wrapper(p: &ParamDef, struct_names: &std::collections::HashSet<S
 /// - `Named` struct   → `[]const u8`  (caller supplies JSON; body converts to opaque
 ///   handle via the FFI `<prefix>_<snake>_from_json` helper)
 /// - Everything else  → same as struct-field type
-fn zig_param_type(ty: &TypeRef, optional: bool, struct_names: &std::collections::HashSet<String>) -> String {
+fn zig_param_type(
+    ty: &TypeRef,
+    optional: bool,
+    struct_names: &std::collections::HashSet<String>,
+    opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
+) -> String {
+    // Opaque handle types accept optional config JSON — always ?[]const u8.
+    if get_opaque_named(ty, opaque_creator_map).is_some() {
+        return "?[]const u8".to_string();
+    }
     let inner = match ty {
         TypeRef::String | TypeRef::Path | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             "[]const u8".to_string()
         }
         TypeRef::Named(name) if struct_names.contains(name) => "[]const u8".to_string(),
         TypeRef::Optional(inner) => {
-            let inner_str = zig_param_type(inner, false, struct_names);
+            let inner_str = zig_param_type(inner, false, struct_names, opaque_creator_map);
             return format!("?{inner_str}");
         }
         other => zig_field_type(other, false),
@@ -219,9 +267,28 @@ fn emit_param_conversion(
     p: &ParamDef,
     prefix: &str,
     struct_names: &std::collections::HashSet<String>,
+    opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
     out: &mut String,
 ) {
     let name = &p.name;
+
+    // Opaque handle: accept ?[]const u8 config JSON, create the handle internally.
+    // The creator function is looked up from opaque_creator_map.
+    if let Some(opaque_name) = get_opaque_named(&p.ty, opaque_creator_map) {
+        if let Some((creator_fn, config_snake)) = opaque_creator_map.get(opaque_name) {
+            out.push_str(&crate::template_env::render(
+                "param_opaque_config_from_json.jinja",
+                minijinja::context! {
+                    name => name,
+                    prefix => prefix,
+                    creator_fn => creator_fn,
+                    config_snake => config_snake,
+                },
+            ));
+        }
+        return;
+    }
+
     if let Some(inner_name) = struct_named_inner(&p.ty) {
         if struct_names.contains(inner_name) {
             let snake = snake_case(inner_name);
@@ -330,8 +397,46 @@ fn unwrap_optional(ty: &TypeRef) -> &TypeRef {
 ///
 /// These are emitted after the C call (and after the error check) so the
 /// allocations are always freed even when an error is returned.
-fn emit_param_free(p: &ParamDef, prefix: &str, struct_names: &std::collections::HashSet<String>, out: &mut String) {
+fn emit_param_free(
+    p: &ParamDef,
+    prefix: &str,
+    struct_names: &std::collections::HashSet<String>,
+    opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
+    out: &mut String,
+) {
     let name = &p.name;
+
+    // Opaque handle: free config_z, config_handle, and the handle itself.
+    if let Some(opaque_name) = get_opaque_named(&p.ty, opaque_creator_map) {
+        if let Some((_, config_snake)) = opaque_creator_map.get(opaque_name) {
+            let opaque_snake = snake_case(opaque_name);
+            let config_name = format!("{name}_config");
+            out.push_str(&crate::template_env::render(
+                "param_optional_free.jinja",
+                minijinja::context! {
+                    name => &config_name,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "param_struct_handle_free.jinja",
+                minijinja::context! {
+                    name => &config_name,
+                    prefix => prefix,
+                    snake => config_snake,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "param_struct_handle_free.jinja",
+                minijinja::context! {
+                    name => name,
+                    prefix => prefix,
+                    snake => &opaque_snake,
+                },
+            ));
+        }
+        return;
+    }
+
     if let Some(inner_name) = struct_named_inner(&p.ty) {
         if struct_names.contains(inner_name) {
             let snake = snake_case(inner_name);
@@ -404,7 +509,15 @@ fn emit_param_free(p: &ParamDef, prefix: &str, struct_names: &std::collections::
 /// Named structs expand to the `_handle` opaque pointer produced by the
 /// JSON-to-handle helper in `emit_param_conversion`.
 /// Everything else passes the parameter directly.
-fn c_arg_names(p: &ParamDef, struct_names: &std::collections::HashSet<String>) -> Vec<String> {
+fn c_arg_names(
+    p: &ParamDef,
+    struct_names: &std::collections::HashSet<String>,
+    opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
+) -> Vec<String> {
+    // Opaque handle: the C call gets the handle created in emit_param_conversion.
+    if get_opaque_named(&p.ty, opaque_creator_map).is_some() {
+        return vec![format!("{}_handle", p.name)];
+    }
     if is_struct_named(&p.ty, struct_names) {
         return vec![format!("{}_handle", p.name)];
     }

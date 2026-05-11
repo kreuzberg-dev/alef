@@ -107,6 +107,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "function_vec_refs_binding.rs.jinja",
         include_str!("../templates/function_vec_refs_binding.rs.jinja"),
     ),
+    ("rbs_doc_block.jinja", include_str!("../templates/rbs_doc_block.jinja")),
     (
         "function_sanitized_vec_binding.rs.jinja",
         include_str!("../templates/function_sanitized_vec_binding.rs.jinja"),

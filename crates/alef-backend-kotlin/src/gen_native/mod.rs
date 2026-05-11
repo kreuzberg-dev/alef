@@ -150,11 +150,14 @@ pub(crate) fn emit_native_function_pub(f: &FunctionDef, prefix: &str, out: &mut 
 
 fn emit_native_function(f: &FunctionDef, prefix: &str, out: &mut String) {
     if !f.doc.is_empty() {
-        for line in f.doc.lines() {
-            out.push_str("    /// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&crate::template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "    ",
+                lines => doc_lines,
+            },
+        ));
     }
 
     let params: Vec<String> = f.params.iter().map(format_native_param).collect();

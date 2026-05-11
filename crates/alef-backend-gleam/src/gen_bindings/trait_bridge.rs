@@ -56,14 +56,12 @@ pub(crate) fn emit_trait_bridge_shims(
     ));
     if let Some(ty) = trait_type {
         if !ty.doc.is_empty() {
-            for line in ty.doc.lines() {
-                out.push_str(&crate::template_env::render(
-                    "trait_bridge_doc_line.jinja",
-                    minijinja::context! {
-                        line => line,
-                    },
-                ));
-            }
+            out.push_str(&crate::template_env::render(
+                "trait_type_doc_lines.jinja",
+                minijinja::context! {
+                    doc_lines => ty.doc.lines().collect::<Vec<_>>(),
+                },
+            ));
             out.push_str(&crate::template_env::render(
                 "trait_bridge_empty_comment_line.jinja",
                 minijinja::context! {},

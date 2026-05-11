@@ -40,6 +40,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/error_doc_line.jinja"),
     ),
     (
+        "error_doc_block.jinja",
+        include_str!("../templates/error_doc_block.jinja"),
+    ),
+    (
         "error_set_variant.jinja",
         include_str!("../templates/error_set_variant.jinja"),
     ),
@@ -82,6 +86,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "param_optional_string_alloc.jinja",
         include_str!("../templates/param_optional_string_alloc.jinja"),
+    ),
+    (
+        "param_opaque_config_from_json.jinja",
+        include_str!("../templates/param_opaque_config_from_json.jinja"),
     ),
     (
         "param_struct_handle.jinja",
@@ -220,6 +228,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "trait_method_doc.jinja",
         include_str!("../templates/trait_method_doc.jinja"),
+    ),
+    (
+        "trait_method_doc_lines.jinja",
+        include_str!("../templates/trait_method_doc_lines.jinja"),
     ),
     (
         "trait_method_signature.jinja",

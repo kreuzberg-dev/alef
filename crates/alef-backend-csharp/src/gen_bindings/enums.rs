@@ -185,11 +185,15 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
 
     // Doc comment
     if !enum_def.doc.is_empty() {
-        out.push_str("/// <summary>\n");
-        for line in enum_def.doc.lines() {
-            out.push_str(&render("doc_line.jinja", minijinja::context! { line }));
-        }
-        out.push_str("/// </summary>\n");
+        let doc_lines: Vec<String> = enum_def.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&render(
+            "doc_comment_block.jinja",
+            minijinja::context! {
+                has_doc => true,
+                indent => "",
+                doc_lines => doc_lines,
+            },
+        ));
     }
 
     // Apply custom converter for sealed unions with flattened variant fields
@@ -210,11 +214,15 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         let pascal = variant.name.to_pascal_case();
 
         if !variant.doc.is_empty() {
-            out.push_str("    /// <summary>\n");
-            for line in variant.doc.lines() {
-                out.push_str(&render("doc_line_indented.jinja", minijinja::context! { line }));
-            }
-            out.push_str("    /// </summary>\n");
+            let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
+            out.push_str(&render(
+                "doc_comment_block.jinja",
+                minijinja::context! {
+                    has_doc => true,
+                    indent => "    ",
+                    doc_lines => doc_lines,
+                },
+            ));
         }
 
         if variant.fields.is_empty() {

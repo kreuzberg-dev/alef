@@ -843,6 +843,14 @@ fn render_assertion(
         .as_deref()
         .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
+    let field_is_optional = assertion
+        .field
+        .as_deref()
+        .is_some_and(|f| !f.is_empty() && field_resolver.is_optional(f));
+    let field_is_array = assertion.field.as_deref().is_some_and(|f| {
+        !f.is_empty() && (field_resolver.is_array(f) || field_resolver.is_array(field_resolver.resolve(f)))
+    });
+
     let field_expr = if result_is_simple {
         result_var.to_string()
     } else {
@@ -853,12 +861,15 @@ fn render_assertion(
     };
 
     // For enum fields, use .rawValue to get the string value.
+    // For optional fields (Optional<RustString>), use optional chaining before toString().
     // For other fields: swift-bridge returns all Rust `String` fields as `RustString`.
     // We add .toString() here so string assertions (contains, hasPrefix, etc.) work.
     // Non-string opaque fields (DocumentStructure, etc.) should not appear in string
     // assertions — the fixture schema controls which assertions apply to which fields.
     let string_expr = if field_is_enum {
         format!("{field_expr}.rawValue")
+    } else if field_is_optional {
+        format!("({field_expr}?.toString() ?? \"\")")
     } else {
         format!("{field_expr}.toString()")
     };
@@ -871,16 +882,8 @@ fn render_assertion(
                     // For optional strings (String?), use ?? to coalesce before trimming.
                     // `.toString()` converts RustString → Swift String before calling
                     // `.trimmingCharacters`, which requires a concrete String type.
-                    let field_is_optional = assertion
-                        .field
-                        .as_deref()
-                        .is_some_and(|f| field_resolver.is_optional(f));
-                    let trim_expr = if field_is_optional {
-                        format!("(({field_expr})?.toString() ?? \"\").trimmingCharacters(in: .whitespaces)")
-                    } else {
-                        // string_expr already has .toString() appended; just trim.
-                        format!("{string_expr}.trimmingCharacters(in: .whitespaces)")
-                    };
+                    // string_expr already incorporates field_is_optional via ?.toString() ?? "".
+                    let trim_expr = format!("{string_expr}.trimmingCharacters(in: .whitespaces)");
                     let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
                 } else {
                     let _ = writeln!(out, "        XCTAssertEqual({field_expr}, {swift_val})");
@@ -961,13 +964,15 @@ fn render_assertion(
         }
         "not_empty" => {
             // For optional fields (Optional<T>), check that the value is non-nil.
+            // For array fields (RustVec<T>), check .isEmpty on the vec directly.
             // For string fields, convert to Swift String and check .isEmpty.
-            let field_is_optional = assertion
-                .field
-                .as_deref()
-                .is_some_and(|f| field_resolver.is_optional(f));
             if field_is_optional {
                 let _ = writeln!(out, "        XCTAssertNotNil({field_expr}, \"expected non-nil value\")");
+            } else if field_is_array {
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertFalse({field_expr}.isEmpty, \"expected non-empty value\")"
+                );
             } else {
                 // string_expr has .toString() appended; .isEmpty works on Swift String.
                 let _ = writeln!(
@@ -977,12 +982,13 @@ fn render_assertion(
             }
         }
         "is_empty" => {
-            let field_is_optional = assertion
-                .field
-                .as_deref()
-                .is_some_and(|f| field_resolver.is_optional(f));
             if field_is_optional {
                 let _ = writeln!(out, "        XCTAssertNil({field_expr}, \"expected nil value\")");
+            } else if field_is_array {
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertTrue({field_expr}.isEmpty, \"expected empty value\")"
+                );
             } else {
                 let _ = writeln!(
                     out,

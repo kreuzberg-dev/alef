@@ -36,22 +36,17 @@ impl FfiBridgeGenerator {
 
         for method in &own_methods {
             if !method.doc.is_empty() {
-                for line in method.doc.lines() {
-                    let stripped = line.trim_start_matches("///").trim_start();
-                    if stripped.is_empty() {
-                        out.push_str(
-                            "    ///
-",
-                        );
-                    } else {
-                        out.push_str(&crate::template_env::render(
-                            "vtable_method_doc_line.jinja",
-                            minijinja::context! {
-                                doc_line => stripped,
-                            },
-                        ));
-                    }
-                }
+                let method_doc_lines: Vec<&str> = method
+                    .doc
+                    .lines()
+                    .map(|line| line.trim_start_matches("///").trim_start())
+                    .collect();
+                out.push_str(&crate::template_env::render(
+                    "vtable_method_doc_lines.jinja",
+                    minijinja::context! {
+                        doc_lines => method_doc_lines,
+                    },
+                ));
             }
             // Build params and return type inline for the template
             let mut params = vec!["user_data: *const std::ffi::c_void".to_string()];

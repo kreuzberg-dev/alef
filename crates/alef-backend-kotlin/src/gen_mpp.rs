@@ -151,11 +151,14 @@ fn emit_common(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
 /// Emit a single `expect` function signature (no body).
 fn emit_expect_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !f.doc.is_empty() {
-        for line in f.doc.lines() {
-            out.push_str("    /// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&crate::template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "    ",
+                lines => doc_lines,
+            },
+        ));
     }
     let params: Vec<String> = f.params.iter().map(|p| format_param_pub(p, imports)).collect();
     let return_ty = kotlin_type_str_pub(&f.return_type, false, imports);

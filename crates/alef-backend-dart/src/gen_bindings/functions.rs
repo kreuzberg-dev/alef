@@ -33,11 +33,14 @@ fn is_extraction_config_param(p: &alef_core::ir::ParamDef) -> bool {
 
 pub(super) fn emit_function(f: &FunctionDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !f.doc.is_empty() {
-        for line in f.doc.lines() {
-            out.push_str("  /// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = f.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "  ",
+                lines => doc_lines,
+            },
+        ));
     }
     if let Some(ref error_ty) = f.error_type {
         out.push_str(&template_env::render(
