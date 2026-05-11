@@ -61,10 +61,13 @@ impl Backend for SwiftBackend {
         // swift-bridge exposes types that are declared in the extern "Rust" block,
         // so we generate typealiases for all non-excluded types to provide a
         // stable Swift API that references RustBridge types.
+        // Skip opaque handle types with methods — those get a full class wrapper below
+        // instead of a typealias.
         for ty in api
             .types
             .iter()
             .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()))
+            .filter(|t| !(t.is_opaque || !t.has_serde) || t.methods.is_empty())
         {
             emit_doc_comment(&ty.doc, "", &mut body);
             body.push_str(&crate::template_env::render(
@@ -90,17 +93,16 @@ impl Backend for SwiftBackend {
             body.push('\n');
         }
 
-        // Emit Swift class wrappers for types that expose methods (e.g. DefaultClient).
-        // These replace the simple `typealias` emitted above — or rather, they are emitted
-        // in addition: the typealias comes first (for types WITHOUT methods) and here we
-        // emit a full Swift class for types WITH methods.  The typealias for types with
-        // methods still points at the opaque RustBridge type, which the class holds
-        // privately; callers use only the public class API.
-        for ty in api
-            .types
-            .iter()
-            .filter(|t| !t.is_trait && !exclude_types.contains(t.name.as_str()) && !t.methods.is_empty())
-        {
+        // Emit Swift class wrappers only for opaque handle types that expose methods.
+        // Opaque types (is_opaque=true or has_serde=false) cannot be JSON-serialised and
+        // are accessed exclusively through C FFI handles — a class wrapper is appropriate.
+        // Serialisable struct types keep their `typealias` declaration above.
+        for ty in api.types.iter().filter(|t| {
+            !t.is_trait
+                && !exclude_types.contains(t.name.as_str())
+                && !t.methods.is_empty()
+                && (t.is_opaque || !t.has_serde)
+        }) {
             emit_client_class(ty.name.as_str(), &ty.methods, &mapper, &mut body);
             body.push('\n');
         }
