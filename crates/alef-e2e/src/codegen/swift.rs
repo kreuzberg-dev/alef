@@ -582,8 +582,10 @@ fn render_test_method(
         .or(global_client_factory);
     let result_var = &call_config.result_var;
     let args = &call_config.args;
-    // Per-call flags override the global default.
-    let result_is_simple = call_config.result_is_simple || result_is_simple;
+    // Per-call flags: base call flag OR per-language override OR global flag.
+    let result_is_simple = call_config.result_is_simple
+        || call_overrides.is_some_and(|o| o.result_is_simple)
+        || result_is_simple;
     let result_is_array = call_config.result_is_array;
 
     let method_name = fixture.id.to_upper_camel_case();
@@ -625,6 +627,25 @@ fn render_test_method(
     // query-param arguments on list_files/list_batches that have no fixture-level
     // input field).
     let extra_args: Vec<String> = call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
+
+    // Merge per-call enum_fields keys into the effective enum set so that
+    // fields like "status" (BatchStatus, BatchObject) are treated as enum-typed
+    // even when they are not globally listed in fields_enum (they are context-
+    // dependent — BatchStatus on BatchObject but plain String on ResponseObject).
+    let effective_enum_fields: std::borrow::Cow<HashSet<String>> = {
+        let per_call = call_overrides.map(|o| &o.enum_fields);
+        if let Some(pc) = per_call {
+            if !pc.is_empty() {
+                let mut merged = enum_fields.clone();
+                merged.extend(pc.keys().cloned());
+                std::borrow::Cow::Owned(merged)
+            } else {
+                std::borrow::Cow::Borrowed(enum_fields)
+            }
+        } else {
+            std::borrow::Cow::Borrowed(enum_fields)
+        }
+    };
 
     let (setup_lines, args_str) = build_args_and_setup(&fixture.input, args, &fixture.id, &function_name);
 
@@ -724,7 +745,7 @@ fn render_test_method(
             field_resolver,
             result_is_simple,
             result_is_array,
-            enum_fields,
+            &effective_enum_fields,
         );
     }
 
@@ -1093,6 +1114,8 @@ fn render_assertion(
         "not_empty" => {
             // For optional fields (Optional<T>), check that the value is non-nil.
             // For array fields (RustVec<T>), check .isEmpty on the vec directly.
+            // For result_is_simple (e.g. Data, String), use .isEmpty directly on
+            // the result — avoids calling .toString() on non-RustString types.
             // For string fields, convert to Swift String and check .isEmpty.
             if field_is_optional {
                 let _ = writeln!(out, "        XCTAssertNotNil({field_expr}, \"expected non-nil value\")");
@@ -1100,6 +1123,12 @@ fn render_assertion(
                 let _ = writeln!(
                     out,
                     "        XCTAssertFalse({field_expr}.isEmpty, \"expected non-empty value\")"
+                );
+            } else if result_is_simple {
+                // result_is_simple: result is a primitive (Data, String, etc.) — use .isEmpty directly.
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertFalse({result_var}.isEmpty, \"expected non-empty value\")"
                 );
             } else {
                 // string_expr has .toString() appended; .isEmpty works on Swift String.
