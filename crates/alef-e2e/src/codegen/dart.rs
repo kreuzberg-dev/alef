@@ -480,6 +480,15 @@ fn render_test_case(
                         }
                     }
                     // If config is null/absent, the wrapper supplies the default ExtractionConfig.
+                } else if arg_value.is_array() {
+                    // Generic JSON array (e.g. batch_urls: ["/page1", "/page2"]).
+                    // Decode via jsonDecode and cast to List<String> at test-run time.
+                    let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
+                    let var_name = arg_def.name.clone();
+                    setup_lines.push(format!(
+                        "final {var_name} = (jsonDecode(r'{json_str}') as List<dynamic>).cast<String>();"
+                    ));
+                    args.push(var_name);
                 }
             }
             _ => {}
