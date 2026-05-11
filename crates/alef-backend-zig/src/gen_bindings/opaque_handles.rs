@@ -303,7 +303,11 @@ fn method_c_arg_names(p: &alef_core::ir::ParamDef, struct_names: &std::collectio
     {
         let prim_opt: Option<&PrimitiveType> = match &p.ty {
             TypeRef::Optional(inner) => {
-                if let TypeRef::Primitive(prim) = inner.as_ref() { Some(prim) } else { None }
+                if let TypeRef::Primitive(prim) = inner.as_ref() {
+                    Some(prim)
+                } else {
+                    None
+                }
             }
             TypeRef::Primitive(prim) if p.optional => Some(prim),
             _ => None,

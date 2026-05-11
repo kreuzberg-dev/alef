@@ -1039,7 +1039,10 @@ stub_methods = ["process_bytes_batch"]
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     // The stub function must still be present with its signature.
-    assert!(lib.contains("pub fn process_bytes_batch"), "stub fn must still be emitted: {lib}");
+    assert!(
+        lib.contains("pub fn process_bytes_batch"),
+        "stub fn must still be emitted: {lib}"
+    );
     // The body must be unimplemented!(), not a real call.
     assert!(
         lib.contains("unimplemented!"),

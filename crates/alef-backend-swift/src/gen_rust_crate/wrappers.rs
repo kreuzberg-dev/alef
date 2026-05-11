@@ -604,7 +604,11 @@ fn emit_string_like_getter(ty: &TypeDef, field: &alef_core::ir::FieldDef, ctx: &
 ///
 /// The source crate must provide `<TypeName>::new(api_key, base_url)` or a compatible constructor.
 /// This mirrors the `liter_llm::DefaultClient::new` pattern.
-pub(crate) fn emit_type_constructor_shim(ty: &TypeDef, source_crate: &str, type_paths: &HashMap<String, String>) -> String {
+pub(crate) fn emit_type_constructor_shim(
+    ty: &TypeDef,
+    source_crate: &str,
+    type_paths: &HashMap<String, String>,
+) -> String {
     let type_snake = ty.name.to_snake_case();
     let fn_name = format!("create_{type_snake}");
     let type_name = &ty.name;
@@ -623,7 +627,11 @@ pub(crate) fn emit_type_constructor_shim(ty: &TypeDef, source_crate: &str, type_
 /// Each method `fn method_name(&self, param: T) -> Result<R, E>` becomes
 /// `pub fn type_name_method_name(client: &TypeName, param: BridgeT) -> Result<BridgeR, String>`.
 /// Async methods are blocked on a Tokio current-thread runtime (same pattern as function shims).
-pub(crate) fn emit_type_method_shims(ty: &TypeDef, _source_crate: &str, _type_paths: &HashMap<String, String>) -> String {
+pub(crate) fn emit_type_method_shims(
+    ty: &TypeDef,
+    _source_crate: &str,
+    _type_paths: &HashMap<String, String>,
+) -> String {
     let type_snake = ty.name.to_snake_case();
     let type_name = &ty.name;
 

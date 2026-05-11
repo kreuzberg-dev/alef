@@ -40,11 +40,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         .as_ref()
         .map(|c| c.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
-    let stub_methods: Vec<String> = config
-        .dart
-        .as_ref()
-        .map(|c| c.stub_methods.clone())
-        .unwrap_or_default();
+    let stub_methods: Vec<String> = config.dart.as_ref().map(|c| c.stub_methods.clone()).unwrap_or_default();
 
     Ok(vec![
         emit_cargo_toml(&rust_dir, api, config, &source_crate_name),

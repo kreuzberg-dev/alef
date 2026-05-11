@@ -555,7 +555,11 @@ fn c_arg_names(
     {
         let prim_opt = match &p.ty {
             TypeRef::Optional(inner) => {
-                if let TypeRef::Primitive(prim) = inner.as_ref() { Some(prim) } else { None }
+                if let TypeRef::Primitive(prim) = inner.as_ref() {
+                    Some(prim)
+                } else {
+                    None
+                }
             }
             TypeRef::Primitive(prim) if p.optional => Some(prim),
             _ => None,
