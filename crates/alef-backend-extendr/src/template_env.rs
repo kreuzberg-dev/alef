@@ -163,6 +163,34 @@ static TEMPLATES: &[(&str, &str)] = &[
         "named_let_required_binding.jinja",
         include_str!("../templates/named_let_required_binding.jinja"),
     ),
+    (
+        "serde_named_optional_binding.jinja",
+        include_str!("../templates/serde_named_optional_binding.jinja"),
+    ),
+    (
+        "serde_named_required_binding.jinja",
+        include_str!("../templates/serde_named_required_binding.jinja"),
+    ),
+    (
+        "async_param_clone_bytes_ref.jinja",
+        include_str!("../templates/async_param_clone_bytes_ref.jinja"),
+    ),
+    (
+        "async_param_clone_path_ref.jinja",
+        include_str!("../templates/async_param_clone_path_ref.jinja"),
+    ),
+    (
+        "async_param_clone_named_ref.jinja",
+        include_str!("../templates/async_param_clone_named_ref.jinja"),
+    ),
+    (
+        "async_param_clone_ref.jinja",
+        include_str!("../templates/async_param_clone_ref.jinja"),
+    ),
+    (
+        "async_param_clone_value.jinja",
+        include_str!("../templates/async_param_clone_value.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

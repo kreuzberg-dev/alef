@@ -634,18 +634,22 @@ pub fn gen_bridge_function(
 
     // Bridge wrapping code: constructor is infallible (transmute-based).
     let bridge_wrap = if is_optional {
-        format!(
-            "let {param_name} = {param_name}.map(|v| {{\n        \
-             let bridge = {struct_name}::new(v);\n        \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
-             }});"
+        crate::template_env::render(
+            "bridge_optional_wrap.jinja",
+            minijinja::context! {
+                param_name => param_name,
+                struct_name => struct_name,
+                handle_path => handle_path,
+            },
         )
     } else {
-        format!(
-            "let {param_name} = {{\n        \
-             let bridge = {struct_name}::new({param_name});\n        \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    \
-             }};"
+        crate::template_env::render(
+            "bridge_required_wrap.jinja",
+            minijinja::context! {
+                param_name => param_name,
+                struct_name => struct_name,
+                handle_path => handle_path,
+            },
         )
     };
 
@@ -686,11 +690,18 @@ pub fn gen_bridge_function(
                     _ => String::new(),
                 }
             );
-            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
-                format!("let {name}_core: Option<{core_path}> = {name}.map(|v| v.into());\n    ")
+            let template_name = if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                "named_core_binding_optional.jinja"
             } else {
-                format!("let {name}_core: {core_path} = {name}.into();\n    ")
-            }
+                "named_core_binding_required.jinja"
+            };
+            crate::template_env::render(
+                template_name,
+                minijinja::context! {
+                    name => name,
+                    core_path => core_path,
+                },
+            )
         })
         .collect();
 
@@ -755,15 +766,14 @@ pub fn gen_bridge_function(
         _ => "val".to_string(),
     };
 
-    let body = if func.error_type.is_some() {
-        if return_wrap == "val" {
-            format!("{bridge_wrap}\n    {serde_bindings}{core_call}{err_conv}")
-        } else {
-            format!("{bridge_wrap}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){err_conv}")
-        }
-    } else {
-        format!("{bridge_wrap}\n    {serde_bindings}{core_call}")
-    };
+    let body = render_bridge_function_body(
+        func.error_type.is_some(),
+        &return_wrap,
+        &bridge_wrap,
+        &serde_bindings,
+        &core_call,
+        err_conv,
+    );
 
     let js_name = {
         let mut result = String::with_capacity(func.name.len());
@@ -852,18 +862,22 @@ pub fn gen_options_field_bridge_function(
 
     // Generate visitor extraction and bridge creation
     let visitor_extract = if is_param_optional {
-        format!(
-            "let visitor_handle = {options_name}.as_ref().and_then(|o| o.visitor.clone()).map(|v| {{\n    \
-             let bridge = {struct_name}::new(v);\n    \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
-             }});"
+        crate::template_env::render(
+            "options_visitor_extract_optional.jinja",
+            minijinja::context! {
+                options_name => options_name,
+                struct_name => struct_name,
+                handle_path => handle_path,
+            },
         )
     } else {
-        format!(
-            "let visitor_handle = {options_name}.visitor.clone().map(|v| {{\n    \
-             let bridge = {struct_name}::new(v);\n    \
-             std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n\
-             }});"
+        crate::template_env::render(
+            "options_visitor_extract_required.jinja",
+            minijinja::context! {
+                options_name => options_name,
+                struct_name => struct_name,
+                handle_path => handle_path,
+            },
         )
     };
 
@@ -872,23 +886,20 @@ pub fn gen_options_field_bridge_function(
     // we clear it from the cloned options before conversion, then re-inject the extracted handle.
     // This ensures the bridge wrapper survives the conversion.
     let options_convert = if is_param_optional {
-        format!(
-            "let {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|mut o| {{\n    \
-             o.visitor = None;\n    \
-             let mut result: {core_import}::ConversionOptions = o.into();\n    \
-             result.visitor = visitor_handle.clone();\n    \
-             result\n    \
-             }});"
+        crate::template_env::render(
+            "options_convert_optional.jinja",
+            minijinja::context! {
+                options_name => options_name,
+                core_import => core_import,
+            },
         )
     } else {
-        format!(
-            "let {options_name}_core: Option<{core_import}::ConversionOptions> = {{\n    \
-             let mut o = {options_name}.clone();\n    \
-             o.visitor = None;\n    \
-             let mut result: {core_import}::ConversionOptions = o.into();\n    \
-             result.visitor = visitor_handle.clone();\n    \
-             Some(result)\n    \
-             }};"
+        crate::template_env::render(
+            "options_convert_required.jinja",
+            minijinja::context! {
+                options_name => options_name,
+                core_import => core_import,
+            },
         )
     };
 
@@ -954,15 +965,14 @@ pub fn gen_options_field_bridge_function(
         _ => "val".to_string(),
     };
 
-    let body = if func.error_type.is_some() {
-        if return_wrap == "val" {
-            format!("{visitor_extract}\n    {options_convert}\n    {core_call}{err_conv}")
-        } else {
-            format!("{visitor_extract}\n    {options_convert}\n    {core_call}.map(|val| {return_wrap}){err_conv}")
-        }
-    } else {
-        format!("{visitor_extract}\n    {options_convert}\n    {core_call}")
-    };
+    let body = render_bridge_function_body(
+        func.error_type.is_some(),
+        &return_wrap,
+        &visitor_extract,
+        &options_convert,
+        &core_call,
+        err_conv,
+    );
 
     let mut out = String::with_capacity(1024);
     if func.error_type.is_some() {
@@ -981,4 +991,29 @@ pub fn gen_options_field_bridge_function(
     ));
 
     out
+}
+
+fn render_bridge_function_body(
+    has_error: bool,
+    return_wrap: &str,
+    bridge_wrap: &str,
+    serde_bindings: &str,
+    core_call: &str,
+    err_conv: &str,
+) -> String {
+    let template_name = match (has_error, return_wrap == "val") {
+        (true, true) => "bridge_function_body_error.jinja",
+        (true, false) => "bridge_function_body_error_mapped.jinja",
+        (false, _) => "bridge_function_body_plain.jinja",
+    };
+    crate::template_env::render(
+        template_name,
+        minijinja::context! {
+            bridge_wrap => bridge_wrap,
+            serde_bindings => serde_bindings,
+            core_call => core_call,
+            err_conv => err_conv,
+            return_wrap => return_wrap,
+        },
+    )
 }

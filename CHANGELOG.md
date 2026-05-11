@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - refactor(alef-backend-zig,alef-backend-dart,alef-backend-php): move remaining generated-code emission blocks for Zig parameter/return handling, Dart trait bridge defaults, and PHP vector binding conversion into Jinja templates.
 - refactor(alef-scaffold,alef-docs,alef-readme): render generated pre-commit YAML, scaffold Cargo env rows, API Markdown blocks, and README performance rows through Jinja templates.
+- refactor(alef-backend-napi,alef-backend-extendr): move additional trait bridge wrappers, function bodies, serde bindings, and async parameter clone fragments into Jinja templates.
 
 ### Fixed
 
