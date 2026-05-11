@@ -288,6 +288,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "wasm/visitor_method.jinja",
         include_str!("../templates/wasm/visitor_method.jinja"),
     ),
+    (
+        "zig/json_assertion.jinja",
+        include_str!("../templates/zig/json_assertion.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
