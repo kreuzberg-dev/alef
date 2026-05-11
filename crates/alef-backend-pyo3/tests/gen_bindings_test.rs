@@ -3085,4 +3085,172 @@ fn test_capsule_types_end_to_end() {
         content.contains("call1("),
         "get_parser must call call1 to construct the Parser; content:\n{content}"
     );
+
+    // The preamble must suppress unsafe_code so downstreams with
+    // workspace-level `unsafe_code = "deny"` compile without overrides.
+    assert!(
+        content.contains("allow(unsafe_code)"),
+        "preamble must include #![allow(unsafe_code)]; content:\n{content}"
+    );
+}
+
+/// capsule_types on impl-block methods:
+/// - A type with a method returning a capsule type does NOT produce the non-existent struct.
+/// - The method body uses PyCapsule_New (Capsule variant) or Python factory (ConstructFrom).
+/// - The generated preamble includes #![allow(unsafe_code)].
+#[test]
+fn test_capsule_types_in_methods() {
+    use alef_core::config::CapsuleTypeConfig;
+    use alef_core::ir::{MethodDef, ReceiverKind};
+
+    let backend = Pyo3Backend;
+
+    // IR: an opaque LanguageRegistry type with two methods that return capsule types.
+    let api = ApiSurface {
+        crate_name: "ts_pack".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            // LanguageRegistry — the opaque registry that owns the Language/Parser getters
+            TypeDef {
+                name: "LanguageRegistry".to_string(),
+                rust_path: "ts_pack::LanguageRegistry".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![
+                    // get_language(&self, name: String) -> Result<Language, Error>
+                    MethodDef {
+                        name: "get_language".to_string(),
+                        params: vec![ParamDef {
+                            name: "name".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                        }],
+                        return_type: TypeRef::Named("Language".to_string()),
+                        is_async: false,
+                        is_static: false,
+                        error_type: Some("ts_pack::Error".to_string()),
+                        doc: String::new(),
+                        receiver: Some(ReceiverKind::Ref),
+                        sanitized: false,
+                        trait_source: None,
+                        returns_ref: false,
+                        returns_cow: false,
+                        return_newtype_wrapper: None,
+                        has_default_impl: false,
+                    },
+                ],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Language registry.".to_string(),
+                cfg: None,
+            },
+            // Language — capsule round-trip type (no #[pyclass] emitted)
+            TypeDef {
+                name: "Language".to_string(),
+                rust_path: "ts_pack::Language".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let mut config = make_config();
+    let mut capsule_map: HashMap<String, CapsuleTypeConfig> = HashMap::new();
+    capsule_map.insert(
+        "Language".to_string(),
+        CapsuleTypeConfig::Capsule("tree_sitter.Language".to_string()),
+    );
+    config.python = Some(PythonConfig {
+        module_name: Some("_ts_pack".to_string()),
+        pip_name: None,
+        async_runtime: None,
+        stubs: None,
+        features: None,
+        serde_rename_all: None,
+        capsule_types: capsule_map,
+        release_gil: false,
+        exclude_functions: Vec::new(),
+        exclude_types: Vec::new(),
+        extra_dependencies: Default::default(),
+        scaffold_output: Default::default(),
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
+    });
+
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings with capsule_types on methods should succeed");
+
+    assert_eq!(files.len(), 1);
+    let content = &files[0].content;
+
+    // Language must NOT appear as a standalone #[pyclass] struct — it is a capsule type.
+    // Note: "struct LanguageRegistry" is expected; we must not match that as a false positive.
+    assert!(
+        !content.contains("pub struct Language {") && !content.contains("pub struct Language{"),
+        "Language must not be emitted as a #[pyclass] struct; content:\n{content}"
+    );
+
+    // The get_language method must use PyCapsule_New (capsule round-trip).
+    assert!(
+        content.contains("PyCapsule_New"),
+        "get_language method must call PyCapsule_New; content:\n{content}"
+    );
+
+    // The method must NOT reference the removed Language struct in its return type.
+    assert!(
+        !content.contains("-> PyResult<Language>"),
+        "get_language method must not return PyResult<Language> (struct removed); content:\n{content}"
+    );
+
+    // The method must return PyResult<Py<PyAny>> instead.
+    assert!(
+        content.contains("-> pyo3::PyResult<pyo3::Py<pyo3::PyAny>>"),
+        "get_language method must return pyo3::PyResult<pyo3::Py<pyo3::PyAny>>; content:\n{content}"
+    );
+
+    // The capsule name constant must be emitted with the configured name.
+    assert!(
+        content.contains("tree_sitter.Language"),
+        "get_language method must embed the 'tree_sitter.Language' capsule name; content:\n{content}"
+    );
+
+    // The preamble must include #![allow(unsafe_code)].
+    assert!(
+        content.contains("allow(unsafe_code)"),
+        "preamble must include #![allow(unsafe_code)]; content:\n{content}"
+    );
 }

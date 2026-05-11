@@ -145,6 +145,17 @@ impl Backend for Pyo3Backend {
         builder.add_inner_attribute(
             "allow(clippy::unsafe_derive_deserialize, clippy::must_use_candidate, clippy::return_self_not_must_use, clippy::use_self, clippy::missing_const_for_fn, clippy::missing_errors_doc, clippy::needless_pass_by_value, clippy::doc_markdown, clippy::derive_partial_eq_without_eq, clippy::uninlined_format_args, clippy::redundant_clone, clippy::implicit_clone, clippy::redundant_closure_for_method_calls, clippy::wildcard_imports, clippy::option_if_let_else, clippy::too_many_lines)",
         );
+        // Capsule-type functions use multiple separate `unsafe {}` blocks, each wrapping a
+        // single CPython FFI call.  The `multiple_unsafe_ops_per_block` lint fires even when
+        // each block contains exactly one operation, because capsule functions have two
+        // consecutive unsafe blocks.  Suppress it — the SAFETY comments on each block are
+        // the authoritative documentation.
+        builder.add_inner_attribute("allow(clippy::multiple_unsafe_ops_per_block)");
+        // Capsule-type functions use `unsafe { PyCapsule_New(...) }` and
+        // `unsafe { Bound::from_owned_ptr(...) }` — these are intentional, well-documented
+        // CPython FFI calls.  Downstreams that have `unsafe_code = "deny"` at the workspace
+        // level (e.g. tree-sitter-language-pack) must not need to add per-crate overrides.
+        builder.add_inner_attribute("allow(unsafe_code)");
         builder.add_import("pyo3::prelude::*");
         // Note: core_import and path_mapping crates are referenced via fully-qualified paths
         // in generated code (e.g. `core_import::TypeName`), so no bare `use crate_name;`
@@ -448,6 +459,19 @@ mod alef_json_str_opt {
             }
         }
 
+        // Build the list of error converter function names available in the generated module.
+        // These follow the pattern `{snake_error}_to_py_err` for each error in api.errors.
+        // Used by bridge function generators and capsule method rewriters to dispatch typed
+        // exceptions instead of PyRuntimeError when the IR records a generic error type.
+        let error_converters: Vec<String> = api
+            .errors
+            .iter()
+            .map(|e| {
+                use heck::ToSnakeCase;
+                format!("{}_to_py_err", e.name.to_snake_case())
+            })
+            .collect();
+
         // Track emitted #[pyclass] struct names to prevent duplicate definitions (E0255/E0428).
         // Duplicates can slip through when path-mapping collapses two distinct raw paths onto
         // the same name after dedup has already run on the pre-mapping IR.
@@ -498,6 +522,11 @@ mod alef_json_str_opt {
                 if tokio_mutex_types.contains(&typ.name) {
                     struct_code = rewrite_to_tokio_mutex_struct(&struct_code);
                     impl_block = rewrite_to_tokio_mutex_impl(&impl_block);
+                }
+                // Rewrite methods whose return type is a capsule type so they produce
+                // PyCapsule objects instead of the (non-existent) #[pyclass] wrapper structs.
+                if !capsule_types.is_empty() {
+                    impl_block = rewrite_capsule_methods(impl_block, typ, &capsule_types, &error_converters);
                 }
                 builder.add_item(&struct_code);
                 if !impl_block.is_empty() {
@@ -618,18 +647,6 @@ mod alef_json_str_opt {
                 builder.add_item(&generators::gen_enum(e, &cfg));
             }
         }
-        // Build the list of error converter function names available in the generated module.
-        // These follow the pattern `{snake_error}_to_py_err` for each error in api.errors.
-        // Used by bridge function generators to dispatch typed exceptions instead of PyRuntimeError
-        // when the IR records a generic error type like "anyhow::Error".
-        let error_converters: Vec<String> = api
-            .errors
-            .iter()
-            .map(|e| {
-                use heck::ToSnakeCase;
-                format!("{}_to_py_err", e.name.to_snake_case())
-            })
-            .collect();
         for f in &api.functions {
             if py_exclude_functions.contains(&f.name) {
                 continue;
@@ -995,6 +1012,248 @@ mod alef_json_str_opt {
             post_build: vec![],
         })
     }
+}
+
+/// Rewrite opaque impl-block methods whose return type is a capsule type.
+///
+/// The generic method generator emits `Ok({CapsuleType} { inner: Arc::new(result) })` for
+/// methods returning capsule-configured types.  Because capsule types have no `#[pyclass]`
+/// struct, that code does not compile.  This function replaces each such method with a
+/// capsule-aware body that either calls `into_raw()` + `PyCapsule_New` (Capsule variant) or
+/// constructs the Python object via the dependency capsule (ConstructFrom variant), mirroring
+/// what `capsule::gen_capsule_function` does for free functions.
+fn rewrite_capsule_methods(
+    impl_block: String,
+    typ: &alef_core::ir::TypeDef,
+    capsule_types: &std::collections::HashMap<String, alef_core::config::CapsuleTypeConfig>,
+    error_converters: &[String],
+) -> String {
+    use alef_codegen::type_mapper::TypeMapper as _;
+    use alef_core::ir::TypeRef;
+    use heck::ToSnakeCase;
+
+    let mut result = impl_block;
+
+    for method in &typ.methods {
+        // Determine whether this method's return type is a capsule type.
+        let capsule_ret_name: Option<&str> = match &method.return_type {
+            TypeRef::Named(n) if capsule_types.contains_key(n.as_str()) => Some(n.as_str()),
+            TypeRef::Optional(inner) => {
+                if let TypeRef::Named(n) = inner.as_ref() {
+                    if capsule_types.contains_key(n.as_str()) {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        let capsule_ret_name = match capsule_ret_name {
+            Some(n) => n,
+            None => continue,
+        };
+
+        let cfg = &capsule_types[capsule_ret_name];
+
+        // Build the old signature fragment that the generic generator emitted.
+        // We match on `-> PyResult<{CapsuleTypeName}>` to find and replace the method.
+        let old_ret_sig = format!("-> PyResult<{capsule_ret_name}>");
+        if !result.contains(&old_ret_sig) {
+            continue;
+        }
+
+        // Build call args for the inner call.
+        // For `is_ref=true` String/Char params, borrow; for others, pass by value.
+        let call_args_str = method
+            .params
+            .iter()
+            .map(|p| {
+                let needs_borrow = p.is_ref && matches!(p.ty, TypeRef::String | TypeRef::Char);
+                if needs_borrow {
+                    format!("&{}", p.name)
+                } else {
+                    p.name.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        // Build param list for the new signature.
+        // Always prepend `py: pyo3::Python<'_>` since we need it for PyCapsule_New / Python calls.
+        let mapper = crate::type_map::Pyo3Mapper::new();
+        let mut sig_params = vec!["&self".to_string(), "py: pyo3::Python<'_>".to_string()];
+        for p in &method.params {
+            sig_params.push(format!("{}: {}", p.name, mapper.map_type(&p.ty)));
+        }
+
+        // Build the #[pyo3(signature = (...))] attribute (skipped when there are no params).
+        let sig_attr = if method.params.is_empty() {
+            String::new()
+        } else {
+            let names = method
+                .params
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("    #[pyo3(signature = ({names}))]\n")
+        };
+
+        // Build the inner core call (self.inner.method(args)).
+        let core_call = format!("self.inner.{}({})", method.name, call_args_str);
+
+        // Build the `.map_err(…)?` suffix when the method is fallible.
+        let err_map_suffix = if method.error_type.is_some() {
+            let converter = method
+                .error_type
+                .as_ref()
+                .and_then(|et| {
+                    let short = et.split("::").last().unwrap_or(et.as_str());
+                    let candidate = format!("{}_to_py_err", short.to_snake_case());
+                    if error_converters.iter().any(|c| c == &candidate) {
+                        Some(format!("|e| {candidate}(e)"))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| "|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string())".to_string());
+            format!(".map_err({converter})?")
+        } else {
+            String::new()
+        };
+
+        let params_str = sig_params.join(", ");
+        let method_name = &method.name;
+
+        // Generate the new method body based on capsule variant.
+        let new_body = match cfg {
+            alef_core::config::CapsuleTypeConfig::Capsule(capsule_name_str) => {
+                let capsule_cstr = capsule_name_str.replace('.', "_").to_ascii_uppercase();
+                format!(
+                    r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
+    pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
+        const {capsule_cstr}_NAME: &::std::ffi::CStr = c"{capsule_name_str}";
+        let result = {core_call}{err_map_suffix};
+        let raw_ptr = result.into_raw();
+        // SAFETY: raw_ptr is a valid pointer derived from into_raw() on a value with program lifetime.
+        let capsule_ptr = unsafe {{ pyo3::ffi::PyCapsule_New(raw_ptr as *mut _, {capsule_cstr}_NAME.as_ptr(), None) }};
+        if capsule_ptr.is_null() {{
+            return Err(pyo3::exceptions::PyRuntimeError::new_err("Failed to create PyCapsule"));
+        }}
+        // SAFETY: capsule_ptr is a valid, non-null Python object pointer we just created above.
+        Ok(unsafe {{ pyo3::Bound::from_owned_ptr(py, capsule_ptr) }}.unbind())
+    }}"#,
+                )
+            }
+            alef_core::config::CapsuleTypeConfig::ConstructFrom {
+                python_type,
+                construct_from,
+            } => {
+                // For ConstructFrom: produce the dependency capsule by calling the matching
+                // free function, then call the Python factory to construct the target type.
+                let dep_snake = construct_from.to_snake_case();
+                let first_str_param = method.params.iter().find(|p| matches!(p.ty, TypeRef::String));
+                let dep_expr = if let Some(sp) = first_str_param {
+                    format!("get_{dep_snake}(py, {}.clone())?.bind(py).clone()", sp.name)
+                } else {
+                    format!("/* TODO: obtain {construct_from} capsule */ unreachable!()")
+                };
+
+                if let Some((module_path, class_name)) = python_type.rsplit_once('.') {
+                    format!(
+                        r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
+    pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
+        // Construct {python_type} via Python-side factory.
+        let _dep = {dep_expr};
+        let _ts_mod = py.import("{module_path}")?;
+        let _cls = _ts_mod.getattr("{class_name}")?;
+        Ok(_cls.call1((_dep,))?.unbind())
+    }}"#,
+                    )
+                } else {
+                    format!(
+                        r#"    {sig_attr}    #[allow(clippy::missing_errors_doc)]
+    pub fn {method_name}({params_str}) -> pyo3::PyResult<pyo3::Py<pyo3::PyAny>> {{
+        // Construct {python_type} via Python-side factory.
+        let _dep = {dep_expr};
+        let _cls = py.eval(c"{python_type}", None, None)?;
+        Ok(_cls.call1((_dep,))?.unbind())
+    }}"#,
+                    )
+                }
+            }
+        };
+
+        // Find and replace the old method in the impl block.
+        // The method generator emits `pub fn {name}(` at the start of a line with no
+        // guaranteed leading indentation (the impl_block template wraps the content but
+        // doesn't add per-line indentation).  Search for the bare `pub fn {name}(`.
+        let method_start_marker = format!("pub fn {method_name}(");
+        if let Some(start_idx) = result.find(&method_start_marker) {
+            let attr_start = find_method_attrs_start(&result, start_idx);
+            if let Some(end_idx) = find_method_end(&result, start_idx) {
+                result = format!("{}{}{}", &result[..attr_start], new_body, &result[end_idx..]);
+            }
+        }
+    }
+
+    result
+}
+
+/// Find the byte index of the start of the attribute block that precedes the `pub fn` at
+/// `fn_idx`.  Walks backward line-by-line past `#[…]` and blank lines.  Returns the byte index
+/// of the first character of the first attribute line (or `fn_idx` when there are none).
+fn find_method_attrs_start(code: &str, fn_idx: usize) -> usize {
+    let before = &code[..fn_idx];
+    // Collect line (start_byte, content) pairs so we can walk backward.
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(before.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+
+    let mut attr_start_byte = fn_idx;
+    // Walk the line-start offsets in reverse (skip the last one — that is the `pub fn` line).
+    for &line_byte_start in line_starts.iter().rev() {
+        let line = &before[line_byte_start..before.len().min(attr_start_byte)];
+        let trimmed = line.trim_end_matches('\n').trim();
+        if trimmed.starts_with("#[") || trimmed.is_empty() {
+            attr_start_byte = line_byte_start;
+        } else {
+            break;
+        }
+    }
+    attr_start_byte
+}
+
+/// Find the byte index just after the closing `}` of a Rust method block whose `pub fn`
+/// starts at byte `fn_idx` in `code`.
+fn find_method_end(code: &str, fn_idx: usize) -> Option<usize> {
+    let slice = &code[fn_idx..];
+    let mut depth = 0usize;
+    let mut found_open = false;
+    let mut byte_offset = 0usize;
+    for ch in slice.chars() {
+        match ch {
+            '{' => {
+                depth += 1;
+                found_open = true;
+            }
+            '}'
+                if found_open => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        byte_offset += ch.len_utf8();
+                        return Some(fn_idx + byte_offset);
+                    }
+                }
+            _ => {}
+        }
+        byte_offset += ch.len_utf8();
+    }
+    None
 }
 
 fn rewrite_to_tokio_mutex_struct(struct_code: &str) -> String {
