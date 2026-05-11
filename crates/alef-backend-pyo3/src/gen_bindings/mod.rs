@@ -1,5 +1,6 @@
 //! PyO3 (Python) backend: orchestration and `Backend` trait implementation.
 
+pub mod capsule;
 pub mod enums;
 pub mod errors;
 pub mod functions;
@@ -425,6 +426,13 @@ mod alef_json_str_opt {
             .as_ref()
             .map(|c| c.exclude_types.iter().cloned().collect())
             .unwrap_or_default();
+        // Types listed in capsule_types bypass #[pyclass] generation entirely — they are
+        // passed through as raw PyCapsule handles or Python-side-constructed objects.
+        let capsule_types = config
+            .python
+            .as_ref()
+            .map(|c| c.capsule_types.clone())
+            .unwrap_or_default();
 
         // Collect all names that will be emitted as pyo3::create_exception! macros.
         // This includes both the base error enum name AND all variant exception names
@@ -452,6 +460,12 @@ mod alef_json_str_opt {
         {
             // Error types are emitted as pyo3::create_exception! macros, not as pyclass structs.
             if error_type_names.contains(typ.name.as_str()) {
+                continue;
+            }
+            // Capsule types bypass #[pyclass] entirely — they travel as raw PyCapsule handles
+            // or are constructed on the Python side. Emitting a wrapper struct for them would
+            // produce an unused #[pyclass] that conflicts with the capsule-based call sites.
+            if capsule_types.contains_key(typ.name.as_str()) {
                 continue;
             }
             // Skip duplicate struct definitions — only emit the first occurrence.
@@ -645,6 +659,15 @@ mod alef_json_str_opt {
                     &mapper,
                     &cfg,
                     &opaque_types,
+                    &core_import,
+                    &error_converters,
+                ));
+            } else if !capsule_types.is_empty() && capsule::function_involves_capsule(f, &capsule_types) {
+                // Function returns or accepts a capsule type — emit a PyCapsule-aware body
+                // instead of the default Arc<> wrapping path.
+                builder.add_item(&capsule::gen_capsule_function(
+                    f,
+                    &capsule_types,
                     &core_import,
                     &error_converters,
                 ));

@@ -188,7 +188,7 @@ pub(super) fn gen_capsule_function(
                     "pyo3_capsule_input_const.jinja",
                     minijinja::context! {
                         cstr => capsule_cstr.as_str(),
-                        capsule_name => capsule_name_str.as_str(),
+                        capsule_name => capsule_name_str,
                     },
                 ));
                 if is_optional {
@@ -345,7 +345,7 @@ pub(super) fn gen_capsule_function(
                 // The convention: the core function `get_parser(name)` returns a tree_sitter::Parser
                 // by calling get_language internally, so we call our own get_language bridge.
                 if let Some(capsule_dep_name) = dep_capsule_name {
-                    let capsule_cstr = capsule_dep_name.replace('.', "_").to_ascii_uppercase();
+                    let _capsule_cstr = capsule_dep_name.replace('.', "_").to_ascii_uppercase();
                     // Find the function's own args that match the construct_from type.
                     // If the function signature itself takes a `construct_from`-typed arg, use it.
                     let dep_arg = func
@@ -376,7 +376,7 @@ pub(super) fn gen_capsule_function(
                             // Fallback: emit a comment asking for manual disambiguation.
                             format!("/* TODO: obtain {construct_from} capsule */ unreachable!()")
                         }
-                        };
+                    };
 
                     // Parse the python_type into module + class.
                     out.push_str(&crate::template_env::render(

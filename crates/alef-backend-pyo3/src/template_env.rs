@@ -268,7 +268,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "data_enum_member.jinja",
         include_str!("../templates/data_enum_member.jinja"),
     ),
-    ("pyo3_capsule_signature.jinja", include_str!("../templates/pyo3_capsule_signature.jinja")),
+    (
+        "pyo3_capsule_signature.jinja",
+        include_str!("../templates/pyo3_capsule_signature.jinja"),
+    ),
     (
         "pyo3_capsule_function_header.jinja",
         include_str!("../templates/pyo3_capsule_function_header.jinja"),
@@ -293,7 +296,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "pyo3_capsule_call_result.jinja",
         include_str!("../templates/pyo3_capsule_call_result.jinja"),
     ),
-    ("pyo3_capsule_into_raw.jinja", include_str!("../templates/pyo3_capsule_into_raw.jinja")),
+    (
+        "pyo3_capsule_into_raw.jinja",
+        include_str!("../templates/pyo3_capsule_into_raw.jinja"),
+    ),
     (
         "pyo3_capsule_ptr_from_raw.jinja",
         include_str!("../templates/pyo3_capsule_ptr_from_raw.jinja"),

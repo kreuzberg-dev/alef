@@ -2898,3 +2898,191 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
         options_py.content
     );
 }
+
+/// capsule_types wires up PyCapsule pass-through end-to-end:
+/// - The Language type does NOT get a #[pyclass] wrapper.
+/// - get_language returns via PyCapsule_New (capsule round-trip).
+/// - get_parser constructs via py.import("tree_sitter").getattr("Parser").call1.
+#[test]
+fn test_capsule_types_end_to_end() {
+    use alef_core::config::CapsuleTypeConfig;
+
+    let backend = Pyo3Backend;
+
+    // IR: two opaque types that are listed as capsule types + two functions.
+    let api = ApiSurface {
+        crate_name: "ts_pack".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            // Language — capsule round-trip type
+            TypeDef {
+                name: "Language".to_string(),
+                rust_path: "ts_pack::Language".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "A tree-sitter Language handle.".to_string(),
+                cfg: None,
+            },
+            // Parser — ConstructFrom type (no into_raw; built via tree_sitter.Parser(language))
+            TypeDef {
+                name: "Parser".to_string(),
+                rust_path: "ts_pack::Parser".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "A tree-sitter Parser.".to_string(),
+                cfg: None,
+            },
+        ],
+        functions: vec![
+            // get_language(name: &str) -> Result<Language, Error>
+            FunctionDef {
+                name: "get_language".to_string(),
+                rust_path: "ts_pack::get_language".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "name".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Named("Language".to_string()),
+                is_async: false,
+                error_type: Some("ts_pack::Error".to_string()),
+                doc: "Look up a language by name.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+            // get_parser(name: &str) -> Result<Parser, Error>
+            FunctionDef {
+                name: "get_parser".to_string(),
+                rust_path: "ts_pack::get_parser".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "name".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Named("Parser".to_string()),
+                is_async: false,
+                error_type: Some("ts_pack::Error".to_string()),
+                doc: "Get a parser for a language by name.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let mut config = make_config();
+    let mut capsule_map: HashMap<String, CapsuleTypeConfig> = HashMap::new();
+    capsule_map.insert(
+        "Language".to_string(),
+        CapsuleTypeConfig::Capsule("tree_sitter.Language".to_string()),
+    );
+    capsule_map.insert(
+        "Parser".to_string(),
+        CapsuleTypeConfig::ConstructFrom {
+            python_type: "tree_sitter.Parser".to_string(),
+            construct_from: "Language".to_string(),
+        },
+    );
+    config.python = Some(PythonConfig {
+        module_name: Some("_ts_pack".to_string()),
+        pip_name: None,
+        async_runtime: None,
+        stubs: None,
+        features: None,
+        serde_rename_all: None,
+        capsule_types: capsule_map,
+        release_gil: false,
+        exclude_functions: Vec::new(),
+        exclude_types: Vec::new(),
+        extra_dependencies: Default::default(),
+        scaffold_output: Default::default(),
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
+    });
+
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings with capsule_types should succeed");
+
+    assert_eq!(files.len(), 1);
+    let content = &files[0].content;
+
+    // Language and Parser must NOT appear as #[pyclass] opaque wrappers.
+    assert!(
+        !content.contains("struct Language"),
+        "Language must not be emitted as a #[pyclass] struct; content:\n{content}"
+    );
+    assert!(
+        !content.contains("struct Parser"),
+        "Parser must not be emitted as a #[pyclass] struct; content:\n{content}"
+    );
+
+    // get_language must use PyCapsule_New for the capsule round-trip return.
+    assert!(
+        content.contains("PyCapsule_New"),
+        "get_language must call PyCapsule_New; content:\n{content}"
+    );
+
+    // get_parser must import tree_sitter and call Parser via getattr + call1.
+    assert!(
+        content.contains("py.import(\"tree_sitter\")"),
+        "get_parser must import the tree_sitter module; content:\n{content}"
+    );
+    assert!(
+        content.contains("getattr(\"Parser\")"),
+        "get_parser must call getattr(\"Parser\"); content:\n{content}"
+    );
+    assert!(
+        content.contains("call1("),
+        "get_parser must call call1 to construct the Parser; content:\n{content}"
+    );
+}

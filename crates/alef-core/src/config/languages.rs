@@ -72,11 +72,12 @@ pub struct PythonConfig {
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
     pub serde_rename_all: Option<String>,
-    /// Map of type name -> PyCapsule name for raw pointer wrapping.
-    /// When a function returns one of these types, alef generates PyCapsule_New instead of Arc wrapping.
-    // TODO: Wire into gen_bindings.rs to emit PyCapsule_New / PyCapsule_GetPointer at call sites.
+    /// Map of type name -> capsule config for PyCapsule pass-through.
+    /// Types listed here are emitted as PyCapsule_New / PyCapsule_GetPointer instead of
+    /// opaque `#[pyclass]` wrappers. Use `CapsuleTypeConfig::Capsule` for raw capsule
+    /// round-trips and `CapsuleTypeConfig::ConstructFrom` for Python-side construction.
     #[serde(default)]
-    pub capsule_types: HashMap<String, String>,
+    pub capsule_types: HashMap<String, CapsuleTypeConfig>,
     /// When true, wrap blocking function bodies in py.allow_threads() to release the GIL.
     // TODO: Wire into gen_bindings.rs to emit py.allow_threads(|| { ... }) for non-async functions.
     #[serde(default)]
