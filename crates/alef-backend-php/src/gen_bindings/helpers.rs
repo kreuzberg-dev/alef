@@ -650,6 +650,11 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
     };
     let mut out = format!("{allow}let core_self = {core_path} {{\n");
     for field in &typ.fields {
+        // Skip cfg-gated fields — they are absent from the binding struct.
+        // The ..Default::default() spread below fills them when the feature is enabled.
+        if field.cfg.is_some() {
+            continue;
+        }
         let name = &field.name;
         if field.sanitized {
             out.push_str(&crate::template_env::render(
