@@ -1280,14 +1280,13 @@ fn find_method_end(code: &str, fn_idx: usize) -> Option<usize> {
                 depth += 1;
                 found_open = true;
             }
-            '}'
-                if found_open => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        byte_offset += ch.len_utf8();
-                        return Some(fn_idx + byte_offset);
-                    }
+            '}' if found_open => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    byte_offset += ch.len_utf8();
+                    return Some(fn_idx + byte_offset);
                 }
+            }
             _ => {}
         }
         byte_offset += ch.len_utf8();

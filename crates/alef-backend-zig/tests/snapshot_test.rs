@@ -65,7 +65,7 @@ fn make_basic_api() -> ApiSurface {
             has_stripped_cfg_fields: false,
             is_return_type: false,
             serde_rename_all: None,
-            has_serde: false,
+            has_serde: true,
             super_traits: vec![],
         }],
         functions: vec![FunctionDef {

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- feat(zig): client-object/opaque-handle codegen — types with non-empty `TypeDef.methods` that are opaque or non-serde now emit a Zig `pub const TypeName = struct { _handle: *anyopaque, ... }` with one `pub fn` per non-static, non-async method, dispatching via `c.{prefix}_{snake_type}_{snake_method}`. Driven by `CallOverride.client_factory` in e2e; no special-casing per library.
+- feat(zig e2e): `[e2e.call.overrides.zig].client_factory` support — when set, generated Zig test functions instantiate a client via `module.factory_fn("test-key", mock_url, ...)` and call methods on the `_client` instance instead of calling the top-level module function directly. Mirrors the Go/Swift/Kotlin/Dart client-factory pattern.
+
 - feat(gleam): opaque-resource codegen — types with non-empty `TypeDef.methods` now emit `pub opaque type TypeName { TypeName(resource: dynamic.Dynamic) }` plus one `@external` NIF binding per method. Mirrors the Swift/Kotlin/Dart client-object pattern.
 - feat(gleam e2e): `[e2e.call.overrides.gleam].client_factory` support — when set, generated Gleam tests call the factory function and pass the client as the first argument to the method under test.
 - fix(gleam e2e): Erlang startup shim now uses a `case` expression with a graceful `{error, _} -> ok` fallback when starting the Elixir application, avoiding test failures in environments without an Elixir runtime dependency.
