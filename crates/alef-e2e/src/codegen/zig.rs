@@ -553,6 +553,18 @@ fn render_test_fn(
     // traverses the dynamic JSON object for field assertions.
     let result_is_json_struct = call_overrides.is_some_and(|o| o.result_is_json_struct);
 
+    // Client factory: when set, the test instantiates a client object via
+    // `module.factory_fn(...)` and calls methods on the instance rather than
+    // calling top-level package functions directly.
+    // Mirrors the go codegen pattern (go.rs:981-1028 / CallOverride.client_factory).
+    let client_factory = call_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
+        e2e_config
+            .call
+            .overrides
+            .get(lang)
+            .and_then(|o| o.client_factory.as_deref())
+    });
+
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
@@ -593,6 +605,27 @@ fn render_test_fn(
         let _ = writeln!(out, "    {line}");
     }
 
+    // Client factory: when configured, instantiate a client object via the named
+    // constructor function and call the method on the instance.
+    // The client is pointed at MOCK_SERVER_URL/fixtures/<id> (mirrors go.rs:981-1028).
+    // When not configured, fall back to calling the top-level package function directly.
+    let call_prefix = if let Some(factory) = client_factory {
+        let fixture_id = &fixture.id;
+        let _ = writeln!(
+            out,
+            "    const _mock_url = try std.fmt.allocPrintZ(std.heap.c_allocator, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}});"
+        );
+        let _ = writeln!(out, "    defer std.heap.c_allocator.free(_mock_url);");
+        let _ = writeln!(
+            out,
+            "    var _client = try {module_name}.{factory}(\"test-key\", _mock_url, null, null, null);"
+        );
+        let _ = writeln!(out, "    defer _client.free();");
+        "_client".to_string()
+    } else {
+        module_name.to_string()
+    };
+
     if expects_error {
         // Error-path test: use error union syntax `!T` and try-catch.
         if is_async {
@@ -604,12 +637,12 @@ fn render_test_fn(
         if result_is_json_struct {
             let _ = writeln!(
                 out,
-                "    const _result_json = {module_name}.{function_name}({args_str}) catch {{"
+                "    const _result_json = {call_prefix}.{function_name}({args_str}) catch {{"
             );
         } else {
             let _ = writeln!(
                 out,
-                "    const result = {module_name}.{function_name}({args_str}) catch {{"
+                "    const result = {call_prefix}.{function_name}({args_str}) catch {{"
             );
         }
         let _ = writeln!(out, "        try testing.expect(true); // Error occurred as expected");
@@ -660,11 +693,11 @@ fn render_test_fn(
         if result_is_json_struct {
             let _ = writeln!(
                 out,
-                "    const _result_json = try {module_name}.{function_name}({args_str});"
+                "    const _result_json = try {call_prefix}.{function_name}({args_str});"
             );
             let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
         } else {
-            let _ = writeln!(out, "    _ = try {module_name}.{function_name}({args_str});");
+            let _ = writeln!(out, "    _ = try {call_prefix}.{function_name}({args_str});");
         }
     } else {
         // Happy path: call and assert. Detect whether any assertion actually
@@ -684,7 +717,7 @@ fn render_test_fn(
             // JSON struct path: parse result JSON and access fields dynamically.
             let _ = writeln!(
                 out,
-                "    const _result_json = try {module_name}.{function_name}({args_str});"
+                "    const _result_json = try {call_prefix}.{function_name}({args_str});"
             );
             let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
             if any_emits_code {
@@ -701,13 +734,13 @@ fn render_test_fn(
         } else if any_emits_code {
             let _ = writeln!(
                 out,
-                "    const {result_var} = try {module_name}.{function_name}({args_str});"
+                "    const {result_var} = try {call_prefix}.{function_name}({args_str});"
             );
             for assertion in &fixture.assertions {
                 render_assertion(out, assertion, result_var, field_resolver, enum_fields);
             }
         } else {
-            let _ = writeln!(out, "    _ = try {module_name}.{function_name}({args_str});");
+            let _ = writeln!(out, "    _ = try {call_prefix}.{function_name}({args_str});");
         }
     }
 
@@ -782,12 +815,7 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
 ///
 /// The `result_var` variable is `*std.json.Value` (pointer to the parsed root object).
 /// Field paths are traversed via `.object.get("key").?` chains.
-fn render_json_assertion(
-    out: &mut String,
-    assertion: &Assertion,
-    result_var: &str,
-    field_resolver: &FieldResolver,
-) {
+fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
@@ -809,12 +837,11 @@ fn render_json_assertion(
     let field_path = field_path.trim();
 
     // "{array_field}.length" → strip suffix; use .array.items.len in the template.
-    let (field_path_for_expr, is_length_access) =
-        if let Some(parent) = field_path.strip_suffix(".length") {
-            (parent, true)
-        } else {
-            (field_path, false)
-        };
+    let (field_path_for_expr, is_length_access) = if let Some(parent) = field_path.strip_suffix(".length") {
+        (parent, true)
+    } else {
+        (field_path, false)
+    };
 
     let field_expr = if field_path_for_expr.is_empty() {
         result_var.to_string()
@@ -830,7 +857,7 @@ fn render_json_assertion(
     let is_string_val = matches!(&assertion.value, Some(serde_json::Value::String(_)));
     let is_bool_val = matches!(&assertion.value, Some(serde_json::Value::Bool(_)));
     let bool_val = match &assertion.value {
-        Some(serde_json::Value::Bool(b)) => if *b { "true" } else { "false" },
+        Some(serde_json::Value::Bool(b)) if *b => "true",
         _ => "false",
     };
     let is_null_val = matches!(&assertion.value, Some(serde_json::Value::Null));

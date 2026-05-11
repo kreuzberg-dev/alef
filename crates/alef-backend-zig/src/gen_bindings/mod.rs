@@ -8,11 +8,13 @@ use crate::trait_bridge::emit_trait_bridge;
 mod errors;
 mod functions;
 mod helpers;
+mod opaque_handles;
 mod types;
 
 use errors::emit_error_set;
 use functions::emit_function;
 use helpers::emit_helpers;
+use opaque_handles::emit_opaque_handle;
 use types::{emit_enum, emit_type};
 
 fn zig_module_name(crate_name: &str) -> String {
@@ -33,7 +35,7 @@ impl Backend for ZigBackend {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             supports_async: false,
-            supports_classes: false,
+            supports_classes: true,
             supports_enums: true,
             supports_option: true,
             supports_result: true,
@@ -174,6 +176,7 @@ impl Backend for ZigBackend {
             .functions
             .iter()
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
+            .filter(|f| !f.is_async)
         {
             if trait_bridge_fn_names.contains(&f.name) {
                 continue;
@@ -201,6 +204,20 @@ impl Backend for ZigBackend {
                 emit_trait_bridge(&prefix, bridge_cfg, trait_def, &mut content);
                 content.push('\n');
             }
+        }
+
+        // Emit Zig struct wrappers for opaque handle types that have methods.
+        // These types are pointer-wrapped C handles; they are not JSON-serializable
+        // and require method dispatch via the FFI symbol naming convention
+        // `{prefix}_{snake_type}_{snake_method}`.
+        for ty in api
+            .types
+            .iter()
+            .filter(|t| !t.is_trait && (t.is_opaque || !t.has_serde) && !t.methods.is_empty())
+            .filter(|t| !exclude_types.contains(t.name.as_str()))
+        {
+            emit_opaque_handle(ty, &prefix, &declared_errors, &struct_names, &mut content);
+            content.push('\n');
         }
 
         let dir = resolve_output_dir(None, &config.name, "packages/zig/src");
