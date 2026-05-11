@@ -441,6 +441,12 @@ fn render_test_file(
                     }
                 }
             }
+            // `.length` segment in a field path generates `list.length(...)` in Gleam.
+            if let Some(f) = &assertion.field {
+                if f.split('.').any(|seg| seg == "length") {
+                    needed_modules.insert("list");
+                }
+            }
             // When an assertion uses optional-prefix patterns (e.g. document.nodes),
             // both list and int (and option) may be needed.
             if let Some(f) = &assertion.field {
@@ -1368,7 +1374,7 @@ fn render_assertion(
 
     // Skip array-element field access — Gleam doesn't support list indexing.
     if let Some(f) = &assertion.field {
-        if f.contains("[].") {
+        if f.contains("[].") || f.contains("[0].") {
             let _ = writeln!(
                 out,
                 "  // skipped: array element field '{f}' not yet supported in Gleam e2e"
@@ -1474,7 +1480,7 @@ fn render_assertion(
     let field_is_optional = assertion
         .field
         .as_deref()
-        .is_some_and(|f| !f.is_empty() && field_resolver.is_optional(f));
+        .is_some_and(|f| !f.is_empty() && field_resolver.is_optional(field_resolver.resolve(f)));
 
     // Determine if this field is an enum type.
     let _field_is_enum = assertion
@@ -1560,15 +1566,19 @@ fn render_assertion(
             if field_is_optional {
                 // Option(T) — check it is Some.
                 let _ = writeln!(out, "  {field_expr} |> option.is_some |> should.equal(True)");
-            } else {
+            } else if field_is_array {
                 let _ = writeln!(out, "  {field_expr} |> list.is_empty |> should.equal(False)");
+            } else {
+                let _ = writeln!(out, "  {field_expr} |> string.is_empty |> should.equal(False)");
             }
         }
         "is_empty" => {
             if field_is_optional {
                 let _ = writeln!(out, "  {field_expr} |> option.is_none |> should.equal(True)");
-            } else {
+            } else if field_is_array {
                 let _ = writeln!(out, "  {field_expr} |> list.is_empty |> should.equal(True)");
+            } else {
+                let _ = writeln!(out, "  {field_expr} |> string.is_empty |> should.equal(True)");
             }
         }
         "starts_with" => {
