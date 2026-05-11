@@ -835,6 +835,23 @@ pub(crate) fn gen_opaque_handle_class(
     let has_instance_methods = !instance_methods.is_empty();
     let needs_helpers = has_streaming || has_instance_methods;
 
+    // Check instance methods for List, Map, Optional return types
+    let mut has_list_return = false;
+    let mut has_optional_return = false;
+    let mut has_map_return = false;
+    for method in &instance_methods {
+        let return_type_str = java_type(&method.return_type).to_string();
+        if return_type_str.contains("List<") {
+            has_list_return = true;
+        }
+        if return_type_str.contains("Optional<") {
+            has_optional_return = true;
+        }
+        if return_type_str.contains("Map<") {
+            has_map_return = true;
+        }
+    }
+
     let mut imports: Vec<&str> = vec!["java.lang.foreign.MemorySegment"];
     if needs_helpers {
         imports.push("java.lang.foreign.Arena");
@@ -844,6 +861,15 @@ pub(crate) fn gen_opaque_handle_class(
     if has_streaming {
         imports.push("java.util.Iterator");
         imports.push("java.util.NoSuchElementException");
+    }
+    if has_list_return {
+        imports.push("java.util.List");
+    }
+    if has_optional_return {
+        imports.push("java.util.Optional");
+    }
+    if has_map_return {
+        imports.push("java.util.Map");
     }
     let mut out = crate::template_env::render(
         "java_file_header.jinja",

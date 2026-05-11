@@ -114,6 +114,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/php_phpdoc_text_line.jinja"),
     ),
     (
+        "php_phpdoc_lines.jinja",
+        include_str!("../templates/php_phpdoc_lines.jinja"),
+    ),
+    (
         "php_phpdoc_param_line.jinja",
         include_str!("../templates/php_phpdoc_param_line.jinja"),
     ),

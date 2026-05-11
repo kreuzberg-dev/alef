@@ -88,7 +88,11 @@ impl Backend for ZigBackend {
             content.push('\n');
         }
 
-        for ty in api.types.iter().filter(|t| !exclude_types.contains(t.name.as_str())) {
+        for ty in api
+            .types
+            .iter()
+            .filter(|t| !exclude_types.contains(t.name.as_str()) && !t.is_opaque && t.has_serde)
+        {
             emit_type(ty, &mut content);
             content.push('\n');
         }
@@ -118,9 +122,38 @@ impl Backend for ZigBackend {
         let struct_names: std::collections::HashSet<String> = api
             .types
             .iter()
-            .filter(|t| !t.is_trait)
+            .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde)
             .map(|t| t.name.clone())
             .collect();
+        // For opaque handle types (is_opaque = true or has_serde = false), find the
+        // creator function in api.functions that returns that type. The map stores:
+        //   opaque_type_name -> (creator_fn_name, config_type_snake_case)
+        // Used by emit_function to generate create+use+free patterns for handle params.
+        let opaque_creator_map: std::collections::HashMap<String, (String, String)> = {
+            let mut map = std::collections::HashMap::new();
+            for opaque_ty in api
+                .types
+                .iter()
+                .filter(|t| !t.is_trait && (t.is_opaque || !t.has_serde))
+            {
+                if let Some(creator) = api
+                    .functions
+                    .iter()
+                    .find(|f| matches!(&f.return_type, alef_core::ir::TypeRef::Named(n) if n == &opaque_ty.name))
+                {
+                    if let Some(config_param) = creator.params.first() {
+                        if let Some(config_name) = functions::opaque_type_name_inner(&config_param.ty) {
+                            map.insert(
+                                opaque_ty.name.clone(),
+                                (creator.name.clone(), heck::AsSnakeCase(config_name).to_string()),
+                            );
+                        }
+                    }
+                }
+            }
+            map
+        };
+
         // Functions matching `register_{trait_snake}` / `unregister_{trait_snake}` for
         // any configured trait bridge are emitted by `emit_trait_bridge` with a
         // proper vtable signature. Skip the regular C-FFI shim to avoid duplicate
@@ -151,6 +184,7 @@ impl Backend for ZigBackend {
                 &declared_errors,
                 &top_level_names,
                 &struct_names,
+                &opaque_creator_map,
                 &mut content,
             );
             content.push('\n');

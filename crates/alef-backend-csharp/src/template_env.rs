@@ -8,6 +8,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("class_header.jinja", include_str!("../templates/class_header.jinja")),
     ("doc_line.jinja", include_str!("../templates/doc_line.jinja")),
     (
+        "doc_comment_block.jinja",
+        include_str!("../templates/doc_comment_block.jinja"),
+    ),
+    (
         "enum_custom_converter.jinja",
         include_str!("../templates/enum_custom_converter.jinja"),
     ),

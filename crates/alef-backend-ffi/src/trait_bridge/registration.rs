@@ -191,7 +191,7 @@ impl TraitBridgeGenerator for FfiBridgeGenerator {
         let has_error = method.error_type.is_some();
         let core_import = &self.core_import;
         let method_name = &method.name;
-        let cached_name_clone = if has_error {
+        let _cached_name_clone = if has_error {
             "let _cached_name = self.cached_name.clone();\n"
         } else {
             ""

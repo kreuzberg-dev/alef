@@ -39,11 +39,14 @@ fn build_message(variant_name: &str, template: Option<&str>) -> String {
 #[allow(dead_code)]
 pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !error.doc.is_empty() {
-        for line in error.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = error.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
     }
     out.push_str(&template_env::render(
         "error_sealed_class.jinja",
@@ -54,11 +57,14 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
     out.push('\n');
     for variant in &error.variants {
         if !variant.doc.is_empty() {
-            for line in variant.doc.lines() {
-                out.push_str("/// ");
-                out.push_str(line);
-                out.push('\n');
-            }
+            let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
+            out.push_str(&template_env::render(
+                "doc_comment.jinja",
+                minijinja::context! {
+                    indent => "",
+                    lines => doc_lines,
+                },
+            ));
         }
         if variant.is_unit {
             let raw_msg = build_message(&variant.name, variant.message_template.as_deref());

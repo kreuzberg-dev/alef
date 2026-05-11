@@ -10,11 +10,14 @@ use crate::template_env;
 /// `Pointer<Void>`. For value types with fields, fields are Dart-typed.
 pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
     if !ty.doc.is_empty() {
-        for line in ty.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = ty.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
     }
 
     if ty.fields.is_empty() || ty.is_opaque {
@@ -47,11 +50,14 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
         let ty_str = dart_type(&field.ty, field.optional);
         let name = field.name.to_lower_camel_case();
         if !field.doc.is_empty() {
-            for line in field.doc.lines() {
-                out.push_str("  /// ");
-                out.push_str(line);
-                out.push('\n');
-            }
+            let doc_lines: Vec<String> = field.doc.lines().map(ToString::to_string).collect();
+            out.push_str(&template_env::render(
+                "doc_comment.jinja",
+                minijinja::context! {
+                    indent => "  ",
+                    lines => doc_lines,
+                },
+            ));
         }
         out.push_str(&template_env::render(
             "final_field_decl.jinja",
@@ -98,11 +104,14 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
 /// emit a `// TODO` comment and are skipped.
 pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
     if !en.doc.is_empty() {
-        for line in en.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = en.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
     }
 
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
@@ -116,11 +125,14 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
         let count = en.variants.len();
         for (idx, variant) in en.variants.iter().enumerate() {
             if !variant.doc.is_empty() {
-                for line in variant.doc.lines() {
-                    out.push_str("  /// ");
-                    out.push_str(line);
-                    out.push('\n');
-                }
+                let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
+                out.push_str(&template_env::render(
+                    "doc_comment.jinja",
+                    minijinja::context! {
+                        indent => "  ",
+                        lines => doc_lines,
+                    },
+                ));
             }
             let vname = variant.name.to_lower_camel_case();
             let suffix = if idx + 1 == count { ";" } else { "," };

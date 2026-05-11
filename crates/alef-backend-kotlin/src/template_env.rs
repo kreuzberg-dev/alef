@@ -78,6 +78,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "expect_function_signature.jinja",
         include_str!("../templates/expect_function_signature.jinja"),
     ),
+    ("doc_comment.jinja", include_str!("../templates/doc_comment.jinja")),
     (
         "bridge_call_with_dispatch.jinja",
         include_str!("../templates/bridge_call_with_dispatch.jinja"),

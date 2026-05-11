@@ -5,9 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.15.36] - 2026-05-11
 
 ### Changed
+
+- refactor(alef-backend-java,alef-backend-swift,alef-backend-wasm,alef-backend-zig): migrate remaining backend doc-code emission and opaque-bridge interpolation from `push_str(&format!(...))` to dedicated Jinja templates (`javadoc_lines.jinja`, `doc_comment.jinja`, `rustdoc`, `param_opaque_config_from_json.jinja`).
+
+### Fixed
+
+- fix(alef-backend-zig): opaque C FFI handle types (`is_opaque = true` / `has_serde = false`, e.g. `CrawlEngineHandle`) are now excluded from `struct_names`. Previously they were treated as JSON-serializable structs and the generated wrappers called non-existent `_from_json`/`_to_json` C helpers. Functions taking an opaque handle now accept `?[]const u8` config JSON and internally call the creator function (discovered from the IR) to build, use, and free the handle per call.
+
+- fix(alef-e2e/swift): `Optional<RustString>` fields now emit `({field_expr}?.toString() ?? "")` in Swift assertions instead of `{field_expr}.toString()`, fixing compile errors when the field is nullable. `not_empty`/`is_empty` assertions on array fields (`RustVec<T>`) now emit `{field_expr}.isEmpty` directly instead of routing through `.toString()` — `RustVec<T>` has no `.toString()`.
+
+- fix(alef-e2e/zig): `handle` arg type in `build_args_and_setup` is now an explicit case: emits `null` when the fixture omits the engine config, or a JSON string literal when a config value is present. Aligns with the updated Zig binding that accepts `?[]const u8` for engine parameters.
 
 ## [0.15.35] - 2026-05-11
 
@@ -16,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(alef-backend-pyo3): `capsule_types` in `[crates.python]` is now wired into codegen. Types listed there are emitted as PyCapsule pass-through (via `PyCapsule_New` / `PyCapsule_GetPointer`) instead of opaque `#[pyclass]` wrappers. Supports two TOML forms: a bare string (`Language = "tree_sitter.Language"`) for capsule round-trips, and a struct (`Parser = { python_type = "tree_sitter.Parser", construct_from = "Language" }`) for Python-side construction (e.g. `tree_sitter.Parser(language)`).
 
 ### Fixed
+
+- fix(alef-backend-dart): `flutter_rust_bridge.yaml` now pins `rust_input: crate` so FRB scans every top-level `pub fn` in the binding crate. Previously the key was omitted (under the assumption FRB 2.x had dropped it) and FRB defaulted to a narrower scope, silently skipping plugin lifecycle helpers (`unregister_*`, `register_document_extractor`, `register_renderer`, etc.) and leaving the generated wrapper referencing undefined bridge functions.
+
+- fix(alef-backend-java): per-extractor Java wrappers (e.g. `HwpxExtractor.java`) now emit `import java.util.{List, Optional, Map}` when the trait's instance methods reference those types. Previously the import set was hard-coded to MemorySegment/Arena/ValueLayout/ObjectMapper, so `List<String> supportedMimeTypes()` failed javac with `cannot find symbol: class List`.
 
 - fix(alef-core): `PythonConfig.capsule_types` schema is now `HashMap<String, CapsuleTypeConfig>` (was `HashMap<String, String>`). Existing `alef.toml` files using bare string values (e.g. `Language = "tree_sitter.Language"`) continue to deserialize correctly via `#[serde(untagged)]`.
 

@@ -27,6 +27,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "gen_visitor_method_wasm",
         include_str!("../templates/gen_visitor_method_wasm.jinja"),
     ),
+    ("rustdoc", include_str!("../templates/rustdoc.jinja")),
     (
         "gen_bridge_function",
         include_str!("../templates/gen_bridge_function.jinja"),

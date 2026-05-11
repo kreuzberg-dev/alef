@@ -377,14 +377,12 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
     // Trait method slots
     for method in &trait_def.methods {
         if !method.doc.is_empty() {
-            for line in method.doc.lines() {
-                out.push_str(&crate::template_env::render(
-                    "trait_method_doc.jinja",
-                    minijinja::context! {
-                        line => line,
-                    },
-                ));
-            }
+            out.push_str(&crate::template_env::render(
+                "trait_method_doc_lines.jinja",
+                minijinja::context! {
+                    method_doc_lines => method.doc.lines().collect::<Vec<_>>(),
+                },
+            ));
         }
 
         let ret = vtable_return_type(method);

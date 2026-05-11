@@ -183,22 +183,17 @@ pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
     }
     out.push_str(indent);
     out.push_str("/**\n");
-    for line in transformed.lines() {
-        // trim_end() ensures lines that are whitespace-only or escape to
-        // empty don't emit ` * \n` (trailing space) — that would conflict
-        // with the prek `trailing-whitespace` hook downstream and break the
-        // `alef-verify` hash on regenerate.
-        let escaped = escape_javadoc_line(line);
-        let trimmed = escaped.trim_end();
-        out.push_str(indent);
-        if trimmed.is_empty() {
-            out.push_str(" *\n");
-        } else {
-            out.push_str(" * ");
-            out.push_str(trimmed);
-            out.push('\n');
-        }
-    }
+    let lines: Vec<String> = transformed
+        .lines()
+        .map(|line| escape_javadoc_line(line).trim_end().to_string())
+        .collect();
+    out.push_str(&crate::template_env::render(
+        "javadoc_lines.jinja",
+        minijinja::context! {
+            indent => indent,
+            lines => lines,
+        },
+    ));
     out.push_str(indent);
     out.push_str(" */\n");
 }

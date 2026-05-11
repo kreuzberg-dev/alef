@@ -117,6 +117,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/doc_comment_lines.jinja"),
     ),
     (
+        "doc_comment_lines_indented.jinja",
+        include_str!("../templates/doc_comment_lines_indented.jinja"),
+    ),
+    (
         "method_safety_doc.jinja",
         include_str!("../templates/method_safety_doc.jinja"),
     ),
@@ -183,6 +187,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "vtable_method_doc_line.jinja",
         include_str!("../templates/vtable_method_doc_line.jinja"),
+    ),
+    (
+        "vtable_method_doc_lines.jinja",
+        include_str!("../templates/vtable_method_doc_lines.jinja"),
     ),
     (
         "vtable_method_field.jinja",

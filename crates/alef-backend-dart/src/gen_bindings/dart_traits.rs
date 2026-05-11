@@ -101,11 +101,14 @@ fn emit_trait_abstract_class(trait_def: &TypeDef, out: &mut String, imports: &mu
 /// Emit one abstract method declaration inside an abstract class.
 fn emit_abstract_method(method: &MethodDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !method.doc.is_empty() {
-        for line in method.doc.lines() {
-            out.push_str("  /// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = method.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "  ",
+                lines => doc_lines,
+            },
+        ));
     }
     if let Some(ref error_ty) = method.error_type {
         out.push_str(&template_env::render(

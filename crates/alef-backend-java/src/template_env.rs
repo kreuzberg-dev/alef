@@ -30,6 +30,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "helper_object_mapper.jinja",
         include_str!("../templates/helper_object_mapper.jinja"),
     ),
+    ("javadoc_lines.jinja", include_str!("../templates/javadoc_lines.jinja")),
     (
         "helper_read_bytes.jinja",
         include_str!("../templates/helper_read_bytes.jinja"),

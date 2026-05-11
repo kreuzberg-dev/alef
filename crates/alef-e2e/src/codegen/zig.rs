@@ -1047,6 +1047,18 @@ fn build_args_and_setup(
             continue;
         }
 
+        // Handle args (engine handle): serialize config to JSON string literal, or null.
+        // The Zig binding accepts ?[]const u8 for engine params (creates handle internally).
+        if arg.arg_type == "handle" {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let json_str = match input.get(field) {
+                Some(serde_json::Value::Null) | None => "null".to_string(),
+                Some(v) => format!("\"{}\"", escape_zig(&serde_json::to_string(v).unwrap_or_default())),
+            };
+            parts.push(json_str);
+            continue;
+        }
+
         // The Zig wrapper accepts struct parameters (e.g. `ExtractionConfig`)
         // as JSON `[]const u8`, converting them to opaque FFI handles via the
         // `<prefix>_<snake>_from_json` helper at the binding layer. Emit the

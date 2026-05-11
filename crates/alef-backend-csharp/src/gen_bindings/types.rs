@@ -189,11 +189,15 @@ fn gen_opaque_method(
 
     // XML doc comment.
     if !method.doc.is_empty() {
-        out.push_str("    /// <summary>\n");
-        for line in method.doc.lines() {
-            out.push_str(&render("doc_line_indented.jinja", minijinja::context! { line }));
-        }
-        out.push_str("    /// </summary>\n");
+        let doc_lines: Vec<String> = method.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&render(
+            "doc_comment_block.jinja",
+            minijinja::context! {
+                has_doc => true,
+                indent => "    ",
+                doc_lines => doc_lines,
+            },
+        ));
     }
 
     // Return type.
@@ -445,11 +449,15 @@ pub(super) fn gen_record_type(
 
     // Generate doc comment if available
     if !typ.doc.is_empty() {
-        out.push_str("/// <summary>\n");
-        for line in typ.doc.lines() {
-            out.push_str(&render("doc_line.jinja", minijinja::context! { line }));
-        }
-        out.push_str("/// </summary>\n");
+        let doc_lines: Vec<String> = typ.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&render(
+            "doc_comment_block.jinja",
+            minijinja::context! {
+                has_doc => true,
+                indent => "",
+                doc_lines => doc_lines,
+            },
+        ));
     }
 
     let class_name = typ.name.to_pascal_case();
@@ -464,11 +472,15 @@ pub(super) fn gen_record_type(
 
         // Doc comment for field
         if !field.doc.is_empty() {
-            out.push_str("    /// <summary>\n");
-            for line in field.doc.lines() {
-                out.push_str(&render("doc_line_indented.jinja", minijinja::context! { line }));
-            }
-            out.push_str("    /// </summary>\n");
+            let doc_lines: Vec<String> = field.doc.lines().map(ToString::to_string).collect();
+            out.push_str(&render(
+                "doc_comment_block.jinja",
+                minijinja::context! {
+                    has_doc => true,
+                    indent => "    ",
+                    doc_lines => doc_lines,
+                },
+            ));
         }
 
         // Check if this field is a visitor bridge (bridge_type_alias field).

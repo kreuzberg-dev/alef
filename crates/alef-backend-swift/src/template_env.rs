@@ -1,6 +1,7 @@
 use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
+    ("doc_comment.jinja", include_str!("../templates/doc_comment.jinja")),
     ("enum_header.jinja", include_str!("../templates/enum_header.jinja")),
     (
         "error_enum_header.jinja",

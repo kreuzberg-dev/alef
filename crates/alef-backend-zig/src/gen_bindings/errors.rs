@@ -18,14 +18,12 @@ fn to_pascal_case(name: &str) -> String {
 
 pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
     if !error.doc.is_empty() {
-        for line in error.doc.lines() {
-            out.push_str(&crate::template_env::render(
-                "error_doc_line.jinja",
-                minijinja::context! {
-                    line => line,
-                },
-            ));
-        }
+        out.push_str(&crate::template_env::render(
+            "error_doc_block.jinja",
+            minijinja::context! {
+                error_doc_lines => error.doc.lines().collect::<Vec<_>>(),
+            },
+        ));
     }
     out.push_str(&crate::template_env::render(
         "error_set_header.jinja",

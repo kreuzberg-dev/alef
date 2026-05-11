@@ -12,11 +12,14 @@ use super::render_type::render_type;
 #[allow(dead_code)]
 pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
     if !ty.doc.is_empty() {
-        for line in ty.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = ty.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
     }
     if ty.fields.is_empty() {
         out.push_str(&template_env::render(
@@ -41,11 +44,14 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
         };
         let name = dart_safe_ident(&field.name.to_lower_camel_case());
         if !field.doc.is_empty() {
-            for line in field.doc.lines() {
-                out.push_str("  /// ");
-                out.push_str(line);
-                out.push('\n');
-            }
+            let doc_lines: Vec<String> = field.doc.lines().map(ToString::to_string).collect();
+            out.push_str(&template_env::render(
+                "doc_comment.jinja",
+                minijinja::context! {
+                    indent => "  ",
+                    lines => doc_lines,
+                },
+            ));
         }
         out.push_str(&template_env::render(
             "final_field_decl.jinja",
@@ -95,11 +101,14 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
 #[allow(dead_code)]
 pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
     if !en.doc.is_empty() {
-        for line in en.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = en.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
     }
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
     if all_unit {
@@ -112,11 +121,14 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
         let count = en.variants.len();
         for (idx, variant) in en.variants.iter().enumerate() {
             if !variant.doc.is_empty() {
-                for line in variant.doc.lines() {
-                    out.push_str("  /// ");
-                    out.push_str(line);
-                    out.push('\n');
-                }
+                let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
+                out.push_str(&template_env::render(
+                    "doc_comment.jinja",
+                    minijinja::context! {
+                        indent => "  ",
+                        lines => doc_lines,
+                    },
+                ));
             }
             let vname = dart_safe_ident(&variant.name.to_lower_camel_case());
             let suffix = if idx + 1 == count { ";" } else { "," };
@@ -140,11 +152,14 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
             // Use dart_safe_type_name to avoid shadowing Dart core types (e.g. `List`, `Map`).
             let safe_variant_name = dart_safe_type_name(&variant.name, Some(&en.name));
             if !variant.doc.is_empty() {
-                for line in variant.doc.lines() {
-                    out.push_str("/// ");
-                    out.push_str(line);
-                    out.push('\n');
-                }
+                let doc_lines: Vec<String> = variant.doc.lines().map(ToString::to_string).collect();
+                out.push_str(&template_env::render(
+                    "doc_comment.jinja",
+                    minijinja::context! {
+                        indent => "",
+                        lines => doc_lines,
+                    },
+                ));
             }
             if variant.fields.is_empty() {
                 out.push_str(&template_env::render(

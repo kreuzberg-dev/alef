@@ -673,23 +673,18 @@ impl Backend for PhpBackend {
                 "php_phpdoc_block_start.jinja",
                 minijinja::Value::default(),
             ));
-            for line in func.doc.lines() {
-                if line.is_empty() {
-                    content.push_str(&crate::template_env::render(
-                        "php_phpdoc_empty_line.jinja",
-                        minijinja::Value::default(),
-                    ));
-                } else {
-                    content.push_str(&crate::template_env::render(
-                        "php_phpdoc_text_line.jinja",
-                        context! { text => line },
-                    ));
-                }
-            }
             if func.doc.is_empty() {
                 content.push_str(&crate::template_env::render(
                     "php_phpdoc_text_line.jinja",
                     context! { text => &format!("{}.", method_name) },
+                ));
+            } else {
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_lines.jinja",
+                    context! {
+                        doc_lines => func.doc.lines().collect::<Vec<_>>(),
+                        indent => "     ",
+                    },
                 ));
             }
             content.push_str(&crate::template_env::render(
@@ -905,16 +900,13 @@ impl Backend for PhpBackend {
             if typ.is_opaque {
                 if !typ.doc.is_empty() {
                     content.push_str("/**\n");
-                    for line in typ.doc.lines() {
-                        if line.is_empty() {
-                            content.push_str(" *\n");
-                        } else {
-                            content.push_str(&crate::template_env::render(
-                                "php_phpdoc_doc_line.jinja",
-                                context! { line => line },
-                            ));
-                        }
-                    }
+                    content.push_str(&crate::template_env::render(
+                        "php_phpdoc_lines.jinja",
+                        context! {
+                            doc_lines => typ.doc.lines().collect::<Vec<_>>(),
+                            indent => "",
+                        },
+                    ));
                     content.push_str(" */\n");
                 }
                 content.push_str(&crate::template_env::render(
@@ -933,16 +925,13 @@ impl Backend for PhpBackend {
             }
             if !typ.doc.is_empty() {
                 content.push_str("/**\n");
-                for line in typ.doc.lines() {
-                    if line.is_empty() {
-                        content.push_str(" *\n");
-                    } else {
-                        content.push_str(&crate::template_env::render(
-                            "php_phpdoc_doc_line.jinja",
-                            context! { line => line },
-                        ));
-                    }
-                }
+                content.push_str(&crate::template_env::render(
+                    "php_phpdoc_lines.jinja",
+                    context! {
+                        doc_lines => typ.doc.lines().collect::<Vec<_>>(),
+                        indent => "",
+                    },
+                ));
                 content.push_str(" */\n");
             }
             content.push_str(&crate::template_env::render(
@@ -1081,16 +1070,13 @@ impl Backend for PhpBackend {
                 // Tagged data enums are lowered to flat classes; emit class stubs.
                 if !enum_def.doc.is_empty() {
                     content.push_str("/**\n");
-                    for line in enum_def.doc.lines() {
-                        if line.is_empty() {
-                            content.push_str(" *\n");
-                        } else {
-                            content.push_str(&crate::template_env::render(
-                                "php_phpdoc_doc_line.jinja",
-                                context! { line => line },
-                            ));
-                        }
-                    }
+                    content.push_str(&crate::template_env::render(
+                        "php_phpdoc_lines.jinja",
+                        context! {
+                            doc_lines => enum_def.doc.lines().collect::<Vec<_>>(),
+                            indent => "",
+                        },
+                    ));
                     content.push_str(" */\n");
                 }
                 content.push_str(&crate::template_env::render(

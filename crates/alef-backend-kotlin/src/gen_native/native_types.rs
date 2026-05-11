@@ -11,11 +11,14 @@ use crate::gen_bindings::{kotlin_field_name, to_screaming_snake};
 
 pub(super) fn emit_native_type(ty: &TypeDef, out: &mut String) {
     if !ty.doc.is_empty() {
-        for line in ty.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = ty.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&crate::template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
     }
     if ty.fields.is_empty() {
         out.push_str(&crate::template_env::render(
@@ -50,11 +53,14 @@ pub(super) fn emit_native_type(ty: &TypeDef, out: &mut String) {
 
 pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
     if !en.doc.is_empty() {
-        for line in en.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = en.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&crate::template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
     }
     let all_unit = en.variants.iter().all(|v| v.fields.is_empty());
     if all_unit {
@@ -126,11 +132,14 @@ pub(super) fn emit_native_enum(en: &EnumDef, out: &mut String) {
 
 pub(super) fn emit_native_error(error: &ErrorDef, out: &mut String) {
     if !error.doc.is_empty() {
-        for line in error.doc.lines() {
-            out.push_str("/// ");
-            out.push_str(line);
-            out.push('\n');
-        }
+        let doc_lines: Vec<String> = error.doc.lines().map(ToString::to_string).collect();
+        out.push_str(&crate::template_env::render(
+            "doc_comment.jinja",
+            minijinja::context! {
+                indent => "",
+                lines => doc_lines,
+            },
+        ));
     }
     out.push_str(&crate::template_env::render(
         "error_sealed_class_header.jinja",

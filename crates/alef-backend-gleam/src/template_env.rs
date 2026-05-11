@@ -49,6 +49,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "method_signature.jinja",
         include_str!("../templates/method_signature.jinja"),
     ),
+    (
+        "trait_type_doc_lines.jinja",
+        include_str!("../templates/trait_type_doc_lines.jinja"),
+    ),
     ("import_line.jinja", include_str!("../templates/import_line.jinja")),
     (
         "trait_bridge_doc_line.jinja",
