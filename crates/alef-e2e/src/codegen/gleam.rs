@@ -1314,8 +1314,10 @@ fn render_tagged_union_assertion(
                     out,
                     "      {inner_field_expr} |> option.unwrap([]) |> list.is_empty |> should.equal(False)"
                 );
-            } else {
+            } else if suffix_is_array {
                 let _ = writeln!(out, "      {inner_field_expr} |> list.is_empty |> should.equal(False)");
+            } else {
+                let _ = writeln!(out, "      {inner_field_expr} |> string.is_empty |> should.equal(False)");
             }
         }
         "is_empty" => {
@@ -1324,8 +1326,10 @@ fn render_tagged_union_assertion(
                     out,
                     "      {inner_field_expr} |> option.unwrap([]) |> list.is_empty |> should.equal(True)"
                 );
-            } else {
+            } else if suffix_is_array {
                 let _ = writeln!(out, "      {inner_field_expr} |> list.is_empty |> should.equal(True)");
+            } else {
+                let _ = writeln!(out, "      {inner_field_expr} |> string.is_empty |> should.equal(True)");
             }
         }
         "is_true" => {
