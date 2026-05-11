@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(alef-e2e/gleam): `not_empty` and `is_empty` assertions on non-array, non-optional String fields now emit `string.is_empty` instead of `list.is_empty`. Import pre-pass updated accordingly.
 - fix(alef-e2e/gleam): Array element field assertions using indexed access (`[0].` and `[].`) are now both skipped with a comment, not just `[].` paths.
 - fix(alef-backend-zig): Async Rust functions are no longer silently skipped in Zig binding generation. The C FFI exports synchronous wrappers for all functions (including those async in Rust), so Zig can call them directly.
+- fix(alef-e2e/gleam): `render_assertion` now also resolves field aliases before setting `field_is_optional`, fixing optional wrapping for aliased fields at the render stage.
+- fix(alef-e2e/gleam): `not_empty`/`is_empty` assertions on non-array, non-optional fields now emit `string.is_empty` instead of `list.is_empty` in `render_assertion`.
+- fix(alef-e2e/gleam): Indexed array element fields (`[0].`) are now skipped alongside `[].` paths in `render_assertion`.
+- fix(alef-e2e/gleam): Fields with a `.length` segment (e.g. `links.length`) now import `gleam/list` in the test file header.
 
 ## [0.15.34] - 2026-05-11
 
