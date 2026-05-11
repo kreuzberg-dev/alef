@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- feat(alef-e2e/rust): the C# and Java e2e codegen now calls `resolve_call_for_fixture` (which honours `select_when = { input_has = "..." }` in `[crates.e2e.calls.*]`) instead of the no-input `resolve_call`. Fixtures with `input.batch_urls: []` (and no explicit `call` override) now route to `batch_scrape()` / `BatchScrape()` instead of the default `scrape()`. Go and Python codegen already used the correct resolver; C# (`csharp.rs:775, 3032`) and Java (`java.rs:458, 498, 961`) were the only callers of the wrong variant.
+
+- feat(alef-e2e/rust): the Rust e2e codegen now emits a `tests/common.rs` module whenever the fixture suite requires a standalone mock server. The module exposes `pub fn mock_server_url() -> &'static str` backed by `std::sync::OnceLock`, spawning `target/release/mock-server` with the fixtures directory on first call, parsing its `MOCK_SERVER_URL=<url>` and `MOCK_SERVERS={...json...}` stdout lines, and setting `std::env::set_var` for each. Generated test files that previously panicked with `MOCK_SERVER_URL not set` now import `mod common;` and call `common::mock_server_url()`. Mirrors Python (`conftest.py`), Node (`globalSetup.ts`), and Elixir (`test_helper.exs`) session-level orchestration.
+
 ### Fixed
+
+- fix(alef-backend-java): the compact-constructor emission in `gen_record_type` no longer coerces an explicit `0` to the Rust-default value for `Duration`-typed (boxed Long) fields. Previously the generated Java record contained `if (requestTimeout == null || requestTimeout == 0) requestTimeout = 30000L;` — callers who intentionally passed `request_timeout: 0` (which the Rust core rejects via `validate()` as invalid) had their value silently replaced with the default before the FFI boundary, so the validation error was never surfaced. The fix drops `|| requestTimeout == 0`; only absent JSON fields (Jackson deserialises boxed numerics as `null` when the key is missing) still receive the default.
 
 - fix(alef-e2e/rust): the generated `common.rs` `BufReader` now takes ownership of `ChildStdout` (`BufReader::new(stdout)`) instead of borrowing it (`BufReader::new(&mut stdout)`). The previous pattern caused `E0597` on Rust 2024: the drain thread (`std::thread::spawn(move || reader.into_inner())`) requires `'static` bounds, but a `BufReader<&mut ChildStdout>` wraps a local reference that is not `'static`. Owned `BufReader<ChildStdout>` satisfies the bound.
 

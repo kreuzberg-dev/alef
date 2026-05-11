@@ -772,7 +772,8 @@ fn render_test_method(
 
     // Resolve call config per-fixture so named calls (e.g. "parse") use the
     // correct function name, result variable, and async flag.
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    // Use resolve_call_for_fixture to support auto-routing via select_when.
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let lang = "csharp";
     let cs_overrides = call_config.overrides.get(lang);
 
@@ -3029,7 +3030,8 @@ fn fixture_has_csharp_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> boo
     if fixture.is_http_test() {
         return false;
     }
-    let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+    // Use resolve_call_for_fixture to support auto-routing via select_when.
+    let call_config = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
     let cs_override = call_config
         .overrides
         .get("csharp")
@@ -3073,4 +3075,72 @@ fn classify_bytes_value_csharp(s: &str) -> String {
     // e.g., "/9j/4AAQ", "SGVsbG8gV29ybGQ="
     // Use Convert.FromBase64String()
     format!("System.Convert.FromBase64String(\"{}\")", s)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{CallConfig, E2eConfig, SelectWhen};
+    use crate::fixture::Fixture;
+    use std::collections::HashMap;
+
+    fn make_fixture_with_input(id: &str, input: serde_json::Value) -> Fixture {
+        Fixture {
+            id: id.to_string(),
+            category: None,
+            description: "test fixture".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+        }
+    }
+
+    /// Test that resolve_call_for_fixture correctly routes to batch_scrape
+    /// when input has batch_urls and select_when condition matches.
+    #[test]
+    fn test_csharp_select_when_routes_to_batch_scrape() {
+        let mut calls = HashMap::new();
+        calls.insert(
+            "batch_scrape".to_string(),
+            CallConfig {
+                function: "BatchScrape".to_string(),
+                module: "KreuzBrowser".to_string(),
+                select_when: Some(SelectWhen::InputHas("batch_urls".to_string())),
+                ..CallConfig::default()
+            },
+        );
+
+        let e2e_config = E2eConfig {
+            call: CallConfig {
+                function: "Scrape".to_string(),
+                module: "KreuzBrowser".to_string(),
+                ..CallConfig::default()
+            },
+            calls,
+            ..E2eConfig::default()
+        };
+
+        // Fixture with batch_urls but no explicit call field should route to batch_scrape
+        let fixture = make_fixture_with_input(
+            "batch_empty_urls",
+            serde_json::json!({ "batch_urls": [] }),
+        );
+
+        let resolved_call = e2e_config.resolve_call_for_fixture(fixture.call.as_deref(), &fixture.input);
+        assert_eq!(resolved_call.function, "BatchScrape");
+
+        // Fixture without batch_urls should fall back to default Scrape
+        let fixture_no_batch = make_fixture_with_input(
+            "simple_scrape",
+            serde_json::json!({ "url": "https://example.com" }),
+        );
+        let resolved_default = e2e_config.resolve_call_for_fixture(fixture_no_batch.call.as_deref(), &fixture_no_batch.input);
+        assert_eq!(resolved_default.function, "Scrape");
+    }
 }
