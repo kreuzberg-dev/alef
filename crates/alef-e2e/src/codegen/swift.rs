@@ -695,6 +695,13 @@ fn build_args_and_setup(
             continue;
         }
 
+        if arg.arg_type == "handle" {
+            let var_name = format!("{}Obj", arg.name.to_lower_camel_case());
+            setup_lines.push(format!("let {var_name} = try createEngine(nil)"));
+            parts.push(var_name);
+            continue;
+        }
+
         // bytes args: fixture stores a fixture-relative path string. Generate
         // setup that reads it into a Data and pushes each byte into a
         // RustVec<UInt8>. Literal byte arrays inline the bytes; missing values

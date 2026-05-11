@@ -70,6 +70,54 @@ static TEMPLATES: &[(&str, &str)] = &[
         "trait_bridge_fn_wrapper.jinja",
         include_str!("../templates/trait_bridge_fn_wrapper.jinja"),
     ),
+    (
+        "bridge_optional_wrap.jinja",
+        include_str!("../templates/bridge_optional_wrap.jinja"),
+    ),
+    (
+        "bridge_required_wrap.jinja",
+        include_str!("../templates/bridge_required_wrap.jinja"),
+    ),
+    (
+        "bridge_function_body_error.jinja",
+        include_str!("../templates/bridge_function_body_error.jinja"),
+    ),
+    (
+        "bridge_function_body_error_mapped.jinja",
+        include_str!("../templates/bridge_function_body_error_mapped.jinja"),
+    ),
+    (
+        "bridge_function_body_plain.jinja",
+        include_str!("../templates/bridge_function_body_plain.jinja"),
+    ),
+    (
+        "named_core_binding_optional.jinja",
+        include_str!("../templates/named_core_binding_optional.jinja"),
+    ),
+    (
+        "named_core_binding_required.jinja",
+        include_str!("../templates/named_core_binding_required.jinja"),
+    ),
+    (
+        "function_wrapper.jinja",
+        include_str!("../templates/function_wrapper.jinja"),
+    ),
+    (
+        "options_visitor_extract_optional.jinja",
+        include_str!("../templates/options_visitor_extract_optional.jinja"),
+    ),
+    (
+        "options_visitor_extract_required.jinja",
+        include_str!("../templates/options_visitor_extract_required.jinja"),
+    ),
+    (
+        "options_convert_optional.jinja",
+        include_str!("../templates/options_convert_optional.jinja"),
+    ),
+    (
+        "options_convert_required.jinja",
+        include_str!("../templates/options_convert_required.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

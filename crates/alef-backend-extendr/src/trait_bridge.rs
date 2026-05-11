@@ -87,16 +87,19 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         // Generate param cloning statements
         let mut params_to_clone = Vec::new();
         for p in &method.params {
-            let clone_stmt = match (&p.ty, p.is_ref) {
-                (TypeRef::Bytes, true) => format!("let {} = {}.to_vec();", p.name, p.name),
-                (TypeRef::Path, true) => format!("let {}_str = {}.to_string_lossy().to_string();", p.name, p.name),
-                (TypeRef::Named(_), true) => format!(
-                    "let {}_json = serde_json::to_string({}).unwrap_or_default();",
-                    p.name, p.name
-                ),
-                (_, true) => format!("let {} = {}.to_owned();", p.name, p.name),
-                _ => format!("let {} = {}.clone();", p.name, p.name),
+            let template_name = match (&p.ty, p.is_ref) {
+                (TypeRef::Bytes, true) => "async_param_clone_bytes_ref.jinja",
+                (TypeRef::Path, true) => "async_param_clone_path_ref.jinja",
+                (TypeRef::Named(_), true) => "async_param_clone_named_ref.jinja",
+                (_, true) => "async_param_clone_ref.jinja",
+                _ => "async_param_clone_value.jinja",
             };
+            let clone_stmt = crate::template_env::render(
+                template_name,
+                minijinja::context! {
+                    name => &p.name,
+                },
+            );
             params_to_clone.push(clone_stmt);
         }
 
@@ -534,15 +537,19 @@ pub fn gen_bridge_function(
                     _ => String::new(),
                 }
             );
-            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
-                format!(
-                    "let {name}_core: Option<{core_path}> = {name}.as_deref()\
-                     .filter(|s| *s != \"NULL\")\
-                     .map(|s| serde_json::from_str(s){err_conv}).transpose()?;\n    "
-                )
+            let template_name = if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                "serde_named_optional_binding.jinja"
             } else {
-                format!("let {name}_core: {core_path} = serde_json::from_str(&{name}){err_conv}?;\n    ")
-            }
+                "serde_named_required_binding.jinja"
+            };
+            crate::template_env::render(
+                template_name,
+                minijinja::context! {
+                    name => name,
+                    core_path => core_path,
+                    err_conv => err_conv,
+                },
+            )
         })
         .collect();
 

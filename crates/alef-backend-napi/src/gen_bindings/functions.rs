@@ -207,10 +207,17 @@ pub(super) fn gen_function(
     } else {
         format!("{}{}", default_coerce_prefix, body)
     };
-    format!(
-        "{attrs}#[napi{js_name_attr}]\npub {async_kw}fn {}({params}) -> {return_annotation} {{\n    \
-         {body}\n}}",
-        func.name
+    crate::template_env::render(
+        "function_wrapper.jinja",
+        minijinja::context! {
+            attrs => attrs,
+            js_name_attr => js_name_attr,
+            async_kw => async_kw,
+            func_name => &func.name,
+            params => params,
+            return_annotation => return_annotation,
+            body => body,
+        },
     )
 }
 

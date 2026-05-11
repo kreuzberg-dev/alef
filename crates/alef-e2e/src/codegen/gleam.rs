@@ -1349,6 +1349,17 @@ fn render_assertion(
         }
     }
 
+    // Skip array-element field access — Gleam doesn't support list indexing.
+    if let Some(f) = &assertion.field {
+        if f.contains("[].") {
+            let _ = writeln!(
+                out,
+                "  // skipped: array element field '{f}' not yet supported in Gleam e2e"
+            );
+            return;
+        }
+    }
+
     // Detect tagged-union variant access (e.g., metadata.format.excel.sheet_count).
     // Gleam tagged unions are sum types — direct field access is not valid.
     // Instead, emit a case expression to pattern-match the variant.
