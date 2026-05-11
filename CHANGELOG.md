@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.37] - 2026-05-11
+
+### Fixed
+
+- fix(alef-backend-dart): `doc_comment.jinja` now preserves newlines between doc-comment lines. Under `trim_blocks = true`, `{%- endfor %}` was stripping the newline before the tag, collapsing multi-line doc comments into a single line in the generated Dart wrapper class (e.g. `packages/dart/lib/src/<module>.dart`). Same class of bug as the prior `alef-backend-zig` fix in 0.15.36 (`error_doc_block.jinja`, `trait_method_doc_lines.jinja`).
+
 ## [0.15.36] - 2026-05-11
 
 ### Changed
