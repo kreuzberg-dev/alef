@@ -613,7 +613,7 @@ fn render_test_fn(
         let fixture_id = &fixture.id;
         let _ = writeln!(
             out,
-            "    const _mock_url = try std.fmt.allocPrintZ(std.heap.c_allocator, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}});"
+            "    const _mock_url = try std.fmt.allocPrintSentinel(std.heap.c_allocator, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}}, 0);"
         );
         let _ = writeln!(out, "    defer std.heap.c_allocator.free(_mock_url);");
         let _ = writeln!(
