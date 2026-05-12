@@ -625,12 +625,22 @@ fn render_test_file(
         if f.resolved_category() == "validation" && f.assertions.iter().any(|a| a.assertion_type == "error") {
             return true;
         }
+        // Streaming fixtures emit `assert.X` calls against the collected `chunks`
+        // list — the field path resolves against the streaming virtual-field
+        // accessor table, not the result type. Treat any streaming-virtual field
+        // reference as `field_valid`.
+        let is_streaming_fixture = f.is_streaming_mock();
         f.assertions.iter().any(|a| {
+            let field_is_streaming_virtual = a
+                .field
+                .as_deref()
+                .is_some_and(|s| !s.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(s));
             let field_valid = a
                 .field
                 .as_ref()
                 .map(|f| f.is_empty() || field_resolver.is_valid_for_result(f))
-                .unwrap_or(true);
+                .unwrap_or(true)
+                || (is_streaming_fixture && field_is_streaming_virtual);
             let synthetic_field_needs_assert = match a.field.as_deref() {
                 Some("chunks_have_content" | "chunks_have_embeddings") => {
                     matches!(a.assertion_type.as_str(), "is_true" | "is_false")
@@ -1041,7 +1051,15 @@ fn render_test_function(
     }
 
     // Detect streaming fixtures: is_streaming_mock() checks for stream_chunks in mock_response.
-    let is_streaming = fixture.is_streaming_mock();
+    // Also trigger when any assertion references a streaming virtual field (e.g. empty_stream
+    // has stream_chunks:[] so is_streaming_mock() returns false, but assertions still reference
+    // `chunks`/`stream_content` which require the channel-drain snippet).
+    let is_streaming = fixture.is_streaming_mock()
+        || fixture.assertions.iter().any(|a| {
+            a.field
+                .as_deref()
+                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
+        });
 
     // Check if any assertion actually uses the result variable.
     // If all assertions are skipped (field not on result type), use `_` to avoid
@@ -2059,7 +2077,19 @@ fn render_assertion(
                         "equals" => {
                             if let Some(serde_json::Value::String(s)) = &assertion.value {
                                 let escaped = crate::escape::go_string_literal(s);
-                                let _ = writeln!(out, "\tassert.Equal(t, {escaped}, {expr})");
+                                // Deep-path streaming-virtual fields like `tool_calls[0].function.name`
+                                // resolve to pointer-typed Go fields (`*string`). The flat virtual
+                                // accessors `stream_content` / `finish_reason` already return `string`.
+                                // Wrap only the deep-path case in a safe-deref IIFE.
+                                let is_deep_path = f.contains('.') || f.contains('[');
+                                let safe_expr = if is_deep_path {
+                                    format!(
+                                        "func() string {{ v := {expr}; if v == nil {{ return \"\" }}; return *v }}()"
+                                    )
+                                } else {
+                                    expr.clone()
+                                };
+                                let _ = writeln!(out, "\tassert.Equal(t, {escaped}, {safe_expr})");
                             } else if let Some(val) = &assertion.value {
                                 if let Some(n) = val.as_u64() {
                                     let _ = writeln!(out, "\tassert.Equal(t, {n}, {expr})");

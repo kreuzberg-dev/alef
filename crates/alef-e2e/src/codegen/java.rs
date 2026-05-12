@@ -580,6 +580,22 @@ fn render_test_file(
         imports.push("import java.util.Optional;".to_string());
     }
 
+    // Import ChatCompletionChunk when any fixture is streaming (uses chat_stream
+    // or references streaming-virtual fields like `chunks`/`stream_content`).
+    // The collect_snippet emits `new ArrayList<ChatCompletionChunk>()` so the
+    // class must be importable for type inference and method resolution.
+    let has_streaming_fixture = fixtures.iter().any(|f| {
+        f.is_streaming_mock()
+            || f.assertions.iter().any(|a| {
+                a.field.as_deref().is_some_and(|fld| {
+                    !fld.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(fld)
+                })
+            })
+    });
+    if has_streaming_fixture && !binding_pkg_for_imports.is_empty() {
+        imports.push(format!("import {binding_pkg_for_imports}.ChatCompletionChunk;"));
+    }
+
     // Render all test methods
     let mut fixtures_body = String::new();
     for (i, fixture) in fixtures.iter().enumerate() {
@@ -1234,8 +1250,17 @@ fn render_test_method(
     let call_expr = format!("{call_target}.{function_name}({final_args})");
 
     // For streaming fixtures, add the collect snippet after the stream call.
-    let is_streaming = fixture.is_streaming_mock();
-    let collect_snippet = if is_streaming {
+    // Also trigger when any assertion references a streaming virtual field
+    // (e.g. empty_stream has stream_chunks:[] so is_streaming_mock() returns
+    // false, but assertions still reference `chunks`/`stream_content` which
+    // require the collect snippet).
+    let is_streaming = fixture.is_streaming_mock()
+        || fixture.assertions.iter().any(|a| {
+            a.field
+                .as_deref()
+                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
+        });
+    let collect_snippet = if is_streaming && !expects_error {
         crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("java", result_var, "chunks")
             .unwrap_or_default()
     } else {
@@ -1437,8 +1462,10 @@ fn render_assertion(
                 return;
             }
             "not_error" => {
+                // Use the statically-imported assertion (org.junit.jupiter.api.Assertions.*)
+                // so we don't need a separate FQN import of the `Assertions` class.
                 out.push_str(&format!(
-                    "        Assertions.assertNotNull({result_var}, \"expected non-null byte[] response\");\n"
+                    "        assertNotNull({result_var}, \"expected non-null byte[] response\");\n"
                 ));
                 return;
             }
