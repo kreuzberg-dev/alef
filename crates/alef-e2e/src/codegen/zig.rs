@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 use super::E2eCodegen;
 use super::client;
+use super::streaming_assertions::{StreamingFieldResolver, is_streaming_virtual_field};
 
 /// Zig e2e code generator.
 pub struct ZigE2eCodegen;
@@ -805,6 +806,49 @@ fn json_path_expr(result_var: &str, field_path: &str) -> String {
 /// The `result_var` variable is `*std.json.Value` (pointer to the parsed root object).
 /// Field paths are traversed via `.object.get("key").?` chains.
 fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field_resolver: &FieldResolver) {
+    // Intercept streaming-virtual fields before the result-type validity check.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && is_streaming_virtual_field(f) {
+            if let Some(expr) = StreamingFieldResolver::accessor(f, "zig", "chunks") {
+                match assertion.assertion_type.as_str() {
+                    "count_min" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            let _ = writeln!(out, "    try testing.expect({expr}.len >= {n});");
+                        }
+                    }
+                    "count_equals" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            let _ = writeln!(out, "    try testing.expectEqual(@as(usize, {n}), {expr}.len);");
+                        }
+                    }
+                    "equals" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = escape_zig(s);
+                            let _ = writeln!(out, "    try testing.expectEqualStrings(\"{escaped}\", {expr});");
+                        } else if let Some(v) = &assertion.value {
+                            let zig_val = json_to_zig(v);
+                            let _ = writeln!(out, "    try testing.expectEqual({zig_val}, {expr});");
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(out, "    try testing.expect({expr}.len > 0);");
+                    }
+                    "is_true" => {
+                        let _ = writeln!(out, "    try testing.expect({expr});");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    try testing.expect(!{expr});");
+                    }
+                    _ => {
+                        let atype = &assertion.assertion_type;
+                        let _ = writeln!(out, "    // streaming virtual field '{f}' assertion '{atype}' not implemented for zig");
+                    }
+                }
+            }
+            return;
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
@@ -889,7 +933,10 @@ fn render_json_assertion(out: &mut String, assertion: &Assertion, result_var: &s
 /// would emit at least one statement that references the result variable.
 fn assertion_emits_code(assertion: &Assertion, field_resolver: &FieldResolver) -> bool {
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+        if !f.is_empty() && is_streaming_virtual_field(f) {
+            // Streaming virtual fields always emit code — they are handled in a
+            // dedicated collect path, not skipped.
+        } else if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
             return false;
         }
     }
