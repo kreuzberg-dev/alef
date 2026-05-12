@@ -157,6 +157,12 @@ impl Backend for NapiBackend {
             .map(|c| c.capsule_types.clone())
             .unwrap_or_default();
 
+        // When capsule types are present, generated shims call set_named_property which
+        // requires the JsObjectValue trait to be in scope.
+        if !capsule_types.is_empty() {
+            builder.add_import("napi::bindgen_prelude::JsObjectValue");
+        }
+
         // Check if we have opaque types and trait types (visitors)
         // Exclude trait types from opaque_types since they use JsVisitorRef instead of Object<'static>
         // Also exclude capsule types — they do not get #[napi] class wrappers.
@@ -367,6 +373,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             } else if !capsule_types.is_empty() && capsule::function_involves_capsule(func, &capsule_types) {
                 // Function returns a capsule type — emit a napi shim that returns JsObject
                 // with __parser = External<T>(ptr from value.into_raw()).
+                // JsObjectValue provides set_named_property; imported once below.
                 builder.add_item(&capsule::gen_capsule_function(func, &capsule_types, &core_import));
             } else {
                 builder.add_item(&functions::gen_function(

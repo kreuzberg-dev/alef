@@ -75,9 +75,10 @@ pub(super) fn gen_capsule_function(
         String::new()
     };
 
-    // Build parameter list: (env: napi::Env, <user params...>)
-    // napi-rs passes `Env` as the first parameter for functions that need raw JS object creation.
-    let mut sig_params: Vec<String> = vec!["env: napi::Env".to_string()];
+    // Build parameter list: (env: &napi::Env, <user params...>)
+    // napi-rs v3 passes `&Env` as a special injected parameter — the macro recognizes it
+    // as NapiArgType::Env and injects &__wrapped_env without consuming a JS argument slot.
+    let mut sig_params: Vec<String> = vec!["env: &napi::Env".to_string()];
     for param in &func.params {
         let ts = match &param.ty {
             TypeRef::String | TypeRef::Char => "String".to_string(),
@@ -116,7 +117,9 @@ pub(super) fn gen_capsule_function(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?";
 
-    // Emit the shim body.
+    // Emit the shim body using NAPI v3 API:
+    //   - napi::bindgen_prelude::Object::new(&env) replaces env.create_object()
+    //   - napi::bindgen_prelude::External::new(ptr) replaces env.create_external(ptr, None)
     // SAFETY comment: into_raw() transfers ownership of the raw pointer to the External.
     // The tree-sitter npm package stores it in a JS External and calls back into the
     // C ABI. Dropping this pointer prematurely would be a use-after-free; we rely on
@@ -129,8 +132,8 @@ pub(super) fn gen_capsule_function(
     // SAFETY: `into_raw()` transfers ownership of the raw pointer. The external value
     // is kept alive by the JS runtime as long as the returned object is reachable.
     let ptr = value.into_raw() as *mut std::ffi::c_void;
-    let mut obj = env.create_object()?;
-    let external = env.create_external(ptr, None)?;
+    let mut obj = napi::bindgen_prelude::Object::new(&env)?;
+    let external = napi::bindgen_prelude::External::new(ptr);
     obj.set_named_property("__parser", external)?;
     Ok(obj)"#,
         core_fn_path = core_fn_path,
@@ -139,7 +142,7 @@ pub(super) fn gen_capsule_function(
     );
 
     format!(
-        "#[napi{js_name_attr}]\npub fn {fn_name}({params}) -> napi::Result<napi::JsObject> {{\n{body}\n}}\n\n",
+        "#[napi{js_name_attr}]\npub fn {fn_name}({params}) -> napi::Result<napi::bindgen_prelude::Object<'_>> {{\n{body}\n}}\n\n",
         js_name_attr = js_name_attr,
         fn_name = func.name,
         params = sig_params.join(", "),
@@ -267,9 +270,12 @@ mod tests {
         let out = gen_capsule_function(&func, &capsules, "ts_pack");
         assert!(out.contains("#[napi"), "must have #[napi] attr: {out}");
         assert!(out.contains("napi::Env"), "must accept env: {out}");
-        assert!(out.contains("JsObject"), "must return JsObject: {out}");
+        assert!(
+            out.contains("bindgen_prelude::Object"),
+            "must return bindgen_prelude::Object: {out}"
+        );
         assert!(out.contains("into_raw"), "must call into_raw(): {out}");
-        assert!(out.contains("create_external"), "must call create_external: {out}");
+        assert!(out.contains("External::new"), "must call External::new: {out}");
         assert!(out.contains("__parser"), "must set __parser property: {out}");
     }
 }

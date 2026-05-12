@@ -245,17 +245,13 @@ pub(super) fn gen_opaque_struct_methods(
 /// ASSUMPTION: the capsule type exposes `pub fn into_raw(self) -> *const <opaque>`.
 /// This is a compile-time contract — a mismatch causes a compile error in the
 /// downstream crate, not a silent runtime failure.
-fn gen_opaque_capsule_method(
-    method: &MethodDef,
-    _typ: &TypeDef,
-    js_name_attr: String,
-    _core_import: &str,
-) -> String {
-
+fn gen_opaque_capsule_method(method: &MethodDef, _typ: &TypeDef, js_name_attr: String, _core_import: &str) -> String {
     // Build the parameter list for the shim. We need `env: napi::Env` first (after &self),
     // then all user-facing params as simple String / primitive types. Capsule methods in
     // the NAPI pattern must return `napi::Result<napi::JsObject>`.
-    let mut sig_params: Vec<String> = vec!["env: napi::Env".to_string()];
+    // napi-rs v3: `&Env` is recognized as NapiArgType::Env and injected as &__wrapped_env;
+    // it does NOT consume a JS argument slot and does NOT require FromNapiValue.
+    let mut sig_params: Vec<String> = vec!["env: &napi::Env".to_string()];
     for param in &method.params {
         let ts = match &param.ty {
             TypeRef::String | TypeRef::Char => "String".to_string(),
@@ -286,15 +282,17 @@ fn gen_opaque_capsule_method(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?";
 
-    // SAFETY comment mirrors gen_capsule_function: into_raw() transfers ownership.
+    // Use NAPI v3 API: Object::new(&env) and External::new(ptr).
+    // SAFETY comment: into_raw() transfers ownership of the raw pointer to the External.
+    // The External is kept alive by the JS runtime as long as the returned object is reachable.
     let body = format!(
         r#"    let value = self.inner.{method_name}({args}){err_conv};
     // ASSUMPTION: the capsule type exposes `into_raw()` returning a raw pointer.
     // SAFETY: `into_raw()` transfers ownership of the raw pointer. The external value
     // is kept alive by the JS runtime as long as the returned object is reachable.
     let ptr = value.into_raw() as *mut std::ffi::c_void;
-    let mut obj = env.create_object()?;
-    let external = env.create_external(ptr, None)?;
+    let mut obj = napi::bindgen_prelude::Object::new(&env)?;
+    let external = napi::bindgen_prelude::External::new(ptr);
     obj.set_named_property("__parser", external)?;
     Ok(obj)"#,
         method_name = method.name,
@@ -309,7 +307,7 @@ fn gen_opaque_capsule_method(
     attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
 
     format!(
-        "{attrs}#[napi{js_name_attr}]\npub fn {method_name}(&self, {params}) -> napi::Result<napi::JsObject> {{\n{body}\n}}",
+        "{attrs}#[napi{js_name_attr}]\npub fn {method_name}(&self, {params}) -> napi::Result<napi::bindgen_prelude::Object<'_>> {{\n{body}\n}}",
         method_name = method.name,
         params = sig_params.join(", "),
     )
