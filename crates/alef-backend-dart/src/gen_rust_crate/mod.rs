@@ -545,19 +545,19 @@ fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_crate_name: 
             // Use a best-effort fallback.
             let fallback = sanitized_field_from_expr(field);
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
-// the kreuzberg dependency, so every core-side cfg-gated field is present
-// at compile time. Emitting `#[cfg(...)]` here would gate on the dart
-// crate's own (undefined) features, evaluating to false and leaving the
-// struct literal missing fields.
-emit_rust_struct_field(out, None, &field.name, &fallback);
+            // the kreuzberg dependency, so every core-side cfg-gated field is present
+            // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
+            // crate's own (undefined) features, evaluating to false and leaving the
+            // struct literal missing fields.
+            emit_rust_struct_field(out, None, &field.name, &fallback);
         } else {
             let expr = field_from_expr(field, source_crate_name);
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
-// the kreuzberg dependency, so every core-side cfg-gated field is present
-// at compile time. Emitting `#[cfg(...)]` here would gate on the dart
-// crate's own (undefined) features, evaluating to false and leaving the
-// struct literal missing fields.
-emit_rust_struct_field(out, None, &field.name, &expr);
+            // the kreuzberg dependency, so every core-side cfg-gated field is present
+            // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
+            // crate's own (undefined) features, evaluating to false and leaving the
+            // struct literal missing fields.
+            emit_rust_struct_field(out, None, &field.name, &expr);
         }
     }
 
@@ -802,19 +802,19 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
             // impl generated, and those core types implement Default (e.g. ExtractionConfig
             // has cancel_token: Option<CancellationToken> which implements Default).
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
-// the kreuzberg dependency, so every core-side cfg-gated field is present
-// at compile time. Emitting `#[cfg(...)]` here would gate on the dart
-// crate's own (undefined) features, evaluating to false and leaving the
-// struct literal missing fields.
-emit_rust_struct_field(out, None, &field.name, "Default::default()");
+            // the kreuzberg dependency, so every core-side cfg-gated field is present
+            // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
+            // crate's own (undefined) features, evaluating to false and leaving the
+            // struct literal missing fields.
+            emit_rust_struct_field(out, None, &field.name, "Default::default()");
         } else {
             let expr = field_from_expr_to_core(field, source_crate_name);
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
-// the kreuzberg dependency, so every core-side cfg-gated field is present
-// at compile time. Emitting `#[cfg(...)]` here would gate on the dart
-// crate's own (undefined) features, evaluating to false and leaving the
-// struct literal missing fields.
-emit_rust_struct_field(out, None, &field.name, &expr);
+            // the kreuzberg dependency, so every core-side cfg-gated field is present
+            // at compile time. Emitting `#[cfg(...)]` here would gate on the dart
+            // crate's own (undefined) features, evaluating to false and leaving the
+            // struct literal missing fields.
+            emit_rust_struct_field(out, None, &field.name, &expr);
         }
     }
 
@@ -1721,8 +1721,9 @@ fn emit_opaque_method_body(
     // Wrap the return value: Named return types need to be converted FROM the core
     // type into the local mirror type using the generated `From<source::T> for T` impl.
     // `TypeRef::Bytes` returns `bytes::Bytes` from core but the bridge declares `Vec<u8>` —
-    // convert via `.to_vec()`.
-    let wrap_return = build_opaque_return_wrap(&method.return_type);
+    // convert via `.to_vec()`. Primitive widening (i32→i64, usize→i64, f32→f64) and
+    // by-ref returns (`&str`, `&Path`, `&[&str]`) need explicit conversion too.
+    let wrap_return = build_opaque_return_wrap(&method.return_type, method.returns_ref);
 
     if method.is_async {
         if has_error {
@@ -1759,7 +1760,11 @@ fn emit_opaque_method_body(
 /// Returns a closure expression like `|v| ReturnType::from(v)` for Named types.
 /// Returns `|v| v.to_vec()` for `TypeRef::Bytes` (core returns `bytes::Bytes`,
 /// mirror declares `Vec<u8>`).
-fn build_opaque_return_wrap(ty: &TypeRef) -> String {
+///
+/// `returns_ref` indicates the core method returns by reference — `&str`, `&Path`,
+/// or `&[&str]` need conversion to the owned mirror types (`String`, `Vec<String>`).
+fn build_opaque_return_wrap(ty: &TypeRef, returns_ref: bool) -> String {
+    use alef_core::ir::PrimitiveType;
     match ty {
         TypeRef::Named(mirror_name) => {
             format!("|v| {mirror_name}::from(v)")
@@ -1768,18 +1773,41 @@ fn build_opaque_return_wrap(ty: &TypeRef) -> String {
             // Core returns `bytes::Bytes`, bridge declares `Vec<u8>`.
             "|v| v.to_vec()".to_string()
         }
-        TypeRef::Vec(inner) => {
-            if let TypeRef::Named(mirror_name) = inner.as_ref() {
-                format!("|v| v.into_iter().map({mirror_name}::from).collect()")
+        TypeRef::String if returns_ref => {
+            // Core returns `&str`, mirror declares `String`.
+            "|v: &str| v.to_string()".to_string()
+        }
+        TypeRef::Path => {
+            // Core returns `&Path` or `PathBuf`, mirror declares `String`.
+            if returns_ref {
+                "|v: &::std::path::Path| v.to_string_lossy().to_string()".to_string()
             } else {
-                String::new()
+                "|v: ::std::path::PathBuf| v.to_string_lossy().to_string()".to_string()
             }
         }
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(mirror_name) => {
+                format!("|v| v.into_iter().map({mirror_name}::from).collect()")
+            }
+            TypeRef::String if returns_ref => {
+                // Core returns `&[&str]`, mirror declares `Vec<String>`.
+                "|v: &[&str]| v.iter().map(|s| s.to_string()).collect()".to_string()
+            }
+            _ => String::new(),
+        },
         TypeRef::Optional(inner) => {
             if let TypeRef::Named(mirror_name) = inner.as_ref() {
                 format!("|v: Option<_>| v.map({mirror_name}::from)")
             } else {
                 String::new()
+            }
+        }
+        TypeRef::Primitive(prim) => {
+            // FRB widens integers to i64 and floats to f64. Cast the core value.
+            match prim {
+                PrimitiveType::I64 | PrimitiveType::F64 | PrimitiveType::Bool => String::new(),
+                PrimitiveType::F32 => "|v| v as f64".to_string(),
+                _ => "|v| v as i64".to_string(),
             }
         }
         _ => String::new(),
