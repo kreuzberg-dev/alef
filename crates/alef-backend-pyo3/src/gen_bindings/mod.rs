@@ -1172,7 +1172,7 @@ fn rewrite_capsule_methods(
                     let short = et.split("::").last().unwrap_or(et.as_str());
                     let candidate = format!("{}_to_py_err", short.to_snake_case());
                     if error_converters.iter().any(|c| c == &candidate) {
-                        Some(format!("|e| {candidate}(e)"))
+                        Some(candidate)
                     } else {
                         None
                     }
